@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.13,<3.14"
-# dependencies = ["boto3>=1.43.120"]
+# dependencies = ["boto3[crt]>=1.43.120"]
 # ///
 """Keep the last 3 images in the analysis image's repository (C38, plan Table 16).
 
@@ -12,6 +12,9 @@ policy. A put replaces the repository's policy, so a re-run changes nothing.
 It prints the repository's name, never the image URI, whose registry host is the account
 ID. An AWS error is reported by its code and HTTP status only, since its message can
 carry an ARN.
+
+boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
+botocore's provider for those credentials needs the CRT.
 
 Usage: uv run backend/scripts/apply_ecr_lifecycle.py
 """

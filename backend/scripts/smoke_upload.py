@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.13,<3.14"
 # dependencies = [
-#     "boto3>=1.43.120",
+#     "boto3[crt]>=1.43.120",
 #     "httpx>=0.28.1",
 #     "numpy>=2.5.4",
 #     "opencv-python-headless>=4.14.0.94,<5",
@@ -26,6 +26,9 @@ In order, it checks that:
 It prints results and timings only. It never prints the account ID, an ARN, a queue URL
 or an image URI: an AWS error shows its code and HTTP status, and every printed line
 passes through a mask that replaces any run of 12 digits with <account>.
+
+boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
+botocore's provider for those credentials needs the CRT.
 
 Usage: uv run backend/scripts/smoke_upload.py
 Exit codes: 0 every check passed, 1 a check failed.

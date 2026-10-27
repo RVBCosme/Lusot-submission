@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.13,<3.14"
-# dependencies = ["boto3>=1.43.120"]
+# dependencies = ["boto3[crt]>=1.43.120"]
 # ///
 """Store the Meta key in SSM Parameter Store (spec §3.5, C16).
 
@@ -11,6 +11,9 @@ key aws/ssm, then reads it back with decryption and compares the two in memory.
 It prints the parameter's name, its type and the value's length, never the value. An AWS
 error is reported by its code and HTTP status only: its message can carry an ARN, and an
 ARN carries the account ID.
+
+boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
+botocore's provider for those credentials needs the CRT.
 
 Usage, as one PowerShell command (the shell's own copy of MODEL_API_KEY may be stale):
     $env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User');
