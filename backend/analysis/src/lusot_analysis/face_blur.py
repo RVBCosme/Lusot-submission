@@ -8,10 +8,16 @@ from __future__ import annotations
 
 import functools
 import math
+import os
 import threading
 from collections.abc import Sequence
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
+
+# OpenCV refuses to decode an image over 50 MP, before allocating it (R25): a 10 MB
+# JPEG can declare about 669 MP. OpenCV reads this once, when cv2 loads, so it is set
+# before the import below. A process that loaded cv2 earlier keeps the 1 GP default.
+os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", "50000000")
 
 import cv2
 import numpy as np
@@ -22,6 +28,7 @@ YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
 _MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
 _TOKEN = object()  # proves a BlurredImage was built in this module
 _DETECTOR_LOCK = threading.Lock()  # one shared detector, and setInputSize changes it
+_YUNET_PAD = 32  # OpenCV pads YuNet's input up to multiples of this
 
 
 class UndecodableImage(ValueError):
@@ -98,6 +105,10 @@ def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceB
     YuNet boxes faces of up to about 300 px well, so the smaller passes box larger
     faces whole (checked up to a face filling 85% of a 1600 px frame). The passes
     aren't merged: overlapping boxes only add blur.
+
+    A pass with a side of 32 px or less is skipped, and rows that aren't finite are
+    dropped. On a 32 x 32 pad, YuNet can return garbage boxes, some of them NaN
+    (R24). An image with a side of 32 px or less therefore gets no detection at all.
     """
     height, width = bgr.shape[:2]
     images = [bgr] + [
@@ -111,12 +122,15 @@ def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceB
         detector = _detector()
         detector.setScoreThreshold(score_threshold)
         for image in images:
+            if min(image.shape[:2]) <= _YUNET_PAD:
+                continue
             detector.setInputSize((image.shape[1], image.shape[0]))
             _, rows = detector.detect(image)
             if rows is None:
                 continue
             sx, sy = width / image.shape[1], height / image.shape[0]
-            for row in rows:  # x, y, w, h, five landmark points, then the score
+            finite = rows[np.isfinite(rows).all(axis=1)]
+            for row in finite:  # x, y, w, h, five landmark points, then the score
                 x, y, w, h = np.rint(row[:4] * (sx, sy, sx, sy)).astype(int).tolist()
                 boxes.append(FaceBox(x, y, w, h, float(row[14])))
     return boxes

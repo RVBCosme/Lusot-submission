@@ -5,6 +5,9 @@ FROM public.ecr.aws/lambda/python:3.13@sha256:e0237850eecd760896365e768bac1526ea
 COPY requirements.lock.txt ${LAMBDA_TASK_ROOT}/
 RUN pip install --no-cache-dir --require-hashes -r ${LAMBDA_TASK_ROOT}/requirements.lock.txt
 
+# OpenCV refuses to decode an image over 50 MP (R25), the same cap face_blur sets.
+ENV OPENCV_IO_MAX_IMAGE_PIXELS=50000000
+
 # The package, with its vendored YuNet model.
 COPY src/lusot_analysis ${LAMBDA_TASK_ROOT}/lusot_analysis
 

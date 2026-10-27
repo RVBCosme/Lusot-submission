@@ -2,8 +2,13 @@
 
 import dataclasses
 import hashlib
+import os
+import subprocess
+import sys
+import warnings
 from itertools import pairwise
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -51,6 +56,55 @@ def assert_heavy_blur(before: np.ndarray, after: np.ndarray) -> None:
 
 def jpeg(bgr: np.ndarray) -> bytes:
     return cv2.imencode(".jpg", bgr)[1].tobytes()
+
+
+def fake_yunet(rows: np.ndarray | None = None) -> SimpleNamespace:
+    """Stands in for YuNet: records each pass's input size; only the first gets rows."""
+    sizes = []
+    results = [rows]
+    return SimpleNamespace(
+        sizes=sizes,
+        setScoreThreshold=lambda threshold: None,
+        setInputSize=sizes.append,
+        detect=lambda image: (1, results.pop() if results else None),
+    )
+
+
+def declare_size(data: bytes, width: int, height: int) -> bytes:
+    """Rewrite a baseline JPEG's frame header (SOF0) so it declares another size."""
+    i = 2  # after the start-of-image marker
+    while data[i + 1] != 0xC0:
+        i += 2 + int.from_bytes(data[i + 2 : i + 4], "big")
+    size = height.to_bytes(2, "big") + width.to_bytes(2, "big")
+    return data[: i + 5] + size + data[i + 9 :]
+
+
+DECODE_SCRIPT = """
+import sys
+from lusot_analysis.face_blur import UndecodableImage, decode_image
+try:
+    decode_image(sys.stdin.buffer.read())
+    print("decoded")
+except UndecodableImage:
+    print("refused")
+"""
+
+
+def decode_in_fresh_process(data: bytes) -> str:
+    """Decode in a new interpreter that imports face_blur before cv2, like the Lambda.
+
+    OpenCV reads its pixel cap once, when cv2 loads, and this process loaded cv2 first.
+    The variable is removed, so the cap must come from face_blur itself.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "OPENCV_IO_MAX_IMAGE_PIXELS"}
+    result = subprocess.run(
+        [sys.executable, "-c", DECODE_SCRIPT],
+        input=data,
+        capture_output=True,
+        env=env,
+        check=True,
+    )
+    return result.stdout.decode().strip()
 
 
 def test_model_hash_matches():
@@ -216,3 +270,45 @@ def test_derive_blurs_an_unblurred_photo():
     face = max(detect_faces(raw), key=lambda f: f.score)
     region = np.s_[face.y : face.y + face.h, face.x : face.x + face.w]
     assert_heavy_blur(raw[region], out.bgr()[region])
+
+
+def test_small_image_never_yields_garbage_boxes():
+    # The case found in Task 7: right after a large input, YuNet sometimes returned
+    # garbage boxes for this face-free image's half and quarter passes, which OpenCV
+    # pads to 32 x 32. Some were NaN and warned when cast to int (R24).
+    portrait = decode_image(PORTRAIT.read_bytes())
+    row = np.linspace(0, 255, 64).astype(np.uint8)
+    small = np.dstack([np.tile(row, (48, 1))] * 3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        for _ in range(50):
+            detect_faces(portrait)
+            assert detect_faces(small) == []
+
+
+def test_passes_of_32_px_or_less_are_skipped(monkeypatch):
+    fake = fake_yunet()
+    monkeypatch.setattr(face_blur, "_detector", lambda: fake)
+    detect_faces(noise(128, 128))  # the quarter pass, 32 x 32, is skipped
+    detect_faces(noise(132, 132))  # the quarter pass, 33 x 33, runs
+    assert fake.sizes == [(128, 128), (64, 64), (132, 132), (66, 66), (33, 33)]
+
+
+def test_non_finite_rows_are_dropped(monkeypatch):
+    garbage = [np.nan] * 14 + [1.0]
+    valid = [10, 12, 20, 24] + [0] * 10 + [0.75]
+    fake = fake_yunet(np.array([garbage, valid], np.float32))
+    monkeypatch.setattr(face_blur, "_detector", lambda: fake)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # casting NaN to int warns
+        assert detect_faces(noise(200, 200)) == [FaceBox(10, 12, 20, 24, 0.75)]
+
+
+def test_decoding_refuses_more_than_50_megapixels():
+    # A 10 MB JPEG can declare about 669 MP, about 2 GB once decoded, and OpenCV's own
+    # cap is 1 GP. The cap refuses it from the header, before allocating (R25).
+    small = jpeg(noise(16, 16))
+    huge = declare_size(small, 10_000, 6_000)  # 60 MP, in under 1 KB
+    assert len(huge) < 1000
+    assert decode_in_fresh_process(small) == "decoded"
+    assert decode_in_fresh_process(huge) == "refused"
