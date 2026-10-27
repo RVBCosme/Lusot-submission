@@ -1,0 +1,39 @@
+# Obsidian vault config (D6) and attachments
+.obsidian/
+_attachments/
+
+# Secrets and local settings
+.env*
+!.env.example
+backend/samconfig.toml
+
+# Sealed evaluation data never enters git (CLAUDE.md, M19)
+eval/sealed/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# AWS SAM
+.aws-sam/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Android build output
+app/android/app/build/
+app/android/build/
+app/android/.gradle/
+*.apk
+*.aab
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
