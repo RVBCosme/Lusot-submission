@@ -34,6 +34,21 @@ def sharpness(bgr: np.ndarray) -> float:
     return cv2.Laplacian(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
 
 
+def assert_heavy_blur(before: np.ndarray, after: np.ndarray) -> None:
+    """Sharpness drops by at least 90%, at full size and at a quarter of it.
+
+    A light Gaussian passes at full size alone and leaves a face recognisable. At a
+    quarter of the size, only a heavy blur removes the face's coarse structure.
+    """
+
+    def quarter(img: np.ndarray) -> np.ndarray:
+        size = (img.shape[1] // 4, img.shape[0] // 4)
+        return cv2.resize(img, size, interpolation=cv2.INTER_AREA)
+
+    assert sharpness(after) <= 0.1 * sharpness(before)
+    assert sharpness(quarter(after)) <= 0.1 * sharpness(quarter(before))
+
+
 def jpeg(bgr: np.ndarray) -> bytes:
     return cv2.imencode(".jpg", bgr)[1].tobytes()
 
@@ -60,7 +75,7 @@ def test_blur_changes_only_the_expanded_box():
     inside = np.zeros(img.shape[:2], bool)
     inside[box] = True
     assert np.array_equal(out[~inside], img[~inside])
-    assert sharpness(out[box]) <= 0.1 * sharpness(img[box])
+    assert_heavy_blur(img[box], out[box])
     assert np.array_equal(img, before)
 
 
@@ -85,7 +100,7 @@ def test_portrait_face_is_found_and_blurred():
     assert blurred.faces >= 1
     assert blurred.blur_version == FACE_BLUR_VERSION
     region = np.s_[face.y : face.y + face.h, face.x : face.x + face.w]
-    assert sharpness(blurred.bgr()[region]) <= 0.1 * sharpness(portrait[region])
+    assert_heavy_blur(portrait[region], blurred.bgr()[region])
 
 
 def worst_tile_ratio(before: np.ndarray, after: np.ndarray) -> float:
@@ -105,7 +120,7 @@ def worst_tile_ratio(before: np.ndarray, after: np.ndarray) -> float:
 def assert_face_blurred_everywhere(
     frame: np.ndarray, box: list[int], face: FaceBox
 ) -> None:
-    """Every tile of the face in `box` loses at least 90% of its sharpness.
+    """The face in `box` is heavily blurred, and every tile of it loses 90% sharpness.
 
     The frames are upscales of the fixture with almost no pixel-level detail, so the
     face is measured shrunk back to the fixture's own size, where its detail is.
@@ -118,7 +133,9 @@ def assert_face_blurred_everywhere(
             img[y : y + h, x : x + w], (face.w, face.h), interpolation=cv2.INTER_AREA
         )
 
-    assert worst_tile_ratio(at_fixture_size(frame), at_fixture_size(out)) <= 0.1
+    before, after = at_fixture_size(frame), at_fixture_size(out)
+    assert worst_tile_ratio(before, after) <= 0.1
+    assert_heavy_blur(before, after)
 
 
 def test_large_face_is_fully_covered():
@@ -183,3 +200,19 @@ def test_derive_keeps_blur_record():
     assert (out.width, out.height) == (base.width, base.height)
     with pytest.raises(TypeError):
         BlurredImage.derive(drawn, drawn)
+
+
+def test_derive_rejects_a_different_size():
+    base = blur_for_meta(PORTRAIT.read_bytes())
+    with pytest.raises(ValueError):
+        BlurredImage.derive(np.zeros((base.width, base.height, 3), np.uint8), base)
+
+
+def test_derive_blurs_an_unblurred_photo():
+    data = PORTRAIT.read_bytes()
+    base = blur_for_meta(data)
+    raw = decode_image(data)  # the same size as base, but never blurred
+    out = BlurredImage.derive(raw, base)
+    face = max(detect_faces(raw), key=lambda f: f.score)
+    region = np.s_[face.y : face.y + face.h, face.x : face.x + face.w]
+    assert_heavy_blur(raw[region], out.bgr()[region])

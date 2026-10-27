@@ -63,10 +63,17 @@ class BlurredImage:
 
     @classmethod
     def derive(cls, bgr: np.ndarray, base: BlurredImage) -> BlurredImage:
-        """Wrap pixels drawn on `base`, keeping its `faces` and `blur_version`."""
+        """Wrap pixels drawn on `base`, keeping its `faces` and `blur_version`.
+
+        `bgr` must be `base`'s size, and any face found in it is blurred again
+        first, so an unblurred photo can't come out as a BlurredImage (C37).
+        """
         if not isinstance(base, BlurredImage):
             raise TypeError("base must be a BlurredImage")
-        return _encode(bgr, faces=base.faces, blur_version=base.blur_version)
+        if bgr.shape[:2] != (base.height, base.width):
+            raise ValueError("bgr must be the same size as base")
+        reblurred = blur_faces(bgr, detect_faces(bgr))
+        return _encode(reblurred, faces=base.faces, blur_version=base.blur_version)
 
 
 def decode_image(data: bytes) -> np.ndarray:
