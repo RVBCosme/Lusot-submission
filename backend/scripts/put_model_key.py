@@ -45,10 +45,8 @@ def main(ssm=None) -> int:
         return 2
     try:
         if ssm is None:
-            session = boto3.Session(
-                profile_name=os.environ.get("AWS_PROFILE") or "lusot",
-                region_name="ap-southeast-1",
-            )
+            # Always lusot: a stray AWS_PROFILE could store the key in another account.
+            session = boto3.Session(profile_name="lusot", region_name="ap-southeast-1")
             ssm = session.client("ssm")
         ssm.put_parameter(
             Name=PARAM,

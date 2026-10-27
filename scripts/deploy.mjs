@@ -3,7 +3,7 @@
 // 2. bundles the API into backend/api/dist from that install (R21); SAM only packages it
 // 3. builds and deploys the stack with the git-ignored backend/samconfig.toml (C31)
 // 4. applies the analysis image repository's keep-the-last-3 rule (C38)
-// It stops at the first step that fails. Every line of output passes through a mask, because
+// It stops at the first step that fails. All output passes through a mask, because
 // sam deploy prints change set ARNs and image URIs that carry the AWS account ID.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -18,12 +18,39 @@ const steps = [
   [root, "uv run backend/scripts/apply_ecr_lifecycle.py"],
 ];
 
-for (const [cwd, command] of steps) {
-  console.log(`> ${command}`);
-  const code = await run(command, cwd);
-  if (code !== 0) {
-    console.error(`deploy stopped: "${command}" exited with ${code}`);
-    process.exit(code);
+// Masks 12-digit runs (account IDs) in streamed text. Each chunk is written at once, so a
+// prompt shows without waiting for a newline, except a trailing run of digits: that is held
+// until the next chunk or the flush, in case the next chunk completes an account ID.
+export function createMasker(write) {
+  let held = "";
+  const emit = (text) => {
+    if (text) write(text.replace(/[0-9]{12}/g, "<account>"));
+  };
+  return {
+    chunk(text) {
+      const all = held + text;
+      let cut = all.length;
+      while (cut > 0 && all[cut - 1] >= "0" && all[cut - 1] <= "9") cut--;
+      emit(all.slice(0, cut));
+      held = all.slice(cut);
+    },
+    flush() {
+      emit(held);
+      held = "";
+    },
+  };
+}
+
+// Deploys only when run as `node scripts/deploy.mjs`, so a test can import createMasker.
+if (import.meta.main === undefined) throw new Error("scripts/deploy.mjs needs Node 22.18 or newer");
+if (import.meta.main) {
+  for (const [cwd, command] of steps) {
+    console.log(`> ${command}`);
+    const code = await run(command, cwd);
+    if (code !== 0) {
+      console.error(`deploy stopped: "${command}" exited with ${code}`);
+      process.exit(code);
+    }
   }
 }
 
@@ -37,26 +64,16 @@ function run(command, cwd) {
       stdio: ["inherit", "pipe", "pipe"],
       env: { ...process.env, PYTHONIOENCODING: "utf-8" },
     });
-    maskLines(child.stdout, process.stdout);
-    maskLines(child.stderr, process.stderr);
+    pipeMasked(child.stdout, process.stdout);
+    pipeMasked(child.stderr, process.stderr);
     child.on("error", reject);
     child.on("close", (code) => resolve(code ?? 1));
   });
 }
 
-// Writes whole lines only, so an account ID split across two chunks is still masked.
-function maskLines(from, to) {
-  let rest = "";
+function pipeMasked(from, to) {
+  const masker = createMasker((text) => to.write(text));
   from.setEncoding("utf8");
-  from.on("data", (chunk) => {
-    const text = rest + chunk;
-    const end = text.lastIndexOf("\n") + 1;
-    to.write(mask(text.slice(0, end)));
-    rest = text.slice(end);
-  });
-  from.on("end", () => to.write(mask(rest)));
-}
-
-function mask(text) {
-  return text.replace(/[0-9]{12}/g, "<account>");
+  from.on("data", masker.chunk);
+  from.on("end", masker.flush);
 }

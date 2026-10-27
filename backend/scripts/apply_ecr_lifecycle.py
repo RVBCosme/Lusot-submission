@@ -22,7 +22,6 @@ Usage: uv run backend/scripts/apply_ecr_lifecycle.py
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 
@@ -64,10 +63,8 @@ def repository_name(image_uri: str) -> str:
 def main(session=None) -> int:
     try:
         if session is None:
-            session = boto3.Session(
-                profile_name=os.environ.get("AWS_PROFILE") or "lusot",
-                region_name="ap-southeast-1",
-            )
+            # Always lusot, never AWS_PROFILE (the global --profile lusot constraint).
+            session = boto3.Session(profile_name="lusot", region_name="ap-southeast-1")
         function = session.client("cloudformation").describe_stack_resource(
             StackName=STACK, LogicalResourceId=FUNCTION
         )["StackResourceDetail"]["PhysicalResourceId"]

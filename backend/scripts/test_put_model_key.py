@@ -112,7 +112,25 @@ def test_missing_profile_is_one_line_not_a_traceback(monkeypatch, capsys, tmp_pa
     (tmp_path / "config").write_text("")
     monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "config"))
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "config"))
-    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.setenv("MODEL_API_KEY", KEY)
+
+    assert put_model_key.main() == 1
+    assert capsys.readouterr().err == "AWS error: ProfileNotFound\n"
+
+
+def test_a_stray_aws_profile_is_ignored(monkeypatch, capsys, tmp_path):
+    # Only another profile exists. Following AWS_PROFILE would send the key with that
+    # profile's keys (to a dead local endpoint here); the script must insist on lusot.
+    (tmp_path / "config").write_text(
+        "[profile other]\nregion = ap-southeast-1\n"
+        "aws_access_key_id = testing\naws_secret_access_key = testing\n"
+    )
+    (tmp_path / "credentials").write_text("")
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "credentials"))
+    monkeypatch.setenv("AWS_PROFILE", "other")
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("AWS_MAX_ATTEMPTS", "1")
     monkeypatch.setenv("MODEL_API_KEY", KEY)
 
     assert put_model_key.main() == 1

@@ -16,19 +16,21 @@ In order, it checks that:
    (C28). Both calls answer the Capacitor origin with its allow-origin header.
 3. the raw photo is gone afterwards
 4. S3 itself refuses a form whose Content-Type is image/png (403, Review Focus 1)
-5. the analysis log shows the Meta key loaded at a cold start in the last 15 minutes
-   (C28)
+5. the analysis log shows the Meta key loaded at a cold start since the analysis
+   function or the key last changed (C28)
 6. the uploads stop switch: once on, POST /uploads gives 503 after the API's 30 s
    cache. The switch goes back to off whatever happens. Setting it with put-parameter
    is drift from the template, which resets it to "off" only when that parameter's
    resource changes.
 
 It prints results and timings only. It never prints the account ID, an ARN, a queue URL
-or an image URI: an AWS error shows its code and HTTP status, and every printed line
-passes through a mask that replaces any run of 12 digits with <account>.
+or an image URI: an AWS error shows its code and HTTP status, any other error only its
+class name, and every printed line passes through a mask that replaces any run of 12
+digits with <account>.
 
-boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
-botocore's provider for those credentials needs the CRT.
+It always uses the lusot profile, never AWS_PROFILE. boto3 comes with its CRT extra:
+that profile signs in with `aws login`, and botocore's provider for those credentials
+needs the CRT.
 
 Usage: uv run backend/scripts/smoke_upload.py
 Exit codes: 0 every check passed, 1 a check failed.
@@ -36,7 +38,6 @@ Exit codes: 0 every check passed, 1 a check failed.
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from datetime import UTC, datetime
@@ -53,10 +54,10 @@ SPOT = {"lat": 14.6095, "lng": 120.9894}  # the plan §12 example
 APP_ORIGIN = "https://localhost"  # the Capacitor app
 ORIGINS = (APP_ORIGIN, "http://localhost:4173")  # and the Vite preview server
 STOP_UPLOADS = "/lusot/stop/uploads"
+KEY_PARAM = "/lusot/meta/model-api-key"
 SWITCH_WAIT_S = 35  # the API caches the switch for 30 s
 POLL_EVERY_S = 2
 POLL_FOR_S = 120
-LOG_WINDOW_S = 15 * 60
 LOG_WAIT_S = 30  # log events can take a few seconds to become searchable
 _ACCOUNT_ID = re.compile(r"[0-9]{12}")
 
@@ -72,9 +73,7 @@ def say(line: str) -> None:
 def main() -> int:
     started = time.monotonic()
     try:
-        session = boto3.Session(
-            profile_name=os.environ.get("AWS_PROFILE") or "lusot", region_name=REGION
-        )
+        session = boto3.Session(profile_name="lusot", region_name=REGION)
         cloudformation = session.client("cloudformation")
         [stack] = cloudformation.describe_stacks(StackName=STACK)["Stacks"]
         outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
@@ -96,7 +95,7 @@ def main() -> int:
         say(f"SMOKE FAILED: AWS error in {exc.operation_name}: {error} (HTTP {status})")
         return 1
     except (BotoCoreError, httpx.HTTPError) as exc:
-        say(f"SMOKE FAILED: {type(exc).__name__}: {exc}")
+        say(f"SMOKE FAILED: {type(exc).__name__}")  # never the message
         return 1
     say(f"SMOKE OK in {time.monotonic() - started:.1f} s")
     return 0
@@ -202,34 +201,55 @@ def check_png_refused(http: httpx.Client, api_url: str) -> None:
 
 
 def check_key_loaded(session: boto3.Session) -> None:
-    """The analysis stub logs model_key_loaded=true once per cold start (C28)."""
-    group = session.client("cloudformation").describe_stack_resource(
-        StackName=STACK, LogicalResourceId="AnalysisLogGroup"
+    """The analysis stub logs model_key_loaded=true once per cold start (C28).
+
+    Only a cold start after the function and the key last changed proves that pair
+    works, so the search starts at the later change: re-storing the key doesn't change
+    the function's LastModified. The key's change time comes from describe_parameters,
+    so its value is never fetched.
+    """
+    function = session.client("cloudformation").describe_stack_resource(
+        StackName=STACK, LogicalResourceId="AnalysisFunction"
     )["StackResourceDetail"]["PhysicalResourceId"]
+    lam = session.client("lambda")
+    config = lam.get_function(FunctionName=function)["Configuration"]
+    keys = session.client("ssm").describe_parameters(
+        ParameterFilters=[{"Key": "Name", "Option": "Equals", "Values": [KEY_PARAM]}]
+    )["Parameters"]
+    if not keys:
+        raise CheckFailed(f"the Meta key parameter {KEY_PARAM} does not exist")
+    since = max(
+        datetime.fromisoformat(config["LastModified"]), keys[0]["LastModifiedDate"]
+    )
     paginator = session.client("logs").get_paginator("filter_log_events")
-    since_ms = int((time.time() - LOG_WINDOW_S) * 1000)
     began = time.monotonic()
     while True:
         pages = paginator.paginate(
-            logGroupName=group,
-            startTime=since_ms,
+            logGroupName=config["LoggingConfig"]["LogGroup"],
+            startTime=int(since.timestamp() * 1000),
             filterPattern='"model_key_loaded=true"',
         )
         # Only whether such a line exists: no log content is printed.
         if any(page["events"] for page in pages):
-            say("analysis log: model_key_loaded=true in the last 15 minutes")
+            say(
+                "analysis log: model_key_loaded=true"
+                " since the function or key last changed"
+            )
             return
         if time.monotonic() - began >= LOG_WAIT_S:
             raise CheckFailed(
-                "no model_key_loaded=true in the analysis log in the last 15 minutes"
+                "no container has cold-started since the function or key last changed,"
+                " so a redeploy or a fresh container is needed"
             )
         time.sleep(5)
 
 
 def check_stop_switch(session: boto3.Session, http: httpx.Client, api_url: str) -> None:
     ssm = session.client("ssm")
-    ssm.put_parameter(Name=STOP_UPLOADS, Value="on", Type="String", Overwrite=True)
+    failure = None
     try:
+        # In the try: a put that SSM applies but that fails on our side is reset too.
+        ssm.put_parameter(Name=STOP_UPLOADS, Value="on", Type="String", Overwrite=True)
         time.sleep(SWITCH_WAIT_S)
         response = request_upload(http, api_url, expect=503)
         if response.json().get("error") != "uploads_paused":
@@ -237,6 +257,9 @@ def check_stop_switch(session: boto3.Session, http: httpx.Client, api_url: str) 
                 f"POST /uploads with the switch on: {got(response)},"
                 " expected uploads_paused"
             )
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
         try:
             ssm.put_parameter(
@@ -248,8 +271,17 @@ def check_stop_switch(session: boto3.Session, http: httpx.Client, api_url: str) 
                 f" --name {STOP_UPLOADS} --value off --type String --overwrite"
                 " --profile lusot --region ap-southeast-1 --no-cli-pager"
             )
+            if failure is not None:  # so the reset's error doesn't hide the first one
+                say(f"the check had already failed: {failure_name(failure)}")
             raise
     say("stop switch: 503 uploads_paused while on, then set back to off")
+
+
+def failure_name(exc: BaseException) -> str:
+    """An exception's class name and, for an AWS error, its code. Never its message."""
+    if isinstance(exc, ClientError):
+        return f"{type(exc).__name__} ({exc.response['Error']['Code']})"
+    return type(exc).__name__
 
 
 def request_upload(
