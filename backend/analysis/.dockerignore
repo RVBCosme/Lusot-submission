@@ -1,0 +1,5 @@
+# Only what the image needs: the dependency lock and the package, with its model file.
+*
+!requirements.lock.txt
+!src/lusot_analysis
+**/__pycache__
