@@ -1,6 +1,6 @@
 # Lusot progress board
 
-- **Last updated:** Oct 28, 2026, 6:40 AM Manila, by Claude (MS1 Task 8 deployed, its review running)
+- **Last updated:** Oct 28, 2026, 7:45 AM Manila, by Claude (MS1 Tasks 1 to 3 and 6 to 8 done; Task 9 in review)
 - **Rule:** tick a box only after its check passes, and write the evidence next to it.
 - **Status words:** Not started, In progress, Done, Blocked, Dropped (with a reason).
 - **Key dates (Manila time):** kickoff Oct 27, 12:00 AM. Core working by Oct 29. Build ends Nov 3. **Submit Nov 4, 10:00 PM.** Hard cutoff Nov 5, 10:00 AM. Closing ceremony and finals Nov 10, 1:00 AM.
@@ -10,9 +10,9 @@
 | MS | Name | Dates (Manila) | Status | Spec | Plan | Evidence |
 |---|---|---|---|---|---|---|
 | MS0 | Prepare | Oct 26 to kickoff (+ Oct 27) | In progress: all done except M7's 20 candidates (moved to MS2) and R3, R6, R7 (needed later) | [build design](superpowers/specs/2026-10-26-lusot-build-design.md) (approved Oct 28) | checklist below | see the MS0 checklist |
-| MS1 | Set up | Oct 27 to 28 | In progress (started Oct 28, 12:10 AM). Tasks 1, 2, 3, 6 and 7 are done. Task 8 deployed, and its review is running. | [MS1 spec](superpowers/specs/2026-10-28-ms1-setup-design.md) (Claude's; Rene to approve) | [MS1 plan](superpowers/plans/2026-10-28-ms1-setup.md) (12 tasks) | ticked steps in the plan; [Oct 28 log](log/2026-10-28.md). The stack `lusot` is live, and the cloud smoke test passed at 6:07 AM. |
+| MS1 | Set up | Oct 27 to 28 | In progress (started Oct 28, 12:10 AM). Tasks 1, 2, 3, 6, 7 and 8 are done. Task 9 (the app screen) is built, and its review is running. | [MS1 spec](superpowers/specs/2026-10-28-ms1-setup-design.md) (Claude's; Rene to approve) | [MS1 plan](superpowers/plans/2026-10-28-ms1-setup.md) (12 tasks) | ticked steps in the plan; [Oct 28 log](log/2026-10-28.md). The stack `lusot` is live, and the cloud smoke test passed at 6:07 AM. |
 | MS2 | Data | Oct 27 to 30 | Not started | none | none | none |
-| MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | Not started | none | none | none |
+| MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | In progress: the 3a spec is written and builder-checked (Oct 28). Its plan is next, and the build follows MS1. | [MS3a spec](superpowers/specs/2026-10-28-ms3a-landmark-core-design.md) (Claude's; Rene to approve and answer Q1 to Q4) | to come | none yet |
 | MS4 | Backend | Oct 31 to Nov 1 | Not started | none | none | none |
 | MS5 | App | Nov 1 to 3 | Not started | none | none | none |
 | MS6 | Ask Lusot and evaluation | Nov 2 to 3 | Not started | none | none | none |
