@@ -3,5 +3,8 @@
   "private": true,
   "workspaces": [
     "backend/api"
-  ]
+  ],
+  "scripts": {
+    "deploy": "node scripts/deploy.mjs"
+  }
 }
