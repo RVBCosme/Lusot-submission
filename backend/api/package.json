@@ -1,0 +1,26 @@
+{
+  "name": "@lusot/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1157.0",
+    "@aws-sdk/client-s3": "3.1157.0",
+    "@aws-sdk/client-ssm": "3.1157.0",
+    "@aws-sdk/lib-dynamodb": "3.1157.0",
+    "@aws-sdk/s3-presigned-post": "3.1157.0",
+    "esbuild": "0.28.2",
+    "ngeohash": "0.6.4"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.164",
+    "@types/ngeohash": "0.6.8",
+    "@types/node": "22.20.5",
+    "aws-sdk-client-mock": "4.1.0",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

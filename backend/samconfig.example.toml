@@ -1,0 +1,16 @@
+# SAM CLI settings for the lusot stack (C31).
+# Copy this file to backend/samconfig.toml, which git ignores, and replace both placeholders.
+# The alarm email lives only in that local copy, never in the repo (D17).
+version = 0.1
+
+[default.global.parameters]
+stack_name = "lusot"
+region = "ap-southeast-1"
+profile = "lusot"
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+resolve_image_repos = true
+confirm_changeset = false
+parameter_overrides = "AlarmEmail=REPLACE_WITH_ALARM_EMAIL BucketSuffix=REPLACE_WITH_6_TO_12_LOWERCASE_LETTERS_OR_DIGITS"

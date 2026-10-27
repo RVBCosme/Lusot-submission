@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Lusot backend skeleton (MS1). One template, ap-southeast-1 only.
+
+Parameters:
+  AlarmEmail:
+    Type: String
+    NoEcho: true
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    ConstraintDescription: an email address
+    Description: Receives the dead-letter queue alarm (D17). Passed from the git-ignored samconfig.toml, never committed.
+  BucketSuffix:
+    Type: String
+    AllowedPattern: "^[a-z0-9]{6,12}$"
+    ConstraintDescription: 6 to 12 lowercase letters or digits
+    Description: Makes the upload bucket's name globally unique.
+  AppOrigins:
+    Type: CommaDelimitedList
+    Default: "https://localhost,http://localhost:5173,http://localhost:4173"
+    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers).
+
+Resources:
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    # S3 checks that it may send to the queue when the notification is set.
+    DependsOn: UploadQueuePolicy
+    Properties:
+      BucketName: !Sub "lusot-${BucketSuffix}-uploads"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [POST]
+            AllowedOrigins: !Ref AppOrigins
+      LifecycleConfiguration:
+        Rules:
+          - Id: raw-1-day
+            Status: Enabled
+            Prefix: raw/
+            ExpirationInDays: 1
+          - Id: blurred-7-days
+            Status: Enabled
+            Prefix: blurred/
+            ExpirationInDays: 7
+          - Id: overlay-7-days
+            Status: Enabled
+            Prefix: overlay/
+            ExpirationInDays: 7
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Queue: !GetAtt UploadQueue.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: raw/
+
+  UploadQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      # At least 6x the analysis function's 180 s timeout.
+      VisibilityTimeout: 1080
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  UploadQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref UploadQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt UploadQueue.Arn
+            Condition:
+              # The ARN is built from the name: referencing the bucket would make a cycle.
+              ArnEquals:
+                aws:SourceArn: !Sub "arn:${AWS::Partition}:s3:::lusot-${BucketSuffix}-uploads"
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  ReportsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: reportId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      # 15 read and 10 write units in all, inside the free 25 (plan Table 3).
+      ProvisionedThroughput:
+        ReadCapacityUnits: 10
+        WriteCapacityUnits: 5
+      GlobalSecondaryIndexes:
+        - IndexName: reportId-index
+          KeySchema:
+            - AttributeName: reportId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 5
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # CORS goes in the OpenAPI body rather than CorsConfiguration. SAM resolves parameters in
+      # CorsConfiguration itself and can turn AppOrigins' default into one comma-joined string;
+      # here CloudFormation resolves the Ref, which gives a list. SAM adds the routes from Events.
+      DefinitionBody:
+        openapi: "3.0.1"
+        info:
+          title: !Ref AWS::StackName
+          version: "1.0"
+        paths: {}
+        x-amazon-apigateway-cors:
+          allowOrigins: !Ref AppOrigins
+          allowMethods: [GET, POST]
+          allowHeaders: [content-type]
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 10
+        ThrottlingBurstLimit: 20
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/index.ts
+        Target: es2023
+        Minify: true
+    Properties:
+      CodeUri: api/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 10
+      LoggingConfig:
+        LogGroup: !Ref ApiLogGroup
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ReportsTable
+          INDEX_NAME: reportId-index
+          BUCKET_NAME: !Ref UploadBucket
+          STOP_PARAM_PREFIX: /lusot/stop/
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ReportsTable.Arn
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
+            # The presigned POST is signed with this role, so the role must be able to write the key.
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${UploadBucket.Arn}/raw/*"
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
+      Events:
+        CreateUpload:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /uploads
+        GetReport:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /reports/{id}
+
+  AnalysisFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: ./analysis
+      DockerTag: ms1
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: [lusot_analysis.handler.handler]
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 180
+      LoggingConfig:
+        LogGroup: !Ref AnalysisLogGroup
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref ReportsTable
+          BUCKET_NAME: !Ref UploadBucket
+          STOP_PARAM_PREFIX: /lusot/stop/
+          MODEL_KEY_PARAM: /lusot/meta/model-api-key
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:DeleteObject
+              Resource: !Sub "${UploadBucket.Arn}/raw/*"
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt ReportsTable.Arn
+            # The key is a SecureString under the AWS managed aws/ssm key, which lets every
+            # principal in the account decrypt through SSM, so no kms:Decrypt grant is needed.
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/meta/model-api-key"
+      Events:
+        Upload:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt UploadQueue.Arn
+            BatchSize: 1
+            # Caps analysis at 5 of the account's 10 concurrent executions; never reserved concurrency (C9).
+            ScalingConfig:
+              MaximumConcurrency: 5
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  # Created before their functions, so no invocation can make an unmanaged group first.
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+
+  AnalysisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+
+  StopUploadsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /lusot/stop/uploads
+      Type: String
+      Value: "off"
+
+  StopPublishParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /lusot/stop/publish
+      Type: String
+      Value: "off"
+
+  StopModelCallsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /lusot/stop/model-calls
+      Type: String
+      Value: "off"
+
+  # Unencrypted on purpose: CloudWatch can't publish to a topic under the AWS managed SNS key,
+  # and a customer managed key isn't free.
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  DeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: A message reached the analysis dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+Outputs:
+  ApiUrl:
+    Value: !GetAtt HttpApi.ApiEndpoint
+  BucketName:
+    Value: !Ref UploadBucket
+  TableName:
+    Value: !Ref ReportsTable
+  QueueUrl:
+    Value: !Ref UploadQueue
+  DeadLetterQueueUrl:
+    Value: !Ref DeadLetterQueue
