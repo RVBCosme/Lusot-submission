@@ -10,7 +10,7 @@ import functools
 import math
 import threading
 from collections.abc import Sequence
-from dataclasses import InitVar, dataclass
+from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 
 import cv2
@@ -41,7 +41,7 @@ class FaceBox:
 class BlurredImage:
     """A JPEG whose faces this module blurred, with its face count and blur version."""
 
-    jpeg: bytes
+    jpeg: bytes = field(repr=False)  # keeps the photo out of logs and error messages
     width: int
     height: int
     faces: int

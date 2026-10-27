@@ -108,6 +108,11 @@ def test_blurred_image_cannot_be_built_directly():
         dataclasses.replace(real, jpeg=b"unblurred photo")
 
 
+def test_repr_leaves_out_the_photo():
+    # A logged or printed BlurredImage must not carry the photo (never log photos).
+    assert "jpeg" not in repr(blur_for_meta(PORTRAIT.read_bytes()))
+
+
 def test_derive_keeps_blur_record():
     base = blur_for_meta(PORTRAIT.read_bytes())
     drawn = base.bgr()
