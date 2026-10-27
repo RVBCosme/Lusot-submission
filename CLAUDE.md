@@ -200,7 +200,7 @@ Rene set this for Lusot on Oct 28. His global settings stay as they are.
   - secrets or `.env` files
   - raw or Set A photos, news photos or sealed data
   - the plan or its text copy
-  - account IDs, the Meta Team ID, console links or email addresses
+  - account IDs, the Meta Team ID, console links, or the email addresses of Rene or of users. Copyright notices that a third-party licence requires, such as the vendored YuNet LICENSE, stay word for word (R11).
 
 ## Commands
 
