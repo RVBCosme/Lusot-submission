@@ -16,7 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-FACE_BLUR_VERSION = "yunet-2023mar/pixelate-gauss-v1"
+FACE_BLUR_VERSION = "yunet-2023mar/multiscale-1-0.5-0.25/pixelate-gauss-v2"
 YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
 
 _MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
@@ -39,7 +39,11 @@ class FaceBox:
 
 @dataclass(frozen=True)
 class BlurredImage:
-    """A JPEG whose faces this module blurred, with its face count and blur version."""
+    """A JPEG whose faces this module blurred, with its blur record.
+
+    `faces` is the number of face boxes blurred; boxes from different scales may
+    overlap the same face.
+    """
 
     jpeg: bytes = field(repr=False)  # keeps the photo out of logs and error messages
     width: int
@@ -59,7 +63,7 @@ class BlurredImage:
 
     @classmethod
     def derive(cls, bgr: np.ndarray, base: BlurredImage) -> BlurredImage:
-        """Wrap pixels drawn on `base`, keeping its face count and blur version."""
+        """Wrap pixels drawn on `base`, keeping its `faces` and `blur_version`."""
         if not isinstance(base, BlurredImage):
             raise TypeError("base must be a BlurredImage")
         return _encode(bgr, faces=base.faces, blur_version=base.blur_version)
@@ -82,21 +86,24 @@ def _detector() -> cv2.FaceDetectorYN:
 
 
 def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceBox]:
-    """Run YuNet at full size and at half size, and return both passes' boxes.
+    """Run YuNet at full, half and quarter size, and return every pass's boxes.
 
-    YuNet boxes faces of up to about 300 px well, so the half-size pass boxes larger
-    faces whole (checked up to about 900 px). The passes aren't merged: overlapping
-    boxes only add blur.
+    YuNet boxes faces of up to about 300 px well, so the smaller passes box larger
+    faces whole (checked up to a face filling 85% of a 1600 px frame). The passes
+    aren't merged: overlapping boxes only add blur.
     """
     height, width = bgr.shape[:2]
-    half = cv2.resize(
-        bgr, (max(1, width // 2), max(1, height // 2)), interpolation=cv2.INTER_AREA
-    )
+    images = [bgr] + [
+        cv2.resize(
+            bgr, (max(1, width // n), max(1, height // n)), interpolation=cv2.INTER_AREA
+        )
+        for n in (2, 4)  # half and quarter size, as FACE_BLUR_VERSION records
+    ]
     boxes = []
     with _DETECTOR_LOCK:
         detector = _detector()
         detector.setScoreThreshold(score_threshold)
-        for image in (bgr, half):
+        for image in images:
             detector.setInputSize((image.shape[1], image.shape[0]))
             _, rows = detector.detect(image)
             if rows is None:

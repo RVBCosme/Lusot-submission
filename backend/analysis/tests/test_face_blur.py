@@ -2,6 +2,7 @@
 
 import dataclasses
 import hashlib
+from itertools import pairwise
 from pathlib import Path
 
 import cv2
@@ -87,25 +88,64 @@ def test_portrait_face_is_found_and_blurred():
     assert sharpness(blurred.bgr()[region]) <= 0.1 * sharpness(portrait[region])
 
 
+def worst_tile_ratio(before: np.ndarray, after: np.ndarray) -> float:
+    """The highest after/before sharpness ratio over a 3 x 3 grid of tiles.
+
+    A partly boxed face keeps a sharp tile, even when the whole face's ratio is low.
+    """
+    ys = np.linspace(0, before.shape[0], 4).astype(int)
+    xs = np.linspace(0, before.shape[1], 4).astype(int)
+    return max(
+        sharpness(after[y0:y1, x0:x1]) / sharpness(before[y0:y1, x0:x1])
+        for y0, y1 in pairwise(ys)
+        for x0, x1 in pairwise(xs)
+    )
+
+
+def assert_face_blurred_everywhere(
+    frame: np.ndarray, box: list[int], face: FaceBox
+) -> None:
+    """Every tile of the face in `box` loses at least 90% of its sharpness.
+
+    The frames are upscales of the fixture with almost no pixel-level detail, so the
+    face is measured shrunk back to the fixture's own size, where its detail is.
+    """
+    x, y, w, h = box
+    out = blur_faces(frame, detect_faces(frame))
+
+    def at_fixture_size(img: np.ndarray) -> np.ndarray:
+        return cv2.resize(
+            img[y : y + h, x : x + w], (face.w, face.h), interpolation=cv2.INTER_AREA
+        )
+
+    assert worst_tile_ratio(at_fixture_size(frame), at_fixture_size(out)) <= 0.1
+
+
 def test_large_face_is_fully_covered():
     portrait = decode_image(PORTRAIT.read_bytes())
     face = max(detect_faces(portrait), key=lambda f: f.score)
     scale = 7
     assert face.w * scale > 600
     big = cv2.resize(portrait, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-    out = blur_faces(big, detect_faces(big))
-    x, y, w, h = (v * scale for v in (face.x, face.y, face.w, face.h))
+    box = [v * scale for v in (face.x, face.y, face.w, face.h)]
+    assert_face_blurred_everywhere(big, box, face)
 
-    # Measured at the fixture's own size: a 7x upscale has almost no pixel-level
-    # detail left, so the Laplacian there would mostly see 8-bit rounding steps.
-    def face_at_fixture_size(img: np.ndarray) -> np.ndarray:
-        return cv2.resize(
-            img[y : y + h, x : x + w], (face.w, face.h), interpolation=cv2.INTER_AREA
-        )
 
-    assert sharpness(face_at_fixture_size(out)) <= 0.1 * sharpness(
-        face_at_fixture_size(big)
-    )
+def test_close_up_face_is_fully_covered():
+    # A selfie-style close-up: the face fills 85% of the height of a 1200 x 1600 frame.
+    portrait = decode_image(PORTRAIT.read_bytes())
+    face = max(detect_faces(portrait), key=lambda f: f.score)
+    crop_h = round(face.h / 0.85)
+    crop_w = round(crop_h * 3 / 4)
+    x0, y0 = face.x + (face.w - crop_w) // 2, face.y + (face.h - crop_h) // 2
+    crop = portrait[y0 : y0 + crop_h, x0 : x0 + crop_w]
+    frame = cv2.resize(crop, (1200, 1600), interpolation=cv2.INTER_CUBIC)
+    kx, ky = 1200 / crop_w, 1600 / crop_h
+    box = [
+        round(v)
+        for v in ((face.x - x0) * kx, (face.y - y0) * ky, face.w * kx, face.h * ky)
+    ]
+    assert_face_blurred_everywhere(frame, box, face)
 
 
 def test_blur_for_meta_downscales_to_max_side():
