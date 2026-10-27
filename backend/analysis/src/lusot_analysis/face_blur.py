@@ -82,18 +82,29 @@ def _detector() -> cv2.FaceDetectorYN:
 
 
 def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceBox]:
+    """Run YuNet at full size and at half size, and return both passes' boxes.
+
+    YuNet boxes faces of up to about 300 px well, so the half-size pass boxes larger
+    faces whole (checked up to about 900 px). The passes aren't merged: overlapping
+    boxes only add blur.
+    """
     height, width = bgr.shape[:2]
+    half = cv2.resize(
+        bgr, (max(1, width // 2), max(1, height // 2)), interpolation=cv2.INTER_AREA
+    )
+    boxes = []
     with _DETECTOR_LOCK:
         detector = _detector()
-        detector.setInputSize((width, height))
         detector.setScoreThreshold(score_threshold)
-        _, rows = detector.detect(bgr)
-    if rows is None:
-        return []
-    boxes = []
-    for row in rows:  # x, y, w, h, five landmark points, then the score
-        x, y, w, h = np.rint(row[:4]).astype(int).tolist()
-        boxes.append(FaceBox(x, y, w, h, float(row[14])))
+        for image in (bgr, half):
+            detector.setInputSize((image.shape[1], image.shape[0]))
+            _, rows = detector.detect(image)
+            if rows is None:
+                continue
+            sx, sy = width / image.shape[1], height / image.shape[0]
+            for row in rows:  # x, y, w, h, five landmark points, then the score
+                x, y, w, h = np.rint(row[:4] * (sx, sy, sx, sy)).astype(int).tolist()
+                boxes.append(FaceBox(x, y, w, h, float(row[14])))
     return boxes
 
 

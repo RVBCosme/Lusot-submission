@@ -87,6 +87,27 @@ def test_portrait_face_is_found_and_blurred():
     assert sharpness(blurred.bgr()[region]) <= 0.1 * sharpness(portrait[region])
 
 
+def test_large_face_is_fully_covered():
+    portrait = decode_image(PORTRAIT.read_bytes())
+    face = max(detect_faces(portrait), key=lambda f: f.score)
+    scale = 7
+    assert face.w * scale > 600
+    big = cv2.resize(portrait, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    out = blur_faces(big, detect_faces(big))
+    x, y, w, h = (v * scale for v in (face.x, face.y, face.w, face.h))
+
+    # Measured at the fixture's own size: a 7x upscale has almost no pixel-level
+    # detail left, so the Laplacian there would mostly see 8-bit rounding steps.
+    def face_at_fixture_size(img: np.ndarray) -> np.ndarray:
+        return cv2.resize(
+            img[y : y + h, x : x + w], (face.w, face.h), interpolation=cv2.INTER_AREA
+        )
+
+    assert sharpness(face_at_fixture_size(out)) <= 0.1 * sharpness(
+        face_at_fixture_size(big)
+    )
+
+
 def test_blur_for_meta_downscales_to_max_side():
     out = blur_for_meta(jpeg(np.full((3000, 4000, 3), 128, np.uint8)))
     assert max(out.width, out.height) == 1600
