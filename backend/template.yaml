@@ -169,6 +169,7 @@ Resources:
       Architectures: [arm64]
       MemorySize: 256
       Timeout: 10
+      Role: !GetAtt ApiRole.Arn
       LoggingConfig:
         LogGroup: !Ref ApiLogGroup
       Environment:
@@ -177,21 +178,6 @@ Resources:
           INDEX_NAME: reportId-index
           BUCKET_NAME: !Ref UploadBucket
           STOP_PARAM_PREFIX: /lusot/stop/
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action: dynamodb:PutItem
-              Resource: !GetAtt ReportsTable.Arn
-            - Effect: Allow
-              Action: dynamodb:Query
-              Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
-            # The presigned POST is signed with this role, so the role must be able to write the key.
-            - Effect: Allow
-              Action: s3:PutObject
-              Resource: !Sub "${UploadBucket.Arn}/raw/*"
-            - Effect: Allow
-              Action: ssm:GetParameter
-              Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
       Events:
         CreateUpload:
           Type: HttpApi
@@ -206,6 +192,43 @@ Resources:
             Method: GET
             Path: /reports/{id}
 
+  # Explicit roles (R19). SAM's generated roles would add AWSLambdaBasicExecutionRole (logs on *)
+  # and, for an SQS event, AWSLambdaSQSQueueExecutionRole (SQS on *). With Role set, SAM adds nothing.
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: api
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Its own log group only. The template creates the group, so no logs:CreateLogGroup.
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ApiLogGroup.Arn
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ReportsTable.Arn
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
+              # The presigned POST is signed with this role, so the role must be able to write the key.
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${UploadBucket.Arn}/raw/*"
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
+
   AnalysisFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -219,6 +242,7 @@ Resources:
       Architectures: [x86_64]
       MemorySize: 1024
       Timeout: 180
+      Role: !GetAtt AnalysisRole.Arn
       LoggingConfig:
         LogGroup: !Ref AnalysisLogGroup
       Environment:
@@ -227,26 +251,6 @@ Resources:
           BUCKET_NAME: !Ref UploadBucket
           STOP_PARAM_PREFIX: /lusot/stop/
           MODEL_KEY_PARAM: /lusot/meta/model-api-key
-      Policies:
-        - Statement:
-            - Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:DeleteObject
-              Resource: !Sub "${UploadBucket.Arn}/raw/*"
-            - Effect: Allow
-              Action: dynamodb:Query
-              Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
-            - Effect: Allow
-              Action: dynamodb:UpdateItem
-              Resource: !GetAtt ReportsTable.Arn
-            # The key is a SecureString under the AWS managed aws/ssm key, which lets every
-            # principal in the account decrypt through SSM, so no kms:Decrypt grant is needed.
-            - Effect: Allow
-              Action: ssm:GetParameter
-              Resource:
-                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
-                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/meta/model-api-key"
       Events:
         Upload:
           Type: SQS
@@ -258,6 +262,54 @@ Resources:
               MaximumConcurrency: 5
             FunctionResponseTypes:
               - ReportBatchItemFailures
+
+  AnalysisRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: analysis
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Its own log group only. The template creates the group, so no logs:CreateLogGroup.
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt AnalysisLogGroup.Arn
+              # What the SQS event source mapping polls with, on this queue only.
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt UploadQueue.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource: !Sub "${UploadBucket.Arn}/raw/*"
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
+              - Effect: Allow
+                Action: dynamodb:UpdateItem
+                Resource: !GetAtt ReportsTable.Arn
+              # The key is a SecureString under the AWS managed aws/ssm key, which lets every
+              # principal in the account decrypt through SSM, so no kms:Decrypt grant is needed.
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/meta/model-api-key"
 
   # Created before their functions, so no invocation can make an unmanaged group first.
   ApiLogGroup:
@@ -328,7 +380,8 @@ Outputs:
     Value: !Ref UploadBucket
   TableName:
     Value: !Ref ReportsTable
-  QueueUrl:
-    Value: !Ref UploadQueue
-  DeadLetterQueueUrl:
-    Value: !Ref DeadLetterQueue
+  # Names, not URLs: a queue URL contains the account ID (R20).
+  QueueName:
+    Value: !GetAtt UploadQueue.QueueName
+  DeadLetterQueueName:
+    Value: !GetAtt DeadLetterQueue.QueueName
