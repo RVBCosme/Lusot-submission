@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./eval/sealed/**)",
+      "Edit(./eval/sealed/**)",
+      "Read(//c/Systems/Lusot/lusot/eval/sealed/**)",
+      "Edit(//c/Systems/Lusot/lusot/eval/sealed/**)",
+      "Read(//c/Systems/Lusot/lusot-data/**/sealed/**)",
+      "Edit(//c/Systems/Lusot/lusot-data/**/sealed/**)"
+    ]
+  }
+}

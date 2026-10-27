@@ -1,0 +1,3 @@
+# gitleaks' built-in rules (C24). Project rules and allowlists go below.
+[extend]
+useDefault = true

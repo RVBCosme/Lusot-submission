@@ -1,0 +1,3 @@
+#!/bin/sh
+# Secret scan of the staged changes (C24). A finding blocks the commit, and so does a missing gitleaks.
+exec gitleaks git --pre-commit --redact --staged --verbose
