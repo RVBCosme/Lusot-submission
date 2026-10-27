@@ -2,6 +2,7 @@
   "name": "lusot",
   "private": true,
   "workspaces": [
+    "app",
     "backend/api"
   ],
   "scripts": {
