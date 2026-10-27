@@ -15,5 +15,5 @@
 
 ## Notes from the model's README
 
-- **OpenCV version.** This model has a fixed input shape. OpenCV 4.x DNN runs it at each image's exact size, but the ONNX Runtime engine in OpenCV 5.x needs the dynamic-shape `face_detection_yunet_2026may.onnx`. So `pyproject.toml` keeps `opencv-python-headless` below 5.
-- **Face sizes.** The README says the model "can detect faces of pixels between around 10x10 to 300x300 due to the training scheme."
+- **OpenCV version.** The README on `main` (`48b10fa`) says this model has a fixed input shape. OpenCV 4.x DNN runs it at each image's exact size, but the ONNX Runtime engine in OpenCV 5.x needs the dynamic-shape `face_detection_yunet_2026may.onnx`. So `pyproject.toml` keeps `opencv-python-headless` below 5.
+- **Face sizes.** The README, at the tag and on `main`, says the model "can detect faces of pixels between around 10x10 to 300x300 due to the training scheme."
