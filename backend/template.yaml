@@ -155,15 +155,9 @@ Resources:
 
   ApiFunction:
     Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: esbuild
-      BuildProperties:
-        EntryPoints:
-          - src/index.ts
-        Target: es2023
-        Minify: true
     Properties:
-      CodeUri: api/
+      # Bundled by `npm run build -w backend/api` from the root lockfile (R21); SAM only packages it.
+      CodeUri: api/dist
       Handler: index.handler
       Runtime: nodejs22.x
       Architectures: [arm64]
@@ -178,6 +172,7 @@ Resources:
           INDEX_NAME: reportId-index
           BUCKET_NAME: !Ref UploadBucket
           STOP_PARAM_PREFIX: /lusot/stop/
+          NODE_OPTIONS: --enable-source-maps
       Events:
         CreateUpload:
           Type: HttpApi

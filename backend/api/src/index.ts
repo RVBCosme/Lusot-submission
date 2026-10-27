@@ -4,6 +4,7 @@ import { SSMClient } from "@aws-sdk/client-ssm";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { json, type JsonResponse } from "./http";
+import { logError } from "./log";
 import { getReport, type ReportDeps } from "./reports";
 import { createStopSwitch } from "./stopSwitch";
 import { createUpload, type UploadDeps } from "./uploads";
@@ -41,7 +42,13 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<JsonRespon
     bucketName: env("BUCKET_NAME"),
     now: Date.now,
   };
-  return route(event, live);
+  try {
+    return await route(event, live);
+  } catch (err) {
+    // Left uncaught, the runtime would log the whole AWS error message, ARNs included.
+    logError("request_failed", err, { routeKey: event.routeKey });
+    return json(500, { error: "internal" });
+  }
 }
 
 function env(name: string): string {

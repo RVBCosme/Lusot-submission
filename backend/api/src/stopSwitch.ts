@@ -1,4 +1,5 @@
 import { GetParameterCommand, type SSMClient } from "@aws-sdk/client-ssm";
+import { logError } from "./log";
 
 const CACHE_MS = 30_000;
 
@@ -18,8 +19,7 @@ export function createStopSwitch(ssm: SSMClient, prefix: string): StopSwitch {
       return on;
     } catch (err) {
       // Fail closed. The failure isn't cached, so the next request reads SSM again.
-      const error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      console.error(JSON.stringify({ msg: "stop_switch_unreadable", name, error }));
+      logError("stop_switch_unreadable", err, { name });
       return true;
     }
   };
