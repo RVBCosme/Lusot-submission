@@ -230,6 +230,14 @@ Notes:
 - **AWS:**
   - Always pass `--profile lusot --no-cli-pager`. Without `--no-cli-pager`, the CLI's Windows pager hangs on captured output.
   - The login lasts up to 12 hours, and then Rene runs `aws login --profile lusot` again.
+  - If `aws login` fails with `TOKEN_EXPIRED`, run `aws logout --profile lusot`, then `aws login --profile lusot --remote`, and open the URL it prints in an incognito window.
+  - **Clock:** on Oct 28 the Windows Time service was found stopped, with the clock 101 s fast. If an AWS call fails with `INVALID_REQUEST`, check the offset first: `w32tm /stripchart /computer:time.windows.com /samples:2 /dataonly`.
+- **Network:** the home Wi-Fi gives the laptop IPv6 addresses, but IPv6 doesn't connect. Each new Python connection then waits about 21 s per IPv6 address before it falls back to IPv4, so use long timeouts and reuse one client. Wired Ethernet has no IPv6, so no waits. The fix is Rene's (the Oct 28 log, "Waiting on Rene").
+- **Commits:** write the message to a file and run `git commit -F <file>`. Never pipe it from Windows PowerShell 5.1, which adds a BOM to the subject. Commit from PowerShell after the PATH refresh: Git Bash here lacks uv and gitleaks on its PATH, and the pre-commit hook fails closed without gitleaks.
+- **Git Bash:**
+  - Keep Git's own PATH ahead of the Windows PATH, or npm's shim starts WSL's `bash.exe` and fails.
+  - Prefix AWS CLI calls whose arguments start with `/` (such as `/lusot/stop/uploads`) with `MSYS_NO_PATHCONV=1`, or Git Bash rewrites them into Windows paths.
+- **Worktrees (D20, Oct 28):** three Claude windows work at once, each in its own worktree and branch: `C:\Systems\Lusot\lusot` (the main worktree), `C:\Systems\Lusot\lusot-wt\meta` and `C:\Systems\Lusot\lusot-wt\ms3a`. A window commits only in its own folder. Their handoff notes are in `.superpowers/handoff/`, which git ignores.
 - **Environment variables:** a new user variable reaches Claude Code only after it restarts. Until then, read it from the user scope with `[Environment]::GetEnvironmentVariable('NAME','User')`, and never print the value.
 - **PATH:** in a shell started before an install, refresh PATH first: `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')`.
 - **Tools installed Oct 28 (per user, via winget):**
@@ -237,3 +245,4 @@ Notes:
   - gitleaks 8.30.1
 
   Both live under `%LOCALAPPDATA%\Microsoft\WinGet\Packages\` and are on the user PATH. FFmpeg is there too.
+- **JDK 21 (Oct 28, for Gradle):** a portable Microsoft Build of OpenJDK 21.0.13 in `%LOCALAPPDATA%\Programs\jdk-21`, its SHA-256 checked against Microsoft's. It isn't on PATH, and the user `JAVA_HOME` stays JDK 17; the APK build sets `JAVA_HOME` in its own command.
