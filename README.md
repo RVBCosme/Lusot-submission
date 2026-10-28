@@ -4,7 +4,7 @@ Lusot reports how deep a flood is at one spot in Metro Manila, in MMDA's own gau
 
 > Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.
 
-**Status:** in development for the Meta Global AI Developer Hackathon (Indie track). Everything in this repository was built during the event, from Oct 27, 2026. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
+**Status:** in development for the Meta Global AI Developer Hackathon (Indie track). Everything in this repository was written during the event, from Oct 27, 2026, except the third-party files and data credited below. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 Not affiliated with MMDA.
 
@@ -58,6 +58,8 @@ Every third-party starter, library, model and dataset is listed here with its li
 | NASA's portrait of Mae C. Jemison ([S92-40463](https://images.nasa.gov/details/S92-40463)), from Wikimedia Commons | A face-blur test fixture only, never shown in the app; see `backend/analysis/tests/fixtures/faces/SOURCE.md` | Public domain |
 | [STURM-FloodDepth Flooded Cars](https://zenodo.org/records/14833532), by Nicla Notarangelo | Development probes only. Its photos are not redistributed, and none of its code is used. | CC BY 4.0 |
 | Development and test tools: [pytest](https://github.com/pytest-dev/pytest), [Ruff](https://github.com/astral-sh/ruff), [moto](https://github.com/getmoto/moto), [uv](https://github.com/astral-sh/uv) (with `uv_build`), [Vitest](https://github.com/vitest-dev/vitest), [Testing Library](https://github.com/testing-library), [jsdom](https://github.com/jsdom/jsdom), [Oxlint](https://github.com/oxc-project/oxc), [TypeScript](https://github.com/microsoft/TypeScript), [esbuild](https://github.com/evanw/esbuild), `@vitejs/plugin-react`, `aws-sdk-client-mock`, the `@types` packages from [DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped), [gitleaks](https://github.com/gitleaks/gitleaks), and the GitHub Actions `actions/checkout`, `actions/setup-node` and `astral-sh/setup-uv` | Tests, linting, type checks, builds, secret scans and CI | MIT, except TypeScript and moto (Apache-2.0) and uv (MIT or Apache-2.0) |
+
+Each library's own dependencies are pinned, with their versions, in `package-lock.json`, `backend/analysis/uv.lock`, `backend/analysis/requirements.lock.txt` and the scripts' `backend/scripts/*.py.lock` files, each under its own licence. The analysis image builds on AWS's `public.ecr.aws/lambda/python:3.13` base image.
 
 ## How it was built
 

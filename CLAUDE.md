@@ -214,10 +214,15 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced. Git ignores it, because it holds the alarm email.
   - Docker Desktop running, and no Gradle build at the same time
   - a current AWS login
+- **After a dead-letter alarm email:** look at the message in the dead-letter queue, then redrive it to the queue or purge it. While a message stays there the alarm stays in ALARM, so later failures send no new email. Messages there age out after 7 days.
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
+  - Each run adds one report at the test spot (a synthetic photo; `pending` until analysis ends it).
+  - It also turns the uploads stop switch on for about 35 s, then off. With the API's 30 s cache, uploads can be refused for about a minute. Never run it during a phone test (M14).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
-- **Probe** (spends Meta credits): `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis python probes/run_probe.py --photos 5 --water 10`.
-  - Add `--voice-dir DIR` to send every WAV in DIR (mono, 16-bit, 16 kHz).
+- **Probe** (spends Meta credits, about $0.21 with these numbers). Two steps:
+  1. From `backend/analysis`, in Windows PowerShell: `.\probes\make_test_wav.ps1`. It writes the synthetic test clip into today's probe folder. Without it the run stops before it spends anything.
+  2. `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis python probes/run_probe.py --photos 5 --water 10`
+  - **Taglish voice run (C41):** voice only, so add `--photos 0 --water 0 --voice-dir DIR`, which sends every WAV in DIR (mono, 16-bit, 16 kHz). `--voice-dir` alone would also re-run and re-bill all 15 photos. Run it on another day than a photo probe, or follow probe note §7.
   - Outputs go to `$env:LUSOT_DATA_DIR\probes\<date>\`, and stdout gets counts and timings only. A second run on the same day writes into the same folder, so move that day's `summary.json` aside first (probe note §7).
 - **APK build** (debug). Never run it at the same time as a Docker build.
   1. `app/.env.local` holds `VITE_API_URL`, the stack's `ApiUrl` output (see `app/.env.example`). Then run `npm run build -w app`.
