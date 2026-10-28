@@ -7,7 +7,8 @@ Spark never answers about it.
 After numbering, `layout` names the kept boxes' links by box id. Muse Spark's answer
 must pass the schema (step 4.3, C47). annotate's check_ids_per_item then drops the
 entries with bad ids (step 4.4), and the gate decides whether the answer's top level
-settles the outcome (step 4.5; C51, C52).
+settles the outcome (step 4.5; C51, C52). If it doesn't, apply_drops keeps the
+vehicles and people that may give readings (step 4.6, spec §3.3).
 """
 
 from __future__ import annotations
@@ -176,6 +177,105 @@ def gate(answer: dict, *, has_water: bool) -> Outcome | None:
     if not has_water:  # standing_water is yes
         return Outcome.refused("no_water_found")
     return None
+
+
+@dataclass(frozen=True)
+class KeptVehicle:
+    """A vehicle the drops keep, with what step 5 reads from it.
+
+    - `wheels`: (wheel id, waterline) for each answered wheel linked to it, in id
+      order.
+    - `wheels_hidden`: whether its body may give a reading (C53). Every numbered wheel
+      linked to it is answered as hidden, and it lost no linked wheel to the 40 px
+      rule (C69). An unanswered wheel counts as visible (C76). It holds when no wheel
+      is linked.
+    """
+
+    id: int
+    body_waterline: str
+    wheels: tuple[tuple[int, str], ...]
+    wheels_hidden: bool
+
+
+@dataclass(frozen=True)
+class KeptPerson:
+    """An adult the drops keep. The waterline can be not_visible."""
+
+    id: int
+    waterline: str
+
+
+@dataclass(frozen=True)
+class Kept:
+    """The vehicles and people left after the drops, each in id order (step 4.6)."""
+
+    vehicles: tuple[KeptVehicle, ...]
+    people: tuple[KeptPerson, ...]
+
+
+def apply_drops(answer: dict, layout: Layout) -> tuple[Kept, Counter[str]]:
+    """The vehicles and people that may give readings, and the drops (step 4.6).
+
+    `answer` has passed check_ids_per_item, so each entry names a numbered box of its
+    own kind, once. A numbered box with no entry is unanswered (C76). Each drop counts
+    once, under the first cause that applies:
+    - A vehicle: `vehicle_unanswered`; `vehicle_moving` when `moving` is yes or unsure
+      (W1); `vehicle_type` when its type isn't in rules.READING_TYPES (C45). Each of
+      its numbered wheels goes with it, as `wheel_vehicle_dropped`.
+    - A numbered wheel of a kept vehicle: `wheel_unanswered`.
+    - A person: `person_unanswered`; `person_not_adult` when `adult` is no or unsure;
+      `person_wading` when `standing_still` is no or unsure while someone answered as
+      an adult standing still is in the photo, whatever that person's waterline (C57,
+      Rene's Q3). No one else blocks: not an unanswered person, nor one answered
+      `adult: unsure` (C76).
+
+    `wake_visible` changes nothing (C63).
+    """
+    vehicles, wheels, people = (
+        {item["id"]: item for item in answer[name]}
+        for name in ("vehicles", "wheels", "people")
+    )
+    causes: list[str] = []
+    kept_vehicles = []
+    for vehicle_id in [box.id for box in layout.boxes if box.kind == "vehicle"]:
+        entry = vehicles.get(vehicle_id)
+        # Its numbered wheels. wheel_vehicle is a mapping, so they're sorted by id.
+        own = sorted(w for w, v in layout.wheel_vehicle.items() if v == vehicle_id)
+        if entry is None:
+            cause = "vehicle_unanswered"
+        elif entry["moving"] != "no":  # yes or unsure (W1)
+            cause = "vehicle_moving"
+        elif entry["type"] not in rules.READING_TYPES:  # C45
+            cause = "vehicle_type"
+        else:
+            cause = None
+        if cause is not None:
+            causes += [cause] + ["wheel_vehicle_dropped"] * len(own)
+            continue
+        answered = tuple((w, wheels[w]["waterline"]) for w in own if w in wheels)
+        causes += ["wheel_unanswered"] * (len(own) - len(answered))
+        hidden = vehicle_id not in layout.small_wheel_vehicles and all(
+            w in wheels and wheels[w]["waterline"] in rules.HIDDEN_WHEEL for w in own
+        )
+        kept_vehicles.append(
+            KeptVehicle(vehicle_id, entry["body_waterline"], answered, hidden)
+        )
+
+    blocked = any(
+        p["adult"] == "yes" and p["standing_still"] == "yes" for p in people.values()
+    )
+    kept_people = []
+    for person_id in [box.id for box in layout.boxes if box.kind == "person"]:
+        entry = people.get(person_id)
+        if entry is None:
+            causes.append("person_unanswered")
+        elif entry["adult"] != "yes":  # no or unsure
+            causes.append("person_not_adult")
+        elif blocked and entry["standing_still"] != "yes":  # wading: no or unsure
+            causes.append("person_wading")
+        else:
+            kept_people.append(KeptPerson(person_id, entry["waterline"]))
+    return Kept(tuple(kept_vehicles), tuple(kept_people)), Counter(causes)
 
 
 def _instances(sam: Mapping[str, SamResult], phrase: str) -> list[SamInstance]:
