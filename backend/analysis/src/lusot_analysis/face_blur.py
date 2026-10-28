@@ -32,7 +32,7 @@ _YUNET_PAD = 32  # OpenCV pads YuNet's input up to multiples of this
 
 
 class UndecodableImage(ValueError):
-    """The bytes are not an image OpenCV can decode."""
+    """The bytes are not an image OpenCV can decode, or too small to check for faces."""
 
 
 @dataclass(frozen=True)
@@ -165,13 +165,19 @@ def blur_faces(
 
 
 def blur_for_meta(data: bytes, *, max_side: int = 1600) -> BlurredImage:
-    """Decode, shrink to `max_side` with INTER_AREA, blur the faces, encode as JPEG."""
+    """Decode, shrink to `max_side` with INTER_AREA, blur the faces, encode as JPEG.
+
+    A shrunk image with a side of 32 px or less is refused (R27): detect_faces skips
+    every pass of it (R24), so the photo would reach Meta unchecked.
+    """
     bgr = decode_image(data)
     height, width = bgr.shape[:2]
     if max(height, width) > max_side:
         scale = max_side / max(height, width)
         size = (max(1, round(width * scale)), max(1, round(height * scale)))
         bgr = cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
+    if min(bgr.shape[:2]) <= _YUNET_PAD:
+        raise UndecodableImage("too small to check for faces")
     faces = detect_faces(bgr)
     return _encode(
         blur_faces(bgr, faces), faces=len(faces), blur_version=FACE_BLUR_VERSION
