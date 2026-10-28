@@ -156,6 +156,11 @@ All new.
       - `knee level` → `knee` and `waist level` → `waist`, because `level` and `deep` are interchangeable
       - `13-18 inches ("half tire level")`, a real Valenzuela alert form, → `half_tire`: the words map, and words beat the range
       - `above knee level` and `above knee deep` → `tire`; `knee` → `knee`, because the suffix may be left off
+    - `test_ranges_and_two_units` (MS6E-Q1, item 13):
+      - `13"-18"` and `13 in - 18 in` → `knee`, a range with a unit on each number
+      - `24 in (61 cm)` and `61 cm / 24 in` → `tire`, one depth in two units, both of which give `tire`
+      - `8 in (25 cm)` → `unmapped`: 8 in gives `gutter`, 25 cm gives `half_knee`
+      - `knee deep, subsided` → `unmapped`, since a status counts only as the whole label
     - `test_status_blank_and_unmapped`:
       - `subsided` → kind `status`
       - `""` and `"  "` → kind `blank`
@@ -180,6 +185,7 @@ All new.
     3. Only then normalise the words that are left: hyphens, underscores and runs of whitespace become single spaces, and outer punctuation is stripped.
     - **Words that remain** must equal one of rules §2's phrases exactly: `gutter`, `half knee`, `half tire`, `knee`, `tire`, `waist`, `chest`, `half gutter`, `above gutter`, `above knee` and `lagpas tao`. Each may end with `deep` or `level`, or neither, since §2 treats the two words alike (spec C404; MS6E-Q1, item 12).
     - **A number with no unit** maps to nothing (MS6E-Q1, item 11).
+    - **Two measures** joined by `-`, `–` or `to` form a range, whether or not each carries its own unit. Two measures not joined that way are one depth in two units: the label maps only when both give the same level (MS6E-Q1, item 13).
     - **Words win** when they map. Words that don't map give `unmapped`.
     - **With no words left,** the number decides through `level_for_inches`, after centimetres are converted and a range is taken at its upper value.
     - **Special cases:** a word in `STATUS_WORDS` gives `status`, and `OTHER_WORDS` gives `unmapped`.
