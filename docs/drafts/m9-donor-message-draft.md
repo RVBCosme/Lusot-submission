@@ -1,10 +1,10 @@
 # M9 donor message: draft for Rene
 
-> **Draft, Oct 28, 2026 (Window 4). Version `M9-v2`.** This replaces the draft message in `docs/data/set-a-collection-guide.md`, which said "faces blurred first" without its limits and left out what Meta keeps. Rene sends it, adapts it and approves every line (M9, M21). The Taglish version is a draft for his M20 review.
+> **Draft, Oct 28, 2026 (Window 4). Version `M9-v3`.** This replaces the draft message in `docs/data/set-a-collection-guide.md`, which said "faces blurred first" without its limits and left out what Meta keeps. Rene sends it, adapts it and approves every line (M9, M21). The Taglish version is a draft for his M20 review.
 >
-> **Records:** keep each donor's reply (a screenshot is fine) next to their photo, with who appears in it, who took it, and where and when it was taken (design §12, C18). Note the version (`M9-v2`) the reply answered, so MS2's intake can record it.
+> **Records:** keep each donor's reply (a screenshot is fine) next to their photo, with who appears in it, who took it, and where and when it was taken (design §12, C18). Note the version (`M9-v3`) the reply answered, so MS2's intake can record it.
 >
-> The bracketed line depends on MS3a's C85 check, which hadn't run at 2:58 PM, Oct 28. Drop it if `store: false` works for SAM. This draft is information, not legal advice.
+> **What changed from `M9-v2`:** v2 carried a bracketed line, "Meta's outlining service also stores a copy of each request by default", for MS3a's C85 check. That check ran on Oct 28 at 8:37 to 8:40 PM (MS3a's C88): Meta accepts Lusot's request not to store photos, so v3 drops the line. A reply to v2 stays valid, since v2 described more storage, not less. This draft is information, not legal advice.
 
 ---
 
@@ -17,7 +17,7 @@ If you agree, I'll use it in these four ways:
 1. **Meta's AI service analyses it,** once at first, and again each time the app runs it as a sample.
    - Faces are blurred automatically first, but automatic blurring can miss some faces: very small, side-on, partly covered or in the dark.
    - Plate numbers aren't blurred before Meta receives it.
-   - Meta may keep what it receives with no fixed period, and while my hackathon credits pay for the analysis, Meta may use it to improve its products. [if Meta stores photos] Meta's outlining service also stores a copy of each request by default.
+   - Meta may keep what it receives with no fixed period, and while my hackathon credits pay for the analysis, Meta may use it to improve its products.
    - An AI assistant (Claude, by Anthropic) may help me check it, so Anthropic may receive it too, under Anthropic's own terms.
 2. **The Lusot app shows it,** as a sample and as a labelled demo pin, for as long as the app runs, with faces and plate numbers blurred.
 3. **My demo video and a post on X** use it, blurred the same way.
@@ -38,7 +38,7 @@ If you agree, please reply: "Yes, you may use it for all four." You can say no, 
 1. *Taglish draft (M20):* **Susuriin ito ng AI service ng Meta,** isang beses sa simula, at ulit tuwing pinapatakbo ito ng app bilang sample.
    - *Taglish draft (M20):* Awtomatikong bina-blur muna ang mga mukha, pero puwedeng hindi ma-blur ng automatic blurring ang ilang mukha: napakaliit, nakatagilid, may takip, o nasa dilim.
    - *Taglish draft (M20):* Hindi naka-blur ang plate number bago ito matanggap ng Meta.
-   - *Taglish draft (M20):* Puwedeng i-save ng Meta ang natatanggap nito nang walang takdang tagal, at habang hackathon credits ko ang nagbabayad sa analysis, puwede itong gamitin ng Meta para pagandahin ang mga produkto nito. [if Meta stores photos] Nagse-save din ang outlining service ng Meta ng kopya ng bawat request, by default.
+   - *Taglish draft (M20):* Puwedeng i-save ng Meta ang natatanggap nito nang walang takdang tagal, at habang hackathon credits ko ang nagbabayad sa analysis, puwede itong gamitin ng Meta para pagandahin ang mga produkto nito.
    - *Taglish draft (M20):* Puwede akong tulungan ng isang AI assistant (Claude, ng Anthropic) na suriin ito, kaya puwede rin itong matanggap ng Anthropic, ayon sa sariling terms ng Anthropic.
 2. *Taglish draft (M20):* **Ipapakita ito sa Lusot app,** bilang sample at bilang demo pin na may label, hangga't tumatakbo ang app, naka-blur ang mga mukha at plate number.
 3. *Taglish draft (M20):* **Gagamitin ito sa demo video ko at sa isang post sa X,** naka-blur din sa parehong paraan.

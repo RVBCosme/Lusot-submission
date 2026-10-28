@@ -54,9 +54,8 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 ### What Meta keeps
 
 - **Meta may keep what it receives with no fixed period,** under its own terms. Lusot's 7-day deletion covers only Lusot's own copies, and can't delete what Meta keeps.
-- [if store: false works] Lusot asks Meta not to store the requests that analyse your photo, and Meta accepts that. Meta may still keep what it receives, as above.
-  - [if store: false fails in Meta's slow-service mode] When Meta's service is slow, Lusot sends a request again in a mode that Meta stores, then deletes Meta's stored answer as soon as Lusot has read it.
-- [if Meta stores photos] Meta's outlining service (SAM) stores a copy of each request it receives. Lusot sends it about 7 requests per photo, one for each kind of object it looks for, so Meta may hold about 7 copies of each face-blurred photo.
+- **Lusot asks Meta not to store the requests that analyse your photo,** and Meta accepts that. Meta may still keep what it receives, as above.
+  - **One exception:** when Meta's outlining service is slow, Lusot sends that request again as a background job, which Meta stores. Lusot deletes the job afterwards, as far as Meta allows, so until then Meta holds that copy of your face-blurred photo.
 - Lusot never uses Meta's "contributor" model, which lets Meta train on what it receives.
 
 ### Public pins
@@ -71,7 +70,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 - **The photo on a pin.** [In the app, a pin also shows the blurred photo with the outlines Lusot used, so anyone can check how the reading was made (PRIV-Q2).]
 - **How long a pin stays.** A pin fades after 1 hour and leaves the map after 3 hours. The report and its blurred photo are deleted 7 days after the photo was taken. The storage services remove them in the background, usually within a few days after that. [Whether a pin's photo can still be opened through its link until then is checked when the backend is built (PRIV-Q2).]
 - **The pin feed** carries only what the map shows, never photos, outlines or device ids. Other flood maps may copy pins from the feed, and Lusot can't delete their copies.
-- **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos, made from photos whose owners agreed to share them for this. They stay up longer than 3 hours and 7 days, and never count as reports.
+- **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos. They come from people who agreed to share their photos for this, or from openly licensed public photos (CC0 or CC BY, from Wikimedia Commons and Flickr), each credited on screen. Faces and plate numbers are blurred in all of them. They stay up longer than 3 hours and 7 days, and never count as reports.
 - **Outside Metro Manila.** A photo taken outside Metro Manila is analysed, and the result is shown only to you. It never becomes a pin. The photo still goes to Meta as described above, and the report is kept for 7 days like any other.
 
 ### Ask Lusot
@@ -178,9 +177,8 @@ Not affiliated with MMDA.
 ### What Meta keeps
 
 - *Taglish draft (M20):* **Puwedeng i-save ng Meta ang natatanggap nito nang walang takdang tagal,** ayon sa sarili nitong terms. Sakop lang ng 7-day deletion ng Lusot ang sariling kopya ng Lusot, at hindi nito mabubura ang sine-save ng Meta.
-- *Taglish draft (M20):* [if store: false works] Hinihiling ng Lusot sa Meta na huwag i-store ang mga request na sumusuri sa photo mo, at pumapayag ang Meta. Puwede pa ring i-save ng Meta ang natatanggap nito, gaya ng nasa itaas.
-  - *Taglish draft (M20):* [if store: false fails in Meta's slow-service mode] Kapag mabagal ang service ng Meta, ipinapadala ulit ng Lusot ang request sa mode na sine-save ng Meta, saka binubura ang naka-save na sagot ng Meta pagkabasa nito ng Lusot.
-- *Taglish draft (M20):* [if Meta stores photos] Sine-save ng outlining service ng Meta (SAM) ang kopya ng bawat request na natatanggap nito. Mga 7 request bawat photo ang ipinapadala ng Lusot, isa para sa bawat uri ng bagay na hinahanap nito, kaya puwedeng may mga 7 kopya ang Meta ng bawat photo na naka-blur ang mga mukha.
+- *Taglish draft (M20):* **Hinihiling ng Lusot sa Meta na huwag i-store ang mga request na sumusuri sa photo mo,** at pumapayag ang Meta. Puwede pa ring i-save ng Meta ang natatanggap nito, gaya ng nasa itaas.
+  - *Taglish draft (M20):* **Isang exception:** kapag mabagal ang outlining service ng Meta, ipinapadala ulit ng Lusot ang request na iyon bilang background job, na sine-save ng Meta. Binubura ng Lusot ang job pagkatapos, hangga't pinapayagan ng Meta, kaya hanggang noon ay hawak ng Meta ang kopyang iyon ng photo mo na naka-blur ang mga mukha.
 - *Taglish draft (M20):* Hindi kailanman ginagamit ng Lusot ang "contributor" model ng Meta, na nagpapahintulot sa Meta na mag-train gamit ang natatanggap nito.
 
 ### Public pins
@@ -190,7 +188,7 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* **Ang photo sa pin.** [Sa app, makikita rin sa pin ang naka-blur na photo kasama ang mga outline na ginamit ng Lusot, para masuri ng kahit sino kung paano nabasa ang lalim (PRIV-Q2).]
 - *Taglish draft (M20):* **Gaano katagal ang pin.** Lumalabo ang pin pagkalipas ng 1 oras, at nawawala sa mapa pagkalipas ng 3 oras. Binubura ang report at ang naka-blur na photo nito 7 araw pagkatapos kunan ang photo. Inaalis ito ng mga storage service sa background, kadalasan sa loob ng ilang araw pagkatapos. [Titingnan kapag binuo na ang backend kung mabubuksan pa ang photo ng pin sa link nito hanggang noon (PRIV-Q2).]
 - *Taglish draft (M20):* **Ang pin feed** ay may dala lang na nakikita sa mapa, hindi kailanman photo, outline o device id. Puwedeng kopyahin ng ibang flood map ang mga pin mula sa feed, at hindi mabubura ng Lusot ang kopya nila.
-- *Taglish draft (M20):* **Demo pin at sample.** Nagpapakita rin ang Lusot ng mga demo pin at sample photo na may label, mula sa mga photo na pinayagan ng may-ari na ibahagi para rito. Mas matagal sila kaysa 3 oras at 7 araw, at hindi kailanman binibilang bilang report.
+- *Taglish draft (M20):* **Demo pin at sample.** Nagpapakita rin ang Lusot ng mga demo pin at sample photo na may label. Galing ang mga ito sa mga taong pumayag na ibahagi ang photo nila para rito, o sa mga pampublikong photo na bukas ang lisensya (CC0 o CC BY, mula sa Wikimedia Commons at Flickr), na may credit sa screen ang bawat isa. Naka-blur ang mga mukha at plate number sa lahat ng ito. Mas matagal sila kaysa 3 oras at 7 araw, at hindi kailanman binibilang bilang report.
 - *Taglish draft (M20):* **Sa labas ng Metro Manila.** Sinusuri ang photo na kinunan sa labas ng Metro Manila, at ikaw lang ang makakakita ng resulta. Hindi ito nagiging pin. Mapupunta pa rin ang photo sa Meta gaya ng nasa itaas, at sine-save ang report nang 7 araw, tulad ng iba.
 
 ### Ask Lusot
@@ -262,12 +260,11 @@ The full questions, with options and defaults, are in Window 4's handoff note.
   - whether the age check and the notice come before the first question too. Plan Table 4 puts them only before the first upload, but questions go to Meta as well, and Meta's terms require adult users.
 - **PRIV-Q4:** the contact for privacy requests. No email address may be written into the repo, so it is added when the page is published.
 - **PRIV-Q5:** whether to name OpenStreetMap's map servers.
-- **PRIV-Q6, [if store: false works] / [if store: false fails in Meta's slow-service mode] / [if Meta stores photos]:** MS3a's C85 check settles which brackets stay. As reworked at 3:30 PM (MS3a spec), it:
-  - judges `store: false` by the value SAM's stream echoes, not by the HTTP status
-  - polls one `background: true` call with `store: false` to the end; if that fails, the background path keeps Meta's default and deletes the response after reading it
-  - runs before Task 16, and its result goes into `ms3a.md`
+- **PRIV-Q6, settled by MS3a's C85 check** (run Oct 28, 8:37 to 8:40 PM; recorded in MS3a's C88). The "What Meta keeps" lines now state its result, and the brackets are gone.
+  - SAM's streamed requests accept `store: false`, as the value the stream echoes shows, so every SAM request now sends it. Muse Spark's requests already send it, and Meta echoes it.
+  - Meta's background mode, the fallback when SAM's service is slow, refuses `store: false`. That fallback keeps Meta's default, so the job is stored, and Lusot deletes it afterwards, as far as Meta allows.
 
-  Meta's retention with no fixed period stays in the text whatever C85 finds. Rene approves the wording of whichever lines stay.
+  Meta's retention with no fixed period stays in the text. Rene approves the wording.
 - **PRIV-Q7:** how long the device id and the hourly limit counters are kept (MS4).
 - **PRIV-Q8:** the lawful basis for processing the data of people who appear in photos.
 - **PRIV-Q9: the website's access logs** (raised by the tracker as its "PRIV-Q2"; numbered 9 here because Q2 was already taken). AWS Amplify Hosting keeps web access logs, which hold visitors' IP addresses, until the app is deleted, which may be indefinite.
