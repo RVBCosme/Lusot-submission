@@ -34,7 +34,7 @@ npm run check                         # tests, linters and secret scans; CI runs
 
 ## Credits
 
-Every third-party starter, library, model and dataset is listed here with its licence. The list is completed as each one is added. Versions are pinned in the lockfiles.
+Every third-party starter, model and dataset, and every library that Lusot depends on directly, is listed here with its licence. Those libraries' own dependencies aren't listed one by one; the note under the table says where they are pinned. Some carry other licences, such as certifi (MPL-2.0), tqdm (MPL-2.0 and MIT) and typing-extensions (PSF-2.0). Versions are pinned in the lockfiles.
 
 | Component | Use | Licence |
 |---|---|---|

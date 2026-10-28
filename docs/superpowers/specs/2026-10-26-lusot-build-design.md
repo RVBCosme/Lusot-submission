@@ -101,7 +101,7 @@ The rules say "Dates may be subject to change"; recheck the event page before ea
 |---|---|---|---|
 | D1 | Oct 26 | Workflow | Superpowers is the main process. UI work uses ui-ux-pro-max and frontend-design, library docs come from Context7, and code follows the Karpathy guidelines. The work is split into milestones, each with its own spec and implementation plan. |
 | D2 | Oct 26 | Social-media data | Rene collects MMDA and Quezon City posts by hand, as plan M7 says. Claude prepares the log and handles matching, event splits and checks. Claude automates only public news articles, open datasets and spec pages. |
-| D3 | Oct 26 | Code foundation | Open-source starters: the official generators (Vite React-TS, Capacitor, AWS SAM) plus wiring adapted from `aws-samples/serverless-patterns`, credited. They go into a new repo, created after kickoff. |
+| D3 | Oct 26 | Code foundation | Open-source starters: the official generators (Vite React-TS, Capacitor, AWS SAM) plus wiring adapted from `aws-samples/serverless-patterns`, credited. They go into a new repo, created after kickoff. *(MS1 used the Vite and Capacitor generators. The backend was written for Lusot, with no `sam init` or serverless-patterns starter: see R47 in §6.)* |
 | D4 | Oct 26 | Tracking | Repo documents only: a spec and a checkbox plan for each milestone, plus `docs/PROGRESS.md` as the board. Nothing is mirrored into GitHub Issues. |
 | D5 | Oct 26 | Team | Solo entry: Rene is the only contributor. |
 | D6 | Oct 27 | Obsidian | The project folder itself is the Obsidian vault: `Lusot-Staging` now, the repo once it exists. Docs, decisions, ticks and a dated work log live once, in git. `.obsidian/` stays out of git. |
@@ -145,6 +145,8 @@ The rules say "Dates may be subject to change"; recheck the event page before ea
 | C19 | **Guards on the geometry outcome rule:** coverage may fall by at most 10 points, and passability agreement by at most 5 points. Proposed in `eval/rules.md` §8, for Rene to fix with M18 by Nov 2. | Underestimation alone can't catch what geometry gets wrong. |
 | C20 | **The face blur is the pipeline's first step,** in Python:<ul><li>It uses OpenCV's YuNet face detector. **It is built and tested in MS1, before the first Meta call**, and the model and its licence are confirmed then (fix F1, §20).</li><li>The analysis Lambda and the laptop tools share it. One implementation covers live uploads, samples, demo pins, tuning and the sealed run, so the phone needs no detector.</li><li>It is on from the start.</li><li>SAM's `face` request stays as a second pass before storage.</li><li>Plates still reach Meta, and the consent and privacy text say so.</li></ul> | The simplest way to meet D12 before tuning starts. |
 | C21 | **A `private` mode for photos taken outside Metro Manila,** next to live, sample, eval and demo. The analysis runs and the result shows on the phone, but never reaches the map or the feed. The usual device limits apply. The Metro Manila test uses an NCR boundary polygon; its source and licence are confirmed at MS4. | D14. |
+| R47 | **MS1 used no `sam init` or `aws-samples/serverless-patterns` starter** (amends D3 and §13 for the backend). Task 6 wrote `backend/template.yaml` and both functions for Lusot, so the README credits only what was used: the SAM CLI builds and deploys. D3's limit on where starting code may come from still holds. A ruling from the MS1 close, confirmed under Rene's delegation to the recommended option on Oct 28 (relayed by the tracker session); Rene can overturn it. | The credits must match what was used. D3 allows these starters but doesn't require them. |
+| R49 | **The dead-letter queue keeps messages 7 days, not the plan's 14.** Each message is an S3 event record that carries the uploader's IP address. A ruling from the MS1 close, confirmed under Rene's delegation to the recommended option on Oct 28 (relayed by the tracker session); Rene can overturn it. | `CLAUDE.md`: keep data 7 days. |
 
 ## 7. Questions only Rene can answer
 
@@ -306,7 +308,7 @@ G1 places each demo pin at the photo's real spot, so the location matters. The p
 ## 13. Code foundation (D3 in detail)
 
 - **`app/`:** `npm create vite` (react-ts template), then Tailwind, then Capacitor (core, CLI, Android, camera, geolocation), then `vite-plugin-pwa`, then Leaflet. Versions are confirmed with Context7 at MS1.
-- **`backend/`:**
+- **`backend/`** (as planned on Oct 26; MS1 wrote the template and both functions for Lusot instead, with no `sam init` or serverless-patterns code, R47 in §6):
   - `sam init` provides a Node.js TypeScript function for `api/` and a Python container-image function for `analysis/`.
   - The wiring comes from `aws-samples/serverless-patterns`: S3 filtered on `raw/`, then SQS with a dead-letter queue, then Lambda with an event-source maximum concurrency of 5.
   - `amazon-s3-presigned-urls-aws-sam` is archived, so it is a reference only.
