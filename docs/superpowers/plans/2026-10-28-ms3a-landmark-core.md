@@ -530,6 +530,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_blur_covers_the_mask_box_not_the_sam_box`: a face whose SAM box is `(50, 50, 250, 250)` but whose mask covers only x and y 100 to 139. The pixels outside 90 to 149 on both axes are unchanged.
   - `test_empty_mask_falls_back_to_the_sam_box`: an all-False mask with box `(100, 100, 140, 140)` → that region is blurred.
   - `test_publish_jpeg_keeps_the_image_size`: the output starts with `b"\xff\xd8"` and decodes to the image's size.
+  - `test_face_blur_settings_are_pinned_to_their_version` (R94, from MS1's final review): `face_blur`'s settings become named module constants (the score threshold 0.6, the margin 0.25, the 10-cell pixelate grid, the `//3` blur kernel, JPEG quality 90 and the 1,600 px side). The test pins each value next to `FACE_BLUR_VERSION`, and its failure message says to bump the version. `eval/rules.md` §10 freezes the blur setting, so a silent change must fail a test. No value changes.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_quality.py tests/test_publish.py tests/test_face_blur.py`. Expected: the new tests FAIL.
 - [ ] **Step 3:** Implement as specified. In `__init__.py`, call `os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", "50000000")` before anything imports `cv2`. Keep `face_blur.py`'s own line, which covers a direct import.
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
@@ -825,7 +826,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the log `outcome` values (exact): each result's `Outcome.log_name`, plus `already_finished`, `lease_held`, `lease_lost`, `unknown_key`, `s3_test_event`, `error`, `model_key_loaded=true`, `model_key_missing` and `model_key_rejected`
 - **The flow for each S3 record** (spec §3.1):
   1. Skip test events. A key that isn't `raw/r_<32 hex>.jpg` is deleted and logged as `unknown_key` (MS1).
-  2. `_find_report` through `reportId-index`. If the report isn't there yet, retry (MS1).
+  2. `_find_report` through `reportId-index`. If the report isn't there yet, set that message's visibility to 10 s with `ChangeMessageVisibility` (the record's `receiptHandle`, and the queue URL built from its `eventSourceARN`, never logged), then retry (R92, from MS1's final review). Otherwise the retry would wait the full 1,080 s, far past the app's 120 s poll. If that call fails, log its error fields and retry anyway.
   3. Three loads, in this order:
      - `_meta_client()`: the key from SSM (`WithDecryption`), then `MetaClient(api_key=value)`. It is kept in `_META_CLIENT` only once it succeeds. It logs `model_key_loaded=true` once, or `model_key_missing` with the error fields.
      - `_prompt()`, cached with `functools.cache`: `load_prompt(Path(os.environ["PROMPTS_DIR"]))`
@@ -862,7 +863,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - **Kept from MS1, adapted:**
     - `test_s3_test_event_is_ignored`
     - `test_unknown_key_is_deleted_and_skipped`, also asserting the `unknown_key` outcome
-    - `test_report_not_found_is_retried`
+    - `test_report_not_found_is_retried`, now also asserting one `ChangeMessageVisibility` call with `VisibilityTimeout=10` for that message (R92), and that a failing `ChangeMessageVisibility` still returns `RETRY`
     - `test_undecodable_file_marks_bad_file`, now ending `failed/bad_file` through the pipeline, with no Meta call
     - `test_aws_error_is_logged_by_code_and_http_status_only`: the line's keys are `reportId`, `outcome`, `error`, `http_status` and `ms`. It has no `status` key and no `arn:`.
   - **Replaced:** the tests below supersede these MS1 stub tests, which are deleted:
@@ -1022,7 +1023,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - each report's outcome and seconds to a final status
   - the dark JPEG's `meta_calls 0`
   - the reused-link result
-  - the missing-photo code
+  - the missing-photo code. If it is `NoSuchKey` (404) under the prefix-limited `s3:ListBucket` grant, remove `AccessDenied` from the missing-photo rule in a follow-up commit, so a real 403 retries into the dead-letter queue and its alarm instead of marking every report `photo_missing` (R93, from MS1's final review). Update `test_missing_photo_codes` and spec §3.1 step 6 to match.
   - the B4 checks
 
   Exit 1 → debug, fix, re-run. A re-run sends the same 6 photos again: it adds cost, not new photos. Exit 3 → Step 4.

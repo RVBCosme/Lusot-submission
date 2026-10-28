@@ -1,6 +1,6 @@
 # Lusot progress board
 
-- **Last updated:** Oct 28, 2026, 2:53 PM Manila, by Claude (Window 1: MS1 closed; acceptance checks A1 to A8 recorded, with A6 waiting for M14)
+- **Last updated:** Oct 28, 2026, 3:01 PM Manila, by Claude (Window 3: took over the board after MS1 closed; `main` merged into `ms3a-landmark-core`)
 - **Rule:** tick a box only after its check passes, and write the evidence next to it.
 - **Status words:** Not started, In progress, Done, Blocked, Dropped (with a reason).
 - **Key dates (Manila time):** kickoff Oct 27, 12:00 AM. Core working by Oct 29. Build ends Nov 3. **Submit Nov 4, 10:00 PM.** Hard cutoff Nov 5, 10:00 AM. Closing ceremony and finals Nov 10, 1:00 AM.
@@ -13,7 +13,7 @@
 | MS1 | Set up | Oct 27 to 28 | **Done, Oct 28.** All 12 tasks are reviewed, and the stack was re-deployed (2:44 PM) and smoke-tested (2:45 PM). It is merged into `main` at the close and pushed to the private `RVBCosme/lusot`, where CI passed. A6 waits for Rene's phone test (M14). | [MS1 spec](superpowers/specs/2026-10-28-ms1-setup-design.md) (Claude's; Rene to approve; closing notes in §8) | [MS1 plan](superpowers/plans/2026-10-28-ms1-setup.md) (12 tasks, all ticked) | the acceptance checks below; ticked steps in the plan; [Oct 28 log](log/2026-10-28.md) |
 | MS2 | Data | Oct 27 to 30 | Not started | none | none | none |
 | MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | In progress, by Window 3 on `ms3a-landmark-core` (D20):
-<ul><li>The MS3a plan review is done (8ec1769, 11:23 AM). The spec gained calls C72 to C86, and Rene's answers are in (7:58 AM and 1:30 PM).</li><li>Tasks 1, 6, 10, 11 and 12 are built and reviewed (37c55f7, 1:16 PM). The rest starts once MS1 closes.</li><li>The MS3b spec is drafted (e4f1c33, calls C300 to C320).</li></ul> | [MS3a spec](superpowers/specs/2026-10-28-ms3a-landmark-core-design.md) (Claude's; Rene approves after today's amendments) | [MS3a plan](superpowers/plans/2026-10-28-ms3a-landmark-core.md) (17 tasks; the reviewed version is on Window 3's branch) | Window 3's task reviews, in its note and the Oct 28 log |
+<ul><li>The MS3a plan review is done (8ec1769, 11:23 AM). The spec gained calls C72 to C86, and Rene's answers are in (7:58 AM and 1:30 PM).</li><li>Tasks 1, 6, 10, 11 and 12 are built and reviewed (37c55f7, 1:16 PM).</li><li>MS1 closed (98e8266), and `main` is merged in (f953b2f, 2:57 PM; `npm run check` passes). Tasks 2, 3, 4, 5, 7, 7a, 8, 9 and 13 to 17 are next.</li><li>The MS3b spec and plan draft are committed (e4f1c33, 860a294, 22ab3d2; calls C300 to C321, rulings R86 to R91). The plan's fresh review is pending.</li></ul> | [MS3a spec](superpowers/specs/2026-10-28-ms3a-landmark-core-design.md) (Claude's; Rene approves after today's amendments) | [MS3a plan](superpowers/plans/2026-10-28-ms3a-landmark-core.md) (17 tasks; the reviewed version is on Window 3's branch) | Window 3's task reviews, in its note and the Oct 28 log |
 | MS4 | Backend | Oct 31 to Nov 1 | Not started | none | none | none |
 | MS5 | App | Nov 1 to 3 | Not started | none | none | none |
 | MS6 | Ask Lusot and evaluation | Nov 2 to 3 | Not started | none | none | none |
