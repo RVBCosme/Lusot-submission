@@ -852,7 +852,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
      If any of these fails, the message returns for retry and the report stays untouched (C60). A missing prompt is a deploy fault, like a key fault: it goes to the DLQ and its alarm, never to failed reports.
   4. `claim(...)` with `uuid.uuid4().hex` and `_now_s()`:
      - `"finished"` → delete `raw/`, logged as `already_finished`
-     - `"leased"` → logged as `lease_held`; `raw/` is left alone
+     - `"leased"` → logged as `lease_held`; `raw/` is left alone, and the message returns for retry (C89, R113, added after the build). Its copy comes back after the 1,080 s visibility timeout: by then the report is final, or the 900 s lease has expired.
      - `"claimed"` → delete `blurred/{id}.jpg` first, before any Meta call (C72). A delete of a missing key succeeds; a failed delete raises, and the message retries before anything is paid.
   5. A switch value other than `off` → finish `failed/model_calls_paused`.
   6. `get_object` on `raw/`:
@@ -913,13 +913,13 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - **The claim and the lease (G2, B5):**
     - `test_switch_set_ends_model_calls_paused`, parametrized over `on`, `ON` and `Off` → `failed/model_calls_paused`, with `raw/` gone and no Meta call.
     - `test_delivery_after_result_pays_nothing_and_deletes_raw`, parametrized over `done`, `refused`, `failed`: no failures, the item unchanged, `raw/` gone, no calls, `already_finished`.
-    - `test_live_lease_is_left_alone`: `processing` with `claimedAt = now - 60` → no failures, `raw/` kept, the item unchanged, `lease_held`.
+    - `test_live_lease_is_left_alone`: `processing` with `claimedAt = now - 60` → the message is returned (C89), `raw/` kept, the item unchanged, `lease_held`. Then the holder "crashes": a redelivery at `now + 1080`, after the lease, re-claims and processes with one set of calls.
     - `test_expired_lease_is_reclaimed`: `claimedAt = now - 901` → processed with one set of calls and a new token.
-    - `test_racing_deliveries_pay_once`: the fake's first `segment("floodwater")` hook runs `handler.handler(message(), None)` and asserts it returns no failures. In all, 7 + 1 calls; the nested delivery's line is `lease_held` (it finishes and logs first); the report ends `done` with `raw/` gone.
+    - `test_racing_deliveries_pay_once`: the fake's first `segment("floodwater")` hook runs `handler.handler(message(), None)` and asserts it returns the message (C89). In all, 7 + 1 calls; the nested delivery's line is `lease_held` (it logs first); the report ends `done` with `raw/` gone. The returned message's redelivery after the result finishes as `already_finished` with no Meta call.
     - `test_lease_lost_at_the_final_write`: the answer gives no flood seen, and the `judge` hook sets the item's `claimToken` to `"other"`. Result: no failures; the item stays `processing` with `"other"` and no result fields; `raw/` is kept; `lease_lost`.
     - `test_failed_raw_delete_retries_without_reanalysis`: `delete_object` fails once → `RETRY` with status `done`. The redelivery deletes and makes no new calls.
     - Review Focus 2, `test_failed_delete_redelivered_after_lease_time_only_deletes`: as above, but the redelivery runs at `now + 1080`. No new calls; the item is unchanged and `raw/` is gone.
-    - Review Focus 4, `test_reused_link_during_analysis_pays_once_and_leaves_no_raw`: the `judge` hook puts a new `raw/` object and runs a second delivery, which logs `lease_held`. Afterwards there is one set of calls, the first worker's result, and no `raw/` object.
+    - Review Focus 4, `test_reused_link_during_analysis_pays_once_and_leaves_no_raw`: the `judge` hook puts a new `raw/` object and runs a second delivery, which logs `lease_held` and returns its message (C89). Afterwards there is one set of calls, the first worker's result, and no `raw/` object.
   - **S3 codes (R22, narrowed):**
     - `test_missing_photo_codes`: `NoSuchKey` (no object in moto) and `AccessDenied` (403, patched) → `failed/photo_missing`, with `error` and `http_status` logged and no Meta call.
     - `test_non_jpeg_bytes_end_bad_file_before_decoding` (C83), parametrized over PNG bytes (`cv2.imencode(".png", …)`) and `b"GIF89a…"`: → `failed/bad_file`, `raw/` gone, no fake calls, and `handler.analyse` (patched to raise if called) never runs. A JPEG starting `FF D8 FF` still reaches `analyse`, as the level-case tests show.
