@@ -72,6 +72,45 @@ def test_missing_default_plan_skips_in_ci(leak_check, monkeypatch, capsys):
     assert "skipping the plan-leak check" in capsys.readouterr().out
 
 
+def test_missing_explicit_path_fails_closed_even_in_ci(leak_check, monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("CI", "true")
+    missing = tmp_path / "missing-plan.txt"
+    assert run(leak_check, monkeypatch, str(missing)) == 2
+    out, err = capsys.readouterr()
+    assert str(missing) in err
+    assert "skipping" not in out
+
+    monkeypatch.setenv("LUSOT_PLAN_TEXT", str(missing))
+    assert run(leak_check, monkeypatch) == 2
+    out, err = capsys.readouterr()
+    assert str(missing) in err
+    assert "skipping" not in out
+
+
+def test_empty_or_short_line_plan_fails_closed(leak_check, monkeypatch, capsys, tmp_path):
+    empty = tmp_path / "empty.txt"
+    empty.write_text("", encoding="utf-8")
+    short = tmp_path / "short.txt"
+    short.write_text("a short line\nanother short line\n", encoding="utf-8")
+    for plan in (empty, short):
+        assert run(leak_check, monkeypatch, str(plan)) == 2
+        out, err = capsys.readouterr()
+        assert str(plan) in err
+        assert "clean" not in out
+
+
+def test_directory_or_invalid_utf8_plan_fails_closed(leak_check, monkeypatch, capsys, tmp_path):
+    directory = tmp_path / "a-directory"
+    directory.mkdir()
+    invalid = tmp_path / "invalid.txt"
+    invalid.write_bytes(b"\xff\xfe\x80 not utf-8 \xc3\x28\n")
+    for plan in (directory, invalid):
+        assert run(leak_check, monkeypatch, str(plan)) == 2
+        out, err = capsys.readouterr()
+        assert str(plan) in err
+        assert "clean" not in out
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not on PATH")
 def test_clean_run_and_a_leak(leak_check, monkeypatch, capsys, tmp_path):
     plan = tmp_path / "fake-plan.txt"

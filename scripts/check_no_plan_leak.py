@@ -5,7 +5,8 @@ staging at run time. It prints file names and counts only, never the matched
 text, so the check itself can't leak what it looks for.
 
 Usage: python scripts/check_no_plan_leak.py [PLAN_TEXT_PATH]   (or set LUSOT_PLAN_TEXT)
-Exit codes: 0 clean, 1 leak found, 2 bad usage or an unreadable plan path (the check fails closed).
+Exit codes: 0 clean, 1 leak found, 2 bad usage, or a plan path that is missing, unreadable or empty
+(the check fails closed).
 Only when CI=true and the default plan path is missing does it print a notice and exit 0,
 because the CI runner has no plan text by design.
 """
@@ -59,6 +60,8 @@ def main() -> int:
     section24 = plan[start.start(): end.start()] if start and end else ""
     secrets = set(LONG_NUMBER.findall(section24))
     plan_lines = {ln.strip() for ln in plan.splitlines() if len(ln.strip()) >= MIN_LINE}
+    if not plan_lines:  # an empty or wrong file would pass vacuously
+        return fail_closed(f"plan text at {plan_path} has no line of {MIN_LINE}+ characters, so it can't be the plan")
 
     leaks = 0
     for path in repo_files():
