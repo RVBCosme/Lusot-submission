@@ -611,7 +611,7 @@ All new.
   - **The Set B table** has one row per variant present, then one per vehicle type and one per bin value for `geometry`, plus the `sam_water_found` line. Set D gets the same table and groups.
   - **"Exclusions"** lists Set A's exclusions and A-neg's, each with its reason and count. A line then lists the photos left out of passability because their passability phrase didn't map.
   - **Each chart** is linked as `![<title>](<file>)` and followed by its table twin: a Markdown table of counts for the matrix, and the sorted errors for the error plot.
-  - **"Frozen versions and data"** lists `frozen`, `datasets`, the photo and event counts, and each entry of `stops`.
+  - **"Frozen versions and data"** lists `frozen`, `datasets`, the photo and event counts, and each entry of `stops`. It ends with the line `The face blur runs before Meta receives a photo. It can miss faces that are very small, side-on, partly covered or in the dark.`
   - **"Rebuild this report"** gives `python eval/run_eval.py --from-saved`, and `python3 eval/run_eval.py --from-saved` for systems without `python`.
   - **The footer,** exactly:
 

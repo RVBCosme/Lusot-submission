@@ -126,7 +126,7 @@ The status and unmapped rules are MS6E-Q1's defaults.
 
 | File | One line per | Holds |
 |---|---|---|
-| `run.json` | run (a single JSON object) | `kind` (`sealed` or `development`); `synthetic: true` for a test fixture only (C422); the Manila date; `rules_version`; the freeze commit (sealed runs); the frozen versions (rules §10's list, plus MS3b's tuning version, k, tire codes and reasoning effort); each dataset's version and split seed (MS2's records, its C216); `self_check` (`on` or `off`) and when MS3 decided it; geometry's live default before the run (C309), or `dropped` (C418); each stop and resume (C419); and, for a rerun, its reason (C421) |
+| `run.json` | run (a single JSON object) | `kind` (`sealed` or `development`); `synthetic: true` for a test fixture only (C422); the Manila date; `rules_version`; the freeze commit (sealed runs); the frozen versions (rules §10's list, plus the SAM phrases sent, any backup phrase included, `store` and `max_side`, the annotation (drawing) version, and MS3b's tuning version, k, tire codes and reasoning effort); each dataset's version and split seed (MS2's records, its C216); `self_check` (`on` or `off`) and when MS3 decided it; geometry's live default before the run (C309), or `dropped` (C418); each stop and resume (C419); and, for a rerun, its reason (C421) |
 | `set_a.jsonl` | Set A photo, excluded ones included | see below |
 | `a_neg.jsonl` | A-neg photo | as for Set A without labels or M8, plus `surface`. It keeps MS2's facts, with `match` null, but scoring reads only `duplicate` and `decodes` (MS6E-Q1). |
 | `set_b.jsonl` | Set B wheel in one crop (a crop shows up to two wheels) | see below |
@@ -178,7 +178,7 @@ So no committed field can hold free text, and Muse Spark's `reason`, post links,
 5. Set B and Set D, with the error chart.
 6. Latency, if measured.
 7. **Exclusions:** the count for each rules §9 reason, and each excluded id with its reason.
-8. The frozen versions, the stops and resumes (C419), and the datasets with their photo and event counts.
+8. The frozen versions, the stops and resumes (C419), and the datasets with their photo and event counts. One line states the face blur's known limits: it runs before Meta receives a photo, and it can miss faces that are very small, side-on, partly covered or in the dark (W25).
 9. **How to rebuild the report:** `python eval/run_eval.py --from-saved`, or `python3 eval/run_eval.py --from-saved` where `python` isn't installed, as on macOS and many Linux systems.
 10. **The footer:** "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories." and "Not affiliated with MMDA."
 
@@ -233,7 +233,7 @@ The "Done when" rows S1 to S6 (§6) are proved only here.
 
 ### 4.6 The pipeline freeze (C413)
 
-- **What freezes:** the model IDs; the prompt and schema versions; Muse Spark's reasoning effort (MS3b-Q4); the self-check setting (rules §8); the level rules; the face-blur setting and its detector version; MS3b's tuning version, tire codes, k and geometry's default; the dataset versions and split seeds (rules §10; design §8). Also `eval/rules.md`'s version and this harness.
+- **What freezes:** the model IDs; the prompt and schema versions; Muse Spark's reasoning effort (MS3b-Q4); the SAM phrases, any backup phrase included; `store` and `max_side`; the annotation (drawing) version, since a change to the numbered boxes changes what Muse Spark sees; the self-check setting (rules §8); the level rules; the face-blur setting and its detector version; MS3b's tuning version, tire codes, k and geometry's default; the dataset versions and split seeds (rules §10; design §8). Also `eval/rules.md`'s version and this harness.
 - **How:** one tagged commit on `main`, recorded in `run.json`. The entry point refuses any other commit, and a tree with changes. The one disclosed rerun runs at a second tagged freeze, recorded with its reason (C421).
 - **After it:** only fixes that can't change a depth output (rules §10). The scoring code doesn't change after the sealed run. A change to the report's presentation regenerates the report with `--write` in the same commit, and the byte-for-byte check enforces that.
 
