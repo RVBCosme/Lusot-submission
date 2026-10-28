@@ -133,7 +133,8 @@ The Metro Manila test uses the final point, after the nudge.
 - **Demo pins** (G1, C510): `backend/scripts/demo_pins.py seed|remove`.
   - **Sources:** photos from the consented log (M9), and from Rene's open-licensed set, only those marked `demo_use ok`, never CC BY-SA, each with its credit line (Rene's decision, 8:26 PM, Oct 28).
   - **What `seed` writes:** each photo goes through the real pipeline in `demo` mode, at the photo's real spot and with its real capture time, so a demo pin never passes as current. A spot outside Metro Manila is refused. The item gets `visibleUntil` from `--until` and `expiresAt` from `--until` plus 7 days, and the `demo/` prefix has a 60-day lifecycle rule as a backstop.
-  - **What `remove` deletes:** the items and their `demo/` photos.
+  - **What `remove` deletes:** the items and their `demo/` photos, or a single pin with `remove <id>` (the tracker's N9).
+  - **The `--until` date:** if MS5-Q2 keeps any demo pins, they're seeded with `--until 2026-12-20` (the tracker's N7, from MS10).
 - **Samples** (C512): `backend/scripts/samples.py seed|remove`.
   - **How a sample is made:** each candidate runs once in the cloud in `eval` mode, and only its blurred copy, with faces and plates blurred by the pipeline before storage, is kept as `samples/{sampleId}.jpg`. The original is never stored.
   - **The manifest:** its id, credit line, licence, place (a short public place name, such as a street and city) and capture date, and a private source note kept apart.
@@ -152,7 +153,7 @@ The Metro Manila test uses the final point, after the nudge.
   - The table stores only a SHA-256 hash of each device id, never the id itself. The report item never stores a device id at all (C520).
 - **Flags** (C511):
   - Each flag adds 1 to the pin's `flags`, once per device per pin.
-  - Flags never hide a pin on their own (MS4-Q3). The app shows the count, and Rene can hide a pin with `hide_pin.py`.
+  - Flags never hide a pin on their own (MS4-Q3). The app shows the count, and Rene can hide a pin with `hide_pin.py`. The script hides `live` and `demo` pins alike, without deleting them (the tracker's N9).
   - A flag record holds its device id until the pin's `expiresAt`, at most 7 days (PRIV-Q7).
   - Demo pins can't be flagged.
 - **The stop switches** (plan §13, MS1):
@@ -163,6 +164,9 @@ The Metro Manila test uses the final point, after the nudge.
 
 ### 4.7 Operations and guards (section D)
 
+- **Spend alarms** (the tracker's N6, from the MS9 draft): the Meta credits probably lapse during judging, about Nov 5, 10:00 AM Manila, and later calls are billed to the card. Two CloudWatch alarms email Rene through MS1's alarm topic, inside the free 10 alarms. MS7 verifies them.
+  - one on the analysis function's invocations in an hour, above 100
+  - one on the API function's invocations in an hour, above a threshold sized for Ask Lusot, which that spec sets (5,000 until then)
 - **The dead-letter queue:**
   - The alarm gains `OKActions`, so Rene also hears when it clears (section D, item 2).
   - `backend/scripts/redrive_dlq.py` moves only messages less than a day old, and moves each one once. An older message has lost its raw photo to the 1-day rule, so it is deleted and counted. A message that fails again after its redrive is deleted, never redriven twice. Each message is an S3 event record holding the uploader's IP, so moving it once keeps its life at about 8 days at most (MS4-Q5, which MS3a's Task 17 also queues).
@@ -252,7 +256,7 @@ The fault cases are unit tests on fakes. No fault injection goes into the code t
 | S16 | **The evidence record:** the overlay, the layers and `readings` are built from MS3b's record alone, and S13's copy rules hold on every word they draw | unit tests, after MS3b's merge |
 | S12 | **`InchesShown`** in both states: false hides every inches field, and true shows them | unit tests |
 | S13 | **Copy:** no "safe" in any form, no crossing advice and no whole-road wording, in the overlay's words and in every response string | unit tests and Rene's review (M20) |
-| S14 | **Operations:** the dead-letter alarm has `OKActions`. A redrive dry run lists the counts it would move and delete. `npm run check` and CI pass, and the free-plan units stay at or under 25 and 25. | template tests, a dry run, CI |
+| S14 | **Operations:** the two spend alarms exist on the alarm topic. The dead-letter alarm has `OKActions`. A redrive dry run lists the counts it would move and delete. `npm run check` and CI pass, and the free-plan units stay at or under 25 and 25. | template tests, a dry run, CI |
 
 ## 8. Questions for Rene
 
@@ -267,7 +271,7 @@ Each has a default that the draft plan follows (D7).
 | MS4-Q5 | Add "redrive only dead-letter messages under a day old, each once" to CLAUDE.md? This is section D, item 2, and MS3a's Task 17 also queues it. | (a) yes; (b) no, and the script only warns | (a) |
 | MS4-Q6 | Access logs (HTTP API, S3 server access, CloudTrail data events) | (a) stay off, as now; (b) on, with a privacy-policy line for each | (a) |
 | MS4-Q7 | What the publish switch hides | (a) `live` pins only, while demo pins stay; (b) every pin | (a) |
-| MS4-Q8 | **Samples: run the real pipeline each time, or once?** | (a) each time, about $0.03 a run, capped at 5 per device and 30 in all per hour; (b) once per sample, serving the stored result. That saves credits, but plan §4's sample button runs the live pipeline. | (a) |
+| MS4-Q8 | **Samples: run the real pipeline each time, or once?** | (a) each time, about $0.03 a run, capped at 5 per device and 30 in all per hour; (b) once per sample, serving the stored result. That saves credits, but plan §4's sample button runs the live pipeline. | (a). If MS9-Q1 ends on a pause in analysis, (b) becomes the fallback during the pause: a sample shows its seeding run's result, marked as saved and dated (the tracker's N2, conditional). |
 | MS4-Q9 | An open-licensed demo photo whose source gives no spot | (a) samples only, never a demo pin; (b) a pin at the described place's centre | (a) |
 | MS4-Q10 | **Who can open a pin's photo, and for how long** (this carries PRIV-Q2). The pin detail must show the photo and overlay. | (a) For a pin, links are issued while it is visible (3 hours), to anyone holding its id. For an unpublished result, they are issued for its 7 days to the holder of the id. (b) For every report, for its 7 days, to anyone holding the id. The privacy policy then states the chosen rule. | (a) |
 | MS4-Q11 | Samples are kept while the sample button exists, as blurred copies with credit lines. That exempts them from the 7-day rule, as G1 does for demo pins. | (a) yes, until the button is removed after the hackathon; (b) no, and the samples are re-seeded every 7 days | (a) |
