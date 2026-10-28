@@ -758,7 +758,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - Both sides: with 2 or more events and nothing sealed, the group's smallest event (fewest rows, then lowest number) moves to sealed, and `moved` says so.
   - `draw_set(set_name: str, events: Mapping[str, tuple[int, bool]], *, seed: int = SPLIT_SEED) -> dict[str, GroupDraw]`: takes each event's `(rows, deep)`, draws groups `deep` and `other` separately, each with `seed` and the set's shares, and leaves out empty groups. A-neg has `other` only, since it states no class. Raises `TooFewEvents` when the set has fewer than 2 events. The tests pass other seeds; the split passes none, so it always draws with `SPLIT_SEED`.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_deep_events_land_on_both_sides`: a Set A of 5 deep events (1 or 2 rows) and 15 others (1 to 3 rows). Each group has an event on each side, under `SPLIT_SEED` and seven other seeds.
   - `test_same_seed_same_split`: `draw_set` twice, and once more with the events given in reverse order, gives identical results.
   - `test_group_of_two_or_more_has_both_sides`: group sizes 2 to 8, with event sizes all 1, then `[3, 1, 1, …]`, then one event of 60% of the rows. Both sides are always non-empty, and `moved` is set whenever the walk alone sealed nothing.
@@ -768,10 +768,23 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_single_event_group_stays_dev`: a deep group of one event stays dev, with no move.
   - `test_fewer_than_two_events_stops`: a set with one event raises `TooFewEvents("A-neg")`.
   - `test_golden_draw`: a fixed 12-event input seals exactly the events written in the test. This pins `random.Random(20261030)` on Python 3.13. The expected set is worked out before `draw.py` exists: in a REPL, shuffle each group's events, sorted by number, with a fresh `random.Random(20261030)`, as `draw_group` will, then walk that order by hand against the cap and target. The test therefore fails first (RED), and its value never comes from a green run.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k draw`. Expected: FAIL, with `ModuleNotFoundError: No module named 'draw'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(data): add the stratified split draw`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k draw`. Expected: FAIL, with `ModuleNotFoundError: No module named 'draw'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(data): add the stratified split draw`.
+
+*Evidence (Task 10, Oct 29):*
+- **Commits:** d50159d and 4f20f3a.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py` gives 429 passed, also with `-W error`.
+- **Checks:** ruff, the plan-leak check, the account-ID scan and gitleaks are clean.
+- **`test_golden_draw`:** its values were worked out by hand before `draw.py` existed. They are Task 13's synthetic Set A: under `SPLIT_SEED` it seals E01, E02, E07 and E09, 8 of 20 rows, exactly 2/5.
+- **The review approved it:**
+  - The golden draw was re-derived independently.
+  - 29,383 random groups match a walk written from C204's words.
+  - The draw is independent of input order.
+  - Every comparison is exact.
+- **One test-only round (S-R15)** pinned each group's own fresh shuffle and the 2-event draw. The controller confirmed that a reseeded-deep-group mutant and a `< 3` mutant each fail exactly their new test.
+- **A Set A of exactly 2 events, one deep and one other, seals nothing.** It is the only such case. Task 12's audit stops the split on it (`set_one_sided`, S-R14).
 
 ### Task 11: Manifests and the three record kinds (C207, C216, §5.9)
 
