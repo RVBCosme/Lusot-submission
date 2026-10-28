@@ -711,9 +711,17 @@ def test_review_sheet(tmp_path):
         "refused:too_dark",
         "failed:model_error",
     ]
-    assert [by_id["A03"][key] for key in ("geometry_class", "geometry_landmark")] == [
+    # The class is the one scoring counts: PATV for "no flood seen" (rules §7), and
+    # none for a refusal or a failure.
+    assert [by_id[photo]["geometry_class"] for photo in ("A03", "A05", "A06")] == [
+        "PATV",
         "",
         "",
+    ]
+    assert by_id["A03"]["geometry_landmark"] == ""
+    assert [by_id["N01"][key] for key in ("landmark_class", "geometry_class")] == [
+        "PATV",
+        "PATV",
     ]
     assert [by_id["A08"][key] for key in ("alert_level", "alert_class")] == ["", "NPLV"]
     assert [by_id["N02"][key] for key in header[3:9]] == [
@@ -749,6 +757,47 @@ def test_never_says_safe(tmp_path):
             assert "safe" not in content.decode("utf-8").lower(), (name, file)
         review = build_review(run)
         assert review is None or "safe" not in review.decode("utf-8").lower(), name
+
+
+def banned(word: str) -> str:
+    return (
+        f"report.md would contain a banned word ({word}); check run.json's free-text"
+        " fields"
+    )
+
+
+def test_report_refuses_its_banned_words(tmp_path):
+    # Only free text copied from run.json can bring one in, such as a rerun's reason.
+    first = load(tmp_path / "first", run_json(), set_a=HAND_SET)
+    rerun = load(
+        tmp_path / "first" / "rerun",
+        run_json(rerun_reason="rerun: unsafe light"),
+        set_a=HAND_SET,
+    )
+    with pytest.raises(ValueError) as refused:
+        build_report(rerun, first_run=first)
+    assert str(refused.value) == banned("safe")
+    # The message names the file and the word, never the text around it.
+    assert str(refused.value).isascii()
+    assert "light" not in str(refused.value)
+    # Any case, from any of run.json's free-text fields.
+    stop = {"at": "21:10", "cause": "Safety restart", "resumed": "21:40"}
+    cases = [
+        (run_json(stops=[stop]), HAND_SET, "safe"),
+        (run_json(frozen={"model": "ACCURACY-1"}), HAND_SET, "accuracy"),
+        (
+            run_json(
+                geometry_default="dropped", geometry_dropped_reason="underfits Set A"
+            ),
+            landmark_only(list(HAND_SET)),
+            "underfit",
+        ),
+    ]
+    for number, (manifest, rows, word) in enumerate(cases):
+        run = load(tmp_path / f"case{number}", manifest, set_a=rows)
+        with pytest.raises(ValueError) as refused:
+            build_report(run)
+        assert str(refused.value) == banned(word), word
 
 
 def test_both_configurations_and_the_self_check_line(tmp_path):

@@ -37,6 +37,7 @@ from scoring.metrics import (
     fmt_rate,
     landmark_agreement,
     left_out_of_passability,
+    lusot_class,
     measured_errors,
     replay_comparison,
     score_a_neg,
@@ -69,6 +70,16 @@ _FACE_BLUR = (
     "The face blur runs before Meta receives a photo. It can miss faces that are very"
     " small, side-on, partly covered or in the dark."
 )
+# Words no built file may hold, in any case (C409 and the copy rules). "safe" also
+# catches "unsafe" and "safety".
+_BANNED = (
+    "safe",
+    "overfit",
+    "underfit",
+    "accuracy",
+    "mmda's 9 levels",
+    "mmda's level",
+)
 _LABELS = {
     "landmark": "Landmark alone",
     "geometry": "Landmark plus geometry",
@@ -97,7 +108,8 @@ def build_report(run: Run, *, first_run: Run | None = None) -> dict[str, bytes]:
     """The report's files by name: report.md, summary.json, a level matrix for each
     configuration when Set A was run, and set-b-errors.svg when Set B was. Each is
     UTF-8 text with \\n line endings and a final newline. `first_run` comes with a
-    rerun's report, and only then (C421)."""
+    rerun's report, and only then (C421). Raises ValueError when a file would hold a
+    banned word."""
     if (first_run is None) != (run.rerun_reason is None):
         raise ValueError("first_run comes with a rerun's report, and only then (C421)")
     run = _sorted(run)
@@ -131,7 +143,22 @@ def build_report(run: Run, *, first_run: Run | None = None) -> dict[str, bytes]:
         "summary.json": _summary(run, outcome),
         **_charts(run, outcome),
     }
+    for name, text in files.items():
+        _refuse_banned(name, text)
     return {name: text.encode("utf-8") for name, text in files.items()}
+
+
+def _refuse_banned(name: str, text: str) -> None:
+    """Raise ValueError when a file would hold one of _BANNED in any case. The
+    report's own copy holds none, so only free text copied from run.json can bring
+    one in. The message names the file and the word, never the text around it."""
+    folded = text.casefold()
+    for word in _BANNED:
+        if word in folded:
+            raise ValueError(
+                f"{name} would contain a banned word ({word}); check run.json's"
+                " free-text fields"
+            )
 
 
 _REVIEW_FIELDS = ("result", "class", "landmark")
@@ -190,7 +217,12 @@ def _review_row(
     ]
     for config in configs:
         result = row.results[config]
-        cells += [_result_text(result), result.passability or "", result.landmark or ""]
+        # The class that scoring counts: PATV for "no flood seen" (rules §7).
+        cells += [
+            _result_text(result),
+            lusot_class(result) or "",
+            result.landmark or "",
+        ]
     # A-neg photos have no M8 labels, so only Set A's are ever counted.
     return [*cells, *_m8_cells(row, counted=reason is None and row.answered), "", ""]
 
