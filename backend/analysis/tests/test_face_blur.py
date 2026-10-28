@@ -132,6 +132,7 @@ def test_face_blur_settings_are_pinned_to_their_version():
     # silent change to any of these must fail here (R94).
     pinned = {
         "FACE_BLUR_VERSION": "yunet-2023mar/multiscale-1-0.5-0.25/pixelate-gauss-v2",
+        "DOWNSCALES": (2, 4),
         "SCORE_THRESHOLD": 0.6,
         "MARGIN": 0.25,
         "PIXELATE_CELLS": 10,

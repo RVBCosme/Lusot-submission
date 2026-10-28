@@ -26,6 +26,7 @@ FACE_BLUR_VERSION = "yunet-2023mar/multiscale-1-0.5-0.25/pixelate-gauss-v2"
 YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
 # The setting FACE_BLUR_VERSION names. eval/rules.md §10 freezes it with the version
 # (D12), so none of these changes without a new version (R94).
+DOWNSCALES = (2, 4)  # YuNet's passes besides full size: half and quarter (R98)
 SCORE_THRESHOLD = 0.6  # YuNet's lowest face score kept
 MARGIN = 0.25  # each face box grows by this share of its size on every side
 PIXELATE_CELLS = 10  # the pixelate grid's cells a side, at most
@@ -125,7 +126,7 @@ def detect_faces(
         cv2.resize(
             bgr, (max(1, width // n), max(1, height // n)), interpolation=cv2.INTER_AREA
         )
-        for n in (2, 4)  # half and quarter size, as FACE_BLUR_VERSION records
+        for n in DOWNSCALES  # half and quarter size, as FACE_BLUR_VERSION records
     ]
     boxes = []
     with _DETECTOR_LOCK:
