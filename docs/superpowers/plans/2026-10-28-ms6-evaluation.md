@@ -579,8 +579,12 @@ All new.
     - **Dark:** surface `#1a1a19`, ink `#f0efec`, secondary `#c3c2b7`, muted `#898781`, gridline `#2c2c2a`, axis `#383835`.
   - **The level matrix:**
     - **Layout:** rows are the alert's levels, deepest at the top, under the axis title "Alert's level (MMDA or city)". Columns are "no flood seen", then the levels from shallowest, under "Lusot's level".
-    - **Shading:** a count shades its cell with the sequential blue steps 100, 250, 400, 550 and 700 (`#cde2fb`, `#86b6ef`, `#3987e5`, `#1c5cab`, `#0d366b`). The step for count `c` is `steps[ceil(5 * c / max_count) - 1]`, so the largest count always takes step 700. A zero cell stays the surface colour, with no number.
-    - **Labels:** each non-empty cell shows its count, in `#0b0b0b` on steps 100 and 250 and in `#ffffff` on the darker steps. Each has a `<title>` such as `alert knee, Lusot half_tire: 2`.
+    - **Shading:** a count shades its cell with a sequential blue ramp chosen for each mode and validated (C410).
+      - **Light:** steps 250, 400, 550 and 700 (`#86b6ef`, `#3987e5`, `#1c5cab`, `#0d366b`).
+      - **Dark:** steps 600, 450, 300 and 150 (`#184f95`, `#2a78d6`, `#6da7ec`, `#b7d3f6`), lighter as the count rises.
+
+      The step for count `c` is `steps[ceil(4 * c / max_count) - 1]`, so the largest count always takes the last step. The fills are per-step CSS classes that the dark block redefines, with no fill written inline on a cell. A zero cell stays the surface colour, with no number. (The first ramp, steps 100 to 700 in both modes, failed the validator's light-end contrast in both modes, so Task 7 changed the steps.)
+    - **Labels:** each non-empty cell shows its count. The ink is chosen by APCA: in light mode `#0b0b0b` on step 250 and `#ffffff` on 400, 550 and 700; in dark mode `#ffffff` on 600 and 450 and `#0b0b0b` on 300 and 150. Each cell has a `<title>` such as `alert knee, Lusot half_tire: 2`.
     - **Marks:** the diagonal cells are outlined with a 1 px axis-coloured stroke. Because rows run deepest at the top and columns shallowest at the left, the diagonal rises from the bottom left to the top right. The underestimates, where Lusot reads shallower than the alert, sit above and to the left of it, and that area is labelled "shallower than the alert".
   - **The error plot:**
     - one 8 px dot per measured wheel, in blue (`#2a78d6` light, `#3987e5` dark), sorted, against inches on one y axis
@@ -604,7 +608,7 @@ All new.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement `svg.py`, escaping text with `xml.sax.saxutils.escape`.
 - [ ] **Step 4: Check the colours** with the dataviz skill's validator (Node 22). The skill's base directory is in the controller's brief.
-  - `node <dataviz>/scripts/validate_palette.js "#cde2fb,#86b6ef,#3987e5,#1c5cab,#0d366b" --ordinal --mode light`, and the same steps with `--mode dark`
+  - `node <dataviz>/scripts/validate_palette.js "#86b6ef,#3987e5,#1c5cab,#0d366b" --ordinal --mode light`, and `"#184f95,#2a78d6,#6da7ec,#b7d3f6" --ordinal --mode dark --surface "#1a1a19"`
   - `node <dataviz>/scripts/validate_palette.js "#2a78d6" --mode light`, and `"#3987e5"` with `--mode dark`
 
   Record each result in the task report. A FAIL changes the colour step, never the check. A contrast WARN is met by the counts and the table twins, under the skill's relief rule.
