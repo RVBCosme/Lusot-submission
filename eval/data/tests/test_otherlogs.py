@@ -444,6 +444,25 @@ def test_consented_log_reads_cleanly(tmp_path):
     assert check_consented(tmp_path, rows) == ([], [])
 
 
+def test_a_repeated_item_id_is_a_problem_printed_once(tmp_path):
+    """S-R11's M5: each item has one row, and G1's demo pins are keyed by its id, so a
+    repeated item_id is a problem, printed once however often it repeats. A repeat is
+    checked no further, so the first row's problems print once too."""
+    rows = [
+        consented_row(kind="video"),
+        consented_row(kind="video"),
+        consented_row(item_id="S002", file="S002.jpg"),
+        consented_row(kind="video"),
+    ]
+    assert check_consented(tmp_path, rows) == (
+        [
+            Finding("S001", "kind", "not_in_list"),
+            Finding("S001", "item_id", "duplicate"),
+        ],
+        [],
+    )
+
+
 def test_m9_version_must_be_approved(tmp_path, monkeypatch):
     """The intake accepts only a donor message's version that Rene has approved (C218)."""
     monkeypatch.setitem(formats.APPROVED_CONSENT, "m9", frozenset({"M9-v2"}))
@@ -560,6 +579,23 @@ def test_sidewall_code_mismatch_warns(tmp_path, tire_code, checked_code, warned)
     rows = [sidewall_row(tire_code=tire_code, checked_code=checked_code)]
     expected = [Fact("sidewalls row 1", "code", "mismatch")] if warned else []
     assert check_sidewalls(tmp_path, rows) == ([], expected)
+
+
+@pytest.mark.parametrize("log", ["consented", "sidewalls"])
+def test_a_checked_column_without_its_own_check_raises(tmp_path, monkeypatch, log):
+    """S-R11's M4: a column added to a log's checked columns without a check of its own
+    stops the run, instead of being checked as another column is."""
+    error = pytest.raises(ValueError, match="no check for the column notes")
+    if log == "consented":
+        checked = otherlogs._CONSENTED_CHECKED + ("notes",)
+        monkeypatch.setattr(otherlogs, "_CONSENTED_CHECKED", checked)
+        with error:
+            check_consented(tmp_path, [consented_row(notes="x")])
+    else:
+        checked = otherlogs._SIDEWALLS_CHECKED + ("notes",)
+        monkeypatch.setattr(otherlogs, "_SIDEWALLS_CHECKED", checked)
+        with error:
+            check_sidewalls(tmp_path, [sidewall_row(notes="x")])
 
 
 @pytest.mark.parametrize(

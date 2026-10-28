@@ -32,9 +32,9 @@ can't count them as deep. A problem prints as <id> <column>: <kind> and a warnin
 set_a row 3 or a_neg log column 18 (Task 7's M7). The events come from the logs' text
 alone, so photos posted twice aren't joined yet: the split joins them.
 
-Exit codes: 0 no problem; 1 a problem, or a log that can't be read whole, for which
-only its finding prints; 2 a usage error, or a path inside a folder named sealed
-(C222).
+Exit codes: 0 no problem; 1 a problem, or a log that can't be found, decoded as UTF-8
+or read whole, for which only its finding prints; 2 a usage error, or a path inside a
+folder named sealed (C222).
 """
 
 import argparse
@@ -58,9 +58,9 @@ from table import Fact, Finding
 
 @dataclass
 class IntakeResult:
-    """Each set's check, M8's when it is given, and the problems and warnings of every
-    log, in the order the logs are read. A ref that names no id starts with its log's
-    name."""
+    """Each set's check, M8's when it is given and read, and the problems and warnings
+    of every log, in the order the logs are read. A ref that names no id starts with
+    its log's name."""
 
     set_a: SetCheck
     a_neg: SetCheck
@@ -84,9 +84,13 @@ def run_intake(
 
     Every path is refused first if a part of it names sealed (C222). The logs are then
     read in this order: Set A, A-neg, M8 against Set A's photos, the consented items and
-    the sidewall photos. A log that can't be read whole raises table.MalformedCsv, whose
-    finding is led by the log's name, as in set_a row 4 cells: too_many, and no later
-    log is read.
+    the sidewall photos. M8 is read only when Set A's log has all its columns, since
+    without them there are no photos to check it against (S-R11's M3).
+
+    A log that can't be found, decoded as UTF-8 or read whole raises table.MalformedCsv,
+    and no later log is read. Its finding is led by the log's name: set_a log:
+    file_missing, set_a log: not_utf8, or one that names a row or a header column, such
+    as set_a row 4 cells: too_many.
     """
     others = [path for path in (m8, consented, sidewalls) if path is not None]
     guards.refuse_sealed(set_a_log, set_a_photos, a_neg_log, a_neg_photos, *others)
@@ -98,7 +102,7 @@ def run_intake(
     problems += [_named("a_neg", problem) for problem in a_neg.problems]
     warnings = set_a.warnings + a_neg.warnings
     m8_check = None
-    if m8 is not None:
+    if m8 is not None and "missing_column" not in {p.kind for p in set_a.problems}:
         set_a_ids = [photo.photo_id for photo in set_a.photos]
         with _log_named("m8"):
             m8_check = otherlogs.check_m8(m8, set_a_ids, allow_missing=allow_missing_m8)
@@ -117,11 +121,17 @@ def run_intake(
 
 @contextmanager
 def _log_named(log: str) -> Iterator[None]:
-    """Raise a MalformedCsv from the log again, its finding led by the log's name."""
+    """Raise again, as a MalformedCsv whose finding is led by the log's name, the error
+    from a log that can't be found (file_missing), decoded as UTF-8 (not_utf8) or read
+    whole (S-R11's M2). The finding holds fixed words only, never a path or a text."""
     try:
         yield
     except table.MalformedCsv as error:
         raise table.MalformedCsv(_named(log, error.args[0])) from None
+    except FileNotFoundError:
+        raise table.MalformedCsv(Finding(log, "log", "file_missing")) from None
+    except UnicodeDecodeError:
+        raise table.MalformedCsv(Finding(log, "log", "not_utf8")) from None
 
 
 def _named(log: str, finding: Finding) -> Finding:

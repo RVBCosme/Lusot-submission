@@ -166,8 +166,11 @@ def check_consented(path: Path) -> tuple[list[Finding], list[Fact]]:
 
     A missing column gives `consented log <column>: missing_column`, and then no row is
     checked. A row whose item_id is blank or isn't S and three digits is named as
-    consented row n, and is checked no further. The rest name the item, column by
-    column; each column checked needs a value, or it is missing:
+    consented row n. A row that repeats an earlier row's item_id gives
+    `<id> item_id: duplicate`, once for each id, since each item has one row and G1's
+    demo pins are keyed by the id (S-R11's M5). Neither is checked further. The rest
+    name the item, column by column; each column checked needs a value, or it is
+    missing:
     - file and consent_file: file_missing unless the file lies beside the log
     - kind: not_in_list unless photo or clip
     - taken_pht: bad_time unless YYYY-MM-DD HH:MM
@@ -178,13 +181,20 @@ def check_consented(path: Path) -> tuple[list[Finding], list[Fact]]:
     missing = _missing_columns("consented", found, formats.CONSENTED_COLUMNS)
     if missing:
         return missing, []
-    problems = []
+    problems: list[Finding] = []
+    seen: set[str] = set()
     for row in found.rows:
         item_id = row["item_id"]
         if re.fullmatch(formats.ITEM_ID, item_id) is None:
             kind = "bad_id" if item_id else "missing"
             problems.append(Finding(f"consented row {row['#']}", "item_id", kind))
             continue
+        if item_id in seen:
+            duplicate = Finding(item_id, "item_id", "duplicate")
+            if duplicate not in problems:
+                problems.append(duplicate)
+            continue
+        seen.add(item_id)
         for column in _CONSENTED_CHECKED:
             kind = _consented_problem(path, column, row[column])
             if kind is not None:
@@ -193,6 +203,9 @@ def check_consented(path: Path) -> tuple[list[Finding], list[Fact]]:
 
 
 def _consented_problem(log: Path, column: str, value: str) -> str | None:
+    """One checked column's problem, if any. A column with no check of its own raises
+    ValueError, so that one added to _CONSENTED_CHECKED is never checked as another
+    (S-R11's M4)."""
     if not value:
         return "missing"
     if column in ("file", "consent_file"):
@@ -206,8 +219,9 @@ def _consented_problem(log: Path, column: str, value: str) -> str | None:
         if re.fullmatch(_DEGREES, value) is None or abs(float(value)) > limit:
             return "out_of_range"
         return None
-    # consent_version
-    return None if value in formats.APPROVED_CONSENT["m9"] else "not_approved"
+    if column == "consent_version":
+        return None if value in formats.APPROVED_CONSENT["m9"] else "not_approved"
+    raise ValueError(f"no check for the column {column}")
 
 
 def check_sidewalls(path: Path) -> tuple[list[Finding], list[Fact]]:
@@ -245,14 +259,18 @@ def check_sidewalls(path: Path) -> tuple[list[Finding], list[Fact]]:
 
 
 def _sidewall_problem(log: Path, column: str, value: str) -> str | None:
+    """One checked column's problem, if any. A column with no check of its own raises
+    ValueError, so that one added to _SIDEWALLS_CHECKED is never checked as another
+    (S-R11's M4)."""
     if not value:
         return "missing"
     if column in ("photo_file", "consent_file"):
         return _file_problem(log, value)
     if column == "vehicle":
         return None if value.lower() in formats.SIDEWALL_VEHICLES else "not_in_list"
-    # taken_on
-    return None if formats.is_date(value) else "bad_date"
+    if column == "taken_on":
+        return None if formats.is_date(value) else "bad_date"
+    raise ValueError(f"no check for the column {column}")
 
 
 def _code(code: str) -> str:

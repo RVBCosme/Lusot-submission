@@ -138,6 +138,11 @@ Tell Claude when you've logged a batch ("logged up to A0xx"). Claude then runs t
   - `same_post=several`: two or more same-post rows (see step 2 of "How to log each Set A photo")
   - `nearest=tied`: two fitting alerts are equally near in time but give different words, so a fixed order picks the photo's labels: a same-post row first, then the row logged first
 - **Row numbers:** when an id itself is bad, the intake names the row instead, after its log's name, as in `set_a row 3 candidate_id: bad_id`. It counts data rows, so data row n is your spreadsheet's row n + 1, because the header is row 1: `set_a row 3` is spreadsheet row 4.
+- **A log the intake can't read** stops the check. Only one line prints, led by the log's name; fix that log, and Claude runs the check again:
+  - `m8 log: file_missing`: the log isn't where Claude looked for it.
+  - `set_a log: not_utf8`: the log wasn't saved as "CSV UTF-8" (step 3 of "Set up your logs").
+  - `set_a row 4 cells: too_many`, or `too_few`: that row has more or fewer cells than the header row (step 4).
+  - `set_a header column 21: blank`, or `duplicate`: a header cell that is empty, or repeats another's name. `reserved` means the name is `#`, which the tools keep for themselves.
 
 Fix only your own transcription slips, never the post's words.
 

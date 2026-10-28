@@ -299,6 +299,24 @@ def test_run_intake_lets_the_split_allow_missing_m8(tmp_path):
     assert found.m8.missing_photo_rows == ["A002"]
 
 
+def test_intake_skips_m8_without_set_a_columns(tmp_path, capsys):
+    """S-R11's M3: a Set A log that lacks a column gives no photos to check M8 against,
+    so M8 isn't read, and only the missing column prints, not an unknown_photo line
+    for each M8 row."""
+    no_city = tuple(column for column in SET_A_COLUMNS if column != "city")
+    m8 = [M8_PHOTO, M8_PHOTO | {"photo_id": "A002"}]
+    paths = write_inputs(tmp_path, set_a_columns=no_city, m8=m8)
+    assert run(paths) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "set_a rows=1 photos=0 no_class=0",
+        "a_neg rows=1 photos=1",
+        "set_a log city: missing_column",
+        "events set_a=0 largest=0 single=0",
+        "events a_neg=1 largest=1 single=1",
+        "problems=1 warnings=0",
+    ]
+
+
 @pytest.mark.parametrize(
     ("flag", "header", "expected"),
     [
@@ -324,6 +342,36 @@ def test_intake_names_a_malformed_log(tmp_path, capsys, flag, header, expected):
     log.write_bytes(header + b"\n" + b",".join(cells) + b"\n")
     assert run(paths) == 1
     assert capsys.readouterr().out == expected + "\n"
+
+
+LOG_NAMES = [
+    ("--set-a-log", "set_a"),
+    ("--a-neg-log", "a_neg"),
+    ("--m8", "m8"),
+    ("--consented", "consented"),
+    ("--sidewalls", "sidewalls"),
+]
+
+
+@pytest.mark.parametrize("kind", ["not_utf8", "file_missing"])
+@pytest.mark.parametrize(("flag", "name"), LOG_NAMES)
+def test_intake_names_a_log_it_cannot_read(tmp_path, capsys, flag, name, kind):
+    """S-R11's M2: a log saved in an encoding other than UTF-8, as Excel's plain CSV is,
+    or a log that isn't there, stops the intake with exit 1. Only one line prints, led
+    by the log's name and with a fixed kind, never a path or the log's text."""
+    paths = write_inputs(
+        tmp_path, m8=[M8_PHOTO], consented=[CONSENTED], sidewalls=[SIDEWALL]
+    )
+    log = paths[flag]
+    if kind == "not_utf8":
+        data = log.read_bytes()
+        commas = data.split(b"\n")[0].count(b",")
+        # A whole row, whose one filled cell holds ñ in Windows' own encoding.
+        log.write_bytes(data + "Piñas".encode("cp1252") + b"," * commas + b"\n")
+    else:
+        log.unlink()
+    assert run(paths) == 1
+    assert capsys.readouterr().out == f"{name} log: {kind}\n"
 
 
 def test_intake_reads_no_photo_bytes(tmp_path):
@@ -500,4 +548,35 @@ def test_guide_examples_are_lines_the_intake_prints(tmp_path, capsys):
     for paths, line in runs:
         assert run(paths) == 1
         assert line in capsys.readouterr().out.splitlines()
+        assert f"`{line}`" in guide
+
+
+def test_guide_examples_of_a_log_the_intake_cannot_read(tmp_path, capsys):
+    """S-R11's M6: the guide's examples of a log the intake can't read are the one line
+    it prints for each: a missing log, a log saved in another encoding, a row whose
+    cells don't fit the header, and a blank header cell."""
+    guide = GUIDE.read_text(encoding="utf-8")
+    missing = write_inputs(tmp_path / "missing", m8=[M8_PHOTO])
+    missing["--m8"].unlink()
+    # Excel's plain CSV writes the ñ of Las Piñas in Windows' own encoding.
+    encoded = write_inputs(tmp_path / "encoded", [synth.set_a_row(city="Las Piñas")])
+    log = encoded["--set-a-log"]
+    log.write_bytes(log.read_bytes().decode("utf-8").encode("cp1252"))
+    rows = [synth.set_a_row(candidate_id=f"A00{n}") for n in range(1, 5)]
+    cells = write_inputs(tmp_path / "cells", rows)
+    lines = cells["--set-a-log"].read_bytes().split(b"\n")
+    lines[4] += b",extra"  # data row 4, below the header row
+    cells["--set-a-log"].write_bytes(b"\n".join(lines))
+    header = write_inputs(tmp_path / "header")
+    first, rest = header["--set-a-log"].read_bytes().split(b"\n", 1)
+    header["--set-a-log"].write_bytes(first + b",\n" + rest)  # a 21st, blank, name
+    runs = [
+        (missing, "m8 log: file_missing"),
+        (encoded, "set_a log: not_utf8"),
+        (cells, "set_a row 4 cells: too_many"),
+        (header, "set_a header column 21: blank"),
+    ]
+    for paths, line in runs:
+        assert run(paths) == 1
+        assert capsys.readouterr().out == line + "\n"
         assert f"`{line}`" in guide
