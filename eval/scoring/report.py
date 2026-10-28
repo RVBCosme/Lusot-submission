@@ -1261,6 +1261,8 @@ def _summary(run: Run, outcome: _Outcome | None) -> str:
                 "underestimation": _pair(scores.under),
                 "passability": _pair(scores.passability),
                 "coverage": _pair(scores.coverage),
+                "exact": _pair(scores.exact),
+                "within_one": _pair(scores.within_one),
                 "refused": scores.refused,
                 "failed": scores.failed,
             }

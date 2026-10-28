@@ -1100,6 +1100,8 @@ def test_summary_json(tmp_path):
             "underestimation": {"k": scores.under.k, "n": scores.under.n},
             "passability": {"k": scores.passability.k, "n": scores.passability.n},
             "coverage": {"k": scores.coverage.k, "n": scores.coverage.n},
+            "exact": {"k": scores.exact.k, "n": scores.exact.n},
+            "within_one": {"k": scores.within_one.k, "n": scores.within_one.n},
             "refused": scores.refused,
             "failed": scores.failed,
         }
