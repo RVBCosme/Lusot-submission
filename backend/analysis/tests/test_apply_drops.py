@@ -178,6 +178,9 @@ def test_a_standing_child_does_not_block_wading_adults(adult):
         pytest.param(
             ("not_visible", "not_visible"), True, False, id="lost-a-small-wheel"
         ),
+        # The commonest C69 case: a far car whose only linked wheel was cut, so none
+        # is numbered. Its window-deep body would otherwise give a tire floor.
+        pytest.param((), True, False, id="lost-its-only-wheel"),
     ],
 )
 def test_wheels_hidden(waterlines, small, hidden):
