@@ -705,13 +705,28 @@ def test_delivery_after_result_pays_nothing_and_deletes_raw(
     assert outcomes(caplog) == ["already_finished"]
 
 
-def test_live_lease_is_left_alone(aws, fake, caplog):
+def test_live_lease_is_left_alone(aws, fake, monkeypatch, caplog):
+    # Another worker holds a live lease. The delivery returns its message instead of
+    # finishing it, so a copy is left if that worker crashes (C89). It sets no short
+    # visibility: R92's 10 s is only for a report the index doesn't show yet.
+    changes = spy_visibility(monkeypatch)
     before = seed(aws, photo=LEVEL_PHOTO, **claimed("other", NOW_S - 60))
-    assert handler.handler(message(), None) == NO_FAILURES
+    assert handler.handler(message(), None) == RETRY
     assert report(aws) == before
     assert keys(aws) == [RAW_KEY]  # the worker that holds the lease deletes it
     assert fake.calls == []
-    assert outcomes(caplog) == ["lease_held"]
+    assert changes == []
+    # The holder crashes. The copy comes back after the queue's 1,080 s visibility
+    # timeout, past the 900 s lease, and claims the report again.
+    monkeypatch.setattr(handler, "_now_s", lambda: NOW_S + 1080)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    assert item["claimToken"] != {"S": "other"}
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S + 1080, "done") | KNEE
+    assert len(fake.calls) == 8
+    assert keys(aws) == [PHOTO_KEY]
+    assert outcomes(caplog) == ["lease_held", "done/level"]
 
 
 def test_expired_lease_is_reclaimed(aws, fake):
@@ -724,7 +739,7 @@ def test_expired_lease_is_reclaimed(aws, fake):
     assert keys(aws) == [PHOTO_KEY]
 
 
-def test_racing_deliveries_pay_once(aws, fake, caplog):
+def test_racing_deliveries_pay_once(aws, fake, monkeypatch, caplog):
     seed(aws, photo=LEVEL_PHOTO)
     nested = []
 
@@ -737,11 +752,18 @@ def test_racing_deliveries_pay_once(aws, fake, caplog):
 
     fake.on_segment = second_delivery
     assert handler.handler(message(), None) == NO_FAILURES
-    assert nested == [NO_FAILURES]
+    # The second delivery met the first worker's lease: it paid nothing, and it
+    # returned its message (C89).
+    assert nested == [RETRY]
     assert len(fake.calls) == 8  # one set of calls: 7 + 1
     assert outcomes(caplog) == ["lease_held", "done/level"]
     assert status(aws) == ("done", None)
     assert keys(aws) == [PHOTO_KEY]
+    # The returned copy comes back 1,080 s later, after the result, and only finishes.
+    monkeypatch.setattr(handler, "_now_s", lambda: NOW_S + 1080)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert len(fake.calls) == 8
+    assert outcomes(caplog) == ["lease_held", "done/level", "already_finished"]
 
 
 def test_lease_lost_at_the_final_write(aws, fake, caplog):
@@ -811,7 +833,7 @@ def test_reused_link_during_analysis_pays_once_and_leaves_no_raw(aws, fake, capl
 
     fake.on_judge = reuse_the_link
     assert handler.handler(message(), None) == NO_FAILURES
-    assert second == [NO_FAILURES]
+    assert second == [RETRY]  # it met the lease, so it returned its message (C89)
     assert len(fake.calls) == 8
     assert outcomes(caplog) == ["lease_held", "done/level"]
     item = report(aws)

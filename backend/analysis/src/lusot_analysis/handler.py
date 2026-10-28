@@ -8,7 +8,9 @@ photo, so no raw photo outlives its report's result (W25).
 An AWS error returns the message for an SQS retry, which comes after the claim's
 lease has expired (C46). A fault in what the run loads, and a key or account that
 Meta rejects, return it too, so they end in the dead-letter queue and its alarm, not
-in failed reports (C60, C73, C79).
+in failed reports (C60, C73, C79). So does a delivery that meets another worker's
+live lease: a message is finished only once its report is final or its own work has
+ended, so a copy is left to claim the report again if that worker crashes (C89).
 """
 
 from __future__ import annotations
@@ -42,7 +44,9 @@ _JPEG_MAGIC = b"\xff\xd8\xff"  # how every JPEG starts; the app sends only JPEG 
 # grant gets (R22, R93). Any other code, such as a 403 from clock skew, retries.
 _MISSING_PHOTO_CODES = frozenset({"NoSuchKey", "AccessDenied"})
 _NOT_FOUND_VISIBILITY_S = 10  # a report not yet in the index retries this soon (R92)
-_RETRY_OUTCOMES = frozenset({"error", "model_key_rejected"})
+# The outcomes that return the message: an error, a rejected key (C73), and another
+# worker's live lease (C89).
+_RETRY_OUTCOMES = frozenset({"error", "model_key_rejected", "lease_held"})
 
 logger = logging.getLogger("lusot.analysis")
 logger.setLevel(logging.INFO)  # Lambda's text log format otherwise drops INFO
@@ -207,7 +211,10 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     if state == "finished":  # a retried delete, or a reused upload link
         _delete(key)
         return "already_finished"
-    if state == "leased":  # the worker holding the lease deletes raw/ when it's done
+    if state == "leased":
+        # Another worker holds a live lease, and deletes raw/ when it's done. The
+        # message returns with the queue's own visibility timeout, not R92's 10 s:
+        # its copy comes back once the report is final or the lease has expired (C89).
         return "lease_held"
     # An earlier attempt may have saved its level's photo and then failed its write.
     # Every attempt starts with none, so only a written level keeps one (C72).
