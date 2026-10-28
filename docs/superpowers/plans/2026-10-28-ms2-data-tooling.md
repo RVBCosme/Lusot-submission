@@ -704,7 +704,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - It opens `py7zr.SevenZipFile(path, "x", password=password, header_encryption=True)`, writes bytes with `writestr(data, arcname)` and files with `write(path, arcname)`, and closes.
     - Then it hashes the written file's bytes.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_photo_facts_of_a_jpeg`: the SHA-256 equals hashlib's, the sizes are right, and the dHash has 16 hex digits.
   - `test_reencoded_copy_is_near`: quality 95 and 70 copies are near (`events.near`).
   - `test_different_photos_are_far`: seeds 1 and 2 aren't near.
@@ -716,10 +716,28 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_bad_arcnames_are_refused_before_writing`: `../x`, `/x`, `a\b` and a repeat each raise `ValueError`, and no file is created.
   - `test_facts_are_the_file_bytes`: the size and SHA-256 equal the file's.
   - `test_archive_module_never_reads_an_archive`: its source has exactly one `SevenZipFile(` call, with mode `"x"`, and none of py7zr's reading methods (`.extract`, `.getnames(`, `.namelist(`, `.list(`, `.test(`, `.testzip(`).
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "photos or archive"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'photos'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(data): add photo facts and the write-once encrypted archive`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "photos or archive"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'photos'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(data): add photo facts and the write-once encrypted archive`.
+
+*Evidence (Task 9, Oct 29):*
+- **Commits:** a369ffa, d04de77 and bed8e3d.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py` gives 398 passed, also with `-W error`.
+- **Checks:** ruff, the plan-leak check, the account-ID scan and gitleaks are clean.
+- **What the review confirmed:**
+  - No member name or content reaches the file in plaintext: header encryption plus AES on the contents, each pinned by a test.
+  - An existing file is never overwritten.
+  - The 50-megapixel cap is real in a fresh interpreter.
+  - The dHash is MSB-first, row by row.
+  - 14 of 16 mutants were caught.
+- **One fix round (S-R12)** moved every foreseeable failure before the archive exists:
+  - each member must be `bytes` or a regular, unlinked file
+  - members are read once
+  - arcnames must be printable, with repeats compared by casefold
+  - a password must encode as UTF-16, refused with no chained exception
+- **A golden dHash pins `INTER_AREA` and BGR-to-gray:** `9ca95593565bb5b7`, worked out first and recomputed independently by the re-review.
+- **Extras the review accepted:** an empty password and `.`, `..` or empty arcname parts are refused. The re-review was clean.
 
 ### Task 10: The stratified draw (C204, as amended)
 
