@@ -5,12 +5,13 @@
 
 It rebuilds Lusot's evaluation report from saved results, with no install, no key and
 no network. It refuses a path inside a folder named sealed before anything is read
-(C411), loads the results folder (eval/results/ beside this script, unless --results
-names another), and builds every report file in memory. Then it compares them with
-the committed copies in the folder's report/, or with --write writes them there. When
-the folder holds rules §10's one disclosed rerun in rerun/, it does the same for the
-rerun, beside the first run (C421). --label-words prints the words a committed label
-may hold, for the export (C420).
+(C411). It loads the results folder (eval/results/ beside this script, unless
+--results names another) and, after rules §10's one disclosed rerun, its rerun/
+folder, whose report sets the first run's beside its own (C421). It builds every
+report file in memory before writing or comparing any, so input that can't be built
+writes nothing. Then it compares the files with the committed copies in each
+folder's report/, or with --write writes them there. --label-words prints the words a
+committed label may hold, for the export (C420).
 
 Exit codes: 0 identical or written, 1 different, 2 refused or invalid. Every printed
 line is ASCII, with any run of 12 digits masked.
@@ -22,6 +23,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
@@ -85,12 +87,16 @@ def _run(argv: list[str] | None) -> int:
     _say(f"results: {results}")
     if not results.is_dir():
         raise _Stop("invalid: no results folder at that path")
-    first, code = _rebuild(results, None, write=args.write)
-    rerun = results / "rerun"
-    if (rerun / "run.json").is_file():
-        _say(f"results: {rerun}")
-        _, rerun_code = _rebuild(rerun, first, write=args.write)
-        code = max(code, rerun_code)
+    # Both reports are built before either is written or compared, so a rerun that
+    # can't be built leaves the first run's report as it was.
+    first = _build(results, None, write=args.write)
+    rerun = None
+    if (results / "rerun" / "run.json").is_file():
+        rerun = _build(results / "rerun", first.run, write=args.write, where="rerun/")
+    code = _finish(first, write=args.write)
+    if rerun is not None:
+        _say(f"results: {rerun.folder}")
+        code = max(code, _finish(rerun, write=args.write))
     return code
 
 
@@ -125,25 +131,40 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _rebuild(
-    folder: Path, first_run: rows.Run | None, *, write: bool
-) -> tuple[rows.Run, int]:
-    """Load one results folder, build its report in memory and print its figures,
-    then write the files or compare them. Returns the run, which a rerun's report
-    sets beside its own, and the exit code."""
+@dataclass(frozen=True)
+class _Built:
+    """One results folder's report, built in memory: its files, and with --write a
+    development run's review sheet (None otherwise)."""
+
+    folder: Path
+    run: rows.Run
+    files: dict[str, bytes]
+    review: bytes | None
+
+
+def _build(
+    folder: Path, first_run: rows.Run | None, *, write: bool, where: str = ""
+) -> _Built:
+    """Load one results folder and build its report in memory. An error's line names
+    the file with `where` before it: "rerun/" for the rerun."""
     try:
         run = rows.load_run(folder)
     except rows.RowError as error:
-        raise _Stop(f"invalid: {error}") from None
+        raise _Stop(f"invalid: {where}{error}") from None
     try:
         files = build_report(run, first_run=first_run)
     except ValueError as error:  # Task 8's copy guard, or C421's first_run
-        raise _Stop(f"invalid: {error}") from None
-    review = build_review(run) if write else None
-    _say_figures(json.loads(files["summary.json"]), synthetic=run.synthetic)
+        raise _Stop(f"invalid: {where}{error}") from None
+    return _Built(folder, run, files, build_review(run) if write else None)
+
+
+def _finish(built: _Built, *, write: bool) -> int:
+    """Print a built report's figures, then write its files or compare them, and
+    return the exit code."""
+    _say_figures(json.loads(built.files["summary.json"]), synthetic=built.run.synthetic)
     if write:
-        return run, _write(folder / "report", files, review)
-    return run, _compare(folder / "report", files)
+        return _write(built.folder / "report", built.files, built.review)
+    return _compare(built.folder / "report", built.files)
 
 
 def _say_figures(summary: dict, *, synthetic: bool) -> None:

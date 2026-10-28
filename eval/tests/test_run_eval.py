@@ -54,6 +54,8 @@ FIXTURE_REPORT = [
     "summary.json",
 ]
 RERUN_REASON = "a fix changed the depth output"
+# A stop whose cause brings a banned word into the report (Task 8's copy guard).
+SAFETY_STOP = {"at": "21:10", "cause": "Safety restart", "resumed": "21:40"}
 
 
 # Running the command
@@ -106,6 +108,13 @@ def change_result(path: Path, photo_id: str, config: str, **fields: object) -> N
             row["outcomes"][config].update(fields)
             lines[number] = json.dumps(row)
     path.write_bytes("\n".join(lines).encode("utf-8"))
+
+
+def break_line(path: Path, number: int) -> None:
+    """Cut one line of a JSON Lines file short, so it isn't valid JSON."""
+    lines = path.read_bytes().split(b"\n")
+    lines[number - 1] = lines[number - 1][:40]
+    path.write_bytes(b"\n".join(lines))
 
 
 def edit_manifest(folder: Path, **fields: object) -> None:
@@ -305,10 +314,7 @@ def test_rerun_folder(tmp_path, capsys):
 
 def test_invalid_input_gives_exit_2(tmp_path, capsys):
     folder = copy_fixture(tmp_path / "run1", report=False)
-    path = folder / "set_a.jsonl"
-    lines = path.read_bytes().split(b"\n")
-    lines[2] = lines[2][:40]  # line 3, cut short
-    path.write_bytes(b"\n".join(lines))
+    break_line(folder / "set_a.jsonl", 3)
     for flags in ((), ("--write",)):
         code, printed = rebuild(capsys, folder, *flags)
         assert code == 2
@@ -328,9 +334,7 @@ def test_invalid_input_gives_exit_2(tmp_path, capsys):
 def test_report_errors_give_exit_2(tmp_path, capsys):
     # Task 8's copy guard: run.json's free text would bring a banned word in.
     folder = copy_fixture(tmp_path / "run1", report=False)
-    edit_manifest(
-        folder, stops=[{"at": "21:10", "cause": "Safety restart", "resumed": "21:40"}]
-    )
+    edit_manifest(folder, stops=[SAFETY_STOP])
     for flags in ((), ("--write",)):
         code, lines = rebuild(capsys, folder, *flags)
         assert code == 2
@@ -347,6 +351,38 @@ def test_report_errors_give_exit_2(tmp_path, capsys):
         "invalid: first_run comes with a rerun's report, and only then (C421)"
     )
     assert not (rerun / "report").exists()
+
+
+@pytest.mark.parametrize(
+    ("fault", "error"),
+    [
+        ("row", "invalid: rerun/set_a.jsonl:3: the text isn't valid JSON"),
+        ("word", "invalid: rerun/report.md would contain a banned word (safe);"),
+    ],
+    ids=["broken row", "banned word"],
+)
+def test_invalid_rerun_writes_nothing(tmp_path, capsys, fault, error):
+    # Every file is built before any is written or compared, so a rerun that can't
+    # be built leaves the first run's report as it was (the controller's ruling).
+    folder = copy_fixture(tmp_path / "run1")
+    # A changed row, so a rewritten first report would differ from the committed one.
+    change_result(
+        folder / "set_a.jsonl", "A01", "geometry", level="waist", passability="NPATV"
+    )
+    rerun = copy_fixture(folder / "rerun", report=False)
+    edit_manifest(rerun, rerun_reason=RERUN_REASON)
+    if fault == "row":
+        break_line(rerun / "set_a.jsonl", 3)
+    else:
+        edit_manifest(rerun, stops=[SAFETY_STOP])
+    committed = contents(folder / "report")
+    for flags in (("--write",), ()):
+        code, lines = rebuild(capsys, folder, *flags)
+        assert code == 2, flags
+        assert contents(folder / "report") == committed, flags
+        assert not (rerun / "report").exists(), flags
+        assert not [line for line in lines if line.startswith("report: ")], flags
+        assert lines[-1].startswith(error), flags
 
 
 def test_runs_isolated_from_another_folder(tmp_path):
