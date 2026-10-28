@@ -4,7 +4,7 @@ Run from backend/analysis, after probes/make_test_wav.ps1, with MODEL_API_KEY se
 
     uv run python probes/run_probe.py [--photos 5] [--water 10] [--voice-dir DIR]
 
-It spends Meta credits, about $0.16 with the defaults.
+It spends Meta credits: $0.21 with the defaults on Oct 28, most of it SAM's.
 - A1: each photo is face-blurred, then gets the 7 SAM phrases at once, its numbered
   boxes, Muse Spark's input token count, and Muse Spark's answer under schema v1,
   which jsonschema and check_ids then check.
@@ -394,14 +394,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         row = probe_a1(client, name, prompt, schema, validator, out)
         a1.append(row)
         sam_s = [p["elapsed_s"] for p in row["sam"].values()]
-        problems = row["id_problems"]
+        spark, problems = row["spark"], row["id_problems"]
         print(
             f"A1 {n}/{len(a1_photos)} {name}: {row['faces']} faces, "
             f"{sum(row['numbered_boxes'].values())} boxes, "
             f"SAM p50 {statistics.median(sam_s):.1f} s max {max(sam_s):.1f} s, "
             f"{row['counted_input_tokens']} tokens counted, "
-            f"judge {row['spark']['elapsed_s']} s "
-            f"({row['spark']['input_tokens']} in, {row['spark']['output_tokens']} out), "
+            f"judge {spark['elapsed_s']} s "
+            f"({spark['input_tokens']} in, {spark['output_tokens']} out), "
             f"schema {'valid' if row['schema_valid'] else 'INVALID'}, "
             f"{'unchecked' if problems is None else len(problems)} id problems"
         )

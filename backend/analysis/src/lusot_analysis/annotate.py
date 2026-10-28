@@ -28,7 +28,7 @@ _COLOURS: dict[Kind, tuple[int, int, int]] = {
     "wheel": (0, 255, 255),
     "person": (255, 0, 255),
 }
-_LINE_PX = 2
+_LINE_THICKNESS = 2  # OpenCV draws it 3 px wide, centred on the box's edge
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _FACE_MARGIN = 0.25  # blur_faces' default margin, which derive blurs with
 
@@ -37,10 +37,10 @@ _FACE_MARGIN = 0.25  # blur_faces' default margin, which derive blurs with
 class NumberedBox:
     """One numbered SAM match.
 
-    `box` is (x0, y0, x1, y1) in whole pixels of the image SAM saw. It is half-open, like
-    SamInstance.box: x1 and y1 are one past the last column and row, so `mask[y0:y1,
-    x0:x1]` holds the match. SAM's box is rounded outward (floor the start, ceil the
-    end), so it still holds the whole match (R74).
+    `box` is (x0, y0, x1, y1) in whole pixels of the image SAM saw. It is half-open,
+    like SamInstance.box: x1 and y1 are one past the last column and row, so
+    `mask[y0:y1, x0:x1]` holds the match. SAM's box is rounded outward (floor the
+    start, ceil the end), so it still holds the whole match (R74).
     """
 
     id: int
@@ -64,12 +64,15 @@ def number_boxes(sam: dict[str, SamResult]) -> list[NumberedBox]:
 
 
 def draw_numbered_boxes(img: BlurredImage, boxes: list[NumberedBox]) -> BlurredImage:
-    """Draw each box as a 2 px outline, and its id on a small tag in the same colour.
+    """Draw each box as a thin outline, and its id on a small tag in the same colour.
 
-    cv2.rectangle's second corner is inclusive, so a half-open box is drawn to (x1 - 1,
-    y1 - 1). The result comes from BlurredImage.derive, which keeps the blur record and
-    blurs every face it finds once more (R18), so a label must miss every head. Each
-    label goes above the box's top-left corner, else above its top-right, below its
+    The outline is cv2.rectangle at thickness 2, which OpenCV draws 3 px wide, centred
+    on the box's edge. Its second corner is inclusive, so a half-open box is drawn to
+    (x1 - 1, y1 - 1).
+
+    The result comes from BlurredImage.derive, which keeps the blur record and blurs
+    every face it finds once more (R18), so a label must miss every head. Each label
+    goes above the box's top-left corner, else above its top-right, below its
     bottom-left or below its bottom-right, each moved inside the image if needed. It
     takes the first place that misses both every face found in `img`, grown by the blur
     margin, and every label drawn before it, so no label hides another's id. If none
@@ -84,7 +87,8 @@ def draw_numbered_boxes(img: BlurredImage, boxes: list[NumberedBox]) -> BlurredI
     pad = thickness + 2
     for box in boxes:
         x0, y0, x1, y1 = box.box
-        cv2.rectangle(bgr, (x0, y0), (x1 - 1, y1 - 1), _COLOURS[box.kind], _LINE_PX)
+        colour = _COLOURS[box.kind]
+        cv2.rectangle(bgr, (x0, y0), (x1 - 1, y1 - 1), colour, _LINE_THICKNESS)
     labels: list[tuple[int, int, int, int]] = []
     for box in boxes:  # labels go over every outline
         text = str(box.id)

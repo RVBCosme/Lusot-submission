@@ -1,4 +1,4 @@
-"""Tests for Muse Spark's prompt and answer schema, v1: plan Table 5 without outline_fits."""
+"""Tests for Muse Spark's prompt and schema v1: plan Table 5 without outline_fits."""
 
 import json
 from pathlib import Path
@@ -78,7 +78,7 @@ ENUMS = {
 
 
 def objects(schema: dict, path: tuple = ()):
-    """Each object in the schema, with where it sits; a list's items count as the list."""
+    """Each object in the schema and where it sits; a list's items sit at the list."""
     if schema["type"] == "object":
         yield path, schema
         for name, field in schema["properties"].items():
