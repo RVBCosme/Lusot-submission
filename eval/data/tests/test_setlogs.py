@@ -1,0 +1,603 @@
+"""Tests for the checks of the Set A and A-neg logs, the match of each photo to its
+alerts and each photo's facts (spec §5.3, §5.9, C201, C209, C223, C224, S-R4, S-R9).
+
+Every log is synthetic, and each photo it names is an empty file, since the check only
+stats it (C201).
+"""
+
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import formats
+import pytest
+import setlogs
+import synth
+import table
+from table import Fact, Finding
+
+TEMPLATE_DIR = Path(__file__).resolve().parents[3] / "eval" / "templates"
+# synth's Set A rows are at España cor. Lacson, posted at this time. The same corner
+# written another way is the same spot, through two shared names (C224, S-R9).
+POSTED = synth.set_a_row()["post_time_pht"]
+SAME_SPOT = "Lacson Avenue corner Espana Boulevard"
+# A text that no finding or fact may hold (C201).
+SENTINEL = "Zqxjv"
+
+
+def check(base, rows, *, set_name="A", columns=None, photos=None):
+    """Check the rows as one set's log, written in base with the columns, by default the
+    set's template's. Each photo the rows name, or each of photos when given, is an
+    empty file in base/raw."""
+    if columns is None:
+        template = "set_a_log.csv" if set_name == "A" else "a_neg_log.csv"
+        columns = formats.TEMPLATES[template]
+    log = synth.write_csv(base / "log.csv", columns, rows)
+    raw = base / "raw"
+    raw.mkdir()
+    if photos is None:
+        photos = {row["photo_file"] for row in rows if row.get("photo_file")}
+    for name in photos:
+        (raw / name).touch()
+    return setlogs.check_set_log(log, raw, set_name=set_name)
+
+
+def separate(minutes=10, **cells):
+    """A Set A row for an alert in another post: MMDA's, at the same spot written
+    another way, posted the given minutes after the photo (before it when negative)."""
+    alert = formats.parse_time(POSTED) + timedelta(minutes=minutes)
+    alert_cells = {
+        "photo_in_alert_post": "no",
+        "alert_poster": "MMDA",
+        "alert_spot_text": SAME_SPOT,
+        "alert_time_pht": alert.strftime("%Y-%m-%d %H:%M"),
+    }
+    return synth.set_a_row(**(alert_cells | cells))
+
+
+def only_photo(found):
+    """The one photo of a check that found no problem."""
+    assert found.problems == []
+    [photo] = found.photos
+    return photo
+
+
+def labels(photo):
+    return (
+        photo.match,
+        photo.level_label_raw,
+        photo.passability_raw,
+        photo.other_alerts_raw,
+    )
+
+
+WITHOUT_CITY = tuple(c for c in formats.TEMPLATES["set_a_log.csv"] if c != "city")
+# Each kind of problem, alone. A name that isn't the photo's own is never looked for,
+# so the photo it names needn't exist.
+PROBLEM_CASES = [
+    pytest.param(
+        [synth.set_a_row()],
+        {"columns": WITHOUT_CITY},
+        [Finding("log", "city", "missing_column")],
+        id="missing_column",
+    ),
+    pytest.param(
+        [synth.set_a_row(candidate_id="A01")],
+        {},
+        [Finding("row 1", "candidate_id", "bad_id")],
+        id="bad_id",
+    ),
+    pytest.param(
+        [synth.set_a_row(photo_file="A002.jpg")],
+        {"photos": ()},
+        [Finding("A001", "photo_file", "id_file_mismatch")],
+        id="id_file_mismatch",
+    ),
+    pytest.param(
+        [synth.set_a_row(), synth.set_a_row(spot_text=SAME_SPOT)],
+        {},
+        [Finding("A001", "spot_text", "differs")],
+        id="differs",
+    ),
+    pytest.param(
+        [synth.set_a_row()],
+        {"photos": ()},
+        [Finding("A001", "photo_file", "file_missing")],
+        id="file_missing",
+    ),
+    pytest.param(
+        [synth.set_a_row(logged_on="29/10/2026")],
+        {},
+        [Finding("A001", "logged_on", "bad_date")],
+        id="bad_date",
+    ),
+    pytest.param(
+        [synth.set_a_row(post_time_pht="2026-08-09 8:20")],
+        {},
+        [Finding("A001", "post_time_pht", "bad_time")],
+        id="bad_time",
+    ),
+    pytest.param(
+        [synth.set_a_row(reference_visible="tire")],
+        {},
+        [Finding("A001", "reference_visible", "not_in_list")],
+        id="not_in_list",
+    ),
+    pytest.param(
+        [synth.set_a_row(logged_on="")],
+        {},
+        [Finding("A001", "logged_on", "missing")],
+        id="missing",
+    ),
+    pytest.param(
+        [synth.set_a_row(same_spot_as="A009")],
+        {},
+        [Finding("A001", "same_spot_as", "bad_link")],
+        id="bad_link",
+    ),
+    pytest.param(
+        [
+            synth.set_a_row(same_spot_as="A002"),
+            synth.set_a_row(candidate_id="A002", post_time_pht="2026-08-10 08:20"),
+        ],
+        {},
+        [Finding("A001", "same_spot_as", "bad_link")],
+        id="bad_link_to_another_date",
+    ),
+]
+
+
+@pytest.mark.parametrize(("rows", "options", "expected"), PROBLEM_CASES)
+def test_each_problem_kind(tmp_path, rows, options, expected):
+    assert check(tmp_path, rows, **options).problems == expected
+
+
+SET_A_REQUIRED = (
+    "candidate_id",
+    "logged_on",
+    "platform",
+    "post_url",
+    "poster",
+    "post_time_pht",
+    "spot_text",
+    "city",
+    "photo_in_alert_post",
+    "photo_file",
+    "reference_visible",
+    "label_in_image",
+    "faces_or_plates",
+)
+SEPARATE_POST_REQUIRED = ("alert_poster", "alert_spot_text", "alert_time_pht")
+A_NEG_REQUIRED = (
+    "candidate_id",
+    "logged_on",
+    "poster",
+    "post_time_pht",
+    "spot_text",
+    "city",
+    "photo_file",
+    "reference_visible",
+    "label_in_image",
+    "faces_or_plates",
+    "level_label_raw",
+    "surface",
+)
+ROW_MAKERS = {
+    "same_post": synth.set_a_row,
+    "separate_post": separate,
+    "a_neg": synth.a_neg_row,
+}
+
+
+@pytest.mark.parametrize(
+    ("set_name", "maker", "column"),
+    [("A", "same_post", column) for column in SET_A_REQUIRED]
+    + [("A", "separate_post", column) for column in SEPARATE_POST_REQUIRED]
+    + [("A-neg", "a_neg", column) for column in A_NEG_REQUIRED],
+)
+def test_each_required_value(tmp_path, set_name, maker, column):
+    """A blank required value is missing. A blank id leaves only the row to name."""
+    row = ROW_MAKERS[maker](**{column: ""})
+    ref = "row 1" if column == "candidate_id" else row["candidate_id"]
+    found = check(tmp_path, [row], set_name=set_name)
+    assert found.problems == [Finding(ref, column, "missing")]
+
+
+def test_set_a_labels_may_be_blank(tmp_path):
+    """MS2 checks no label (C207): the harness reports a blank one as unmapped."""
+    found = check(tmp_path, [synth.set_a_row(level_label_raw="", passability_raw="")])
+    assert labels(only_photo(found)) == ("same_post", "", "", "")
+    assert found.warnings == []
+
+
+def test_bad_id_names_the_row_not_the_cell(tmp_path):
+    found = check(tmp_path, [synth.set_a_row(candidate_id="Espana")])
+    assert found.problems == [Finding("row 1", "candidate_id", "bad_id")]
+    assert (found.photos, found.warnings, found.rows) == ([], [], 1)
+    printed = [str(item) for item in found.problems + found.warnings]
+    assert [line for line in printed if "Espana" in line] == []
+
+
+@pytest.mark.parametrize(
+    ("set_name", "row"),
+    [
+        ("A", synth.set_a_row(candidate_id="N001")),
+        ("A-neg", synth.a_neg_row(candidate_id="A001")),
+    ],
+    ids=["a_neg_id_in_set_a", "set_a_id_in_a_neg"],
+)
+def test_each_set_takes_its_own_ids(tmp_path, set_name, row):
+    found = check(tmp_path, [row], set_name=set_name)
+    assert found.problems == [Finding("row 1", "candidate_id", "bad_id")]
+
+
+def test_a_problem_on_several_rows_of_a_photo_is_listed_once(tmp_path):
+    rows = [synth.set_a_row(logged_on=""), synth.set_a_row(logged_on="")]
+    assert check(tmp_path, rows).problems == [Finding("A001", "logged_on", "missing")]
+
+
+def test_todays_17_column_template_works(tmp_path):
+    """Rows logged on the template before C209 have none of its three optional columns,
+    and a same-post row needs none of them."""
+    rows = [synth.set_a_row(), synth.set_a_row(candidate_id="A002")]
+    found = check(tmp_path, rows, columns=formats.SET_A_COLUMNS)
+    assert (found.problems, found.warnings) == ([], [])
+    assert [photo.match for photo in found.photos] == ["same_post", "same_post"]
+
+
+def test_separate_post_row_needs_its_alert_columns(tmp_path):
+    """On the 17-column template a separate-post row has no alert poster or spot, so it
+    is missing both, and it can't fit."""
+    found = check(tmp_path, [separate()], columns=formats.SET_A_COLUMNS)
+    assert found.problems == [
+        Finding("A001", "alert_poster", "missing"),
+        Finding("A001", "alert_spot_text", "missing"),
+    ]
+    assert found.warnings == [Fact("A001", "match", "none")]
+
+
+def test_same_post_alert_fits(tmp_path):
+    """An alert in the photo's own post fits by construction, whatever its spot and its
+    time (rules §3)."""
+    row = synth.set_a_row(
+        spot_text="EDSA Kamuning (SB)",
+        alert_time_pht="2026-08-09 11:20",
+        level_label_raw="knee deep",
+        passability_raw="NPLV",
+    )
+    found = check(tmp_path, [row])
+    assert labels(only_photo(found)) == ("same_post", "knee deep", "NPLV", "")
+    assert found.warnings == []
+
+
+@pytest.mark.parametrize("poster", ["MMDA", "Manila Public Information Office"])
+def test_separate_alert_fits_within_30_minutes_at_the_same_spot(tmp_path, poster):
+    row = separate(
+        minutes=-20,
+        alert_poster=poster,
+        level_label_raw="half tire",
+        passability_raw="NPLV",
+    )
+    found = check(tmp_path, [row])
+    assert labels(only_photo(found)) == ("separate_post", "half tire", "NPLV", "")
+    assert found.warnings == []
+
+
+@pytest.mark.parametrize("minutes", [30, -30])
+def test_thirty_minutes_is_inclusive(tmp_path, minutes):
+    photo = only_photo(check(tmp_path, [separate(minutes=minutes)]))
+    assert photo.match == "separate_post"
+
+
+@pytest.mark.parametrize(
+    ("cells", "warnings"),
+    [
+        ({"minutes": 31}, [Fact("A001", "match", "none")]),
+        ({"minutes": -31}, [Fact("A001", "match", "none")]),
+        (
+            {"alert_spot_text": "España Blvd. cor. A. Maceda St."},
+            [Fact("A001", "match", "none")],
+        ),
+        (
+            {"alert_poster": "Manila Bulletin"},
+            [Fact("A001", "alert_poster", "other"), Fact("A001", "match", "none")],
+        ),
+    ],
+    ids=["31_minutes_after", "31_minutes_before", "one_shared_name", "manila_bulletin"],
+)
+def test_separate_alert_misses(tmp_path, cells, warnings):
+    found = check(tmp_path, [separate(**cells)])
+    assert labels(only_photo(found)) == ("none", "", "", "")
+    assert found.warnings == warnings
+
+
+@pytest.mark.parametrize(
+    ("spot", "alert_spot"),
+    [
+        ("EDSA Kamuning (SB)", "EDSA Kamuning (SB)"),
+        ("Taft Ave.", "Taft Avenue"),
+        (
+            "Araneta - Baloy, Brgy. Doña Imelda",
+            "Araneta - E. Rodriguez, Brgy. Doña Imelda",
+        ),
+    ],
+    ids=["one_name_written_alike", "a_lone_street", "a_street_and_a_barangay"],
+)
+def test_a_spot_without_two_shared_names_never_matches(tmp_path, spot, alert_spot):
+    """S-R9: the same spot needs two shared names that aren't a barangay's, a zone's or
+    a Manila district's, so a one-name spot never fits, even written alike."""
+    found = check(tmp_path, [separate(spot_text=spot, alert_spot_text=alert_spot)])
+    assert labels(only_photo(found)) == ("none", "", "", "")
+    assert found.warnings == [Fact("A001", "match", "none")]
+
+
+def test_nearest_of_several_alerts(tmp_path):
+    rows = [
+        separate(minutes=25, level_label_raw="knee deep"),
+        separate(minutes=5, level_label_raw="half knee", passability_raw="NPLV"),
+        separate(minutes=15, level_label_raw="gutter deep"),
+    ]
+    found = check(tmp_path, rows)
+    photo = only_photo(found)
+    assert labels(photo) == (
+        "separate_post",
+        "half knee",
+        "NPLV",
+        "knee deep;gutter deep",
+    )
+    assert (photo.rows, found.rows, found.warnings) == (3, 3, [])
+
+
+def test_ties_go_to_same_post_rows_then_log_order(tmp_path):
+    """A same-post row without an alert time counts as 0 minutes away, so it wins a tie
+    with a separate alert posted with the photo, even when logged second. Two separate
+    alerts 10 minutes either side tie, and the first in the log wins."""
+    rows = [
+        separate(minutes=0, level_label_raw="knee deep"),
+        synth.set_a_row(level_label_raw="half knee"),
+    ]
+    photo = only_photo(check(tmp_path / "same_post", rows))
+    assert labels(photo) == ("same_post", "half knee", "PATV", "knee deep")
+    rows = [
+        separate(minutes=10, level_label_raw="knee deep"),
+        separate(minutes=-10, level_label_raw="half knee"),
+    ]
+    photo = only_photo(check(tmp_path / "log_order", rows))
+    assert labels(photo) == ("separate_post", "knee deep", "PATV", "half knee")
+
+
+def test_other_alerts_leave_out_blank_labels(tmp_path):
+    """A fitting alert logged without depth words adds nothing to other_alerts_raw,
+    since a blank cell means none."""
+    rows = [
+        synth.set_a_row(),
+        separate(minutes=5, level_label_raw=""),
+        separate(minutes=10, level_label_raw="knee deep"),
+    ]
+    assert only_photo(check(tmp_path, rows)).other_alerts_raw == "knee deep"
+
+
+def test_unrecognised_alert_poster_is_a_warning(tmp_path):
+    """S-R4: an alert whose poster counts as other never fits, so it can't reach
+    other_alerts_raw, where it could have set off rules §3's conflict exclusion. So the
+    intake warns, as it does for the photo's own poster."""
+    rows = [
+        synth.set_a_row(),
+        separate(minutes=5, alert_poster="Manila DRRM Office", level_label_raw="waist"),
+    ]
+    found = check(tmp_path, rows)
+    assert labels(only_photo(found)) == ("same_post", 'Gutter deep, 8"', "PATV", "")
+    assert found.warnings == [Fact("A001", "alert_poster", "other")]
+
+
+def test_outside_metro_manila_is_a_warning(tmp_path):
+    found = check(tmp_path, [synth.set_a_row(city="Calamba")])
+    photo = only_photo(found)
+    assert (photo.city, photo.metro_manila) == ("Calamba", "no")
+    assert found.warnings == [Fact("A001", "metro_manila", "no")]
+
+
+def test_poster_other_is_a_warning(tmp_path):
+    """The photo's own poster: a news outlet counts as other (rules §9). The match is a
+    separate fact, so a same-post alert still fits."""
+    found = check(tmp_path, [synth.set_a_row(poster="Manila Bulletin")])
+    photo = only_photo(found)
+    assert (photo.poster_kind, photo.match) == ("other", "same_post")
+    assert found.warnings == [Fact("A001", "poster_kind", "other")]
+
+
+def test_notes_join_in_log_order(tmp_path):
+    rows = [synth.set_a_row(notes="a"), synth.set_a_row(notes="b")]
+    assert only_photo(check(tmp_path / "two", rows)).notes == "a | b"
+    # Distinct notes only, and a blank one adds nothing.
+    rows += [synth.set_a_row(notes="a"), synth.set_a_row()]
+    assert only_photo(check(tmp_path / "four", rows)).notes == "a | b"
+
+
+def test_differs_ignores_case_only_in_list_columns(tmp_path):
+    """A photo's rows may differ in capitals only in a list column, such as
+    reference_visible, or A-neg's poster and surface."""
+    rows = [synth.set_a_row(), synth.set_a_row(reference_visible="Wheel")]
+    assert check(tmp_path / "list", rows).problems == []
+    rows = [synth.set_a_row(), synth.set_a_row(poster="Mmda")]
+    found = check(tmp_path / "text", rows)
+    assert found.problems == [Finding("A001", "poster", "differs")]
+    rows = [synth.a_neg_row(), synth.a_neg_row(poster="Own", surface="DRY")]
+    assert check(tmp_path / "a_neg", rows, set_name="A-neg").problems == []
+
+
+def test_same_spot_as_links_photos_of_its_date(tmp_path):
+    """Rene's link names other photos of the set from the same date, separated by ;."""
+    rows = [
+        synth.set_a_row(same_spot_as="A002; A003"),
+        synth.set_a_row(candidate_id="A002"),
+        synth.set_a_row(candidate_id="A003"),
+    ]
+    found = check(tmp_path, rows)
+    assert found.problems == []
+    assert found.photos[0].same_spot_as == frozenset({"A002", "A003"})
+
+
+def test_photo_facts(tmp_path):
+    """Every fact of a photo, its city and poster in forms the tools read (MS2-Q4). The
+    photos keep the log's order."""
+    rows = [
+        synth.set_a_row(
+            city="City of Manila",
+            poster="Manila Public Information Office",
+            same_spot_as="A002",
+        ),
+        synth.set_a_row(candidate_id="A002"),
+    ]
+    found = check(tmp_path, rows)
+    assert (found.problems, found.warnings, found.rows) == ([], [], 2)
+    assert [photo.photo_id for photo in found.photos] == ["A001", "A002"]
+    assert found.photos[0] == setlogs.Photo(
+        photo_id="A001",
+        set="A",
+        photo_file="A001.jpg",
+        event_date="2026-08-09",
+        post_time=datetime(2026, 8, 9, 8, 20),
+        city="Manila",
+        metro_manila="yes",
+        spot_key="espana|lacson",
+        same_spot_as=frozenset({"A002"}),
+        poster_kind="city",
+        match="same_post",
+        level_label_raw='Gutter deep, 8"',
+        passability_raw="PATV",
+        other_alerts_raw="",
+        label_in_image="no",
+        reference_visible="wheel",
+        faces_or_plates="no",
+        surface="",
+        notes="",
+        rows=1,
+    )
+
+
+def test_a_photo_without_a_post_time_has_no_date(tmp_path):
+    """A post time that isn't one is a problem, and the photo's time and date stay
+    blank."""
+    found = check(tmp_path, [synth.set_a_row(post_time_pht="9 Aug 2026")])
+    assert found.problems == [Finding("A001", "post_time_pht", "bad_time")]
+    [photo] = found.photos
+    assert (photo.post_time, photo.event_date) == (None, "")
+
+
+def test_a_neg_rows(tmp_path):
+    found = check(tmp_path / "own", [synth.a_neg_row()], set_name="A-neg")
+    assert (found.problems, found.warnings) == ([], [])
+    [photo] = found.photos
+    assert (photo.set, photo.poster_kind, photo.surface) == ("A-neg", "other", "dry")
+    assert labels(photo) == ("", "none", "", "")
+    cases = [
+        ({"poster": "stranger"}, Finding("N001", "poster", "not_in_list")),
+        ({"level_label_raw": "dry"}, Finding("N001", "level_label_raw", "not_in_list")),
+        ({"surface": ""}, Finding("N001", "surface", "missing")),
+    ]
+    for number, (cells, problem) in enumerate(cases):
+        rows = [synth.a_neg_row(**cells)]
+        found = check(tmp_path / str(number), rows, set_name="A-neg")
+        assert found.problems == [problem]
+    # surface is a photo column in A-neg, so a photo's rows must repeat it.
+    rows = [synth.a_neg_row(), synth.a_neg_row(surface="wet")]
+    found = check(tmp_path / "repeated", rows, set_name="A-neg")
+    assert found.problems == [Finding("N001", "surface", "differs")]
+
+
+def test_a_neg_log_made_from_the_checklist_reads_cleanly(tmp_path):
+    """C209: the tracker's checklist v2 has Rene copy the 17-column Set A template and
+    add surface, with no optional column."""
+    rows = [synth.a_neg_row(), synth.a_neg_row(candidate_id="N002", surface="wet")]
+    columns = formats.SET_A_COLUMNS + ("surface",)
+    found = check(tmp_path, rows, set_name="A-neg", columns=columns)
+    assert (found.problems, found.warnings) == ([], [])
+    assert [photo.surface for photo in found.photos] == ["dry", "wet"]
+
+
+def test_a_neg_log_from_the_template_reads_cleanly(tmp_path):
+    """A-neg's template, with the alert columns of Set A's added: A-neg ignores them,
+    blank or filled."""
+    template = table.read_table(TEMPLATE_DIR / "a_neg_log.csv").columns
+    columns = template + ("alert_poster", "alert_spot_text")
+    blank = synth.a_neg_row()
+    found = check(tmp_path / "blank", [blank], set_name="A-neg", columns=columns)
+    assert (found.problems, found.warnings) == ([], [])
+    filled = synth.a_neg_row(alert_poster="Manila Bulletin", alert_spot_text="Taft")
+    found = check(tmp_path / "filled", [filled], set_name="A-neg", columns=columns)
+    assert (found.problems, found.warnings) == ([], [])
+
+
+def test_spreadsheet_saved_log_reads_cleanly(tmp_path):
+    """Review Focus 1: a log saved from Excel or Google Sheets, with a BOM, CRLF endings,
+    capitals in list values, stray spaces, A001.JPG and blank rows at the end, reads
+    cleanly, and its list values come out in lower case."""
+    columns = formats.TEMPLATES["set_a_log.csv"]
+    row = synth.set_a_row(
+        platform="Facebook",
+        photo_in_alert_post="Yes",
+        photo_file="A001.JPG",
+        reference_visible="Wheel",
+        label_in_image="CROPPED",
+        faces_or_plates="No",
+    )
+    padded = {column: f" {value}  " for column, value in row.items()}
+    text = table.csv_bytes(columns, [padded]).decode("utf-8").replace("\n", "\r\n")
+    blank_rows = "," * (len(columns) - 1) + "\r\n" + "\r\n"
+    log = tmp_path / "log.csv"
+    log.write_bytes(b"\xef\xbb\xbf" + (text + blank_rows).encode("utf-8"))
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "A001.JPG").touch()
+    found = setlogs.check_set_log(log, raw, set_name="A")
+    assert (found.problems, found.warnings, found.rows) == ([], [], 1)
+    [photo] = found.photos
+    assert (photo.match, photo.photo_file) == ("same_post", "A001.JPG")
+    assert (photo.reference_visible, photo.label_in_image, photo.faces_or_plates) == (
+        "wheel",
+        "cropped",
+        "no",
+    )
+
+
+def test_findings_hold_no_cell_text(tmp_path):
+    """C201: with a sentinel in every column of rows with problems, no finding or fact
+    holds it. The rows reach every kind that reads a cell's text."""
+    everywhere = dict.fromkeys(formats.TEMPLATES["set_a_log.csv"], SENTINEL)
+    set_a = check(
+        tmp_path / "set_a",
+        [
+            everywhere,
+            everywhere | {"candidate_id": "A001"},
+            everywhere | {"candidate_id": "A001", "spot_text": f"{SENTINEL} Ave."},
+            everywhere | {"candidate_id": "A002", "photo_in_alert_post": "no"},
+        ],
+    )
+    a_neg_row = dict.fromkeys(formats.TEMPLATES["a_neg_log.csv"], SENTINEL)
+    a_neg = check(
+        tmp_path / "a_neg",
+        [a_neg_row | {"candidate_id": "N001"}],
+        set_name="A-neg",
+    )
+    assert {problem.kind for problem in set_a.problems} == {
+        "bad_id",
+        "bad_date",
+        "bad_time",
+        "not_in_list",
+        "id_file_mismatch",
+        "differs",
+        "bad_link",
+    }
+    assert {fact.fact for fact in set_a.warnings} == {
+        "metro_manila",
+        "poster_kind",
+        "alert_poster",
+        "match",
+    }
+    assert a_neg.problems and a_neg.warnings
+    printed = [
+        str(item)
+        for found in (set_a, a_neg)
+        for item in [*found.problems, *found.warnings]
+    ]
+    assert [line for line in printed if SENTINEL.casefold() in line.casefold()] == []

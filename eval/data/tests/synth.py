@@ -53,6 +53,71 @@ def write_csv(
     return path
 
 
+def set_a_row(**cells: str) -> dict[str, str]:
+    """A row of Set A's log that passes every check: MMDA's photo, in the same post as
+    its alert, at a two-name spot in Manila (C209, C224). It holds the template's 20
+    columns, so a log on the 17-column template simply leaves the last three out.
+
+    Each keyword sets one cell. photo_file follows candidate_id unless it is given.
+    """
+    row = {
+        "candidate_id": "A001",
+        "logged_on": "2026-10-29",
+        "platform": "facebook",
+        "post_url": "https://example.invalid/post/1",
+        "poster": "MMDA",
+        "post_time_pht": "2026-08-09 08:20",
+        "alert_time_pht": "",
+        "spot_text": "España Blvd. cor. Lacson Ave.",
+        "city": "Manila",
+        "level_label_raw": 'Gutter deep, 8"',
+        "passability_raw": "PATV",
+        "photo_in_alert_post": "yes",
+        "photo_file": f"{cells.get('candidate_id', 'A001')}.jpg",
+        "reference_visible": "wheel",
+        "label_in_image": "no",
+        "faces_or_plates": "no",
+        "notes": "",
+        "same_spot_as": "",
+        "alert_poster": "",
+        "alert_spot_text": "",
+    }
+    row.update(cells)
+    return row
+
+
+def a_neg_row(**cells: str) -> dict[str, str]:
+    """A row of A-neg's log that passes every check: Rene's own photo of a dry street at
+    a two-name spot in Manila, with the level none, and the post's and the alert's
+    columns blank, as the guide has them (C209).
+
+    Each keyword sets one cell. photo_file follows candidate_id unless it is given.
+    """
+    row = {
+        "candidate_id": "N001",
+        "logged_on": "2026-10-29",
+        "platform": "",
+        "post_url": "",
+        "poster": "own",
+        "post_time_pht": "2026-10-27 16:05",
+        "alert_time_pht": "",
+        "spot_text": "Taft Ave. cor. Pedro Gil",
+        "city": "Manila",
+        "level_label_raw": "none",
+        "passability_raw": "",
+        "photo_in_alert_post": "",
+        "photo_file": f"{cells.get('candidate_id', 'N001')}.jpg",
+        "reference_visible": "wheel",
+        "label_in_image": "no",
+        "faces_or_plates": "no",
+        "notes": "",
+        "surface": "dry",
+        "same_spot_as": "",
+    }
+    row.update(cells)
+    return row
+
+
 def console(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make guards.console_ok() hold, as it does in Rene's own window."""
     monkeypatch.setattr(guards, "console_ok", lambda **_: True)
