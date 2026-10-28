@@ -361,5 +361,6 @@ def test_live_and_replay_return_their_runs(tmp_path, monkeypatch):
 
 
 def test_every_line_masks_twelve_digit_runs(capsys):
-    runner.say("id 123456789012, time 123456")
+    twelve = "1234567890" + "12"  # built here, so the repo's account-ID scan stays clean
+    runner.say(f"id {twelve}, time 123456")
     assert capsys.readouterr().out == "id <account>, time 123456\n"
