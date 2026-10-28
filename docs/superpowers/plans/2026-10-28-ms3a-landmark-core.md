@@ -64,7 +64,7 @@ MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an M
   - before numbering: a wheel whose SAM box has a longer side under 40 px is dropped; at most 6 vehicles and 6 people, largest boxes first
   - the lease: 900 s (15 minutes)
   - the smoke run's bound: 120 s from upload to a final status (C68)
-  - the run's deadline: the Lambda's remaining time less 30 s (C84, C88); a SAM stream read waits at most 20 s for its next event while a deadline is set; no retry starts with under 5 s left
+  - the run's deadline: the Lambda's remaining time less 30 s (C84, C88); a SAM stream read waits at most 20 s for its next event while a deadline is set; no try starts with under 5 s left, the first included (R104, R106)
   - the publish blur grows each mask's box by 25% on every side
 - **Screen copy:**
   - Every screen shows exactly: `Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.`
@@ -561,9 +561,9 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_retry_after_past_the_deadline_stops`: a 503 with `Retry-After: 60` and a deadline 5 s away → `DeadlineExceeded` after 1 call, with no sleep.
   - `test_retry_after_within_the_deadline_is_honoured`: a 503 with `Retry-After: 2`, then 200, with a deadline 30 s away → one sleep of at least 2 s, then the result.
   - `test_background_poll_stops_at_the_deadline`: a 504, then a background job that never finishes → `DeadlineExceeded`, with the fake clock never past the deadline.
-  - `test_stream_read_timeout_shrinks_to_the_time_left`: with 3 s left, the stream's read timeout is at most 3 s.
+  - `test_stream_read_timeout_shrinks_to_the_time_left`: with 6 s left (above the 5 s floor, R106), the stream's read timeout is at most 6 s.
   - `test_sam_store_false_is_sent_only_when_set`: `sam_store=False` puts `"store": false` in the SAM request body; the default sends no `store` key.
-  - `test_judge_timeout_shrinks_to_the_time_left`: with 3 s left, `judge`'s request timeout is at most 3 s, and a timeout raises `DeadlineExceeded`.
+  - `test_judge_timeout_shrinks_to_the_time_left`: with 6 s left (above the 5 s floor, R106), `judge`'s request timeout is at most 6 s, and a timeout raises `DeadlineExceeded`.
   - `test_judge_sends_reasoning_effort_and_records_reasoning_tokens`: `reasoning_effort="low"` puts `reasoning: {"effort": "low"}` in the body; a fixture whose `usage.output_tokens_details.reasoning_tokens` is 1,234 gives `SparkResult.reasoning_tokens == 1234`; the default sends no `reasoning` key.
   - `test_judge_raises_model_refused_on_a_refusal_part` (C86): a fixture shaped from Meta's Responses schema, with a `refusal` content part → `ModelRefused`, and the refusal text isn't in `caplog`. An `incomplete` response still raises `MetaApiError`.
   - MS1's tests pass unchanged, which shows `deadline=None` keeps its behaviour.
