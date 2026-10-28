@@ -675,9 +675,9 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `RecordingClient(client: ModelClient)` passes each call through and keeps each `SamResult` and `SparkResult`, behind a `threading.Lock`, because the phrases run in parallel. `.save(run_dir: Path, *, photo: Path, prompt: PromptSpec, run: PipelineRun) -> None`.
   - Both clients take the protocol's keyword arguments, `deadline` on both calls and `reasoning_effort` on `judge` (Task 7a). `RecordingClient` passes them through unchanged, and `SavedOutputsClient` accepts and ignores them (R108).
   - `SavedOutputsClient(run_dir: Path, photo_data: bytes)`:
-    - it raises `ValueError("saved outputs belong to another photo")` when the photo's SHA-256 differs from `run.json`'s
-    - `.segment` returns the saved result and checks the image size against the saved size. `face` and `license plate` come back empty when they weren't saved (C66). Any other missing phrase raises `KeyError`.
-    - `.judge` returns the saved answer after checking `schema_name`. It raises `ModelAnswerError` when the live run saved none.
+    - it raises `PhotoMismatch`, a `ValueError` with the message "saved outputs belong to another photo", when the photo's SHA-256 differs from `run.json`'s
+    - `.segment` returns the saved result and checks the image size against the saved size. A phrase the live run asked for, with no saved result, raises `MetaApiError(status=log["meta_status"])` when the saved log has `meta_status`, and `KeyError` otherwise, so the replay ends as the live run did (R109). `face` and `license plate` come back empty when they weren't asked for (C66). Any other missing phrase raises `KeyError`.
+    - `.judge` returns the saved answer after checking `schema_name`. It raises `ModelRefused` for a saved refusal (R109), and `ModelAnswerError` when the live run saved no answer.
   - **The saved layout (exact):**
     - `run.json`: `photo` (the file name only), `photo_sha256`, `phrases`, `prompt_version`, `schema_name`, `models`, `blur_version`, `image` (`{width, height}`), `outcome` (`dataclasses.asdict`), `log`
     - `sam/<phrase>.json`, with spaces in the phrase as `_`: `phrase`, `elapsed_s`, `instances` (`[{id, box, score}]`)
@@ -685,15 +685,17 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `sam/<phrase>.raw`: SAM's raw output text (§3.7)
     - `spark.json`: `data` (with its `reason`, which only the offline runner keeps, C62), `input_tokens`, `output_tokens`, `reasoning_tokens` (None when Meta didn't report it; restored on replay, R108), `elapsed_s`
     - `spark.raw`: the raw answer text
+    - after a live refusal, `spark.json` is exactly `{"refused": true}`, with no `spark.raw`, since `ModelRefused` carries no text (C86, R109)
 - Produces, in `probes/run_pipeline.py` (§3.7):
   - `refuse_sealed(*paths: Path) -> None` raises `SystemExit(2)` when any part of a resolved path equals `sealed`, ignoring case. It runs before any file is opened or listed (C66).
   - `refuse_sturm_live(photo: Path) -> None` (C87): in `live` mode only, raises `SystemExit(2)` with `refused: STURM photos stay offline` when any part of the resolved path equals `sturm_flooddepth`, ignoring case. `replay` is allowed, since it makes no Meta call.
+  - `refuse_data_in_repo(data_dir: Path) -> None` (R111): in `live` mode, after `refuse_sealed` and before any client or folder, raises `SystemExit(2)` with `refused: the data folder is inside the repo` when the resolved data folder lies inside the repo. Run folders hold masks and Muse Spark's reasons (C62).
   - `make_client() -> MetaClient` builds the client from `MODEL_API_KEY`. Tests replace it.
   - `live(photo: Path, data_dir: Path) -> tuple[Path, PipelineRun]` writes the run directory `<data_dir>/runs/<YYYY-MM-DD>/<photo stem>-<HHMMSS>`.
   - `replay(photo: Path, run_dir: Path) -> PipelineRun`
   - `main(argv: list[str] | None = None) -> int`:
     - commands: `live <photo> [--data-dir DIR]`, where the directory defaults to `LUSOT_DATA_DIR`, and `replay <photo> <run dir>`
-    - exit 0; 1 when a replay's outcome differs from the saved one; 2 when refused (a sealed path, a missing or short key, a key Meta rejects with `ModelKeyRejected`, another photo)
+    - exit 0; 1 when a replay's outcome differs from the saved one; 2 when refused (a sealed path, a STURM photo in live mode, a data folder inside the repo, a missing or short key, a key Meta rejects with `ModelKeyRejected`, another photo; argparse's usage errors also exit 2); 3 when the run can't read or write what it needs, printed as `failed: <class name>` with no path (R110)
     - prints only: the outcome's `log_name` and level, `meta_calls`, instances and ms per phrase, Muse Spark's ms, tokens, drops, and on replay `same as saved: True|False`
     - never prints the answer, its reason or the key. Every line masks 12-digit runs.
 
