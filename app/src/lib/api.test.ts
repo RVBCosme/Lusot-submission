@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiBaseUrl, HttpError, pollReport, postToS3, requestUpload } from './api'
+import { apiBaseUrl, HttpError, pollReport, PollTimeoutError, postToS3, requestUpload } from './api'
 
 const API = 'https://api.example.test'
 const ID = 'r_0123456789abcdef0123456789abcdef'
@@ -127,13 +127,34 @@ it('pollReport keeps polling through a 404', async () => {
   expect(sleep).toHaveBeenCalledTimes(2)
 })
 
+it('pollReport returns the result fields', async () => {
+  // A knee reading from a wheel and a person, as GET /reports/{id} returns it (C67).
+  const fields = {
+    status: 'done',
+    noFloodSeen: false,
+    level: 'knee',
+    landmark: 'rim_three_quarters',
+    passability: 'NPLV',
+    basis: { vehicles: 1, people: 1 },
+    levelIsFloor: false,
+  }
+  const fetchFn = fetchReplying(json(200, { reportId: ID, ...fields, capturedAt: '2026-10-30T10:05:12Z' }))
+
+  const result = await pollReport(API, ID, undefined, fetchFn, noSleep())
+
+  // Only the result: reportId and capturedAt stay behind, as in MS1.
+  expect(result).toEqual(fields)
+})
+
 it('pollReport times out with a clear error', async () => {
   const fetchFn = vi.fn<typeof fetch>(async () => report('pending'))
   const sleep = clockSleep()
 
-  await expect(pollReport(API, ID, { intervalMs: 2000, timeoutMs: 6000 }, fetchFn, sleep)).rejects.toThrow(
-    `No result for report ${ID} after 6 s`,
-  )
+  const poll = pollReport(API, ID, { intervalMs: 2000, timeoutMs: 6000 }, fetchFn, sleep)
+
+  await expect(poll).rejects.toThrow(`No result for report ${ID} after 6 s`)
+  // Its own class, so the screen can read a timeout as processing failed (spec §3.8).
+  await expect(poll).rejects.toBeInstanceOf(PollTimeoutError)
   expect(sleep).toHaveBeenCalledTimes(3)
   expect(fetchFn).toHaveBeenCalledTimes(4)
 })
