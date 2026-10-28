@@ -1,7 +1,7 @@
 # MS1 Set up: spec
 
 - **Date:** Oct 28, 2026 (Manila)
-- **Status:** Written while Rene sleeps. Claude proceeds on the calls in §4 (D7, D15), and Rene approves in the morning.
+- **Status:** Written while Rene slept, and Claude proceeded on the calls in §4 (D7, D15). MS1 closed on Oct 28; §8 records what changed. Rene's approval is pending.
 - **Implements:**
   - plan §20 Phase 1 (Table 22) and §16 "First steps"
   - the parts of §5 (Table 3), §12 (Tables 14 and 15), §13 and §19 that the skeleton needs
