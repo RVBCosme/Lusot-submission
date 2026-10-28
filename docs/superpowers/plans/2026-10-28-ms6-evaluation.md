@@ -443,7 +443,7 @@ All new.
     - Each rate counts references that have a box and an M8 landmark. A reference whose `spark_landmark` is `None` counts in `n` as a disagreement, and in `unanswered`.
     - `unmatched` counts M8 labels whose `box_id` is `None`.
   - `landmark_agreement(rows: Sequence[PhotoRow]) -> LandmarkAgreement`
-  - `vehicle_type_matrix(rows) -> tuple[tuple[str, str, int], ...]`: M8's type, Muse Spark's type (or `unanswered`) and the count, over `body` references that have an M8 type, in answered rows; sorted
+  - `vehicle_type_matrix(rows) -> tuple[tuple[str, str, int], ...]`: M8's type, Muse Spark's type (or `unanswered`) and the count, over `body` references that have a box and an M8 type, in answered rows that aren't excluded; sorted. An M8 label with `box_id` null counts only in `LandmarkAgreement.unmatched`, since it is a gap in M8's labelling, not a box Muse Spark skipped (C415).
   - `ANegScores(scored: int, levels: int, no_flood_seen: int, refused: int, failed: int, false_flood: Rate)`, where `false_flood = Rate(levels, scored)`
   - `score_a_neg(rows, config: str, surface: str | None = None) -> ANegScores`. It skips rows that `a_neg_exclusion` excludes, and when `surface` is given, it keeps only rows with that surface.
   - `QualityScores(n: int, refused: int, answered: int, failed: int, correct: Rate, refusal_reasons: tuple[tuple[str, int], ...])`, where `correct = Rate(refused, n)`
