@@ -673,7 +673,7 @@ All new.
 - **The copy guard** (Window 4's ruling, from Task 8's build): `build_report` raises `ValueError` when any text file it builds would hold a banned word, matched case-insensitively. The banned words are "safe" in any form, "overfit", "underfit", "accuracy", "MMDA's 9 levels" and "MMDA's level". The message is ASCII, names the file and the word, and never repeats the surrounding text. The guard catches free text copied from `run.json`.
 - **`summary.json`** is `json.dumps(..., indent=2, sort_keys=True)` plus a newline. It holds:
   - `kind`, `date`, `rules_version`, `shipped`, `geometry_stays`, `inches_shown`
-  - per configuration: `underestimation`, `passability` and `coverage`, each `{"k", "n"}`, plus `refused` and `failed`
+  - per configuration: `underestimation`, `passability`, `coverage`, `exact` and `within_one`, each `{"k", "n"}`, plus `refused` and `failed`. `exact` and `within_one` were added on Oct 29, for MS5-M1 (the cross-spec audit's row 20).
   - for Set B's `geometry` variant: `wheels`, `measured` (`{"k", "n"}`), `median_error_in` and `worst_error_in` (strings, or null), and `envelope`
   - `baseline_level` and `baseline_class`, which the freeze copies into the sealed run's `run.json` (C424)
 - [ ] **Step 1: Write the failing tests,** on runs built with `builders.write_run` and `rows.load_run`:
@@ -823,6 +823,7 @@ Rene approves v0.7, and the log owner applies it. The harness changes in the sam
 - [ ] Set `RULES_VERSION = "0.7"` in `eval/scoring/__init__.py`, and `rules_version: "0.7"` in the fixture's `run.json`.
 - [ ] Update the §2 drift tests for v0.7's table: its row count, and the `head` row (item 2.7). Make the phrase test two-way (C408), so a code phrase that §2 doesn't list fails.
 - [ ] Remove `ankle` and `head` from the drift test's named extras once §2 lists them.
+- [ ] If item 7.8 is approved, `report.py`'s latency sentence, column and docstring say "upload to final result" in place of "upload to pin" (spec C416).
 - [ ] Regenerate the fixture's report with `--write`. Its "v0.6" lines change.
 - [ ] Re-run the full suite and the literal command.
 
