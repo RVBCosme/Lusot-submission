@@ -180,20 +180,22 @@ Most likely first. Each line names its test.
 
 **Files:** none. The evidence goes into this task's boxes and into `specs.md`.
 
-- [ ] **Step 1:**
+- [x] **Step 1:**
   - Commit this reviewed plan on `next-specs`.
   - Then, in `C:\Systems\Lusot\lusot-wt\meta` with a clean tree, run `git switch -c ms2-data main` and `git merge next-specs -F <file>`. The message file holds `Merge next-specs into ms2-data: the MS2 spec and plan`, then the attribution lines.
   - Then run `git diff --name-status main ms2-data`. Expected: only `A` lines, under `docs/superpowers/`. Anything else: stop and ask the tracker.
-- [ ] **Step 2 (B.3, the deny re-check):** probe with names that don't exist, and create nothing.
+- [x] **Step 2 (B.3, the deny re-check):** probe with names that don't exist, and create nothing.
   - **The Read tool, expected denied:** `C:\Systems\Lusot\lusot-data\set_b\sealed\ms2-probe-none.txt`, `...\set_a\raw\ms2-probe-none.jpg`, `...\a_neg\raw\ms2-probe-none.jpg`, `...\set_a\ms2-probe-none.csv`, `...\a_neg\ms2-probe-none.csv`, `C:\Systems\Lusot\lusot-wt\meta\eval\sealed\ms2-probe-none.txt` and `C:\Systems\Lusot\lusot\eval\sealed\ms2-probe-none.txt`. The two `eval\sealed` probes rest on the project settings, which `main`'s copy carries.
   - **The Read tool, expected not denied** (a missing-file error): `C:\Systems\Lusot\lusot-data\set_a\dev\ms2-probe-none.csv`, since `set_a/*.csv` doesn't reach into `dev\`.
   - **Shell reads** of the seven denied paths, expected to be blocked by the auto-mode check:
     - in PowerShell: `Get-Content -LiteralPath C:\Systems\Lusot\lusot-data\set_b\sealed\ms2-probe-none.txt`, and the same for the others
     - in Bash, with POSIX paths: `cat "/c/Systems/Lusot/lusot-data/set_b/sealed/ms2-probe-none.txt"`, and the same for the others
   - Record each result (denied, blocked, or "file not found"). If a path expected denied isn't, stop: restart Claude Code in this worktree, run the check again, and report to the tracker before Task 2.
-- [ ] **Step 3 (B.8):** read the status line of `git show main:eval/rules.md` and record its version. Expected today: `DRAFT v0.6`. This build edits nothing in it, and Task 20 confirms v0.7 is applied.
-- [ ] **Step 4 (MS2-Q3 (a)):** add this line to `specs.md`, for the tracker to relay to Window 3: "MS2 builds `backend/analysis/probes/set_b_masks.py` and `tests/test_set_b_masks.py` on `ms2-data`, as new files only (MS2-Q3's default). They use `blur_for_meta` and `MetaClient.segment` unchanged." Task 5 starts only after this line is written.
-- [ ] **Step 5:** Commit the ticks: `docs: start MS2's build with the guard re-check`.
+- [x] **Step 3 (B.8):** read the status line of `git show main:eval/rules.md` and record its version. Expected today: `DRAFT v0.6`. This build edits nothing in it, and Task 20 confirms v0.7 is applied.
+- [x] **Step 4 (MS2-Q3 (a)):** add this line to `specs.md`, for the tracker to relay to Window 3: "MS2 builds `backend/analysis/probes/set_b_masks.py` and `tests/test_set_b_masks.py` on `ms2-data`, as new files only (MS2-Q3's default). They use `blur_for_meta` and `MetaClient.segment` unchanged." Task 5 starts only after this line is written.
+- [x] **Step 5:** Commit the ticks: `docs: start MS2's build with the guard re-check`.
+
+*Evidence (Task 1, Oct 28): `ms2-data` made from `main` (`98e8266`), with `next-specs` merged (`ed8e38f`); `git diff --name-status main ms2-data` shows only two `A` lines under `docs/superpowers/`. Deny re-check, on non-existent names: the Read tool was denied on all seven guarded paths (`set_bsealed`, `set_aaw`, `a_negaw`, `set_a*.csv`, `a_neg*.csv`, and both worktrees' `evalsealed`). It returned "File does not exist" under `set_adev`. Shell reads of the seven were blocked in PowerShell and in Bash. `eval/rules.md` on `main` is `DRAFT v0.6`. The relay line for Window 3 (MS2-Q3 (a)) is in `specs.md`.*
 
 ### Task 2: Test runner and the guards (C222, C202, C206, C221)
 
