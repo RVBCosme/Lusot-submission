@@ -64,7 +64,7 @@ MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an M
   - before numbering: a wheel whose SAM box has a longer side under 40 px is dropped; at most 6 vehicles and 6 people, largest boxes first
   - the lease: 900 s (15 minutes)
   - the smoke run's bound: 120 s from upload to a final status (C68)
-  - the run's deadline: the Lambda's remaining time less 20 s (C84)
+  - the run's deadline: the Lambda's remaining time less 30 s (C84, C88); a SAM stream read waits at most 20 s for its next event while a deadline is set; no retry starts with under 5 s left
   - the publish blur grows each mask's box by 25% on every side
 - **Screen copy:**
   - Every screen shows exactly: `Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.`
@@ -835,7 +835,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - Produces:
   - `handler.handler(event: dict, context) -> dict`, with the same shape as MS1's
   - `handler.analyse(data: bytes, client: ModelClient, *, deadline: float | None = None) -> PipelineRun`: the handler's pipeline call, `run_pipeline(data, client, _prompt(), phrases=SAM_PHRASES, deadline=deadline)` (B3)
-  - `DEADLINE_MARGIN_S = 20` and `_deadline(context) -> float | None`: `time.monotonic() + context.get_remaining_time_in_millis() / 1000 - DEADLINE_MARGIN_S`, or `None` when the context has no such method, as in tests that pass `None` (C84)
+  - `DEADLINE_MARGIN_S = 30` (C88) and `_deadline(context) -> float | None`: `time.monotonic() + context.get_remaining_time_in_millis() / 1000 - DEADLINE_MARGIN_S`, or `None` when the context has no such method, as in tests that pass `None` (C84)
   - the log `outcome` values (exact): each result's `Outcome.log_name`, plus `already_finished`, `lease_held`, `lease_lost`, `unknown_key`, `s3_test_event`, `error`, `model_key_loaded=true`, `model_key_missing` and `model_key_rejected`
 - **The flow for each S3 record** (spec §3.1):
   1. Skip test events. A key that isn't `raw/r_<32 hex>.jpg` is deleted and logged as `unknown_key` (MS1).
@@ -890,7 +890,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - **Results:**
     - `test_level_result_is_published`: `done` with the level fields and `photoKey`. The `blurred/` object decodes to 640 × 480, `raw/` is gone, and the fake recorded 7 + 1 calls.
     - `test_non_level_results_store_no_photo`, parametrized over no flood seen, `refused/too_dark` (with `flat_jpeg(10)`), `refused/photo_unusable` and `failed/model_error` (`judge` raises). Each gets exact item fields, no `blurred/` key, and no `raw/` left.
-    - `test_deadline_comes_from_the_lambda_context` (C84): a fake context whose `get_remaining_time_in_millis()` returns 100,000 → the fake client records a deadline within 1 s of `time.monotonic() + 80`. With `context=None` it records `None`.
+    - `test_deadline_comes_from_the_lambda_context` (C84): a fake context whose `get_remaining_time_in_millis()` returns 100,000 → the fake client records a deadline within 1 s of `time.monotonic() + 70`. With `context=None` it records `None`.
     - `test_publish_switch_is_not_read` (C64): with `/lusot/stop/publish` set to `on`, a level result is still published.
     - `test_stale_photo_is_removed_after_the_claim` (C72), parametrized over no flood seen and `failed/model_calls_paused`: the report is `processing` with `claimedAt = now - 901`, and `blurred/{id}.jpg` already exists. After the delivery, no `blurred/` object is left and the item has no `photoKey`.
     - `test_failed_photo_cleanup_retries_before_paying` (C72): `delete_object` on `blurred/` raises `InternalError` → `RETRY`, status `processing`, `raw/` kept, and no fake calls.
