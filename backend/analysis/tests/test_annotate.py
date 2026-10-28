@@ -104,10 +104,19 @@ def test_draw_numbered_boxes_keeps_blur_provenance():
         assert diff[y0:y1, x0:x1][inside].mean() < 3
 
 
-def label_strokes(img: BlurredImage, box: tuple[int, int, int, int]) -> np.ndarray:
-    """Where a person label reading 1 and one reading 8 differ: the digits' strokes."""
+def label_strokes(
+    img: BlurredImage,
+    box: tuple[int, int, int, int],
+    kind: str = "person",
+    after: tuple[NumberedBox, ...] = (),
+) -> np.ndarray:
+    """Where `box`'s label reading 1 and reading 8 differ: the digits' strokes.
+
+    The box is drawn first and the boxes in `after` next. Every digit is drawn the
+    same width, so the swap moves no label.
+    """
     one, eight = (
-        draw_numbered_boxes(img, [NumberedBox(i, "person", box)]).bgr().astype(int)
+        draw_numbered_boxes(img, [NumberedBox(i, kind, box), *after]).bgr().astype(int)
         for i in (1, 8)
     )
     return np.abs(one - eight).max(axis=2) > 100
@@ -134,6 +143,18 @@ def test_label_beside_a_face_stays_legible():
         in_x = (xs >= f.x - dx) & (xs < f.x + f.w + dx)
         in_y = (ys >= f.y - dy) & (ys < f.y + f.h + dy)
         assert not (in_x & in_y).any()
+
+
+def test_a_label_never_covers_an_earlier_one():
+    # Found by the MS1 probe (car-1510): two boxes whose top-left corners sat 7 px apart
+    # at the top of the photo got their labels at almost the same place, and the later
+    # label hid the earlier id from Muse Spark.
+    grey = blur_for_meta(jpeg(np.full((448, 404, 3), 128, np.uint8)))
+    first = (38, 11, 97, 38)
+    later = NumberedBox(4, "vehicle", (45, 7, 404, 388))
+    alone = label_strokes(grey, first, "vehicle").sum()
+    assert alone > 0
+    assert label_strokes(grey, first, "vehicle", (later,)).sum() >= 0.8 * alone
 
 
 BOXES = [

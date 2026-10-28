@@ -70,9 +70,11 @@ def draw_numbered_boxes(img: BlurredImage, boxes: list[NumberedBox]) -> BlurredI
     y1 - 1). The result comes from BlurredImage.derive, which keeps the blur record and
     blurs every face it finds once more (R18), so a label must miss every head. Each
     label goes above the box's top-left corner, else above its top-right, below its
-    bottom-left or below its bottom-right: the first, moved inside the image if needed,
-    that misses every face found in `img` grown by the blur margin. If all four meet a
-    face, the first is used.
+    bottom-left or below its bottom-right, each moved inside the image if needed. It
+    takes the first place that misses both every face found in `img`, grown by the blur
+    margin, and every label drawn before it, so no label hides another's id. If none
+    does, it takes the first that misses every face, and if all four meet a face, the
+    first.
     """
     bgr = img.bgr()
     height, width = bgr.shape[:2]
@@ -83,11 +85,14 @@ def draw_numbered_boxes(img: BlurredImage, boxes: list[NumberedBox]) -> BlurredI
     for box in boxes:
         x0, y0, x1, y1 = box.box
         cv2.rectangle(bgr, (x0, y0), (x1 - 1, y1 - 1), _COLOURS[box.kind], _LINE_PX)
+    labels: list[tuple[int, int, int, int]] = []
     for box in boxes:  # labels go over every outline
         text = str(box.id)
         (text_w, text_h), _ = cv2.getTextSize(text, _FONT, scale, thickness)
         size = (text_w + 2 * pad, text_h + 2 * pad)
-        lx0, ly0, lx1, ly1 = _label_area(box.box, size, faces, width, height)
+        place = _label_area(box.box, size, faces, labels, width, height)
+        labels.append(place)
+        lx0, ly0, lx1, ly1 = place
         cv2.rectangle(bgr, (lx0, ly0), (lx1 - 1, ly1 - 1), _COLOURS[box.kind], -1)
         cv2.putText(
             bgr, text, (lx0 + pad, ly1 - pad), _FONT, scale, (0, 0, 0), thickness
@@ -126,19 +131,21 @@ def _label_area(
     box: tuple[int, int, int, int],
     size: tuple[int, int],
     faces: list[tuple[int, int, int, int]],
+    labels: list[tuple[int, int, int, int]],
     width: int,
     height: int,
 ) -> tuple[int, int, int, int]:
-    """The first corner place for a label of `size` that misses every face area."""
+    """Where a label of `size` goes, by the order draw_numbered_boxes describes."""
     x0, y0, x1, y1 = box
     w, h = size
     places = []
     for x, y in ((x0, y0 - h), (x1 - w, y0 - h), (x0, y1), (x1 - w, y1)):
         x, y = min(max(x, 0), width - w), min(max(y, 0), height - h)
         places.append((x, y, x + w, y + h))
-    for place in places:
-        if not any(_overlaps(place, face) for face in faces):
-            return place
+    for avoid in (faces + labels, faces):
+        for place in places:
+            if not any(_overlaps(place, other) for other in avoid):
+                return place
     return places[0]
 
 
