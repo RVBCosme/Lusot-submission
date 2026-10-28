@@ -14,7 +14,7 @@ const steps = [
   [root, "npm ci"],
   [root, "npm run build -w backend/api"],
   [backend, "sam build --parallel"],
-  [backend, "sam deploy"],
+  [backend, "sam deploy --no-fail-on-empty-changeset"],
   [root, "uv run backend/scripts/apply_ecr_lifecycle.py"],
 ];
 
