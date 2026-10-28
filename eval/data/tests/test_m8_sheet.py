@@ -183,9 +183,9 @@ def test_missing_photo_and_bad_ids(tmp_path, capsys):
 
 @pytest.mark.parametrize("where", ["--set-a-log", "--out", "photo_file"])
 def test_refuses_sealed_paths(tmp_path, capsys, where):
-    """A path with a part named sealed is refused before anything is opened (C222):
-    either flag's, or a photo's that the log names. Each sealed folder here is a name
-    only, and none is created."""
+    """A path with a part named sealed is refused before it is used (C222): either
+    flag's before the log is read, or a photo's that the log names before its stat.
+    Each sealed folder here is a name only, and none is created."""
     rows = {
         "--set-a-log": [row("A001")],
         # With no row, only the flag's own check can refuse --out: each photo's path
