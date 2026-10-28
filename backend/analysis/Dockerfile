@@ -11,4 +11,7 @@ ENV OPENCV_IO_MAX_IMAGE_PIXELS=50000000
 # The package, with its vendored YuNet model.
 COPY src/lusot_analysis ${LAMBDA_TASK_ROOT}/lusot_analysis
 
+# Muse Spark's versioned prompts and answer schemas.
+COPY prompts ${LAMBDA_TASK_ROOT}/prompts
+
 CMD ["lusot_analysis.handler.handler"]

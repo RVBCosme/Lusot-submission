@@ -232,10 +232,26 @@ def test_blur_for_meta_rejects_non_image(data):
         blur_for_meta(data)
 
 
+@pytest.mark.parametrize(
+    ("width", "height"),
+    [(64, 32), (32, 64), (3200, 64)],  # 3200 x 64 shrinks to 1600 x 32
+)
+def test_blur_for_meta_refuses_a_short_side_of_32_px_or_less(width, height):
+    # detect_faces skips every pass with a side of 32 px or less (R24), so such an
+    # image would reach Meta with no face check at all (R27).
+    with pytest.raises(UndecodableImage):
+        blur_for_meta(jpeg(noise(width, height)))
+
+
+def test_blur_for_meta_accepts_a_short_side_of_33_px():
+    out = blur_for_meta(jpeg(noise(64, 33)))
+    assert (out.width, out.height) == (64, 33)
+
+
 def test_blurred_image_cannot_be_built_directly():
     with pytest.raises(TypeError):
         BlurredImage(b"", 1, 1, 0, "x")
-    real = blur_for_meta(jpeg(noise(40, 30)))
+    real = blur_for_meta(jpeg(noise(64, 48)))  # over 32 px on both sides (R27)
     with pytest.raises(TypeError):
         dataclasses.replace(real, jpeg=b"unblurred photo")
 
@@ -312,3 +328,16 @@ def test_decoding_refuses_more_than_50_megapixels():
     assert len(huge) < 1000
     assert decode_in_fresh_process(small) == "decoded"
     assert decode_in_fresh_process(huge) == "refused"
+
+
+def test_package_init_sets_the_opencv_cap():
+    # Any module of the package may be the first to load cv2, so the package itself
+    # sets the cap (R26). The variable is removed, so the value must come from it.
+    env = {k: v for k, v in os.environ.items() if k != "OPENCV_IO_MAX_IMAGE_PIXELS"}
+    script = (
+        'import lusot_analysis, os; print(os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"])'
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, env=env, check=True
+    )
+    assert result.stdout.decode().strip() == "50000000"

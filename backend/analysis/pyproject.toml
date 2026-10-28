@@ -5,7 +5,12 @@ description = "Lusot photo analysis: face blur, Meta client, probes and the anal
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "boto3>=1.43.120",
+    "httpx>=0.28.1",
+    "jsonschema>=4.26.0",
+    "meta-sam-parser>=0.1.0",
     "numpy>=2.5.4",
+    # Below 3: openai 3 moved to httpx2, and the Meta client shares one httpx client with it.
+    "openai>=2.54.0,<3",
     # Below 5: the vendored YuNet 2023mar model is for OpenCV 4.x (see src/lusot_analysis/models/SOURCE.md).
     "opencv-python-headless>=4.14.0.94,<5",
 ]

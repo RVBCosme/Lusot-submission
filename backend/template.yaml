@@ -76,7 +76,8 @@ Resources:
   DeadLetterQueue:
     Type: AWS::SQS::Queue
     Properties:
-      MessageRetentionPeriod: 1209600
+      # 7 days, not the plan's 14: each message is an S3 event record with the uploader's IP.
+      MessageRetentionPeriod: 604800
       SqsManagedSseEnabled: true
 
   UploadQueuePolicy:
