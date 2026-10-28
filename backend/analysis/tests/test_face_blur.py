@@ -25,6 +25,7 @@ from lusot_analysis.face_blur import (
     blur_for_meta,
     decode_image,
     detect_faces,
+    shrink_to_max_side,
 )
 
 PORTRAIT = Path(__file__).parent / "fixtures" / "faces" / "portrait.jpg"
@@ -89,16 +90,29 @@ except UndecodableImage:
     print("refused")
 """
 
+# The quality step is imported first, and it imports cv2 before face_blur (R26).
+QUALITY_SCRIPT = """
+import sys
+from lusot_analysis.pipeline.quality import quality_scores
+from lusot_analysis.face_blur import UndecodableImage
+try:
+    quality_scores(sys.stdin.buffer.read())
+    print("decoded")
+except UndecodableImage:
+    print("refused")
+"""
 
-def decode_in_fresh_process(data: bytes) -> str:
+
+def decode_in_fresh_process(data: bytes, script: str = DECODE_SCRIPT) -> str:
     """Decode in a new interpreter that imports face_blur before cv2, like the Lambda.
 
-    OpenCV reads its pixel cap once, when cv2 loads, and this process loaded cv2 first.
-    The variable is removed, so the cap must come from face_blur itself.
+    `script` can import another module first. OpenCV reads its pixel cap once, when cv2
+    loads, and this process loaded cv2 first. The variable is removed, so the cap must
+    come from lusot_analysis itself.
     """
     env = {k: v for k, v in os.environ.items() if k != "OPENCV_IO_MAX_IMAGE_PIXELS"}
     result = subprocess.run(
-        [sys.executable, "-c", DECODE_SCRIPT],
+        [sys.executable, "-c", script],
         input=data,
         capture_output=True,
         env=env,
@@ -245,6 +259,24 @@ def test_blur_for_meta_downscales_to_max_side():
     assert out.bgr().shape == (1200, 1600, 3)
 
 
+def test_shrink_to_max_side_matches_blur_for_meta():
+    bgr = noise(4000, 3000)
+    shrunk = shrink_to_max_side(bgr)
+    assert shrunk.shape == (1200, 1600, 3)
+    # INTER_AREA, which the quality step's scores rely on too (C58).
+    area = cv2.resize(bgr, (1600, 1200), interpolation=cv2.INTER_AREA)
+    assert np.array_equal(shrunk, area)
+    out = blur_for_meta(jpeg(bgr))
+    assert (out.height, out.width) == shrunk.shape[:2]
+    small = noise(640, 480)
+    assert np.array_equal(shrink_to_max_side(small), small)
+    # Python's round, as blur_for_meta rounded before (MS1): 2999 x 0.4 = 1199.6
+    # rounds up, and 2401 x 0.5 = 1200.5 rounds to the even 1200.
+    for width, height in [(4000, 2999), (3200, 2401)]:
+        flat = np.zeros((height, width, 3), np.uint8)
+        assert shrink_to_max_side(flat).shape == (1200, 1600, 3)
+
+
 @pytest.mark.parametrize("data", [b"not an image", b""])
 def test_blur_for_meta_rejects_non_image(data):
     with pytest.raises(UndecodableImage):
@@ -360,3 +392,12 @@ def test_package_init_sets_the_opencv_cap():
         [sys.executable, "-c", script], capture_output=True, env=env, check=True
     )
     assert result.stdout.decode().strip() == "50000000"
+
+
+def test_quality_step_imported_first_keeps_the_opencv_cap():
+    # The quality step loads cv2 before face_blur, so face_blur's own line comes too
+    # late there, and only the package's cap can refuse the 60 MP header (R26).
+    small = jpeg(noise(16, 16))
+    huge = declare_size(small, 10_000, 6_000)  # 60 MP, in under 1 KB
+    assert decode_in_fresh_process(small, QUALITY_SCRIPT) == "decoded"
+    assert decode_in_fresh_process(huge, QUALITY_SCRIPT) == "refused"

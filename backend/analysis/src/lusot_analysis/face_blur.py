@@ -175,18 +175,28 @@ def blur_faces(
     return out
 
 
+def shrink_to_max_side(bgr: np.ndarray, max_side: int = MAX_SIDE) -> np.ndarray:
+    """Shrink with INTER_AREA so the longer side is at most `max_side`.
+
+    Each side is rounded with Python's round, and an image that already fits comes
+    back as it is. The quality step shrinks this way too, so its scores read the photo
+    blur_for_meta sends, before the face blur (C58).
+    """
+    height, width = bgr.shape[:2]
+    if max(height, width) > max_side:
+        scale = max_side / max(height, width)
+        size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        bgr = cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
+    return bgr
+
+
 def blur_for_meta(data: bytes, *, max_side: int = MAX_SIDE) -> BlurredImage:
     """Decode, shrink to `max_side` with INTER_AREA, blur the faces, encode as JPEG.
 
     A shrunk image with a side of 32 px or less is refused (R27): detect_faces skips
     every pass of it (R24), so the photo would reach Meta unchecked.
     """
-    bgr = decode_image(data)
-    height, width = bgr.shape[:2]
-    if max(height, width) > max_side:
-        scale = max_side / max(height, width)
-        size = (max(1, round(width * scale)), max(1, round(height * scale)))
-        bgr = cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
+    bgr = shrink_to_max_side(decode_image(data), max_side)
     if min(bgr.shape[:2]) <= _YUNET_PAD:
         raise UndecodableImage("too small to check for faces")
     faces = detect_faces(bgr)
