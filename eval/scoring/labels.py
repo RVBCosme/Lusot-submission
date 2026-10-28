@@ -1,8 +1,9 @@
 """Rules §2: an alert's level and passability labels, mapped to the scale (C404, C420).
 
-A level label maps by its words when they are one of §2's phrases, and otherwise by
-its measures when they give one level (MS6E-Q1, item 15). Any other label is an
-"unmapped label", never guessed (rules §2).
+A level label maps by its words when they are one of §2's phrases. Otherwise its
+measures decide, when they give one level and the words hold no bare number or
+status (MS6E-Q1, item 15). Any other label is an "unmapped label", never guessed
+(rules §2).
 """
 
 from __future__ import annotations
@@ -70,20 +71,23 @@ LABEL_WORDS: frozenset[str] = frozenset(
 )
 
 # A number and its unit, or a range: two numbers joined by -, – or "to", where the
-# first may carry its own unit or else takes the second's (MS6E-Q1, item 13). A
-# number followed by + and then its unit, as in "60+ inches", is at least that
-# depth (item 16).
+# first may carry its own unit or else takes the second's (MS6E-Q1, item 13). A +
+# after the number or after the unit, as in "60+ inches" or "60 in+", means at
+# least that depth (item 16).
 _NUMBER = "[0-9]+(?:[.][0-9]+)?"
 _UNIT = '["”″]|(?:' + "|".join(_INCH_WORDS + _CM_WORDS) + ")(?![a-z])"
 _MEASURE = re.compile(
     f"(?<![0-9.])(?P<low>{_NUMBER})"
-    "(?:(?P<plus>[+])"
+    "(?:[+]"
     f"|(?: *(?P<low_unit>{_UNIT}))? *(?:-|–|to) *(?P<high>{_NUMBER}))?"
-    f" *(?P<unit>{_UNIT})"
+    f" *(?P<unit>{_UNIT})(?: *[+])?"
 )
 # A label's last parenthetical, as in "phrase (code)" or "code (phrase)".
 _PARENTHETICAL = re.compile(r"(?P<outer>.*)\((?P<inner>[^()]*)\)(?P<tail>[^()]*)")
 _OUTER_MARKS = string.punctuation + "–“”″ "
+# A label's words as runs of letters, so that a status among them is found
+# (MS6E-Q1, item 15).
+_LETTERS = re.compile("[a-z]+")
 
 # The marks a committed label may hold between its words (C420), with + as in
 # "Head+ (60+ inches)" (MS6E-Q1, item 16). A "." inside a number stays part of it.
@@ -112,9 +116,11 @@ class ClassLabel:
 def map_level_label(raw: str) -> LevelLabel:
     """Map an alert's level label by rules §2 (C404). Words win when they map, and
     otherwise the measures decide by rules §1, as when there are no words (MS6E-Q1,
-    item 15). Measures not joined as a range are one depth in two units, which maps
-    only when they agree (item 13). "N+" is at least that depth, which maps only
-    when it is over 45 in (item 16). Words with no measure stay unmapped.
+    item 15), unless the words hold a number without its unit or a status. Measures
+    not joined as a range are one depth in two units, which maps only when they
+    agree (item 13). A + after a number or its unit means at least that depth,
+    which maps only when it is over 45 in (item 16). Words with no measure stay
+    unmapped.
     """
     if raw.strip() == "":
         return LevelLabel("blank", None)
@@ -127,7 +133,7 @@ def map_level_label(raw: str) -> LevelLabel:
     if words in STATUS_WORDS:
         return LevelLabel("status", None)
     level = _WORDS_LEVELS.get(words)
-    if level is None:
+    if level is None and _measures_decide(words):
         levels = {_measure_level(measure) for measure in measures}
         level = levels.pop() if len(levels) == 1 else None
     if level is None:
@@ -166,14 +172,24 @@ def label_words_ok(raw: str) -> bool:
 
 
 def _measure_level(measure: re.Match[str]) -> str | None:
-    """A measure's level by rules §1. "N+" is at least N, so it gives a level only
-    when every depth from N up is above_chest. Otherwise it gives none, and a label
-    whose measures decide is then unmapped: a label never sets a floor (MS6E-Q1,
-    item 16)."""
+    """A measure's level by rules §1. A measure with a +, after its number or its
+    unit, is at least that depth, so it gives a level only when every depth from
+    there up is above_chest. Otherwise it gives none, and a label whose measures
+    decide is then unmapped: a label never sets a floor (MS6E-Q1, item 16)."""
     level = level_for_inches(_inches(measure))
-    if measure["plus"] and level != "above_chest":
+    if "+" in measure[0] and level != "above_chest":
         return None
     return level
+
+
+def _measures_decide(words: str) -> bool:
+    """Whether words that aren't a phrase leave the measures to decide (MS6E-Q1,
+    item 15). They don't when they hold a number without its unit, which item 11
+    leaves unmapped and which could contradict the measures, or a status, since the
+    water may have gone down."""
+    if any(char in string.digits for char in words):
+        return False
+    return STATUS_WORDS.isdisjoint(_LETTERS.findall(words))
 
 
 def _inches(measure: re.Match[str]) -> Decimal:

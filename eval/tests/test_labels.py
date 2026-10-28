@@ -172,7 +172,8 @@ def test_status_blank_and_unmapped():
 
 
 def test_measures_decide_unmapped_words():
-    # Words that aren't a phrase leave the measures to decide (MS6E-Q1, item 15).
+    # Words that aren't a phrase leave the measures to decide (MS6E-Q1, item 15),
+    # unless they hold a number without its unit or a status.
     assert_levels(
         {
             "ANKLE DEEP (9 inches)": level("half_knee"),  # as Quezon City writes it
@@ -180,6 +181,10 @@ def test_measures_decide_unmapped_words():
             "ankle deep (61 cm)": level("tire"),  # 24.02 in
             "Ankle Deep": UNMAPPED,  # words alone, as Manila's DRRMO writes them
             "knee deep (25 inches)": level("knee"),  # words that map still win
+            "8 (25 cm)": UNMAPPED,  # the bare 8 could contradict 25 cm (item 11)
+            "25 (10 inches)": UNMAPPED,
+            "knee deep, subsided (19 in)": UNMAPPED,  # the water may have gone down
+            "subsided (19 in)": LevelLabel("status", None),  # a status alone, as now
         }
     )
 
@@ -203,6 +208,11 @@ def test_head_plus():
             "13+ in (35 cm)": UNMAPPED,  # a floor never lets the other unit decide
             # Words win over a floor too, so the "+" must leave them just "head".
             "Head+ (13+ in)": level("above_chest"),
+            # A "+" after the unit is a floor too.
+            "13 in+": UNMAPPED,
+            "13 in +": UNMAPPED,
+            "60 in+": level("above_chest"),
+            "120 cm+": level("above_chest"),
         }
     )
 
