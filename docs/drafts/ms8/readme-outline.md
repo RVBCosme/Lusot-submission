@@ -24,6 +24,10 @@ Numbered, one line each, so a judge can start all four within a minute (C913):
 
 1. **Open the live app:** `[live URL]`, on a phone or a desktop. No account needed.
 2. **Run a sample:** open **Tested**, pick a sample, press **Run this sample**, and confirm you are 18 or older. The real pipeline reads a credited flood photo, which takes about `[median seconds, from eval/results/latency.jsonl]` (median of `[n]` runs). A sample never reaches the map.
+
+   Then one line for a pause (C913; MS9's N4). It holds whatever MS9-Q1 decides, because the README can't change after the cutoff (C921). Draft:
+
+   "If new analyses are paused (the hackathon's model credits may run out during judging), the sample shows `[the app's paused line, MS5's string, as MS9's N1 asks]` instead of a new reading. Everything already stored still works: the map and its pins, the Tested page's figures, the samples' photos, the video, and the one command below. `[Only if MS9's N2 ships: a sample's saved result is marked as saved, with its date.]`"
 3. **Watch the video** (2:40, English captions): `[video link]`
 4. **Rebuild the evaluation report.** This needs Python 3.9 or newer, and no key, network or install:
 
