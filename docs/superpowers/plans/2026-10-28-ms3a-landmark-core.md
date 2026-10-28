@@ -582,7 +582,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 
 **Files:**
 - Modify: `backend/analysis/src/lusot_analysis/pipeline/__init__.py`, `backend/analysis/tests/fakes.py` (add `level_case`)
-- Test: `backend/analysis/tests/test_pipeline.py`, plus `backend/analysis/tests/test_meta_client.py` if Step 1 finds a gap
+- Modify, as built: `pipeline/segment.py` (`segment_all` takes the keyword `deadline`, C84, and raises a key rejection ahead of other failures, R107) and `pipeline/types.py` (`KEY_REJECTED_STATUSES`, R107)
+- Test: `backend/analysis/tests/test_pipeline.py` and `test_segment.py`, plus `backend/analysis/tests/test_meta_client.py` if Step 1 finds a gap
 
 **Interfaces:**
 - Consumes: Tasks 1 to 7; `blur_for_meta`, `UndecodableImage`; `number_boxes`, `draw_numbered_boxes`, `check_ids_per_item`; `MetaApiError`, `SAM_PHRASES`, `SAM_MODEL`, `SPARK_MODEL`
@@ -672,6 +673,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - Consumes: `run_pipeline`, `PipelineRun`, `READING_PHRASES` (Task 8); `load_prompt`, `PromptSpec` (Task 3); `MetaClient`, `MissingApiKey`, `SamInstance`, `SamResult`, `SparkResult`; `ModelAnswerError`
 - Produces, in `lusot_analysis.pipeline.saved`:
   - `RecordingClient(client: ModelClient)` passes each call through and keeps each `SamResult` and `SparkResult`, behind a `threading.Lock`, because the phrases run in parallel. `.save(run_dir: Path, *, photo: Path, prompt: PromptSpec, run: PipelineRun) -> None`.
+  - Both clients take the protocol's keyword arguments, `deadline` on both calls and `reasoning_effort` on `judge` (Task 7a). `RecordingClient` passes them through unchanged, and `SavedOutputsClient` accepts and ignores them (R108).
   - `SavedOutputsClient(run_dir: Path, photo_data: bytes)`:
     - it raises `ValueError("saved outputs belong to another photo")` when the photo's SHA-256 differs from `run.json`'s
     - `.segment` returns the saved result and checks the image size against the saved size. `face` and `license plate` come back empty when they weren't saved (C66). Any other missing phrase raises `KeyError`.
@@ -681,7 +683,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `sam/<phrase>.json`, with spaces in the phrase as `_`: `phrase`, `elapsed_s`, `instances` (`[{id, box, score}]`)
     - `sam/<phrase>.npz`: `masks`, an N×H×W bool array, written only when N > 0
     - `sam/<phrase>.raw`: SAM's raw output text (§3.7)
-    - `spark.json`: `data` (with its `reason`, which only the offline runner keeps, C62), `input_tokens`, `output_tokens`, `elapsed_s`
+    - `spark.json`: `data` (with its `reason`, which only the offline runner keeps, C62), `input_tokens`, `output_tokens`, `reasoning_tokens` (None when Meta didn't report it; restored on replay, R108), `elapsed_s`
     - `spark.raw`: the raw answer text
 - Produces, in `probes/run_pipeline.py` (§3.7):
   - `refuse_sealed(*paths: Path) -> None` raises `SystemExit(2)` when any part of a resolved path equals `sealed`, ignoring case. It runs before any file is opened or listed (C66).
