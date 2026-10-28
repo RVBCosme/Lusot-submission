@@ -40,6 +40,9 @@ BAD_ARCNAMES = {
     "absolute": ["/x"],
     "backslash": ["a\\b"],
     "repeat": ["a/b", "a/b"],
+    "repeat in another case": ["A001.jpg", "a001.jpg"],  # one file on NTFS
+    "nul": ["a\x00b"],  # 7z would store a
+    "lone surrogate": ["\udc80"],  # UTF-16-LE can't encode it
     "drive": ["C:x"],
     "drive and root": ["C:/x"],
     "empty": [""],
@@ -74,6 +77,15 @@ def test_archive_round_trip_with_the_test_phrase(tmp_path, capsys):
     for name, source in members:
         expected = source.read_bytes() if isinstance(source, Path) else source
         assert (out / name).read_bytes() == expected
+
+
+def test_members_may_be_a_generator(tmp_path):
+    """The members are read once, so the checks don't spend a generator (M1)."""
+    members = members_of(tmp_path)
+    path = tmp_path / "lusot-sealed.7z"
+    archive.write_sealed_archive(path, synth.TEST_PHRASE, (item for item in members))
+    with py7zr.SevenZipFile(path, "r", password=synth.TEST_PHRASE) as sealed:
+        assert sorted(sealed.getnames()) == sorted(name for name, _ in members)
 
 
 def test_names_are_encrypted(tmp_path):
@@ -121,6 +133,34 @@ def test_bad_arcnames_are_refused_before_writing(tmp_path, names):
     assert not path.exists()
 
 
+@pytest.mark.parametrize("kind", ["folder", "missing file", "str", "bytearray", "link"])
+def test_bad_sources_are_refused_before_writing(tmp_path, monkeypatch, kind):
+    """py7zr would store a folder or a link as such, read a str as a path, and fail
+    partway on a missing file or a bytearray, once the file exists (I1)."""
+    file = tmp_path / "set_a_log.csv"
+    file.write_bytes(b"candidate_id\nA001\n")
+    folder = tmp_path / "folder"
+    folder.mkdir()
+    if kind == "link":
+        # This account can't make symlinks (WinError 1314), so a real file stands in
+        # and is_symlink calls it one.
+        monkeypatch.setattr(Path, "is_symlink", lambda self: self == file)
+    source = {
+        "folder": folder,
+        "missing file": tmp_path / "missing.csv",
+        "str": str(file),
+        "bytearray": bytearray(b"x"),
+        "link": file,
+    }[kind]
+    path = tmp_path / "lusot-sealed.7z"
+    with pytest.raises(ValueError) as refused:
+        archive.write_sealed_archive(
+            path, synth.TEST_PHRASE, [("ok.csv", b"x"), ("bad.csv", source)]
+        )
+    assert str(refused.value) == "members[1] is neither bytes nor a file"
+    assert not path.exists()
+
+
 @pytest.mark.parametrize("make", BAD_PATHS.values(), ids=list(BAD_PATHS))
 def test_bad_archive_paths_are_refused_before_writing(tmp_path, monkeypatch, make):
     monkeypatch.chdir(tmp_path)
@@ -136,6 +176,20 @@ def test_empty_password_is_refused_before_writing(tmp_path):
     path = tmp_path / "lusot-sealed.7z"
     with pytest.raises(ValueError):
         archive.write_sealed_archive(path, "", [("a.csv", b"x")])
+    assert not path.exists()
+
+
+def test_a_password_utf16_cant_encode_is_refused_before_writing(tmp_path):
+    """Windows getpass gives an emoji as two lone surrogates, which UTF-16-LE, the
+    encoding 7z derives its key from, can't encode (M4). No exception chained to the
+    refusal holds the password."""
+    emoji = chr(0xD83D) + chr(0xDE00)  # as getpass reads it, one UTF-16 unit at a time
+    phrase = f"test phrase {emoji} for synthetic archives"
+    path = tmp_path / "lusot-sealed.7z"
+    with pytest.raises(ValueError) as refused:
+        archive.write_sealed_archive(path, phrase, [("a.csv", b"x")])
+    assert str(refused.value) == "the password can't be encoded"
+    assert (refused.value.__cause__, refused.value.__context__) == (None, None)
     assert not path.exists()
 
 

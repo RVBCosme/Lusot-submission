@@ -72,11 +72,22 @@ def ramp(start: int, stop: int) -> np.ndarray:
     return np.tile(np.linspace(start, stop, 90).astype(np.uint8), (80, 1))
 
 
-def png(gray: np.ndarray) -> bytes:
+def png(image: np.ndarray) -> bytes:
     """A lossless file, so each pixel decodes exactly as built."""
     import cv2
 
-    return cv2.imencode(".png", gray)[1].tobytes()
+    return cv2.imencode(".png", image)[1].tobytes()
+
+
+def textured(seed: int) -> np.ndarray:
+    """A 240 by 320 photo: dHash's grid of 8 by 9 seeded colour blocks, with seeded
+    noise on every pixel, so the gray conversion and the shrink each change the hash."""
+    rng = np.random.default_rng(seed)
+    blocks = rng.integers(0, 256, (8, 9, 3), dtype=np.uint8)
+    rows = np.arange(240)[:, None] * 8 // 240
+    columns = np.arange(320)[None, :] * 9 // 320
+    noise = rng.integers(-50, 51, (240, 320, 3))
+    return np.clip(blocks[rows, columns] + noise, 0, 255).astype(np.uint8)
 
 
 def test_photo_facts_of_a_jpeg():
@@ -108,6 +119,14 @@ def test_dhash_bit_order():
     assert photos.photo_facts(png(ramp(70, 250))).dhash == "0000000000000000"
     assert photos.photo_facts(png(top_only)).dhash == "ff00000000000000"
     assert photos.photo_facts(png(corner)).dhash == "8000000000000000"
+
+
+def test_dhash_golden():
+    """A textured photo's dHash, worked out beforehand with direct cv2 calls: imdecode,
+    cvtColor with COLOR_BGR2GRAY, resize to (9, 8) with INTER_AREA, the comparisons,
+    then packing with the first pair most significant. COLOR_RGB2GRAY or INTER_LINEAR
+    each move it by 5 bits, inside near's 6, so only the exact hash pins them."""
+    assert photos.photo_facts(png(textured(20261029))).dhash == "9ca95593565bb5b7"
 
 
 def test_photo_facts_for_files_that_do_not_decode(capsys):
