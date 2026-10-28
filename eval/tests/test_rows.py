@@ -459,6 +459,31 @@ def test_replay_and_baseline_fields(tmp_path):
     assert (run.baseline_level, run.baseline_class) == (None, None)
 
 
+def test_replays_are_the_same_on_every_row(tmp_path):
+    # So a replay is always compared over the same photos (C425).
+    plain = {"landmark": level("knee"), "geometry": level("knee")}
+    replayed = {**plain, "landmark_replay": level("waist")}
+
+    def rows(*replays: bool) -> list[dict]:
+        return [
+            set_a_row(f"A00{index}", outcomes=replayed if replay else plain)
+            for index, replay in enumerate(replays, start=1)
+        ]
+
+    partial = rows(True, False, True)
+    message = refusal(tmp_path / "partial", "set_a.jsonl", 2, set_a=partial)
+    assert "replay results must be the same on every row (C425)" in message
+    for case, replays in {"every": (True,) * 3, "none": (False,) * 3}.items():
+        run = load(tmp_path / case, set_a=rows(*replays))
+        assert ["landmark_replay" in row.results for row in run.set_a] == list(replays)
+    # A-neg's file keeps the same rule.
+    a_neg = [
+        a_neg_row("N001", outcomes={**plain, "geometry_replay": nfs()}),
+        a_neg_row("N002"),
+    ]
+    assert "(C425)" in refusal(tmp_path / "a_neg", "a_neg.jsonl", 2, a_neg=a_neg)
+
+
 def test_unmarked_quality(tmp_path):
     run = load(
         tmp_path / "unmarked",

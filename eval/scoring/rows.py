@@ -913,7 +913,17 @@ def _photos(
     _no_repeats(
         name, rows, lambda row: row.photo_id, "photo_id repeats an earlier row's"
     )
+    # So a replay is always compared over the same photos (C425).
+    for number, row in rows[1:]:
+        if _replays(row) != _replays(rows[0][1]):
+            raise RowError(
+                name, number, "replay results must be the same on every row (C425)"
+            )
     return tuple(row for _, row in rows)
+
+
+def _replays(row: PhotoRow) -> set[str]:
+    return {name for name in row.results if name.endswith(REPLAY_SUFFIX)}
 
 
 def _wheels(
