@@ -160,7 +160,7 @@ Most likely first. Each line names its tests.
 
 The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_every_schema_enum` checks them against MS1's schema after the merge.
 
-- [ ] **Step 1: Write the failing tests.** Every expected value is the spec's.
+- [x] **Step 1: Write the failing tests.** Every expected value is the spec's. Evidence: tests/test_rules.py (15) and tests/test_pipeline_types.py (39) written first, 54 in all (Task 1's report); commit 222ae4e.
   - `test_levels_are_the_nine_in_order`: `LEVELS` equals the tuple above; `level_index("gutter") == 1`; `level_index("knee") == 4`; `level_index("deep")` raises `ValueError`.
   - `test_passability_for_every_level`: equality with the 9-entry mapping.
   - `test_wheel_rows_match_table_8`: equality with:
@@ -187,10 +187,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_types_import_the_meta_client_only_for_type_checking` (R80): an `ast` walk of `pipeline/types.py` finds every import of `lusot_analysis.meta_client` and `lusot_analysis.face_blur` inside an `if TYPE_CHECKING:` block, and none outside one. It reads the file, so it holds after Task 8 fills `pipeline/__init__.py`.
   - `test_rules_load_without_the_meta_client` (R80): in a fresh interpreter, `import lusot_analysis.rules, sys; print("lusot_analysis.meta_client" in sys.modules, "openai" in sys.modules)` prints `False False`.
   - `test_key_rejected_keeps_its_status`: `ModelKeyRejected(401).status == 401`.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_rules.py tests/test_pipeline_types.py`. Expected: FAIL (modules missing).
-- [ ] **Step 3:** Implement the two modules with the names and values above. The tables are plain dict literals, so a reviewer can check them against spec §3.3 line by line.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: all PASS; ruff clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the level scale, Table 8 rows and the outcome type`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_rules.py tests/test_pipeline_types.py`. Expected: FAIL (modules missing). Evidence: `uv run pytest -q tests/test_rules.py tests/test_pipeline_types.py` → RED: ModuleNotFoundError for lusot_analysis.rules and lusot_analysis.pipeline, 2 collection errors, exit 2 (Task 1's report).
+- [x] **Step 3:** Implement the two modules with the names and values above. The tables are plain dict literals, so a reviewer can check them against spec §3.3 line by line. Evidence: rules.py, pipeline/__init__.py and pipeline/types.py as specified; same command → 54 passed; 6 hand-made mutants each killed (Task 1's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: all PASS; ruff clean. Evidence: `uv run pytest -q` → 90 passed (36 before); `uv run ruff check .` → All checks passed (Task 1's report).
+- [x] **Step 5:** Commit `feat(analysis): add the level scale, Table 8 rows and the outcome type`. Evidence: commit 222ae4e (11:37 AM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 2: Segment step and the boxes before numbering
 
@@ -230,8 +230,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `.judge()` returns `SparkResult(data=answer, input_tokens=1000, output_tokens=200, elapsed_s=1.5, raw=json.dumps(answer))`, or raises `answer` when it is an exception
     - `.count_input_tokens()` raises `AssertionError`
 
-- [ ] **Step 1:** MS1's Interfaces give `SamInstance.box` as four floats without naming their order. Read `meta_client.py` and `tests/test_meta_client.py`, and write what you find into `test_box_xyxy_reads_the_client_convention`: one instance and its expected `(x0, y0, x1, y1)`.
-- [ ] **Step 2: Write the failing tests:**
+- [x] **Step 1:** MS1's Interfaces give `SamInstance.box` as four floats without naming their order. Read `meta_client.py` and `tests/test_meta_client.py`, and write what you find into `test_box_xyxy_reads_the_client_convention`: one instance and its expected `(x0, y0, x1, y1)`. Evidence: test_box_xyxy_reads_the_client_convention pins SAM's record x1=211;y1=228;x2=270;y2=254 as the half-open (211.0, 228.0, 271.0, 255.0), read from meta_client.py:98-100 and test_meta_client.py::test_segment_box_is_half_open_in_sent_pixels (Task 2's report); commit 00a63e9.
+- [x] **Step 2: Write the failing tests:** Evidence: 24 new tests in tests/test_segment.py (13) and tests/test_prepare_boxes.py (11), with the builders in tests/fakes.py (Task 2's report); commit 00a63e9.
   - `test_segment_all_runs_every_phrase_at_once`: a `FakeClient` whose segment hook waits on a `threading.Barrier(7, timeout=5)`. All 7 calls must be in flight together. The result is keyed by all 7 phrases, and every call saw a `BlurredImage`.
   - `test_segment_all_propagates_a_meta_error`: one phrase raises `meta_error(503)`, so `segment_all` raises `MetaApiError`.
   - `test_link_wheels_by_centre`: vehicle A `(0, 0, 200, 100)`, B `(150, 0, 400, 100)`, C `(0, 200, 100, 300)`. Wheel centres and their links:
@@ -254,10 +254,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_kept_wheels_point_at_their_kept_vehicle`: after a cut shifts the positions, `wheel_vehicle` still names each wheel's own vehicle.
   - `test_a_crowded_street_stays_within_the_caps`: 40 vehicles, 60 wheels and 30 people. At most 6 vehicles and 6 people are kept, and every cut is in `drops`.
   - `test_other_phrases_pass_through`: `floodwater`, `wheel rim`, `face` and `license plate` are the same objects.
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_segment.py tests/test_prepare_boxes.py`. Expected: FAIL.
-- [ ] **Step 4:** Implement `segment.py`, `prepare_boxes` and `fakes.py` as specified.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): add the SAM step and the box rules before numbering`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_segment.py tests/test_prepare_boxes.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_segment.py tests/test_prepare_boxes.py` → RED 1: ImportError (cannot import name 'around' from 'fakes'), then RED 2: ModuleNotFoundError for pipeline.segment and pipeline.references; 2 collection errors, exit 2 (Task 2's report).
+- [x] **Step 4:** Implement `segment.py`, `prepare_boxes` and `fakes.py` as specified. Evidence: segment.py, references.py (prepare_boxes) and fakes.py implemented; same command → 24 passed; 28 of 28 mutants killed (Task 2's report).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 228 passed (204 before); `uv run ruff check .` → All checks passed (Task 2's report).
+- [x] **Step 6:** Commit `feat(analysis): add the SAM step and the box rules before numbering`. Evidence: commit 00a63e9 (3:24 PM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 3: Muse Spark's answer: schema, ids and the gate
 
@@ -301,13 +301,13 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `answer(*, photo_usable="yes", standing_water="yes", vehicles=(), wheels=(), people=(), reason="REASON-MARKER-31") -> dict`
   - `REPO_PROMPTS = Path(__file__).parents[1] / "prompts"`
 
-- [ ] **Step 1:** Make `jsonschema` a runtime dependency in `[project] dependencies`.
+- [x] **Step 1:** Make `jsonschema` a runtime dependency in `[project] dependencies`. Evidence: jsonschema was already a runtime dependency from MS1 (pyproject.toml `jsonschema>=4.26.0`, locked in uv.lock and requirements.lock.txt), so no `uv add` ran and pyproject.toml and uv.lock are untouched; `uv run python -c "import jsonschema"` → exit 0, version 4.26.0 (Task 3's report).
   - If MS1 Task 5 already did, record that and go on.
   - If it sits in a dependency group, remove it there first (`uv remove --group <group> jsonschema`), so it is listed once.
   - Then run `uv add jsonschema`.
 
   Expected: `uv.lock` updated, and `uv run python -c "import jsonschema"` exits 0.
-- [ ] **Step 2: Write the failing tests:**
+- [x] **Step 2: Write the failing tests:** Evidence: 40 new tests in tests/test_prompts.py (15), tests/test_annotate.py (+7) and tests/test_gate.py (18), with the builders in tests/fakes.py (Task 3's report); commit 339cfc7.
   - `test_load_prompt_reads_the_versioned_files`: `load_prompt(REPO_PROMPTS)` has `version == PROMPT_VERSION == schema_name`, non-empty text, and `schema["additionalProperties"] is False`.
   - `test_missing_prompt_raises`: `load_prompt(tmp_path)` raises `FileNotFoundError`.
   - `test_prompts_module_never_walks_up_from_its_file`: `"__file__" not in inspect.getsource(prompts)`.
@@ -346,10 +346,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - two instances whose masks are all False → False
     - one instance with one True pixel → True
     - no instances → False
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_prompts.py tests/test_annotate.py tests/test_gate.py`. Expected: FAIL.
-- [ ] **Step 4:** Implement `prompts.py`, `check_ids_per_item`, `validate_answer`, `Layout`, `layout`, `water_found`, `gate` and the builders.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): add the answer schema check, per-item ids and the gate`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_prompts.py tests/test_annotate.py tests/test_gate.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_prompts.py tests/test_annotate.py tests/test_gate.py` → RED 1: ImportError for REPO_PROMPTS and answer from fakes, then RED 2: prompts, check_ids_per_item and Layout missing; 3 collection errors, exit 2 (Task 3's report).
+- [x] **Step 4:** Implement `prompts.py`, `check_ids_per_item`, `validate_answer`, `Layout`, `layout`, `water_found`, `gate` and the builders. Evidence: prompts.py, check_ids_per_item, validate_answer, Layout, layout, water_found, gate and the builders implemented; same command → 47 passed; 34 of 34 mutants killed (Task 3's report).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 268 passed (228 before); `uv run ruff check .` → All checks passed (Task 3's report).
+- [x] **Step 6:** Commit `feat(analysis): add the answer schema check, per-item ids and the gate`. Evidence: commit 339cfc7 (3:55 PM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 4: Answer drops for vehicles, wheels and people
 
@@ -379,7 +379,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
       - an adult whose `standing_still` is `no` or `unsure` is wading. If any person answered `adult = yes` has `standing_still = yes`, whatever its waterline, every wading adult → `person_wading`. Otherwise wading adults are kept. An unanswered person, or one answered `adult: unsure`, never blocks (C76).
     - `wake_visible` is read and changes nothing (C63).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: tests/test_apply_drops.py, 26 cases covering the brief's 10 tests plus extras (Task 4's report); commit c0a50d8.
   - `test_moving_vehicles_are_dropped_with_their_wheels`: `moving` `yes` and `unsure` each → `vehicle_moving`. Their wheels are counted as `wheel_vehicle_dropped`.
   - `test_only_sedans_and_suvs_are_read`: parametrized over `pickup`, `van`, `jeepney`, `tricycle`, `motorcycle`, `bus_truck`, `unknown` → `vehicle_type`. `sedan_hatch` and `suv_mpv` are kept.
   - `test_children_and_unsure_adults_are_dropped`: `adult` `no` and `unsure` → `person_not_adult`.
@@ -397,10 +397,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - vehicle 1 has no entry, and its wheel 3 → `vehicle_unanswered` 1 and `wheel_vehicle_dropped` 1
     - kept vehicle 2: wheel 4 unanswered, wheel 5 `not_visible` → `KeptVehicle(2, "not_visible", ((5, "not_visible"),), wheels_hidden=False)` and `wheel_unanswered` 1
     - person 6 has no entry → `person_unanswered` 1, and it doesn't block wading adult 7, who is kept (C76)
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_apply_drops.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement the types and `apply_drops`.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the answer drops for vehicles, wheels and people`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_apply_drops.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_apply_drops.py` → RED: ImportError (cannot import name 'Kept'), 1 error, exit 2 (Task 4's report).
+- [x] **Step 3:** Implement the types and `apply_drops`. Evidence: Kept, KeptVehicle, KeptPerson and apply_drops added to pipeline/references.py; same command → 26 passed; 31 of 31 mutants killed (Task 4's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 294 passed (268 before); `uv run ruff check .` → All checks passed (Task 4's report).
+- [x] **Step 5:** Commit `feat(analysis): add the answer drops for vehicles, wheels and people`. Evidence: commit c0a50d8 (4:20 PM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 5: Landmark readings (step 5)
 
@@ -419,7 +419,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     5. a vehicle dropped in item 1 or 2 also counts each of its wheels as `wheel_vehicle_dropped`. A `vehicle_no_reading` doesn't, because its wheels gave nothing to drop.
   - **Each person:** `PEOPLE_ROWS[waterline]` gives `Reference("person", id, waterline, reading)`, or `person_no_reading`.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: tests/test_measure.py, 39 cases in 10 functions (the brief's 9 tests plus additions); the R82 refactor (47fc5bb) and the R96 case (d259d21) came first (Task 5's report).
   - `test_each_wheel_row_reads_through`, parametrized over the 6 marks: a sedan with one wheel gives `Reference("wheel", 2, mark, WHEEL_ROWS[mark])`. A lone `not_visible` wheel with body `not_visible` → `vehicle_no_reading`.
   - `test_deepest_wheel_speaks` (C43): `hub` plus `rim_three_quarters` → `knee`, landmark `rim_three_quarters`.
   - `test_wheels_too_far_apart_drop_the_vehicle` (C43 with C54's test), parametrized:
@@ -439,10 +439,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_no_linked_wheel_reads_from_the_body`: no wheels and `window` → a `tire` floor, kind `body`. No wheels and `bumper` → `vehicle_no_reading`.
   - `test_each_people_row_reads_through`: parametrized over the 7 marks; `not_visible` → `person_no_reading`.
   - Review Focus 1, `test_unanswered_wheel_blocks_the_body_reading`: `KeptVehicle(2, "window", ((5, "not_visible"),), wheels_hidden=False)` → no reference, and the drops equal exactly `Counter({"vehicle_no_reading": 1})`.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_measure.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `measure` as specified.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the landmark readings for vehicles and people`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_measure.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_measure.py` → RED 1: ModuleNotFoundError for pipeline.measure, 1 error, exit 2; RED 2 with a stub: 39 failed (Task 5's report).
+- [x] **Step 3:** Implement `measure` as specified. Evidence: pipeline/measure.py implemented; same command → 39 passed; 31 of 31 mutants killed (Task 5's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 334 passed (294 before); `uv run ruff check .` → All checks passed (Task 5's report).
+- [x] **Step 5:** Commit `feat(analysis): add the landmark readings for vehicles and people`. Evidence: commit 65c407e (4:50 PM), after 47fc5bb (R82) and d259d21 (R96); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 6: Combine (steps 6 and 7)
 
@@ -462,7 +462,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `landmark` is the deciding reference's (C49)
     - `basis` is `{"vehicles": <wheel and body references>, "people": <person references>}`
 
-- [ ] **Step 1: Write the failing tests.** The first four are the spec's own examples, on references from different vehicles or people:
+- [x] **Step 1: Write the failing tests.** The first four are the spec's own examples, on references from different vehicles or people: Evidence: tests/test_combine.py, 16 cases in 11 functions (the spec's examples and C54's ties, each tie in both input orders) (Task 6's report); commit d7fa873.
   - `test_floor_beside_exact_chest_gives_chest`: a `wheel_covered` floor (wheel 4) and an exact `chest` (person 9) → `done`, `chest`, landmark `chest`, `NPATV`, `level_is_floor` False, basis 1 and 1; deciding kind `person`.
   - `test_floor_beside_exact_knee_gives_tire_as_a_floor`: a `wheel_covered` floor (wheel 4) and `rim_three_quarters` (wheel 6) → `tire`, landmark `wheel_covered`, `level_is_floor` True, basis 2 and 0.
   - `test_floor_beside_exact_half_tire_refuses`: a `wheel_covered` floor and `hub` → `references_disagree`.
@@ -479,10 +479,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - people at `chest` with ids 10 and 9 → deciding `box_id` 9
   - `test_level_is_floor_only_at_the_result_level`: a `wheel_covered` floor and an exact person at `waist` → `waist`, `level_is_floor` False.
   - `test_result_ignores_input_order` (B3): `combine(refs) == combine(list(reversed(refs)))` for a mixed list.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_combine.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `combine`.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): combine references into one level, with floors as Rene set them`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_combine.py`. Expected: FAIL. Evidence: `uv run --frozen pytest -q tests/test_combine.py` → RED 1: ModuleNotFoundError for pipeline.combine, 1 error, exit 2; RED 2 with a placeholder: 16 failed (Task 6's report).
+- [x] **Step 3:** Implement `combine`. Evidence: pipeline/combine.py implemented; same command → 16 passed; 17 mutants killed after one added assertion (M11) (Task 6's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run --frozen pytest -q` → 106 passed (90 before); `uv run --frozen ruff check .` → All checks passed (Task 6's report).
+- [x] **Step 5:** Commit `feat(analysis): combine references into one level, with floors as Rene set them`. Evidence: commit d7fa873 (11:55 AM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 7: Quality gate and the blur before storage
 
@@ -508,7 +508,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `publish_pixels(bgr: np.ndarray, sam: Mapping[str, SamResult]) -> np.ndarray`: `blur_faces(bgr, publish_boxes(sam), margin=PUBLISH_MARGIN)`
     - `publish_jpeg(image: BlurredImage, sam: Mapping[str, SamResult]) -> bytes`: `publish_pixels(image.bgr(), sam)`, encoded as JPEG at quality 90
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: 19 new tests: tests/test_quality.py (10), tests/test_publish.py (6) and 3 in tests/test_face_blur.py (the R94 pin, the shrink, R26's second case); R27 and R26's first case were already MS1's tests (Task 7's report).
   - `test_shrink_to_max_side_matches_blur_for_meta`: a 4000 × 3000 array → shape `(1200, 1600, 3)`; 640 × 480 comes back unchanged; `blur_for_meta` of the same 4000 × 3000 JPEG has the same size. MS1's downscale test keeps passing.
   - `test_package_init_sets_the_opencv_cap` (R26):
     - in a fresh interpreter, with the variable removed from its environment, `import lusot_analysis, os; print(os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"])` prints `50000000`
@@ -531,10 +531,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_empty_mask_falls_back_to_the_sam_box`: an all-False mask with box `(100, 100, 140, 140)` → that region is blurred.
   - `test_publish_jpeg_keeps_the_image_size`: the output starts with `b"\xff\xd8"` and decodes to the image's size.
   - `test_face_blur_settings_are_pinned_to_their_version` (R94, from MS1's final review): `face_blur`'s settings become named module constants (the score threshold 0.6, the margin 0.25, the 10-cell pixelate grid, the `//3` blur kernel, JPEG quality 90 and the 1,600 px side). The test pins each value next to `FACE_BLUR_VERSION`, and its failure message says to bump the version. `eval/rules.md` §10 freezes the blur setting, so a silent change must fail a test. No value changes.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_quality.py tests/test_publish.py tests/test_face_blur.py`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement as specified. In `__init__.py`, call `os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", "50000000")` before anything imports `cv2`. Keep `face_blur.py`'s own line, which covers a direct import.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the quality gate and the face-and-plate blur before storage`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_quality.py tests/test_publish.py tests/test_face_blur.py`. Expected: the new tests FAIL. Evidence: `uv run pytest -q tests/test_quality.py tests/test_publish.py tests/test_face_blur.py` → RED 1: 3 collection errors (pipeline.quality, pipeline.publish, shrink_to_max_side missing), exit 2; RED 2 with stubs: 15 failed, 27 passed (Task 7's report).
+- [x] **Step 3:** Implement as specified. In `__init__.py`, call `os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", "50000000")` before anything imports `cv2`. Keep `face_blur.py`'s own line, which covers a direct import. Evidence: quality.py, publish.py and face_blur.shrink_to_max_side implemented; the R26 cap line was already in __init__.py from MS1, so it is unchanged; 41 of 42 mutants killed, the survivor equivalent (Task 7's report); commits 232005c (R94 constants) and 457baf9.
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 353 passed (334 before); `uv run ruff check .` → All checks passed; after the review's fix round 355 passed, ruff clean (Task 7's report and SDD ledger).
+- [x] **Step 5:** Commit `feat(analysis): add the quality gate and the face-and-plate blur before storage`. Evidence: commit 457baf9 (5:27 PM), with 232005c (R94) before it; review fix commits 0f56b37 (fail closed on a missing face or plate result) and 648691e (R98, the downscale pin); review clean after 1 fix round (SDD ledger).
 
 ### Task 7a: A total deadline, and the SAM check (C84, C85)
 
@@ -557,7 +557,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `class ModelRefused(Exception)` (C86): `judge` raises it, before any JSON parsing, when the answer's message content holds a refusal part (`{"type": "refusal", "refusal": ...}`, Meta's Responses `RefusalContent`). It never carries the refusal text into a log. A response whose status is `incomplete` still raises `MetaApiError`.
   - **Cleanups from MS1's final review:** retitle or drop the dead test about a box past the 320 px photo, and correct R75's comment to about 768 KiB of JPEG.
 
-- [ ] **Step 1: Write the failing tests**, using the client's existing fakes for the transport and the clock:
+- [x] **Step 1: Write the failing tests**, using the client's existing fakes for the transport and the clock: Evidence: the brief's 8 tests (some parametrized) plus 3 extras in tests/test_meta_client.py, written with the client's fakes and a FakeClock (Task 7a's report); commit cf3d3d5.
   - `test_retry_after_past_the_deadline_stops`: a 503 with `Retry-After: 60` and a deadline 5 s away → `DeadlineExceeded` after 1 call, with no sleep.
   - `test_retry_after_within_the_deadline_is_honoured`: a 503 with `Retry-After: 2`, then 200, with a deadline 30 s away → one sleep of at least 2 s, then the result.
   - `test_background_poll_stops_at_the_deadline`: a 504, then a background job that never finishes → `DeadlineExceeded`, with the fake clock never past the deadline.
@@ -567,9 +567,9 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_judge_sends_reasoning_effort_and_records_reasoning_tokens`: `reasoning_effort="low"` puts `reasoning: {"effort": "low"}` in the body; a fixture whose `usage.output_tokens_details.reasoning_tokens` is 1,234 gives `SparkResult.reasoning_tokens == 1234`; the default sends no `reasoning` key.
   - `test_judge_raises_model_refused_on_a_refusal_part` (C86): a fixture shaped from Meta's Responses schema, with a `refusal` content part → `ModelRefused`, and the refusal text isn't in `caplog`. An `incomplete` response still raises `MetaApiError`.
   - MS1's tests pass unchanged, which shows `deadline=None` keeps its behaviour.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement the deadline and `sam_store`. Then run `uv run pytest -q` and `uv run ruff check .`. Expected: PASS; clean. Commit `feat(analysis): give every Meta call a total deadline`.
-- [ ] **Step 4 (Claude, at most about $0.0075; C85), before Task 16 and before any Set A development photo goes to Meta.** In one PowerShell command that sets the key from the user variable. Record counts, booleans and statuses only, then put the result in `ms3a.md` for Window 4's privacy drafts.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py`. Expected: the new tests FAIL. Evidence: `uv run pytest -q tests/test_meta_client.py` → RED 1: ImportError (cannot import name 'DeadlineExceeded'); RED 2: 15 failed, 66 passed; RED 3 with the keywords accepted but ignored: 14 failed, 67 passed (Task 7a's report).
+- [x] **Step 3:** Implement the deadline and `sam_store`. Then run `uv run pytest -q` and `uv run ruff check .`. Expected: PASS; clean. Commit `feat(analysis): give every Meta call a total deadline`. Evidence: commits cf3d3d5 (deadline, judge timeout, reasoning effort and tokens, ModelRefused, sam_store) and 0d89128 (320 px case, R75 note) → test_meta_client.py 81 passed, `uv run pytest -q` 370 passed, ruff clean; review fixes d6bddbd (R103, R104), 749a635 (C88) and f334ffe (R106) → 101 meta tests, 390 passed, ruff clean; review clean after 1 fix round (Task 7a's report and SDD ledger).
+- [x] **Step 4 (Claude, at most about $0.0075; C85), before Task 16 and before any Set A development photo goes to Meta.** In one PowerShell command that sets the key from the user variable. Record counts, booleans and statuses only, then put the result in `ms3a.md` for Window 4's privacy drafts. Evidence: done by Claude, 8:37 to 8:40 PM, about $0.008 (SDD ledger, C85 Step 4): the first C87 photo (position 0) showed no vehicle or person, so R105 walked to position 1 and sent it with "person" → 8 instances, boxes inside 1600x1200, frame check PASSED; stream `store: false` accepted (echo False); Muse Spark echo False; background `store: false` → 400. `store: false` became the default in 749a635 (subject "ask Meta not to store SAM streams", not the plan's "SAM requests"); the result is recorded in docs commit 7bcbb5a.
   - **The frame check:** the first photo in C87's full order that has a credit line in `attribution.csv` (a Commons photo; STURM stays offline), enlarged or padded to 1,600 × 1,200 in the session scratchpad and passed through `blur_for_meta`, goes to `segment(image, "vehicle")`. It passes only if a returned box's frame is 1,600 × 1,200. Zero matches is inconclusive: retry once with `"wheel"`. A failure stops everything: `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
   - **`store: false` on the stream:** with `MetaClient(sam_store=False)`, judge it by the echoed `store` value, not by the HTTP status. A 400 → resend without it and record the refusal.
   - **The background path:** one `background: true` call with `store: false`, polled to the end. If it fails, the background path keeps Meta's default and deletes the response after reading it.
@@ -622,12 +622,12 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `error`, `meta_status`: on failures only
 - Produces, in `tests/fakes.py`: `level_case() -> tuple[bytes, dict[str, SamResult], dict]`, the photo, SAM results and answer of `test_level_result_end_to_end` below. Tasks 9 and 13 reuse it as "the level case".
 
-- [ ] **Step 1:** Check MS1's work and record each finding in the task report:
+- [x] **Step 1:** Check MS1's work and record each finding in the task report: Evidence: Task 8's report, "Step 1: MS1's work, checked": the BlurredImage-subclass and short-key tests exist, every timeout or lost connection is a MetaApiError, judge's non-JSON answer raises JSONDecodeError (mapped to ModelAnswerError), ModelRefused maps to refused/model_declined, and P5 = 0 face boxes over wheel boxes (probe note §5).
   - `tests/test_meta_client.py` covers both §3.6 items: a `BlurredImage` subclass is refused (`type(img) is BlurredImage`), and a key under 20 characters is refused. If either test is missing, add it there (`test_rejects_blurred_image_subclass`, `test_short_key_refused`).
   - Read `meta_client.py` for the classes it raises on a timeout or a connection error that outlasts its retries. They are Meta errors, so they end `failed/model_error` (C59), never `pipeline_error`. Add each to the Errors mapping and to `test_model_errors_pay_once`.
   - Read the probe note's count of face boxes that overlap wheel boxes (P5). If it is above 0, stop and report it: the controller rules on P5 before this task goes on.
   - C86: map Task 7a's `ModelRefused` to `refused/model_declined`. Add `"model_declined"` to `REFUSED_REASONS` in `pipeline/types.py` (and update Task 1's reason-list test), and add a case to `test_gate_outcomes_through_the_pipeline`. Check `ModelRefused` before the broader exceptions.
-- [ ] **Step 2: Write the failing tests** (`FakeClient`, `noise_jpeg()`, `prompt = load_prompt(REPO_PROMPTS)`):
+- [x] **Step 2: Write the failing tests** (`FakeClient`, `noise_jpeg()`, `prompt = load_prompt(REPO_PROMPTS)`): Evidence: 37 new tests in tests/test_pipeline.py using FakeClient, noise_jpeg() and level_case() (Task 8's report); commit 61502cf.
   - `test_level_result_end_to_end`, built from `level_case()`:
     - SAM: `vehicle (100, 100, 400, 300)`, `wheel (150, 250, 200, 300)`, `floodwater (0, 280, 640, 480)`, `face (300, 120, 330, 150)`, `license plate (220, 270, 280, 290)`
     - answer: vehicle 1, `sedan_hatch`, not moving, body `not_visible`; wheel 2 at `rim_three_quarters`
@@ -658,10 +658,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - water no → no flood seen
     - water yes → `no_water_found`
     - usable no → `photo_unusable`
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_pipeline.py`. Expected: FAIL.
-- [ ] **Step 4:** Implement `run_pipeline`, `PipelineRun` and `READING_PHRASES`. Count `meta_calls` around the client calls. Take the timings from `SamResult.elapsed_s` and `SparkResult.elapsed_s`.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): add the pipeline function shared by the Lambda and the laptop`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_pipeline.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_pipeline.py tests/test_pipeline_types.py` → RED: ImportError (cannot import name 'READING_PHRASES'), 1 error; test_pipeline_types.py 1 failed, 38 passed (the missing model_declined reason) (Task 8's report).
+- [x] **Step 4:** Implement `run_pipeline`, `PipelineRun` and `READING_PHRASES`. Count `meta_calls` around the client calls. Take the timings from `SamResult.elapsed_s` and `SparkResult.elapsed_s`. Evidence: run_pipeline, PipelineRun and READING_PHRASES implemented; segment_all gained a deadline keyword and REFUSED_REASONS gained model_declined (C86); `uv run pytest -q tests/test_pipeline.py tests/test_pipeline_types.py tests/test_segment.py` → 88 passed; 23 of 23 mutants killed, then 27 of 27 after the R107 fix df3c7db (Task 8's report).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 427 passed (390 before), 434 passed after the R107 fix; `uv run ruff check .` → All checks passed (Task 8's report).
+- [x] **Step 6:** Commit `feat(analysis): add the pipeline function shared by the Lambda and the laptop`. Evidence: commit 61502cf (9:38 PM), then fix df3c7db (10:07 PM, R107); review clean after 1 fix round (SDD ledger).
 
 ### Task 9: Saved outputs and the offline runner
 
@@ -699,7 +699,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - prints only: the outcome's `log_name` and level, `meta_calls`, instances and ms per phrase, Muse Spark's ms, tokens, drops, and on replay `same as saved: True|False`
     - never prints the answer, its reason or the key. Every line masks 12-digit runs.
 
-- [ ] **Step 1: Write the failing tests.** The runner is loaded with `importlib.util.spec_from_file_location("run_pipeline_script", ...)`.
+- [x] **Step 1: Write the failing tests.** The runner is loaded with `importlib.util.spec_from_file_location("run_pipeline_script", ...)`. Evidence: tests/test_saved.py (13) and tests/test_run_pipeline.py (15) (Task 9's report); the pre-review and fix rounds added the R109 replay cases, the early-exit saves, R110's exit-3 cases and R111's data-folder cases (49 task tests in all).
   - `test_record_then_replay_gives_the_same_outcome`: `level_case()` recorded with `phrases=READING_PHRASES`, saved to `tmp_path`, then run again through `SavedOutputsClient` → an equal `Outcome`, and equal `log["drops"]` and `log["instances"]`.
   - `test_saved_layout`: the files listed above exist; `spark.json` holds the reason marker; no file is named after `face` or `license_plate`.
   - `test_saved_masks_round_trip`: the masks are `np.array_equal` after saving and loading.
@@ -711,10 +711,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_missing_or_short_key_exits_2_without_echo`: `MODEL_API_KEY` is `"\x16"` and the real `make_client` is used → exit 2, and `"\x16"` isn't in the output.
   - `test_rejected_key_exits_2` (C73): a `FakeClient` whose `segment` raises `meta_error(401)` → exit 2, and no run directory is written.
   - `test_replay_needs_no_key`: with `MODEL_API_KEY` removed, `replay` of a recorded run → exit 0 and `same as saved: True`.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_saved.py tests/test_run_pipeline.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `saved.py` and the runner. The runner loads the prompt with `load_prompt(Path(__file__).resolve().parents[1] / "prompts")`. That is allowed: only package code must not walk up from `__file__`, and the runner runs only in the repo.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the offline runner with live and replay modes`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_saved.py tests/test_run_pipeline.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_saved.py tests/test_run_pipeline.py` → RED: ModuleNotFoundError for pipeline.saved and FileNotFoundError for probes/run_pipeline.py, 2 errors (Task 9's report).
+- [x] **Step 3:** Implement `saved.py` and the runner. The runner loads the prompt with `load_prompt(Path(__file__).resolve().parents[1] / "prompts")`. That is allowed: only package code must not walk up from `__file__`, and the runner runs only in the repo. Evidence: pipeline/saved.py and probes/run_pipeline.py implemented (44926cf), then changed by rulings: R108 (spark.json keeps reasoning_tokens), R109 (a refusal or a failed SAM call replays to its live outcome, 1c7cb20), R110 (other I/O and parse errors exit 3) and R111 (live refuses a data folder inside the repo), both in 663c146; 28 passed at first, 49 task tests at the end; 37 of 37 mutants killed, then 14 of 14 on the last round (Task 9's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 462 passed (434 before), 472 after R109, 483 after R110 and R111; `uv run ruff check .` → All checks passed (Task 9's report). The controller's baa69a0 then built one test's 12-digit string at run time so `node scripts/check_account_ids.mjs` stays clean.
+- [x] **Step 5:** Commit `feat(analysis): add the offline runner with live and replay modes`. Evidence: commit 44926cf (10:49 PM), then 1c7cb20 (R109), 663c146 (R110, R111) and baa69a0; review clean after a pre-review R109 round and 1 fix round (SDD ledger).
 
 ### Task 10: API result fields
 
@@ -729,16 +729,16 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - on `done`: `noFloodSeen` (a boolean). With a level, also `level`, `landmark`, `passability`, `basis: {vehicles, people}` and `levelIsFloor`.
   - never `lat`, `lng`, `gpsAccuracyM`, `readings`, `photoKey`, `overlayKey`, `claimToken`, `claimedAt`, `pk` or `sk`. Build the body from an allow-list, as now. `basis` is copied as exactly its two counts.
 
-- [ ] **Step 1: Write the failing Vitest tests** (keep the MS1 tests: old `failed/pipeline_not_built` reports read as before):
+- [x] **Step 1: Write the failing Vitest tests** (keep the MS1 tests: old `failed/pipeline_not_built` reports read as before): Evidence: 5 tests (6 cases) added to backend/api/test/reports.test.ts, MS1's tests untouched (Task 10's report); commit c13be20.
   - `a done report with a level returns the level fields`: an exact `toEqual` on `{reportId, status: "done", capturedAt, noFloodSeen: false, level: "knee", landmark: "rim_three_quarters", passability: "NPLV", basis: {vehicles: 1, people: 1}, levelIsFloor: false}`.
   - `a done report with no flood seen returns noFloodSeen and nothing else new`.
   - `refused and failed reports carry only refusalReason`: `refused/too_dark` and `failed/model_error`.
   - `a processing report carries no result or claim fields`: exactly `{reportId, status: "processing", capturedAt}`.
   - `never returns the location, readings, photo key or the claim`: a stored item holds all of those plus the level fields. Every key of the body is in the allowed set, and the body text contains none of the forbidden names.
-- [ ] **Step 2:** Run `npm test -w backend/api`. Expected: FAIL.
-- [ ] **Step 3:** Implement the allow-list in `getReport`.
-- [ ] **Step 4:** Run `npm test -w backend/api`, then `npm run typecheck -w backend/api`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(api): return the landmark result fields from GET /reports/{id}`.
+- [x] **Step 2:** Run `npm test -w backend/api`. Expected: FAIL. Evidence: `npm test -w backend/api` → RED, exit 1: 3 failed, 38 passed (Task 10's report).
+- [x] **Step 3:** Implement the allow-list in `getReport`. Evidence: allow-list in getReport (backend/api/src/reports.ts, +16 -3); 3 planted mistakes each failed the tests, then the file was restored byte for byte (Task 10's report).
+- [x] **Step 4:** Run `npm test -w backend/api`, then `npm run typecheck -w backend/api`. Expected: PASS; clean. Evidence: `npm test -w backend/api` → 41 passed (35 before); `npm run typecheck -w backend/api` → exit 0 (Task 10's report).
+- [x] **Step 5:** Commit `feat(api): return the landmark result fields from GET /reports/{id}`. Evidence: commit c13be20 (12:10 PM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 11: The result on the test screen
 
@@ -764,7 +764,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - **Refused and failed** results add a small line, `Reason: <refusalReason>` (`text-xs`).
     - The message comes from `status`, never from the reason (C50). So MS1's `pipeline_not_built` now reads as processing failed. MS1's footer line stays.
 
-- [ ] **Step 1: Write the failing Vitest tests:**
+- [x] **Step 1: Write the failing Vitest tests:** Evidence: 18 new cases: 1 in app/src/lib/api.test.ts and 17 in app/src/App.test.tsx, and 2 existing tests updated (Task 11's report); commit bbcaf03.
   - `pollReport returns the result fields`: a `done` body with every field → `toEqual` on those fields.
   - `pollReport times out with a clear error`: also `rejects.toBeInstanceOf(PollTimeoutError)`.
   - Update `App uploads the photo and shows the result` (`failed/pipeline_not_built`): it now shows `Processing failed, try again.` and `Reason: pipeline_not_built`.
@@ -779,10 +779,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `App shows processing failed and its reason`: `failed/model_error`.
   - `A poll timeout reads as processing failed`: `pollReport` rejects with `PollTimeoutError` → `Processing failed, try again.`, with no "did not work" alert.
   - `no screen uses the banned word`: for each state above, `document.body.textContent` doesn't match `/\bsafe\b/i`.
-- [ ] **Step 2:** Run `npm test -w app`. Expected: FAIL.
-- [ ] **Step 3:** Implement it, keeping the change small: a `describeResult(result): { lines: string[]; reason?: string }` in `App.tsx`. Visual design waits for MS5 (R3).
-- [ ] **Step 4:** Run `npm test -w app`, then `npm run typecheck -w app` and `npm run lint -w app`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(app): show the landmark result on the test screen`.
+- [x] **Step 2:** Run `npm test -w app`. Expected: FAIL. Evidence: `npm test -w app -- --reporter=verbose` → RED, exit 1: 12 failed, 28 passed (Task 11's report).
+- [x] **Step 3:** Implement it, keeping the change small: a `describeResult(result): { lines: string[]; reason?: string }` in `App.tsx`. Visual design waits for MS5 (R3). Evidence: describeResult in app/src/App.tsx, and PollTimeoutError plus the result fields in app/src/lib/api.ts; copy and markup only, per R83 (Task 11's report).
+- [x] **Step 4:** Run `npm test -w app`, then `npm run typecheck -w app` and `npm run lint -w app`. Expected: PASS; clean. Evidence: `npm test -w app` → 40 passed (22 before); `npm run typecheck -w app` → exit 0; `npm run lint -w app` → exit 0 (Task 11's report).
+- [x] **Step 5:** Commit `feat(app): show the landmark result on the test screen`. Evidence: commit bbcaf03 (12:31 PM); review clean, 0 Critical/Important (SDD ledger).
 
 ### Task 12: Report store: the claim and the result writes
 
@@ -807,7 +807,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - values: `str` → `S`, `bool` → `BOOL` (check it before `int`), `int` → `N`, a mapping of ints → `M`
 - Produces, in `tests/fakes.py`: `create_reports_table(ddb, name: str) -> None`, the table and index as MS1's `test_handler.py` creates them
 
-- [ ] **Step 1: Write the failing tests** (moto `mock_aws`, `now_s = 1_800_000_000`):
+- [x] **Step 1: Write the failing tests** (moto `mock_aws`, `now_s = 1_800_000_000`): Evidence: tests/test_report_store.py, 14 cases on moto mock_aws with now_s = 1_800_000_000, and tests/fakes.py with create_reports_table (Task 12's report); the R84 fix round made it 16 cases (afe9394).
   - `test_claims_a_pending_report`: → `"claimed"`; the status is `processing`, with the token and `claimedAt == now_s`.
   - `test_finished_reports_are_not_claimed`, parametrized over `done`, `refused`, `failed` → `"finished"`; the item is unchanged.
   - `test_live_lease_is_respected`: `processing` with `claimedAt = now_s - 900` → `"leased"`, because exactly 15 minutes is still live. The item is unchanged.
@@ -820,10 +820,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_other_aws_errors_propagate`: `update_item` patched to raise `ProvisionedThroughputExceededException` → both `claim` and `write_result` raise `ClientError`.
   - `test_a_repeated_claim_is_its_own` (C82): `claim` twice with the same token and `now_s` → `"claimed"` both times; the item is unchanged by the second.
   - `test_a_repeated_write_is_its_own` (C82): claim, then `write_result` twice with the same token and fields → True both times. A `write_result` with another token on that finished item → False.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_report_store.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `report_store.py` and `create_reports_table`.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): claim reports before paying and write results under the claim`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_report_store.py`. Expected: FAIL. Evidence: `uv run --frozen pytest -q tests/test_report_store.py` → RED 1: ModuleNotFoundError for fakes; RED 2 (fakes added): ModuleNotFoundError for lusot_analysis.report_store; each 1 error, exit 2 (Task 12's report).
+- [x] **Step 3:** Implement `report_store.py` and `create_reports_table`. Evidence: report_store.py (claim, write_result, LEASE_S, FINAL_STATUSES) and create_reports_table; 14 passed, 16 of 16 mutants killed; after R84 (a repeated claim or write counts as the worker's own, spec C82) 16 passed, 24 of 25 mutants killed, 1 equivalent (Task 12's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run --frozen pytest -q` → 120 passed (106 before), 122 after the R84 fix; `uv run --frozen ruff check .` → All checks passed (Task 12's report).
+- [x] **Step 5:** Commit `feat(analysis): claim reports before paying and write results under the claim`. Evidence: commit eb7e7a6 (12:54 PM), then fix afe9394 (1:13 PM); review clean after 1 fix round (SDD ledger).
 
 ### Task 13: The handler (replaces the MS1 stub)
 
@@ -870,7 +870,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - One JSON line per report holds `reportId`, `outcome`, `ms` and the pipeline's log fields.
 - The handler never reads `/lusot/stop/publish` (C64), and never calls `count_input_tokens`.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.** Evidence: tests/test_handler.py rewritten: 36 functions, 53 cases (5 MS1 functions kept, 7 MS1 stub tests deleted, 31 new) (Task 13's report); commit fd04cdb.
   - **Set-up:**
     - MS1's moto fixture, rebuilt on `create_reports_table`, with `PROMPTS_DIR = REPO_PROMPTS`
     - a `FakeClient` on `level_case()` patched in as `handler._meta_client`, except in the key tests
@@ -933,10 +933,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - **B3:**
     - `test_b3_replay_through_runner_and_handler_match`: the runner's `live()` records a level run with a `FakeClient`. Then `replay(photo, run_dir).outcome == analyse(data, SavedOutputsClient(run_dir, data)).outcome`, and both equal the live outcome.
     - `test_b3_on_a_real_saved_run`: skipped unless `LUSOT_B3_RUN_DIR` and `LUSOT_B3_PHOTO` are set. It runs the same equality on that run (Task 16).
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_handler.py`. Expected: FAIL.
-- [ ] **Step 3:** Rewrite `handler.py` in that order. Keep MS1's structure: module-level `_client` cache, `_log`, `_handle_object`, the batch-failure loop. Rename the error field `status` to `http_status`.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): replace the MS1 stub with the landmark pipeline under a claim`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_handler.py`. Expected: FAIL. Evidence: `uv run --frozen pytest -q tests/test_handler.py` against MS1's stub → RED: 1 skipped, 52 errors (for example AttributeError: no attribute '_prompt') (Task 13's report).
+- [x] **Step 3:** Rewrite `handler.py` in that order. Keep MS1's structure: module-level `_client` cache, `_log`, `_handle_object`, the batch-failure loop. Rename the error field `status` to `http_status`. Evidence: handler.py rewritten in the spec's order, with R85 (non-JPEG ends bad_file), R92 (visibility change) and R93 (AccessDenied kept in the missing-photo rule); `pytest -q tests/test_handler.py` → 52 passed, 1 skipped; 59 of 59 mutants killed; C89 (R113) then made a live lease return its message (334d012, 5fe9a52), 62 of 62 mutants (Task 13's report and SDD ledger).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 518 passed, 1 skipped (the B3 real run waits for Task 16); `uv run ruff check .` → All checks passed; `ruff format --check` flagged only the controller's earlier baa69a0 line, fixed in 4c0e4b8 (Task 13's report and SDD ledger).
+- [x] **Step 5:** Commit `feat(analysis): replace the MS1 stub with the landmark pipeline under a claim`. Evidence: commit fd04cdb (12:36 AM); review clean, no fix round (SDD ledger); follow-up commits 334d012 and 5fe9a52 (C89).
 
 ### Task 14: Container image and analysis role
 
@@ -950,23 +950,23 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - an image that holds the prompts at `${LAMBDA_TASK_ROOT}/prompts`, with `PROMPTS_DIR` set, and every locked package hash-checked in the task root
   - a role with `s3:PutObject` and `s3:DeleteObject` on `blurred/*` (C72), and `s3:ListBucket` limited to `raw/`
 
-- [ ] **Step 1:** Change the dead-letter queue's comment (R49's wording, comment only) to "7 days, not the MS1 plan's first 14 days". Then add two statements to `AnalysisRole`:
+- [x] **Step 1:** Change the dead-letter queue's comment (R49's wording, comment only) to "7 days, not the MS1 plan's first 14 days". Then add two statements to `AnalysisRole`: Evidence: template.yaml (dead-letter comment and two AnalysisRole statements, commit 942c92e); `sam validate --lint --profile lusot --region ap-southeast-1` → valid, exit 0 (SAM CLI 1.170.0); the grep for ReservedConcurrentExecutions or a wildcard Resource found nothing; `grep -c "AnalysisRole" template.yaml` → 2 (Task 14's report).
   - `s3:PutObject` and `s3:DeleteObject` on `!Sub "${UploadBucket.Arn}/blurred/*"`
   - `s3:ListBucket` on `!GetAtt UploadBucket.Arn`, with `Condition: {StringLike: {"s3:prefix": "raw/*"}}`. Comment it: the grant makes a missing raw photo read as 404 `NoSuchKey`. AWS doesn't document whether a prefix-limited grant counts, so the handler keeps `AccessDenied` in the missing-photo rule, and Task 16 records which code comes back (§3.6).
 
   Run `sam validate --lint --profile lusot --region ap-southeast-1` from `backend`. Expected: valid. Also from `backend`, `grep -n "ReservedConcurrentExecutions\|Resource: \"\*\"" template.yaml` finds nothing, and `grep -c "AnalysisRole" template.yaml` prints a number above 0, which proves the grep read the file.
-- [ ] **Step 2:** Regenerate the lock: `uv export --no-dev --no-emit-project --format requirements-txt -o requirements.lock.txt`. Expected: `grep -c "^jsonschema==" requirements.lock.txt` prints 1, and every package line has a `--hash=sha256:`.
-- [ ] **Step 3:** Change the Dockerfile:
+- [x] **Step 2:** Regenerate the lock: `uv export --no-dev --no-emit-project --format requirements-txt -o requirements.lock.txt`. Expected: `grep -c "^jsonschema==" requirements.lock.txt` prints 1, and every package line has a `--hash=sha256:`. Evidence: `uv export --no-dev --no-emit-project --format requirements-txt -o requirements.lock.txt` → byte-identical to the committed lock (Task 3 had already locked jsonschema); `grep -c "^jsonschema==" requirements.lock.txt` → 1; all 32 package entries carry a --hash=sha256: (Task 14's report).
+- [x] **Step 3:** Change the Dockerfile: Evidence: Dockerfile now has `pip install --require-hashes --target` and ENV PROMPTS_DIR; COPY prompts and .dockerignore's !prompts were already there (Task 14's report); commit 942c92e.
   - `RUN pip install --no-cache-dir --require-hashes --target ${LAMBDA_TASK_ROOT} -r ${LAMBDA_TASK_ROOT}/requirements.lock.txt`. `--target` makes pip ignore the base image's copies, so it checks the hash of every locked package, `six`, `python-dateutil` and `urllib3` included. Lambda puts the task root first on `sys.path`. Comment it so.
   - `COPY prompts ${LAMBDA_TASK_ROOT}/prompts` and `ENV PROMPTS_DIR=${LAMBDA_TASK_ROOT}/prompts`
   - `.dockerignore` gains `!prompts`
-- [ ] **Step 4:** Make sure no Gradle build is running, and post `DOCKER/DEPLOY RUNNING <time>` in `ms3a.md` first (the tracker then pauses Windows 2 and 4; `DOCKER/DEPLOY DONE <time>` after Step 5). Then run `docker build -t lusot-analysis:ms3a backend/analysis` from the repo root. Expected: success.
-- [ ] **Step 5:** Check the built image:
+- [x] **Step 4:** Make sure no Gradle build is running, and post `DOCKER/DEPLOY RUNNING <time>` in `ms3a.md` first (the tracker then pauses Windows 2 and 4; `DOCKER/DEPLOY DONE <time>` after Step 5). Then run `docker build -t lusot-analysis:ms3a backend/analysis` from the repo root. Expected: success. Evidence: controller (R112): `docker build -t lusot-analysis:ms3a backend/analysis` → exit 0 in 29 s; no Gradle build running; DOCKER RUNNING and DOCKER DONE posted at 1:42 AM (SDD ledger).
+- [x] **Step 5:** Check the built image: Evidence: controller ran the three checks with `--network none`: prompts → `muse_spark_photo_v1 True False`; the /var/task check → `True`; handler import → `ok` (SDD ledger).
   - `docker run --rm --entrypoint python lusot-analysis:ms3a -c "import os, pathlib; from lusot_analysis.prompts import load_prompt; p = load_prompt(pathlib.Path(os.environ['PROMPTS_DIR'])); print(p.version, bool(p.text), p.schema['additionalProperties'])"` → `<PROMPT_VERSION> True False`
   - `docker run --rm --entrypoint python lusot-analysis:ms3a -c "import boto3, dateutil, six, urllib3, jsonschema, numpy, cv2; print(all(m.__file__.startswith('/var/task/') for m in (boto3, dateutil, six, urllib3, jsonschema, numpy, cv2)))"` → `True`
   - `docker run --rm --entrypoint python lusot-analysis:ms3a -c "import lusot_analysis.handler; print('ok')"` → `ok`
-- [ ] **Step 6:** Run `uv run pytest -q` from `backend/analysis`. Expected: PASS, since no code changed.
-- [ ] **Step 7:** Commit `build(analysis): ship the prompts, hash-check every package and widen the role for MS3a`.
+- [x] **Step 6:** Run `uv run pytest -q` from `backend/analysis`. Expected: PASS, since no code changed. Evidence: `uv run pytest -q` from backend/analysis → 518 passed, 1 skipped; `uv run ruff check .` → All checks passed (Task 14's report).
+- [x] **Step 7:** Commit `build(analysis): ship the prompts, hash-check every package and widen the role for MS3a`. Evidence: commit 942c92e (1:10 AM); review clean, no fix round (SDD ledger).
 
 ### Task 15: Smoke script for the MS3a cloud checks
 
@@ -1010,7 +1010,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - `--fallback` (C71) uploads positions 5 to 19 of C87's order one at a time and stops at the first level. It runs checks 2, 5 and 6 on them, and prints how many it sent.
 - The output is counts and timings only: each report's outcome or level, and its seconds to a final status. Everything prints through the masking `say()`.
 
-- [ ] **Step 1: Write the failing tests.** They use only fakes: `httpx.MockTransport`, `tmp_path` trees and no AWS.
+- [x] **Step 1: Write the failing tests.** They use only fakes: `httpx.MockTransport`, `tmp_path` trees and no AWS. Evidence: backend/scripts/test_smoke_upload.py, fakes only (httpx.MockTransport, tmp_path trees, in-memory AWS clients) (Task 15's report); the fix round (62e999a, R116) added the 18-case failure table and built the `images/<name>` layout.
   - `test_seeded_order_follows_c87`: a `tmp_path` folder with a `metro_manila_41.txt` of 30 lines (a comment line first) and one empty file per line:
     - the order equals `random.Random(20261028).sample(sorted(names), 30)` over the listed base names, and its first 20 equal `random.Random(20261028).sample(sorted(names), 20)` (the prefix property R102 relies on)
     - a listed file missing from the folder → `CheckFailed`
@@ -1023,10 +1023,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_log_lines_parse_the_lambda_text_format`: the event `"[INFO]\t2026-10-29T01:02:03.000Z\treq-1\t{\"reportId\": \"r_...\", \"meta_calls\": 0}\n"` parses, and a line that isn't JSON is skipped.
   - `test_sealed_paths_are_refused`.
   - The run's summary counts `meta_status` 504 and 413 for SAM and `judge`, and takes cost from billed usage only (never from token counts).
-- [ ] **Step 2:** Run `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root (R5's pattern). Expected: FAIL.
-- [ ] **Step 3:** Implement the script changes as specified.
-- [ ] **Step 4:** Run the Step 2 command, and `uv run --with pytest --with boto3 pytest -q backend/scripts/test_put_model_key.py backend/scripts/test_apply_ecr_lifecycle.py`. Expected: PASS.
-- [ ] **Step 5:** Commit `test(backend): extend the smoke run to the MS3a cloud checks`.
+- [x] **Step 2:** Run `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root (R5's pattern). Expected: FAIL. Evidence: the Step 2 command on MS1's script → RED: 16 failed; in the fix round, the new tests on ac07fc1's script: 30 failed, 7 passed (Task 15's report).
+- [x] **Step 3:** Implement the script changes as specified. Evidence: smoke_upload.py extended (B1 flow, B4's stored-photo check, B5, C71's --fallback, the spend line); R116: each photo is opened at folder/images/<base name>; R115: check:py's scripts part adds httpx, numpy and opencv-python-headless so CI runs these tests (package.json) (Task 15's report); commits ac07fc1 and 62e999a.
+- [x] **Step 4:** Run the Step 2 command, and `uv run --with pytest --with boto3 pytest -q backend/scripts/test_put_model_key.py backend/scripts/test_apply_ecr_lifecycle.py`. Expected: PASS. Evidence: the Step 2 command → 37 passed; `uv run --with pytest --with boto3 pytest -q backend/scripts/test_put_model_key.py backend/scripts/test_apply_ecr_lifecycle.py` → 18 passed; `npm run check:py` → exit 0 (analysis 518 passed, 1 skipped; scripts 65 passed); 37 of 37 new mutants and the first round's 50 killed (Task 15's report).
+- [x] **Step 5:** Commit `test(backend): extend the smoke run to the MS3a cloud checks`. Evidence: commit ac07fc1 (3:08 AM), then fix 62e999a (3:57 AM); review clean after 1 fix round (SDD ledger).
 
 ### Task 16: Deploy and the cloud check (spends Meta credits)
 
