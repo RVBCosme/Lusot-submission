@@ -44,8 +44,8 @@ MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an M
 - **What never enters the repo:**
   - account IDs, the Meta Team ID, console links or email addresses
   - plan text: cite "plan §N" and paraphrase
-  - photos other than public-domain or synthetic test fixtures. Tests make their own images. STURM photos and saved runs stay under `LUSOT_DATA_DIR`.
-- **Sealed data:** nothing under a folder named `sealed` is opened, listed or searched. No Set A or A-neg photo is used. Meta sees only STURM-FloodDepth photos and synthetic images (C12).
+  - photos other than public-domain or synthetic test fixtures. Tests make their own images. Data-set photos (STURM, Commons) and saved runs stay under `LUSOT_DATA_DIR`.
+- **Sealed data:** nothing under a folder named `sealed` is opened, listed or searched. No Set A or A-neg photo is used. **Meta sees only the Commons photos C87 selects (CC BY or public domain, attribution kept beside them) and synthetic images** (Rene, 5:53 PM). STURM-FloodDepth stays offline: no new Meta call on any STURM photo.
 - **Data directory:** `LUSOT_DATA_DIR`, defaulting to `C:\Systems\Lusot\lusot-data` when unset.
 - **Queue and concurrency (unchanged from MS1):**
   - no reserved concurrency
@@ -58,7 +58,7 @@ MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an M
   - Every call runs under the run's deadline (C84, Task 7a): a wait, poll or read that would pass it stops instead of retrying early.
   - The pipeline itself never retries a Meta call (C47, C59).
   - The Lambda never calls `count_input_tokens`.
-- **Credits:** Meta credits are spent only in Task 7a's one SAM check (C85, about $0.0025) and in Task 16. It sends the photos the spec names (B1's 5 STURM photos) and runs one offline-runner live run on one of them. C71's fallback adds up to 15 more STURM photos from Level1 to Level3, in the seeded order.
+- **Credits:** Meta credits are spent only in Task 7a's one SAM check (C85, about $0.0025) and in Task 16. It sends the photos the spec names (B1's 5 photos, positions 0 to 4 of C87's order) and runs one offline-runner live run on one of them. C71's fallback adds up to 15 more, positions 5 to 19.
 - **Exact values (spec):**
   - quality: brightness under 40 → `too_dark`, sharpness under 25 → `too_blurry`, on the pre-blur upload shrunk to at most 1,600 px
   - before numbering: a wheel whose SAM box has a longer side under 40 px is dropped; at most 6 vehicles and 6 people, largest boxes first
@@ -570,7 +570,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py`. Expected: the new tests FAIL.
 - [ ] **Step 3:** Implement the deadline and `sam_store`. Then run `uv run pytest -q` and `uv run ruff check .`. Expected: PASS; clean. Commit `feat(analysis): give every Meta call a total deadline`.
 - [ ] **Step 4 (Claude, at most about $0.0075; C85), before Task 16 and before any Set A development photo goes to Meta.** In one PowerShell command that sets the key from the user variable. Record counts, booleans and statuses only, then put the result in `ms3a.md` for Window 4's privacy drafts.
-  - **The frame check:** MS1's probe photo `car-1335` (STURM), enlarged and padded to 1,600 × 1,200 in the session scratchpad and passed through `blur_for_meta`, goes to `segment(image, "vehicle")`. It passes only if a returned box's frame is 1,600 × 1,200. Zero matches is inconclusive: retry once with `"wheel"`. A failure stops everything: `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
+  - **The frame check:** the first photo in C87's order (a Commons photo; STURM stays offline), enlarged or padded to 1,600 × 1,200 in the session scratchpad and passed through `blur_for_meta`, goes to `segment(image, "vehicle")`. It passes only if a returned box's frame is 1,600 × 1,200. Zero matches is inconclusive: retry once with `"wheel"`. A failure stops everything: `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
   - **`store: false` on the stream:** with `MetaClient(sam_store=False)`, judge it by the echoed `store` value, not by the HTTP status. A 400 → resend without it and record the refusal.
   - **The background path:** one `background: true` call with `store: false`, polled to the end. If it fails, the background path keeps Meta's default and deletes the response after reading it.
   - **Muse Spark:** record `judge`'s echoed `store` value once (it already sends `false`).
@@ -685,6 +685,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `spark.raw`: the raw answer text
 - Produces, in `probes/run_pipeline.py` (§3.7):
   - `refuse_sealed(*paths: Path) -> None` raises `SystemExit(2)` when any part of a resolved path equals `sealed`, ignoring case. It runs before any file is opened or listed (C66).
+  - `refuse_sturm_live(photo: Path) -> None` (C87): in `live` mode only, raises `SystemExit(2)` with `refused: STURM photos stay offline` when any part of the resolved path equals `sturm_flooddepth`, ignoring case. `replay` is allowed, since it makes no Meta call.
   - `make_client() -> MetaClient` builds the client from `MODEL_API_KEY`. Tests replace it.
   - `live(photo: Path, data_dir: Path) -> tuple[Path, PipelineRun]` writes the run directory `<data_dir>/runs/<YYYY-MM-DD>/<photo stem>-<HHMMSS>`.
   - `replay(photo: Path, run_dir: Path) -> PipelineRun`
@@ -701,6 +702,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_replay_refuses_another_photo`: other bytes → `ValueError`.
   - `test_replay_of_a_model_error`: a live `judge` raised `meta_error(500)`, so no answer was saved. The replay → `failed/model_error`.
   - `test_refuses_paths_inside_sealed_folders`, parametrized over `tmp_path/"sealed"/"x.jpg"`, `tmp_path/"a"/"Sealed"/"x.jpg"` and `tmp_path/"sealed"/"sub"/".."/"x.jpg"`. None of these exists, and the test creates none. `main(["live", str(p)]) == 2`, and the output says `refused: path inside a folder named sealed`. `refuse_sealed(tmp_path/"unsealed"/"x.jpg")` doesn't raise.
+  - `test_live_refuses_sturm_photos` (C87): `main(["live", str(tmp_path/"set_c"/"sturm_flooddepth"/"x.jpg")])` exits 2 with that message, and no client is built; `replay` on such a path isn't refused by this rule.
   - `test_live_sends_the_reading_phrases_and_saves_under_the_data_dir`: `make_client` is replaced by a `FakeClient`, with `--data-dir tmp_path`. The result: exit 0, a run directory under `tmp_path/"runs"`, 5 `segment` calls, `meta_calls` in the output, and no `REASON-MARKER-31` in it.
   - `test_missing_or_short_key_exits_2_without_echo`: `MODEL_API_KEY` is `"\x16"` and the real `make_client` is used → exit 2, and `"\x16"` isn't in the output.
   - `test_rejected_key_exits_2` (C73): a `FakeClient` whose `segment` raises `meta_error(401)` → exit 2, and no run directory is written.
@@ -973,10 +975,9 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the stack outputs `ApiUrl`, `BucketName` and `QueueName`
   - Task 10's body
   - Task 13's log fields: `outcome`, `meta_calls`, `error`, `http_status`
-  - the MS1 probe's `summary.json` under `%LUSOT_DATA_DIR%\probes\2026-10-28\`
-- Produces: `uv run backend/scripts/smoke_upload.py [--fallback]`. Exit 0 when every check passed, 1 when a check failed, and 3 when no STURM photo gave a level, so C71 applies.
-  - `seeded_sturm_order(root: Path) -> list[Path]` follows R7's rule: the sorted relative POSIX paths of every file under `Level1`, `Level2` and `Level3` of `set_c\sturm_flooddepth\extracted\upscaled_images`, then `random.Random(20261028).sample(names, 30)`. Positions 0 to 4 are B1's photos, which are MS1's A1. Positions 15 to 29 are C71's fallback.
-  - `check_probe_selection(order, summary: Path) -> None` raises `CheckFailed` unless the first 5 equal the A1 photos in `summary.json`. Read the field MS1 Task 5 wrote.
+  - C87's photo folder `%LUSOT_DATA_DIR%\set_c\commons-ph-floods\`, with its `attribution.csv` and `ATTRIBUTION.md` (read `ATTRIBUTION.md` first for the column names of the `metro_manila_or_ondoy_2009` flag and the licence)
+- Produces: `uv run backend/scripts/smoke_upload.py [--fallback]`. Exit 0 when every check passed, 1 when a check failed, and 3 when no B1 photo gave a level, so C71 applies.
+  - `seeded_photo_order(folder: Path) -> list[Path]` follows C87: the rows of `folder/attribution.csv` flagged `metro_manila_or_ondoy_2009` whose licence is CC BY (not CC BY-SA) or public domain, their file names sorted, then `random.Random(20261028).sample(names, min(20, n))`. Positions 0 to 4 are B1's photos, and 5 to 19 are C71's fallback. A listed file that is missing raises `CheckFailed`. Nothing reads MS1's STURM `summary.json` any more.
   - `refuse_sealed(path: Path) -> None`, with the runner's rule
   - `as_app_jpeg(path: Path) -> bytes`: decode, shrink to at most 1,600 px with `INTER_AREA`, then encode as JPEG at quality 85, as the app sends it
   - `dark_jpeg() -> bytes`: 1600 × 1200, a horizontal grey gradient from 0 to 30
@@ -987,10 +988,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the HTTP client is `httpx.Client(timeout=30, transport=httpx.HTTPTransport(local_address="0.0.0.0"))`. That forces IPv4, which matters because IPv6 doesn't connect on this Wi-Fi (Oct 28 log). httpx 0.28.1 documents `local_address`.
 - **The B1 run's checks, in order** (keep MS1's preflight, PNG, key-loaded and stop-switch checks):
   1. the CORS preflight
-  2. Upload the 5 STURM photos and the dark JPEG. The dark one goes from the app origin, with MS1's allow-origin checks. Each report must be final within 120 s of its 204.
-  3. **The reused link (B5), run as soon as the first STURM report is final** and its log line shows `meta_calls` above 0, before the next upload. The upload form expires 300 s after `POST /uploads` (C27), and the whole run takes longer. Re-post that report's form with the same bytes; if the form is older than 280 s, fail with `reused link: form too old`. S3 returns 204; `raw/` is gone within 60 s; the log has an `already_finished` line, and exactly one line with `meta_calls` above 0.
+  2. Upload B1's 5 photos and the dark JPEG. The dark one goes from the app origin, with MS1's allow-origin checks. Each report must be final within 120 s of its 204.
+  3. **The reused link (B5), run as soon as the first B1 report is final** and its log line shows `meta_calls` above 0, before the next upload. The upload form expires 300 s after `POST /uploads` (C27), and the whole run takes longer. Re-post that report's form with the same bytes; if the form is older than 280 s, fail with `reused link: form too old`. S3 returns 204; `raw/` is gone within 60 s; the log has an `already_finished` line, and exactly one line with `meta_calls` above 0.
   4. The dark JPEG is `refused/too_dark`, and its log line has `meta_calls` 0.
-  5. Every body passes `check_report_body`. If no STURM report has a level, print the outcomes and carry on. The run then ends with exit 3 instead of 0, so the B4 and B5 checks still run.
+  5. Every body passes `check_report_body`. If no B1 report has a level, print the outcomes and carry on. The run then ends with exit 3 instead of 0, so the B4 and B5 checks still run.
   6. No `raw/` object is left for any report (head gives 404). `blurred/{id}.jpg` exists for each level report, and for no other (B4).
   7. **The missing photo (§3.6):**
      - create a report with `POST /uploads`, and upload no photo
@@ -998,15 +999,15 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
      - expect `failed/photo_missing` within 60 s
      - print the line's `error` and `http_status`
   8. MS1's PNG refusal, key-loaded and stop-switch checks
-- `--fallback` (C71) uploads positions 15 to 29 one at a time and stops at the first level. It runs checks 2, 5 and 6 on them, and prints how many it sent.
+- `--fallback` (C71) uploads positions 5 to 19 of C87's order one at a time and stops at the first level. It runs checks 2, 5 and 6 on them, and prints how many it sent.
 - The output is counts and timings only: each report's outcome or level, and its seconds to a final status. Everything prints through the masking `say()`.
 
 - [ ] **Step 1: Write the failing tests.** They use only fakes: `httpx.MockTransport`, `tmp_path` trees and no AWS.
-  - `test_seeded_order_follows_r7`: a tree with 100 empty files in each of `Level1` to `Level3`, and 10 in each of `Level0` and `Level4`:
-    - every chosen path is under `Level1` to `Level3`
-    - the order equals `random.Random(20261028).sample(sorted(names), 30)`
-    - its first 15 equal `random.Random(20261028).sample(sorted(names), 15)`, so B1's 5 are MS1's A1 photos and positions 15 to 29 come next. With n above 277, both draws use Python's set-based branch, as the real 2,267 photos do.
-  - `test_probe_selection_mismatch_fails`: a summary naming other photos → `CheckFailed`.
+  - `test_seeded_order_follows_c87`: a `tmp_path` folder with an `attribution.csv` of 30 rows: 22 flagged with CC BY or public domain, 4 flagged CC BY-SA, 4 unflagged; one empty file per row:
+    - only the 22 flagged CC BY or public-domain names are chosen, never a CC BY-SA or unflagged one
+    - the order equals `random.Random(20261028).sample(sorted(names), 20)`
+    - with 8 qualifying rows, all 8 come back, in `random.Random(20261028).sample(sorted(names), 8)` order
+    - a listed file missing from the folder → `CheckFailed`
   - `test_photos_are_sent_as_the_app_sends_them`: a 4000 × 3000 PNG → bytes that start with `FF D8` and decode to 1600 × 1200.
   - `test_dark_jpeg_is_below_the_brightness_cutoff`: it decodes to 1600 × 1200 with a mean grey under 40.
   - `test_wait_final_polls_through_processing`: replies of `pending`, `processing`, 404 and then `done` → `done`. A fake clock that passes 121 s while `processing` → `CheckFailed`.
@@ -1014,7 +1015,6 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_reused_link_needs_a_fresh_form`: 280 s after issue passes; 280.1 s raises `CheckFailed` with `reused link: form too old`.
   - `test_log_lines_parse_the_lambda_text_format`: the event `"[INFO]\t2026-10-29T01:02:03.000Z\treq-1\t{\"reportId\": \"r_...\", \"meta_calls\": 0}\n"` parses, and a line that isn't JSON is skipped.
   - `test_sealed_paths_are_refused`.
-  - `test_seeded_order_matches_the_probe_selection`: `seeded_sturm_order`'s first 5 equal MS1's `probes/run_probe.py` `choose(5, 10)[0]` on the same tree, so B1's photos are the probe's A1.
   - The run's summary counts `meta_status` 504 and 413 for SAM and `judge`, and takes cost from billed usage only (never from token counts).
 - [ ] **Step 2:** Run `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root (R5's pattern). Expected: FAIL.
 - [ ] **Step 3:** Implement the script changes as specified.
@@ -1046,11 +1046,11 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 
   Exit 1 → debug, fix, re-run. A re-run sends the same 6 photos again: it adds cost, not new photos. Exit 3 → Step 4.
 - [ ] **Step 4: C71's fallback** (only after exit 3):
-  1. **The diagnosis, with no Meta call (C75):** read the 5 STURM photos' log lines from Step 3, and record each photo's outcome and drop causes as counts. This shows why the 5 gave no level. Nothing is replayed.
-  2. Run `uv run backend/scripts/smoke_upload.py --fallback`. It sends up to 15 more STURM photos, positions 15 to 29 from Level1 to Level3, and stops at the first level.
+  1. **The diagnosis, with no Meta call (C75):** read B1's 5 photos' log lines from Step 3, and record each photo's outcome and drop causes as counts. This shows why the 5 gave no level. Nothing is replayed.
+  2. Run `uv run backend/scripts/smoke_upload.py --fallback`. It sends up to 15 more photos, positions 5 to 19 of C87's order, and stops at the first level.
   3. If there is still no level, B1 is partly met, with the drop causes as the reason. 3a then closes on B2 to B5 and the other cloud checks, and the cloud proof of a level moves to the first Manila photos. Record that for Task 17.
 - [ ] **Step 5 (Claude; one photo, about $0.01):** check B3 on real data.
-  - Run `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis probes/run_pipeline.py live "<the first A1 photo>"`. Expected: exit 0, and a run directory under `%LUSOT_DATA_DIR%\runs\`.
+  - Run `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis probes/run_pipeline.py live "<the first photo in C87's order>"`. Expected: exit 0, and a run directory under `%LUSOT_DATA_DIR%\runs\`.
   - Then run `$env:LUSOT_B3_RUN_DIR = '<run dir>'; $env:LUSOT_B3_PHOTO = '<the photo>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: 2 passed, 0 skipped.
 - [ ] **Step 6:** Add up the spend: the Meta calls made (8 per cloud photo that reached SAM, plus 6 for Step 5), and the estimated cost from the token counts in the log lines. Record it.
 
@@ -1062,7 +1062,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 
 - [ ] **Step 1:** Write the results note, with counts and timings only:
   - **B1:**
-    - reports by outcome: how many of the 5 STURM photos gave a level, refusals by reason, and failures
+    - reports by outcome: how many of B1's 5 Commons photos gave a level, refusals by reason, and failures
+    - the photos' licences as counts (CC BY, public domain), with a pointer to the attribution kept beside them; no photo name or path
     - seconds from upload to a final status, as p50 and max
     - the dark JPEG refused with 0 Meta calls
     - the C67 fields checked
