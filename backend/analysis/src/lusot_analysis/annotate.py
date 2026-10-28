@@ -2,7 +2,10 @@
 
 Each vehicle, wheel and person SAM found gets a thin outline and a label with its id,
 so Muse Spark's answer names them and code ties each answer back to its mask. A box is
-never filled, so it hides no rim and no waterline; only its small label tag is.
+never filled; only its small label tag is. Its outline is 3 px wide and centred on the
+box's edge, so it covers the box's two outermost rows and columns and the one just
+outside them. On a wheel's box, the bottom edge covers rows y1 - 2 to y1: the wheel's
+lowest two rows and the row below, where the wheel meets the water.
 """
 
 from __future__ import annotations

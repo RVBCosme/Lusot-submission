@@ -120,6 +120,8 @@ In A2, `floodwater` matched once in each of 5 photos and nothing in the other 5.
 - The one id problem is an ambiguous sliver that SAM and Muse Spark classed differently, which the per-item check handles.
 - The hidden id came from the drawing, which `5dfdb89` fixes.
 
+⚠️ **Two prompt rules go beyond Table 5.** v1 applies "the higher of two marks", which Table 5 gives for wheels only, to body and person waterlines too. It also makes `photo_usable` no when the photo "doesn't show a street". Both are flagged for Rene and MS3a, and both stay unchanged under R79.
+
 ## 5. Faces
 
 - ✅ YuNet found no face in any of the 5 A1 photos: `faces` is 0 and `face_boxes` is empty for each. SAM's `person` found no one in them either.
@@ -130,29 +132,43 @@ In A2, `floodwater` matched once in each of 5 photos and nothing in the other 5.
 **The rule:**
 - A photo passes when the floodwater mask reaches each submerged wheel's lower edge and covers less than 10% of the wheel mask.
 - A photo with no water mask or no wheel mask fails (R72).
-- **My reading of "reaches":** the water mask comes within 5 px of the wheel mask's lower edge along that edge. SAM leaves a seam of 2 to 3 px between any two of its masks (see the findings).
 
-I opened every overlay, then zoomed crops of each wheel (the blurred photo beside the overlay).
+**How "reaches" was measured:**
+- **The distance d:** for each column of a wheel mask, d is the number of rows from the wheel's lowest pixel in that column down to the first water pixel below it. d = 1 means the masks touch there, and d − 1 pixels of seam lie between them.
+- **The share within k px:** the fraction of the wheel's columns with d ≤ k.
+- **Three readings of the rule**, each counted below:
+  - **Strict:** the water touches the wheel's lowest pixel in every column (d = 1 everywhere).
+  - **With about 5 px of tolerance:** at least 85% of each wheel's columns have d ≤ 5. I chose 85% after seeing the shares. Every wheel in a photo with a water mask scored either 0% or at least 86.7%, so any threshold above 0% and up to 86.7% gives the same verdicts.
+  - **Frame-cut wheels set aside:** as with the tolerance, but ignoring a wheel whose mask runs into the frame's bottom edge, since its lower edge isn't in view.
 
-| A2 photo | Water / wheels | Each wheel: overlap; share of the lower edge with water within 3 px / 5 px | Verdict | Why |
+I opened every overlay, then zoomed crops of each wheel (the blurred photo beside the overlay). The verdicts below use the 5 px reading.
+
+| A2 photo | Water / wheels | Each wheel: overlap; share within 3 px / within 5 px | Verdict (5 px) | Why |
 |---|---|---|---|---|
 | car-763-Level1_1 | 0 / 1 | 0: 0.0 | ❌ | No water mask. It is a night photo with water all round the car; the one wheel match is a far-off car's (13 × 17 px). |
-| car-1772-Level2_1 | 1 / 1 | 0: 0.0; 96% / 99% | ✅ | The water meets the wheel's lower edge. |
+| car-1772-Level2_1 | 1 / 1 | 0: 0.0; 74% / 98.6% | ✅ | The water meets the wheel's lower edge with a seam of about 2 px (median d 3). |
 | car-111-Level1_3 | 0 / 2 | 0: 0.0; 1: 0.0 | ❌ | No water mask. Rear view on a wet road. |
-| car-1385-Level3_1 | 1 / 1 | 0: 0.0; 84% / 99% | ✅ | Only the top arc of the rear wheel shows, and the water meets it with a seam of about 3 px. |
-| car-1491-Level2_1 | 1 / 2 | 0: 0.0; 96% / 100%. 1: 0.0; 56% / 97% | ✅ | Both wheels are met. The front one's seam reaches 4 to 5 px under splash. |
-| car-1350-Level2_2 | 1 / 2 | 0: 0.0; 78% / 89%. 1: 0.0; 0% / 0% | ❌ | Wheel 1 is a 7 × 23 px sliver of another car's wheel that runs into the frame's bottom edge, with no water mask within 30 px. Wheel 0 passes. Setting frame-cut wheels aside would pass the photo. |
+| car-1385-Level3_1 | 1 / 1 | 0: 0.0; 1% / 97.5% | ✅ | Only the top arc of the rear wheel shows, and the water meets it with a seam of about 3 px (median d 4). |
+| car-1491-Level2_1 | 1 / 2 | 0: 0.0; 74% / 100%. 1: 0.0; 16% / 86.7% | ✅ | Both wheels are met. Under splash, 13% of the front wheel's columns are more than 5 px from the water (up to 12). |
+| car-1350-Level2_2 | 1 / 2 | 0: 0.0; 28% / 88.9%. 1: 0.0; 0% / 0% | ❌ | Wheel 1 is a 7 × 23 px sliver of another car's wheel that runs into the frame's bottom edge, with no water mask within 30 px. Wheel 0 passes. Setting frame-cut wheels aside would pass the photo. |
 | car-1476-Level1_1 | 0 / 5 | all 0.0 | ❌ | No water mask. Shallow water on the road behind two white cars. |
 | car-1015-Level1_1 | 0 / 2 | 0: 0.0; 1: 0.0 | ❌ | No water mask, although muddy water surrounds the SUV's wheels in heavy rain. |
 | car-1341-Level2_2 | 0 / 4 | all 0.0 | ❌ | No water mask. The photo has a strong yellow colour cast. |
 | car-1383-Level3_1 | 1 / 0 | none | ❌ | No wheel mask: the wheels are under water. |
 
-**Pass count: 3 of 10** (car-1772, car-1385 and car-1491). It is 4 of 10 if car-1350's frame-cut wheel is set aside.
+**Pass counts:**
+- **Strict: 0 of 10.**
+  - No column of any wheel has water in the row right below its lowest pixel.
+  - In the whole set, the two masks touch at only 3 pixels, counting diagonal neighbours (1 counting edge neighbours only). All are on car-1350's wheel 0, on its right side (rows 215 to 219), above its lowest row (222).
+- **With 5 px of tolerance: 3 of 10** (car-1772, car-1385 and car-1491).
+- **With car-1350's frame-cut sliver also set aside: 4 of 10.**
 
+**Findings:**
 - ✅ **Overlap:** the "less than 10%" half held everywhere. All 20 wheel masks in A2 overlap the water by 0.0, and SAM never put water on a wheel.
-- ⚠️ **The seam:** SAM's water and wheel masks don't touch.
-  - Under the 5 wheels whose lower edge meets water, the median gap is 2 to 3 px. 56 to 96% of each edge is within 3 px, and 89 to 100% within 5 px.
+- ⚠️ **The seam:** in the water and wheel pairs measured here, SAM's two masks don't touch.
+  - Under the 5 wheels with water below their lower edge, the median d is 3 to 4, so the seam is 2 to 3 px. 1 to 74% of each edge is within 3 px, and 86.7 to 100% within 5 px.
   - So MS3's step that keeps only water touching an object's lower outline needs about 5 px of tolerance, or it finds no water at all.
+  - The seam also biases a waterline read from the water mask. Read at the water mask's top edge, the waterline lands 2 to 3 px (up to about 5) below the wheel's lowest pixel, which is the shallow side. For the four wheels in the passing photos (box widths 53 to 90 px), 5 px is 6 to 9% of the width.
 - ⚠️ **Floodwater recall is the weak part:**
   - 5 of the 10 A2 photos got no water mask. Four are Level 1 photos (one at night, one in heavy rain, two of shallow water on a road), and the fifth is a Level 2 photo with a strong colour cast.
   - All 5 A1 photos did get one, but car-2069's covered only a strip at the right edge (score 0.50).
@@ -164,7 +180,14 @@ I opened every overlay, then zoomed crops of each wheel (the blurred photo besid
 - ✅ **The clip:** `make_test_wav.ps1` wrote it with System.Speech and Windows' default English voice. It is mono, 16-bit PCM at 16 kHz, 3.67 s long (117,486 bytes). The format check passed, and Meta reported 3,680 ms of audio.
 - ✅ **The transcript:** "Is the water knee deep at España Boulevard right now?" Every word is right, and the spoken "Espana" came back spelled "España". It took 1.99 s and cost $0.0002.
 - ⚠️ **For Ask Lusot:** match spot names with accents folded, so "España" equals "Espana".
-- **M12's Taglish recordings (C41)** run with `uv run python probes/run_probe.py --photos 0 --water 0 --voice-dir <folder>`. That sends only the voice clips, into that day's folder. On Oct 28 itself, move this run's `summary.json` aside first: the script refuses to overwrite it.
+- **M12's Taglish recordings (C41)** run with `uv run python probes/run_probe.py --photos 0 --water 0 --voice-dir <folder>`, which sends only the voice clips. **Run it on another day**, so it writes its own dated folder.
+  - **Why:** a voice-only run writes a `summary.json` with `a1_photos: []`. At `probes\2026-10-28\` that is the file MS3a's `check_probe_selection` reads, so its check would fail. The run would also add its call lines to this run's `meta_calls.jsonl`, which has no timestamps to tell the two runs apart.
+  - **If it must run on Oct 28:**
+    1. Move this run's `summary.json` and `meta_calls.jsonl` aside. The script refuses to start over a `summary.json`.
+    2. Run it.
+    3. Rename the voice run's `summary.json` and `meta_calls.jsonl`, for example to `summary-voice.json` and `meta_calls-voice.jsonl`.
+    4. Move this run's two files back.
+  - Never leave a voice-only `summary.json` at `probes\2026-10-28\summary.json`.
 
 ## 8. Data and attribution
 

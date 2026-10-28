@@ -315,9 +315,11 @@ class MetaClient:
         return response.text, text
 
     def _sam_background(self, request: dict, phrase: str) -> tuple[str, str]:
-        """Run a SAM request in the background and poll it, for up to timeout_s.
+        """Run a SAM request in the background, then poll it after each 1 s wait.
 
-        Return the final response JSON and SAM's output text.
+        It gives up once those waits add up to timeout_s. The polls' own time and any
+        retry waits inside them aren't counted, so the fallback can run longer than
+        timeout_s. Return the final response JSON and SAM's output text.
         """
         submitted = self._send(
             lambda: self._openai.responses.with_raw_response.create(
@@ -406,10 +408,11 @@ def _stream_text(events: Iterable[Any]) -> str:
 
     The text lane must be finished, by `response.output_text.done` or by an
     `output_text` part in `response.content_part.done`. Meta's live streams send both
-    after the deltas, and no match comes as a finished empty lane (two captures, Oct
-    28). As in meta-sam-parser's own stream adapter, a completed stream whose lane
-    never finished, finishing events that disagree, or deltas that don't add up to
-    the finished text raise MetaApiError. A shutdown raises _ShuttingDown, which _send
+    after the deltas (two captures, Oct 28). Only one of the captures had no match,
+    and it came as a finished empty lane (tests/fixtures/meta/sam_live_no_match.sse).
+    As in meta-sam-parser's own stream adapter, a completed stream whose lane never
+    finished, finishing events that disagree, or deltas that don't add up to the
+    finished text raise MetaApiError. A shutdown raises _ShuttingDown, which _send
     retries. A stream that fails, stops short, refuses or reports any other error
     raises MetaApiError.
     """
