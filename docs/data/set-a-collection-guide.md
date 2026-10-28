@@ -86,6 +86,7 @@ Write `poster` and `alert_poster` as `MMDA`, as the city's name (`Quezon City`),
 2. **Add one row for each alert the photo may fit** (C209).
    - A **same-post row** is for the alert in the photo's own post (`photo_in_alert_post` is `yes`). A **separate-post row** is for an alert in another post (`no`).
    - Usually a photo has one row. If several alerts may fit it, log one row per alert: repeat the photo's columns exactly, its id included, and fill each row's alert columns for its own alert.
+   - When the photo's post lists several spots, its same-post row is the alert for the photo's own spot only: log none of that post's other spots for this photo.
 3. **Write the alert's words exactly as posted,** for example "gutter deep", "above gutter level" or "NPLV". Don't translate: `eval/rules.md` maps them to Lusot's levels separately.
 
 | Column | What to put |
@@ -128,8 +129,14 @@ Write `poster` and `alert_poster` as `MMDA`, as the city's name (`Quezon City`),
 ## When the intake flags something
 
 Tell Claude when you've logged a batch ("logged up to A0xx"). Claude then runs the intake check on your logs (MS2 spec §5.3). It reads only the logs' text and checks that each named photo exists, and it prints only ids, column names, kinds and counts, never your text:
-- **A problem** prints as `<id> <column>: <kind>`, for example `A004 city: missing`. Fix every problem before the split.
-- **A warning** prints as `<id> <fact>=<value>`, for example `A007 match=none`. Warnings never stop anything. A photo warned as `metro_manila=no`, `poster_kind=other` or `match=none` is left out under `eval/rules.md` §9, with its reason logged, so check that it isn't your own slip.
+- **A problem** prints as `<id> <column>: <kind>`, for example `A004 city: missing`. Fix every problem before the split. Some kinds explained:
+  - `missing` is an empty cell, and `file_missing` is a photo that isn't in `raw\`.
+  - `semicolon`: a depth or passability label holds a `;`, which the tools put between labels. Write it as a `,`, the one change to a post's words the check asks for.
+  - `unknown`: a name in the header row that the tools don't know, often a misspelling. It prints as `log column <n>: unknown`, counting the columns from 1 at the left.
+- **A warning** prints as `<id> <fact>=<value>`, for example `A007 match=none`. Warnings never stop anything. A photo warned as `metro_manila=no`, `poster_kind=other` or `match=none` is left out under `eval/rules.md` §9, with its reason logged, so check that it isn't your own slip. These three only ask you to check the photo's rows:
+  - `alert_poster=other`: an alert poster the tools count as `other`; on a separate-post row, that alert then never fits
+  - `same_post=several`: two or more same-post rows (see step 2 of "How to log each Set A photo")
+  - `nearest=tied`: two fitting alerts are equally near in time but give different words, so a fixed order picks the photo's labels: a same-post row first, then the row logged first
 - **Row numbers:** when an id itself is bad, the intake names the row instead, as in `row 3 candidate_id: bad_id`. It counts data rows, so data row n is your spreadsheet's row n + 1, because the header is row 1: `row 3` is spreadsheet row 4.
 
 Fix only your own transcription slips, never the post's words.

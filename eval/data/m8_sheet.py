@@ -20,9 +20,9 @@ Usage, from the repo root (Claude runs it, and again whenever Rene adds photos):
         --set-a-log <data>\set_a\set_a_log.csv --out <data>\set_a\m8_sheet.html
 It prints photos=<n> and a reminder to export the labels before the next remake.
 Exit codes: 0 the page is written; 1 a problem, each printed as <id> <column>: <kind>
-(row <n> when the id itself is bad, log for a missing column), and nothing written;
-2 a usage error, such as an --out that isn't an .html page, or a path inside a folder
-named sealed (C222).
+(row <n> when the id itself is blank or bad, log for a missing column), and nothing
+written; 2 a usage error, such as an --out that isn't an .html page, or a path inside
+a folder named sealed (C222).
 """
 
 import argparse
@@ -215,14 +215,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     problems: list[table.Finding] = []
     for row in log.rows:
         photo_id, name = row["candidate_id"], row["photo_file"]
+        # As in the intake, missing is a blank cell and file_missing a photo that isn't
+        # in raw (S-R10).
         if re.fullmatch(formats.SET_A_ID, photo_id) is None:
-            problems.append(table.Finding(f"row {row['#']}", "candidate_id", "bad_id"))
+            kind = "bad_id" if photo_id else "missing"
+            problems.append(table.Finding(f"row {row['#']}", "candidate_id", kind))
+            continue
+        if not name:
+            problems.append(table.Finding(photo_id, "photo_file", "missing"))
             continue
         guards.refuse_sealed(raw / name)
         # The intake's rule: a photo is <id>.<jpg|jpeg|png>, in any case. Saved labels
         # follow the id, so another id's photo would carry them onto the wrong photo.
         own = {f"{photo_id}.{ext}".casefold() for ext in formats.PHOTO_EXTENSIONS}
-        if name and name.casefold() not in own:
+        if name.casefold() not in own:
             problems.append(table.Finding(photo_id, "photo_file", "id_file_mismatch"))
         elif photo_id in photos:  # an alert row repeats its photo's row (C223)
             if name != photos[photo_id]:
@@ -230,7 +236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             photos[photo_id] = name
             if not (raw / name).is_file():  # a stat, which reads no byte (C201)
-                problems.append(table.Finding(photo_id, "photo_file", "missing"))
+                problems.append(table.Finding(photo_id, "photo_file", "file_missing"))
     for problem in dict.fromkeys(problems):  # alert rows may repeat a photo's problem
         print(problem)
     if problems:

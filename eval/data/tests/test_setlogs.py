@@ -15,7 +15,9 @@ import synth
 import table
 from table import Fact, Finding
 
-TEMPLATE_DIR = Path(__file__).resolve().parents[3] / "eval" / "templates"
+REPO = Path(__file__).resolve().parents[3]
+TEMPLATE_DIR = REPO / "eval" / "templates"
+GUIDE = REPO / "docs" / "data" / "set-a-collection-guide.md"
 # synth's Set A rows are at España cor. Lacson, posted at this time. The same corner
 # written another way is the same spot, through two shared names (C224, S-R9).
 POSTED = synth.set_a_row()["post_time_pht"]
@@ -71,6 +73,8 @@ def labels(photo):
 
 
 WITHOUT_CITY = tuple(c for c in formats.TEMPLATES["set_a_log.csv"] if c != "city")
+# Set A's template with same_spot_as misspelt, the 18th name.
+MISSPELT_LINK = formats.SET_A_COLUMNS + ("same_spot", "alert_poster", "alert_spot_text")
 # Each kind of problem, alone. A name that isn't the photo's own is never looked for,
 # so the photo it names needn't exist.
 PROBLEM_CASES = [
@@ -142,6 +146,24 @@ PROBLEM_CASES = [
         {},
         [Finding("A001", "same_spot_as", "bad_link")],
         id="bad_link_to_another_date",
+    ),
+    pytest.param(
+        [synth.set_a_row(level_label_raw="knee deep; 19 in")],
+        {},
+        [Finding("A001", "level_label_raw", "semicolon")],
+        id="semicolon_in_level",
+    ),
+    pytest.param(
+        [synth.set_a_row(passability_raw="NPLV; PATV")],
+        {},
+        [Finding("A001", "passability_raw", "semicolon")],
+        id="semicolon_in_passability",
+    ),
+    pytest.param(
+        [synth.set_a_row()],
+        {"columns": MISSPELT_LINK},
+        [Finding("log", "column 18", "unknown")],
+        id="unknown_column",
     ),
 ]
 
@@ -350,19 +372,112 @@ def test_nearest_of_several_alerts(tmp_path):
 def test_ties_go_to_same_post_rows_then_log_order(tmp_path):
     """A same-post row without an alert time counts as 0 minutes away, so it wins a tie
     with a separate alert posted with the photo, even when logged second. Two separate
-    alerts 10 minutes either side tie, and the first in the log wins."""
+    alerts 10 minutes either side tie, and the first in the log wins. Each tie's labels
+    differ, so each is a warning (S-R10)."""
     rows = [
         separate(minutes=0, level_label_raw="knee deep"),
         synth.set_a_row(level_label_raw="half knee"),
     ]
-    photo = only_photo(check(tmp_path / "same_post", rows))
-    assert labels(photo) == ("same_post", "half knee", "PATV", "knee deep")
+    found = check(tmp_path / "same_post", rows)
+    assert labels(only_photo(found)) == ("same_post", "half knee", "PATV", "knee deep")
+    assert found.warnings == [Fact("A001", "nearest", "tied")]
     rows = [
         separate(minutes=10, level_label_raw="knee deep"),
         separate(minutes=-10, level_label_raw="half knee"),
     ]
-    photo = only_photo(check(tmp_path / "log_order", rows))
-    assert labels(photo) == ("separate_post", "knee deep", "PATV", "half knee")
+    found = check(tmp_path / "log_order", rows)
+    assert labels(only_photo(found)) == (
+        "separate_post",
+        "knee deep",
+        "PATV",
+        "half knee",
+    )
+    assert found.warnings == [Fact("A001", "nearest", "tied")]
+
+
+@pytest.mark.parametrize(
+    ("cells", "warnings"),
+    [
+        ({"level_label_raw": "knee deep"}, [Fact("A001", "nearest", "tied")]),
+        ({"passability_raw": "NPATV"}, [Fact("A001", "nearest", "tied")]),
+        ({}, []),
+        ({"minutes": -15, "level_label_raw": "knee deep"}, []),
+    ],
+    ids=["level_differs", "passability_differs", "same_labels", "not_as_near"],
+)
+def test_a_tie_with_other_labels_is_a_warning(tmp_path, cells, warnings):
+    """S-R10: two fitting alerts as near as each other, such as one spot's NB and SB
+    alerts (direction words are dropped), tie, and the log's order picks the labels.
+    The intake warns when the tied alerts' labels differ."""
+    rows = [separate(minutes=10), separate(**({"minutes": -10} | cells))]
+    found = check(tmp_path, rows)
+    photo = only_photo(found)
+    assert (photo.match, photo.level_label_raw, photo.passability_raw) == (
+        "separate_post",
+        'Gutter deep, 8"',
+        "PATV",
+    )
+    assert found.warnings == warnings
+
+
+def test_several_same_post_rows_are_a_warning(tmp_path):
+    """S-R10: a post listing several spots holds one alert for the photo's own spot, so
+    a photo with two or more same-post rows is a warning. Without alert times the rows
+    tie and the log's order picks the labels; with times, another corner's alert can be
+    the nearer one."""
+    other_corner = synth.set_a_row(level_label_raw="half knee")
+    own_corner = synth.set_a_row(level_label_raw="gutter deep")
+    found = check(tmp_path / "untimed", [other_corner, own_corner])
+    assert labels(only_photo(found)) == (
+        "same_post",
+        "half knee",
+        "PATV",
+        "gutter deep",
+    )
+    assert found.warnings == [
+        Fact("A001", "same_post", "several"),
+        Fact("A001", "nearest", "tied"),
+    ]
+    rows = [
+        other_corner | {"alert_time_pht": POSTED},
+        own_corner | {"alert_time_pht": "2026-08-09 08:10"},
+    ]
+    found = check(tmp_path / "timed", rows)
+    assert labels(only_photo(found)) == (
+        "same_post",
+        "half knee",
+        "PATV",
+        "gutter deep",
+    )
+    assert found.warnings == [Fact("A001", "same_post", "several")]
+
+
+def test_an_unknown_column_is_named_by_its_place(tmp_path):
+    """S-R10: a misspelt header name, such as same_spot for same_spot_as, would leave
+    Rene's links out in silence. It is a problem named by its place in the header,
+    never by its text, and the rows are still checked. A misspelt required column is
+    also missing, and then no row is checked."""
+    rows = [
+        synth.set_a_row(same_spot="A002"),
+        synth.set_a_row(candidate_id="A002", logged_on=""),
+    ]
+    found = check(tmp_path / "optional", rows, columns=MISSPELT_LINK)
+    assert found.problems == [
+        Finding("log", "column 18", "unknown"),
+        Finding("A002", "logged_on", "missing"),
+    ]
+    assert found.photos[0].same_spot_as == frozenset()
+    misspelt = tuple(
+        "cty" if column == "city" else column
+        for column in formats.TEMPLATES["set_a_log.csv"]
+    )
+    rows = [synth.set_a_row(cty="Manila")]
+    found = check(tmp_path / "required", rows, columns=misspelt)
+    assert found.problems == [
+        Finding("log", "city", "missing_column"),
+        Finding("log", "column 9", "unknown"),
+    ]
+    assert found.photos == []
 
 
 def test_other_alerts_leave_out_blank_labels(tmp_path):
@@ -561,9 +676,12 @@ def test_spreadsheet_saved_log_reads_cleanly(tmp_path):
 
 
 def test_findings_hold_no_cell_text(tmp_path):
-    """C201: with a sentinel in every column of rows with problems, no finding or fact
-    holds it. The rows reach every kind that reads a cell's text."""
-    everywhere = dict.fromkeys(formats.TEMPLATES["set_a_log.csv"], SENTINEL)
+    """C201: with a sentinel in every column of rows with problems, and as a header
+    name, no finding or fact holds it. The rows reach every kind that reads a cell's
+    text."""
+    columns = formats.TEMPLATES["set_a_log.csv"] + (SENTINEL,)
+    everywhere = dict.fromkeys(columns, SENTINEL)
+    same_post = everywhere | {"candidate_id": "A003", "photo_in_alert_post": "yes"}
     set_a = check(
         tmp_path / "set_a",
         [
@@ -571,20 +689,26 @@ def test_findings_hold_no_cell_text(tmp_path):
             everywhere | {"candidate_id": "A001"},
             everywhere | {"candidate_id": "A001", "spot_text": f"{SENTINEL} Ave."},
             everywhere | {"candidate_id": "A002", "photo_in_alert_post": "no"},
+            same_post,
+            same_post | {"level_label_raw": f"{SENTINEL}; {SENTINEL}"},
         ],
+        columns=columns,
     )
-    a_neg_row = dict.fromkeys(formats.TEMPLATES["a_neg_log.csv"], SENTINEL)
+    a_neg_columns = formats.TEMPLATES["a_neg_log.csv"] + (SENTINEL,)
     a_neg = check(
         tmp_path / "a_neg",
-        [a_neg_row | {"candidate_id": "N001"}],
+        [dict.fromkeys(a_neg_columns, SENTINEL) | {"candidate_id": "N001"}],
         set_name="A-neg",
+        columns=a_neg_columns,
     )
     assert {problem.kind for problem in set_a.problems} == {
+        "unknown",
         "bad_id",
         "bad_date",
         "bad_time",
         "not_in_list",
         "id_file_mismatch",
+        "semicolon",
         "differs",
         "bad_link",
     }
@@ -592,6 +716,8 @@ def test_findings_hold_no_cell_text(tmp_path):
         "metro_manila",
         "poster_kind",
         "alert_poster",
+        "same_post",
+        "nearest",
         "match",
     }
     assert a_neg.problems and a_neg.warnings
@@ -601,3 +727,19 @@ def test_findings_hold_no_cell_text(tmp_path):
         for item in [*found.problems, *found.warnings]
     ]
     assert [line for line in printed if SENTINEL.casefold() in line.casefold()] == []
+
+
+def test_guide_explains_the_kinds_and_warnings_to_check():
+    """The guide says what these problem kinds and warnings mean, since their names
+    alone don't (S-R10). Each is in backticks, as the intake prints it."""
+    guide = GUIDE.read_text(encoding="utf-8")
+    named = [
+        "missing",
+        "file_missing",
+        "semicolon",
+        "unknown",
+        "alert_poster=other",
+        "same_post=several",
+        "nearest=tied",
+    ]
+    assert [text for text in named if f"`{text}`" not in guide] == []

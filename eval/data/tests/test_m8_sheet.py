@@ -167,17 +167,19 @@ def test_sheet_reads_no_photo_bytes(tmp_path):
 
 
 def test_missing_photo_and_bad_ids(tmp_path, capsys):
-    """Each problem names the photo's id, or its row when the id itself is bad, and
-    never a cell's text. A blank photo_file names raw itself, which is no photo.
-    Nothing is written, so an earlier page stays as it was."""
-    rows = [row("A001"), row("Espana"), row("A003"), row("A004", "")]
+    """Each problem names the photo's id, or its row when the id itself is blank or
+    bad, and never a cell's text. As in the intake, missing is a blank cell and
+    file_missing a photo that isn't in raw (S-R10). Nothing is written, so an earlier
+    page stays as it was."""
+    rows = [row("A001"), row("Espana"), row("A003"), row("A004", ""), row("")]
     log, out = set_a(tmp_path, rows, ["A001.jpg"])
     out.write_bytes(b"earlier page")
     assert run(log, out) == 1
     assert capsys.readouterr().out == (
         "row 2 candidate_id: bad_id\n"
-        "A003 photo_file: missing\n"
+        "A003 photo_file: file_missing\n"
         "A004 photo_file: missing\n"
+        "row 5 candidate_id: missing\n"
     )
     assert out.read_bytes() == b"earlier page"
 

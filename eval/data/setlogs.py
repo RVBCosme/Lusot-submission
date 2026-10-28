@@ -44,6 +44,8 @@ PHOTO_COLUMNS = (
 _WINDOW = timedelta(minutes=30)
 _DATES = ("logged_on",)
 _TIMES = ("post_time_pht", "alert_time_pht")
+# A label may not hold a ;, since other_alerts_raw puts ; between labels (S-R10).
+_LABELS = ("level_label_raw", "passability_raw")
 # Each list column and its values, as formats lists them. A-neg adds its own.
 _LISTS = {
     "platform": formats.PLATFORMS,
@@ -167,12 +169,13 @@ class SetCheck:
 def check_set_log(log: Path, photos_dir: Path, *, set_name: str) -> SetCheck:
     """Check one set's log, A or A-neg, and work out each photo's facts (§5.3).
 
-    A missing required column is the only problem reported when there is one, and no
-    row is checked. Otherwise each row is checked, then each photo's rows are compared,
-    then its links. A row whose id is blank or bad is named as row n, its data row
-    number, which is spreadsheet row n + 1, and is checked no further. A problem found
-    on several rows of a photo is listed once. A malformed CSV raises
-    table.MalformedCsv.
+    The header comes first: each missing required column, then each name the set
+    doesn't know, as `log column <n>: unknown`, n counting from 1 at the left. When a
+    required column is missing, those are the only problems, and no row is checked.
+    Otherwise each row is checked, then each photo's rows are compared, then its links.
+    A row whose id is blank or bad is named as row n, its data row number, which is
+    spreadsheet row n + 1, and is checked no further. A problem found on several rows
+    of a photo is listed once. A malformed CSV raises table.MalformedCsv.
     """
     rules = _RULES[set_name]
     found = table.read_table(log)
@@ -181,9 +184,17 @@ def check_set_log(log: Path, photos_dir: Path, *, set_name: str) -> SetCheck:
         for column in rules.columns
         if column not in found.columns
     ]
+    # A misspelt name, such as same_spot for same_spot_as, would otherwise read as a
+    # blank column in silence. It is named by its place, never by its text (S-R10).
+    known = rules.columns + formats.SET_A_OPTIONAL
+    unknown = [
+        Finding("log", f"column {number}", "unknown")
+        for number, name in enumerate(found.columns, start=1)
+        if name not in known
+    ]
     if missing:
-        return SetCheck([], missing, [], len(found.rows))
-    problems: list[Finding] = []
+        return SetCheck([], missing + unknown, [], len(found.rows))
+    problems = list(unknown)
     rows_of: dict[str, list[dict[str, str]]] = {}
     for row in found.rows:
         # An optional column the log lacks reads as blank.
@@ -275,7 +286,7 @@ def _distance(row: Mapping[str, str]) -> timedelta:
 def _row_problems(
     photo_id: str, cells: Mapping[str, str], rules: _Rules, photos_dir: Path
 ) -> list[Finding]:
-    """A row's problems, column by column in the log's order."""
+    """A row's problems, column by column in the template's order."""
     required = rules.required
     if cells["photo_in_alert_post"].lower() == "no":
         required += rules.separate_required
@@ -302,6 +313,8 @@ def _value_problem(
         return "bad_time"
     if column in lists and value.lower() not in lists[column]:
         return "not_in_list"
+    if column in _LABELS and ";" in value:
+        return "semicolon"
     return None
 
 
@@ -380,10 +393,16 @@ def _photo(set_name: str, photo_id: str, rows: Sequence[Mapping[str, str]]) -> P
 
 
 def _warnings(photo: Photo, rows: Sequence[Mapping[str, str]]) -> list[Fact]:
-    """The facts for which rules §9 leaves the photo out, each a warning: metro_manila=no
-    and, in Set A, poster_kind=other and match=none. In Set A, a filled alert_poster that
-    counts as other is a warning too, alert_poster=other, since its alert never fits and
-    so never reaches other_alerts_raw (S-R4)."""
+    """The photo's warnings. Rules §9 leaves the photo out for metro_manila=no and, in
+    Set A, for poster_kind=other and match=none. Set A's others ask Rene to check his
+    rows:
+    - alert_poster=other: a filled alert poster counts as other, so on a separate-post
+      row its alert never fits and never reaches other_alerts_raw (S-R4)
+    - same_post=several: two or more same-post rows, though a post listing several
+      spots has one alert for the photo's own spot (S-R10)
+    - nearest=tied: another fitting alert is as near as the nearest, with a level or
+      passability label that differs, so the tie-break chose the labels (S-R10)
+    """
     warnings = []
     if photo.metro_manila == "no":
         warnings.append(Fact(photo.photo_id, "metro_manila", "no"))
@@ -395,6 +414,25 @@ def _warnings(photo: Photo, rows: Sequence[Mapping[str, str]]) -> list[Fact]:
             for row in rows
         ):
             warnings.append(Fact(photo.photo_id, "alert_poster", "other"))
+        if sum(_same_post(row) for row in rows) >= 2:
+            warnings.append(Fact(photo.photo_id, "same_post", "several"))
+        if _tied(rows):
+            warnings.append(Fact(photo.photo_id, "nearest", "tied"))
         if photo.match == "none":
             warnings.append(Fact(photo.photo_id, "match", "none"))
     return warnings
+
+
+def _tied(rows: Sequence[Mapping[str, str]]) -> bool:
+    """True when the fitting rows nearest in time don't all give the same level and
+    passability labels."""
+    fitting = [row for row in rows if _fits(row)]
+    if not fitting:
+        return False
+    nearest = min(_distance(row) for row in fitting)
+    labels = {
+        (row.get("level_label_raw", ""), row.get("passability_raw", ""))
+        for row in fitting
+        if _distance(row) == nearest
+    }
+    return len(labels) > 1
