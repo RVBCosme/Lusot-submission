@@ -120,8 +120,8 @@ class RecordingClient:
 
         `run_dir` must not exist yet, so two runs never mix, and run.json is written
         last, so a folder without one is incomplete. The phrases come in
-        SAM_PHRASES' order. Before any SAM call, `image` is None, and before step 0
-        ran, `blur_version` is too.
+        SAM_PHRASES' order. Before any SAM call, `image` is None, and when step 0
+        refused the file, `blur_version` is too.
         """
         sam_dir = run_dir / "sam"
         run_dir.mkdir(parents=True)

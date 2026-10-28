@@ -143,6 +143,42 @@ def test_live_refuses_sturm_photos(tmp_path, monkeypatch, capsys, folder):
     assert "same as saved: True" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("where", ["under", "root", "dot"])
+def test_live_refuses_a_data_folder_inside_the_repo(
+    tmp_path, monkeypatch, capsys, where
+):
+    # R111: a run folder holds masks and Muse Spark's reason (C62), and runs/ isn't
+    # git-ignored, so runs stay out of the repo (spec §3.7). None of these exists,
+    # and none is made: the refusal comes before any client, call or folder.
+    analysis = RUNNER.parents[1]
+    repo_runner = runner.REPO / "backend" / "analysis" / "probes" / "run_pipeline.py"
+    assert repo_runner == RUNNER.resolve()  # the repo is exactly 3 folders up
+    data_dir = {
+        "under": analysis / "runs-r111-test",
+        "root": analysis.parents[1],
+        "dot": Path("."),  # the folder the runner is run from
+    }[where]
+    monkeypatch.chdir(analysis)
+    monkeypatch.setattr(runner, "make_client", no_client)
+    photo = write_photo(tmp_path / "street.jpg")
+    assert runner.main(["live", str(photo), "--data-dir", str(data_dir)]) == 2
+    assert capsys.readouterr().out == "refused: the data folder is inside the repo\n"
+    assert not (analysis / "runs-r111-test").exists()
+    assert not (analysis / "runs").exists()
+    assert not (analysis.parents[1] / "runs").exists()
+
+
+def test_the_sealed_check_comes_before_the_repo_check(tmp_path, monkeypatch, capsys):
+    # The repo check resolves the data folder, so a folder that names sealed must be
+    # refused first, before anything resolves it.
+    monkeypatch.setattr(runner, "make_client", no_client)
+    data_dir = LinkedPath(tmp_path / "sealed" / "data", RUNNER.parents[1] / "runs")
+    with pytest.raises(SystemExit) as exc:
+        runner.live(write_photo(tmp_path / "street.jpg"), data_dir)
+    assert exc.value.code == 2
+    assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
+
+
 def test_live_sends_the_reading_phrases_and_saves_under_the_data_dir(
     tmp_path, monkeypatch, capsys
 ):
@@ -276,6 +312,39 @@ def test_replay_that_differs_exits_1(tmp_path, monkeypatch, capsys):
     (run_dir / "run.json").write_text(json.dumps(saved), encoding="utf-8")
     assert runner.main(["replay", str(photo), str(run_dir)]) == 1
     assert capsys.readouterr().out.splitlines()[-1] == "same as saved: False"
+
+
+@pytest.mark.parametrize("command", ["live", "replay"])
+def test_a_missing_photo_exits_3(tmp_path, monkeypatch, capsys, command):
+    # R110: a run that can't read what it needs ends 3, never 1 (a replay that
+    # differs), and names the error's class only: no path, no message.
+    _, sam, given = level_case()
+    monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    photo = tmp_path / "gone-r110.jpg"
+    folder = ["--data-dir", str(tmp_path)] if command == "live" else [str(tmp_path)]
+    assert runner.main([command, str(photo), *folder]) == 3
+    captured = capsys.readouterr()
+    assert captured.out == "failed: FileNotFoundError\n"
+    assert photo.name not in captured.out + captured.err
+
+
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [(None, "FileNotFoundError"), ("{not json", "JSONDecodeError")],
+    ids=["missing", "corrupt"],
+)
+def test_a_missing_or_corrupt_run_record_exits_3(
+    tmp_path, monkeypatch, capsys, text, error
+):
+    photo, run_dir, _, _ = live_run(tmp_path, monkeypatch, capsys)
+    if text is None:
+        (run_dir / "run.json").unlink()
+    else:
+        (run_dir / "run.json").write_text(text, encoding="utf-8")
+    assert runner.main(["replay", str(photo), str(run_dir)]) == 3
+    captured = capsys.readouterr()
+    assert captured.out == f"failed: {error}\n"
+    assert photo.name not in captured.out + captured.err
 
 
 def test_live_and_replay_return_their_runs(tmp_path, monkeypatch):

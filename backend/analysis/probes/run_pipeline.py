@@ -10,16 +10,24 @@ Run from backend/analysis:
   never `face` or `license plate` (C66), and one Muse Spark answer. It sets no
   deadline (C84). What the models return, Muse Spark's reason included (C62), is
   saved to DIR/runs/<YYYY-MM-DD>/<photo stem>-<HHMMSS>. DIR defaults to
-  LUSOT_DATA_DIR, so nothing is saved in the repo (C8, C30).
+  LUSOT_DATA_DIR, and one inside the repo is refused, so nothing is saved in the repo
+  (C8, C30, R111).
 - replay: the pipeline again, from a run folder, with no key and no Meta call. It
   says whether the outcome is the saved one (B3).
 
 Before any file is opened or listed, it refuses a path inside a folder named sealed
-(C66), and a live run on a STURM photo (C87). It prints counts and timings only: never
-the answer, its reason or the key, and every line masks runs of 12 digits.
+(C66), a live run on a STURM photo (C87), and a data folder inside the repo (R111).
+It prints counts and timings only: never the answer, its reason or the key, and every
+line masks runs of 12 digits.
 
-Exit codes: 0 done; 1 the replay's outcome isn't the saved one; 2 refused: a sealed
-path, a STURM photo, a missing, short or rejected key, or another photo's outputs.
+Exit codes:
+- 0: done
+- 1: the replay's outcome isn't the saved one
+- 2: refused: a sealed path, a STURM photo, a data folder inside the repo, a
+  missing, short or rejected key, or another photo's outputs. argparse's own usage
+  errors exit 2 too.
+- 3: the run couldn't read or write what it needed. It prints `failed:` and the
+  error's class only, never a path or the error's text (R110).
 """
 
 from __future__ import annotations
@@ -46,6 +54,7 @@ from lusot_analysis.prompts import load_prompt
 # The repo's prompts. Only package code must not walk up from its own file, and the
 # runner runs only in the repo.
 PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
+REPO = Path(__file__).resolve().parents[3]  # above probes/, analysis/ and backend/
 DATA_DIR = r"C:\Systems\Lusot\lusot-data"  # when LUSOT_DATA_DIR is unset
 _ACCOUNT_ID = re.compile(r"[0-9]{12}")
 
@@ -73,6 +82,18 @@ def refuse_sturm_live(photo: Path) -> None:
     """
     if _inside(photo, "sturm_flooddepth"):
         say("refused: STURM photos stay offline")
+        raise SystemExit(2)
+
+
+def refuse_data_in_repo(data_dir: Path) -> None:
+    """Exit 2 when the data folder, resolved, lies inside the repo (spec §3.7, R111).
+
+    A run folder holds masks and Muse Spark's reason (C62), and runs/ isn't
+    git-ignored. It runs after refuse_sealed, which must see the folder before
+    anything resolves it.
+    """
+    if data_dir.resolve().is_relative_to(REPO):
+        say("refused: the data folder is inside the repo")
         raise SystemExit(2)
 
 
@@ -104,6 +125,7 @@ def live(photo: Path, data_dir: Path) -> tuple[Path, PipelineRun]:
     raises ModelKeyRejected (C73), and nothing is saved.
     """
     refuse_sealed(photo, data_dir)
+    refuse_data_in_repo(data_dir)
     refuse_sturm_live(photo)
     started = datetime.now()
     prompt = load_prompt(PROMPTS)
@@ -148,7 +170,8 @@ def main(argv: list[str] | None = None) -> int:
             _, run = live(args.photo, data_dir)
         else:
             run = replay(args.photo, args.run_dir)
-    except SystemExit as exc:  # refuse_sealed or refuse_sturm_live, which said why
+            saved = json.loads((args.run_dir / "run.json").read_text(encoding="utf-8"))
+    except SystemExit as exc:  # a refusal, which said why
         return exc.code
     except MissingApiKey:
         say("refused: MODEL_API_KEY is missing or too short")
@@ -156,13 +179,16 @@ def main(argv: list[str] | None = None) -> int:
     except ModelKeyRejected as exc:  # C73
         say(f"refused: Meta rejected the key or the account (HTTP {exc.status})")
         return 2
-    except PhotoMismatch:
+    except PhotoMismatch:  # a ValueError, so before the next clause
         say("refused: saved outputs belong to another photo")
         return 2
+    except (OSError, ValueError) as exc:
+        # R110: the class only, as an error's text can hold a path.
+        say(f"failed: {type(exc).__name__}")
+        return 3
     _print_run(run)
     if args.command == "live":
         return 0
-    saved = json.loads((args.run_dir / "run.json").read_text(encoding="utf-8"))
     same = dataclasses.asdict(run.outcome) == saved["outcome"]
     say(f"same as saved: {same}")
     return 0 if same else 1

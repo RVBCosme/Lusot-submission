@@ -14,6 +14,8 @@ import pytest
 from fakes import (
     REPO_PROMPTS,
     FakeClient,
+    answer,
+    flat_jpeg,
     instance,
     level_case,
     meta_error,
@@ -45,13 +47,16 @@ def prompt():
     return load_prompt(REPO_PROMPTS)
 
 
-def record(tmp_path, client, prompt, *, phrases=READING_PHRASES, **keywords):
-    """A live run of the level case's photo through RecordingClient(client), saved.
+def record(
+    tmp_path, client, prompt, *, photo=None, phrases=READING_PHRASES, **keywords
+):
+    """A live run of `photo` through RecordingClient(client), saved.
 
-    The photo is written to tmp_path/street.jpg and the run to tmp_path/run.
-    `keywords` go to run_pipeline. Returns the photo's bytes, the run and its folder.
+    The photo, by default the level case's, is written to tmp_path/street.jpg and the
+    run to tmp_path/run. `keywords` go to run_pipeline. Returns the photo's bytes,
+    the run and its folder.
     """
-    photo = level_case()[0]
+    photo = level_case()[0] if photo is None else photo
     path = tmp_path / "street.jpg"
     path.write_bytes(photo)
     recorder = RecordingClient(client)
@@ -102,6 +107,59 @@ def test_record_then_replay_gives_the_same_outcome(tmp_path, prompt):
     assert replayed.log["drops"] == live.log["drops"]
     assert replayed.log["instances"] == live.log["instances"]
     # The times and token counts come back too, so the whole log matches (B3).
+    assert replayed.log == live.log
+
+
+@pytest.mark.parametrize(
+    ("photo", "given", "outcome", "image", "phrases", "blur_version"),
+    [
+        # Step 1 stops it before SAM: no image size and no phrase.
+        pytest.param(
+            flat_jpeg(10),
+            None,
+            Outcome.refused("too_dark"),
+            None,
+            [],
+            FACE_BLUR_VERSION,
+            id="too-dark",
+        ),
+        # Step 0 refuses the file, so not even the blur version is known.
+        pytest.param(
+            b"not a jpeg",
+            None,
+            Outcome.failed("bad_file"),
+            None,
+            [],
+            None,
+            id="bad-file",
+        ),
+        # The gate settles it after SAM and Muse Spark.
+        pytest.param(
+            None,
+            answer(standing_water="no"),
+            Outcome.no_flood(),
+            {"width": 640, "height": 480},
+            list(READING_PHRASES),
+            FACE_BLUR_VERSION,
+            id="no-flood-seen",
+        ),
+    ],
+)
+def test_runs_that_end_early_replay_as_saved(
+    tmp_path, prompt, photo, given, outcome, image, phrases, blur_version
+):
+    _, sam, level_answer = level_case()
+    client = FakeClient(sam, level_answer if given is None else given)
+    data, live, run_dir = record(tmp_path, client, prompt, photo=photo)
+    assert live.outcome == outcome
+    saved = read_json(run_dir / "run.json")
+    assert saved["image"] == image
+    assert saved["phrases"] == phrases
+    assert saved["blur_version"] == blur_version
+    replayed = run_pipeline(
+        data, SavedOutputsClient(run_dir, data), prompt, phrases=READING_PHRASES
+    )
+    assert replayed.outcome == live.outcome
     assert replayed.log == live.log
 
 
