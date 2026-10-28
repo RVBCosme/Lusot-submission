@@ -218,7 +218,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **Probe** (spends Meta credits): `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis python probes/run_probe.py --photos 5 --water 10`.
   - Add `--voice-dir DIR` to send every WAV in DIR (mono, 16-bit, 16 kHz).
-  - Outputs go to `$env:LUSOT_DATA_DIR\probes\`, and stdout gets counts and timings only.
+  - Outputs go to `$env:LUSOT_DATA_DIR\probes\<date>\`, and stdout gets counts and timings only. A second run on the same day writes into the same folder, so move that day's `summary.json` aside first (probe note §7).
 - **APK build** (debug). Never run it at the same time as a Docker build.
   1. `app/.env.local` holds `VITE_API_URL`, the stack's `ApiUrl` output (see `app/.env.example`). Then run `npm run build -w app`.
   2. From `app/`: `npx cap sync android`
@@ -237,7 +237,7 @@ Notes:
 - **Git Bash:**
   - Keep Git's own PATH ahead of the Windows PATH, or npm's shim starts WSL's `bash.exe` and fails.
   - Prefix AWS CLI calls whose arguments start with `/` (such as `/lusot/stop/uploads`) with `MSYS_NO_PATHCONV=1`, or Git Bash rewrites them into Windows paths.
-- **Worktrees (D20, Oct 28):** three Claude windows work at once, each in its own worktree and branch: `C:\Systems\Lusot\lusot` (the main worktree), `C:\Systems\Lusot\lusot-wt\meta` and `C:\Systems\Lusot\lusot-wt\ms3a`. A window commits only in its own folder. Their handoff notes are in `.superpowers/handoff/`, which git ignores.
+- **Worktrees (D20, Oct 28; a fourth window from about 1:40 PM):** each Claude window works in its own worktree and branch: `C:\Systems\Lusot\lusot` (the main worktree), `C:\Systems\Lusot\lusot-wt\meta`, `C:\Systems\Lusot\lusot-wt\ms3a` and `C:\Systems\Lusot\lusot-wt\w4`. A window commits only in its own folder. Their handoff notes are in `.superpowers/handoff/`, which git ignores.
 - **Environment variables:** a new user variable reaches Claude Code only after it restarts. Until then, read it from the user scope with `[Environment]::GetEnvironmentVariable('NAME','User')`, and never print the value.
 - **PATH:** in a shell started before an install, refresh PATH first: `$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')`.
 - **Tools installed Oct 28 (per user, via winget):**
