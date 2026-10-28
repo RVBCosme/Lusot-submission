@@ -7,7 +7,8 @@ Run from the repo root, with MODEL_API_KEY set for that one command:
         --cars <data>\set_b\dev\cars.csv --photos <data>\set_b\dev\photos
         --out <data>\set_b\dev\masks
 
-<data> is the full data path, since uv's --directory changes the working folder.
+<data> is the full data path, since uv's --directory changes the working folder. A
+relative --out is refused: it would put blurred photos inside the repo.
 
 It sends each photo cars.csv names whose car is on this side (C210) and has its owner's
 OK on record (C218). blur_for_meta blurs the faces and shrinks the photo to 1,600 px at
@@ -67,7 +68,8 @@ CARS_READ = ("car_id", "photo_file", "consent_file")
 TRUTH_READ = ("crop_id", "crop_file", "generator_version")
 CAR_ID = re.compile(r"B[0-9]{2}")
 PHOTO_NAME = re.compile(r"B[0-9]{2}-[0-9]{1,2}\.(jpg|jpeg|png)", re.IGNORECASE)
-CROP_ID = re.compile(r"[A-Z]{1,3}[0-9]{1,4}(-[0-9]{1,3}){0,2}")  # C221's id pattern
+# A crop's id is its car, its photo, then its number (§5.9), inside C221's pattern.
+CROP_ID = re.compile(r"B[0-9]{2}-[0-9]{1,2}-[0-9]{1,3}")
 
 # A call to make: the label a skip prints, the file to send, its folder under --out,
 # and the function that sends it.
@@ -175,18 +177,30 @@ def check_cars(cars: Path, *, final: bool) -> tuple[list[str], dict[str, str]]:
     each of the car's rows, so no final car id is kept. The consent version isn't
     checked here: generate warns on one Rene hasn't approved (C218).
 
-    A car_id that isn't B and two digits, or a photo_file that isn't the car's own
-    <car>-<n>.<jpg|jpeg|png> in any case, prints its row and exits 1, before any file
-    is checked. Without final, a consent path inside a folder named sealed is refused.
+    These print their row and exit 1, before any file is checked: a car_id that isn't
+    B and two digits; a photo_file that isn't the car's own <car>-<n>.<jpg|jpeg|png> in
+    any case, or whose stem another row has, in any case, since a photo's masks are
+    filed by its stem; and a consent_file that isn't a bare file name, or is cars.csv's
+    own. Without final, a consent path that names sealed is refused before its stat.
     """
     rows = _read_rows(cars, CARS_READ)
     problems = []
+    stems = set()
     for row in rows:
-        car, name = row["car_id"], row["photo_file"]
+        ref = f"row {row['#']}"
+        car, name, consent = row["car_id"], row["photo_file"], row["consent_file"]
+        stem = Path(name).stem.casefold()
         if CAR_ID.fullmatch(car) is None:
-            problems.append(f"row {row['#']} car_id: bad_id")
+            problems.append(f"{ref} car_id: bad_id")
         elif PHOTO_NAME.fullmatch(name) is None or name[:3].upper() != car:
-            problems.append(f"row {row['#']} photo_file: id_file_mismatch")
+            problems.append(f"{ref} photo_file: id_file_mismatch")
+        elif stem in stems:  # one photo twice, or B01-1.jpg beside B01-1.png
+            problems.append(f"{ref} photo_file: duplicate")
+        stems.add(stem)
+        if consent and (
+            Path(consent).name != consent or consent.casefold() == cars.name.casefold()
+        ):
+            problems.append(f"{ref} consent_file: bad_name")
     _stop_on(problems)
     causes: dict[str, str] = {}  # by car id, which this function alone holds
     for row in rows:
@@ -318,16 +332,16 @@ def _run(argv: Sequence[str] | None, make_client: Callable[[], MetaClient]) -> i
         given = (args.cars, args.photos, args.water, args.out)
         refuse_sealed(*[path for path in given if path is not None])
     out = Path(args.out)
-    # 3. What to send, and what is skipped.
+    # 3. What to send, what is skipped, and the folders earlier runs finished.
     if args.water:
-        jobs, skips = _crop_jobs(Path(args.water), out)
+        jobs, skips, finished = _crop_jobs(Path(args.water), out)
     else:
-        jobs, skips = _photo_jobs(
+        jobs, skips, finished = _photo_jobs(
             Path(args.cars), Path(args.photos), out, final=args.final
         )
     for label, cause in skips:
         print(f"{label} skipped: {cause}")
-    # 4. The summary. 5. Under --final, Rene's yes.
+    # 4. The summary. 5. Under --final, Rene's yes, before anything is written.
     planned = len(jobs) * (1 if args.water else len(PHRASES))
     summary = (
         f"planned photos={len(jobs)} sam_calls={planned} "
@@ -337,6 +351,9 @@ def _run(argv: Sequence[str] | None, make_client: Callable[[], MetaClient]) -> i
         confirm(summary)
     else:
         print(summary)
+    # A run stopped between a folder's meta.json and the files.txt merge left that
+    # folder unlisted, so the finished folders are merged again: a no-op when listed.
+    write_files_txt(out, [path for folder in finished for path in _written(folder)])
     # 6. The client, made only when there is a call to make, then the calls in turn.
     started = time.monotonic()
     try:
@@ -380,6 +397,8 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
         help="Rene's final-car run, with the paths inside sealed (C214)",
     )
     args = parser.parse_args(argv)
+    if not Path(args.out).is_absolute():  # uv's --directory runs this in the repo
+        parser.error("--out must be an absolute path")
     if args.cars is not None and args.photos is None:
         parser.error("--cars needs --photos")
     if args.water is not None and args.final:
@@ -389,50 +408,68 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
 
 def _photo_jobs(
     cars: Path, photos: Path, out: Path, *, final: bool
-) -> tuple[list[Job], list[tuple[str, str]]]:
-    """A job for each photo check_cars sends and no earlier run finished, and the skips.
+) -> tuple[list[Job], list[tuple[str, str]], list[Path]]:
+    """A job for each photo check_cars sends and no earlier run finished, the skips,
+    and the folders earlier runs finished.
 
-    A photo prints by its stem, or under final by its row in cars.csv (C202).
+    A photo prints by its stem, or under final by its row in cars.csv (C202). A photo
+    to send that isn't in the photos folder, found by a stat, prints as
+    <photo> photo_file: missing and exits 1, so a run never pays and then stops.
     """
     names, skipped = check_cars(cars, final=final)
     rows: dict[str, str] = {}
-    if final:
+    if final:  # check_cars has refused any photo named twice
         for row in _read_rows(cars, CARS_READ):
-            rows.setdefault(row["photo_file"], f"row {row['#']}")
-    jobs, skips = [], list(skipped.items())
+            rows[row["photo_file"]] = f"row {row['#']}"
+    jobs, skips, finished, missing = [], list(skipped.items()), [], []
     for name in names:
         stem = Path(name).stem
         label = rows[name] if final else stem
-        if (out / stem / "meta.json").is_file():
+        folder = out / stem
+        if (folder / "meta.json").is_file():
             skips.append((label, "done"))
+            finished.append(folder)
+        elif not (photos / name).is_file():
+            missing.append(f"{label} photo_file: missing")
         else:
-            jobs.append((label, photos / name, out / stem, mask_photo))
-    return jobs, skips
+            jobs.append((label, photos / name, folder, mask_photo))
+    _stop_on(missing)
+    return jobs, skips, finished
 
 
-def _crop_jobs(truth: Path, out: Path) -> tuple[list[Job], list[tuple[str, str]]]:
+def _crop_jobs(
+    truth: Path, out: Path
+) -> tuple[list[Job], list[tuple[str, str]], list[Path]]:
     """A job for each distinct crop_file in truth.csv, read from crops/ beside it,
     unless its meta.json holds the crop's SHA-256 and its rows' generator_version
-    (C213), and the skips.
+    (C213); the skips; and the folders earlier runs finished.
 
-    Each crop_id must be an id (C221), since it names the crop's folder under --out,
-    and each crop_file must be <crop_id>.jpg; else the row prints and exits 1.
+    These print and exit 1, before any call: a crop_id that isn't a Set B crop's id,
+    since it names the crop's folder under --out; a final car's crop, by its row, as
+    --water is for development crops only (C210); a crop_file that isn't
+    <crop_id>.jpg; and a crop missing from crops/.
     """
     rows = _read_rows(truth, TRUTH_READ)
     problems = []
     for row in rows:
-        if CROP_ID.fullmatch(row["crop_id"]) is None:
-            problems.append(f"row {row['#']} crop_id: bad_id")
-        elif row["crop_file"] != row["crop_id"] + ".jpg":
-            problems.append(f"row {row['#']} crop_file: id_file_mismatch")
+        ref, crop = f"row {row['#']}", row["crop_id"]
+        if CROP_ID.fullmatch(crop) is None:
+            problems.append(f"{ref} crop_id: bad_id")
+        elif int(crop[1:3]) % 2 == 0:  # a final car's crop (C210)
+            problems.append(f"{ref} crop_id: wrong_side")
+        elif row["crop_file"] != crop + ".jpg":
+            problems.append(f"{ref} crop_file: id_file_mismatch")
     _stop_on(problems)
     crops: dict[str, dict[str, str]] = {}
     for row in rows:  # one row per wheel
         crops.setdefault(row["crop_file"], row)
-    jobs, skips = [], []
+    jobs, skips, finished, missing = [], [], [], []
     for name, row in crops.items():
         crop, version = row["crop_id"], row["generator_version"]
         path, folder = truth.parent / "crops" / name, out / "water" / crop
+        if not path.is_file():
+            missing.append(f"{crop} crop_file: missing")
+            continue
         meta = folder / "meta.json"
         if meta.is_file():
             done = json.loads(meta.read_bytes())
@@ -441,10 +478,12 @@ def _crop_jobs(truth: Path, out: Path) -> tuple[list[Job], list[tuple[str, str]]
                 version,
             ):
                 skips.append((crop, "done"))
+                finished.append(folder)
                 continue
         send = partial(water_crop, generator_version=version)
         jobs.append((crop, path, folder, send))
-    return jobs, skips
+    _stop_on(missing)
+    return jobs, skips, finished
 
 
 def _read_rows(path: Path, needed: Sequence[str]) -> list[dict[str, str]]:
@@ -452,12 +491,25 @@ def _read_rows(path: Path, needed: Sequence[str]) -> list[dict[str, str]]:
     or without a BOM, with either line ending, and each cell stripped. "#" is the row's
     number among the data rows, blank rows counted, as in Rene's spreadsheet.
 
-    A missing column, or a row whose cells don't line up with the header, prints as
-    log <column>: missing_column or row <n> cells: <kind>, and exits 1.
+    As table.py does, it refuses what would shift or hide a value, each by number and
+    kind, never by its text, and exits 1: a header name that is blank, "#" or
+    repeated (header column <n>: blank, reserved or duplicate), then a missing column
+    (log <column>: missing_column), then a row whose cells don't line up with the
+    header (row <n> cells: too_many or too_few).
     """
     with path.open(encoding="utf-8-sig", newline="") as file:
         reader = csv.reader(file)
         columns = [cell.strip() for cell in next(reader, [])]
+        for number, name in enumerate(columns, start=1):
+            if not name:
+                kind = "blank"
+            elif name == "#":
+                kind = "reserved"
+            elif name in columns[: number - 1]:
+                kind = "duplicate"
+            else:
+                continue
+            _stop_on([f"header column {number}: {kind}"])
         missing = [name for name in needed if name not in columns]
         _stop_on([f"log {name}: missing_column" for name in missing])
         rows = []

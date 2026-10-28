@@ -634,6 +634,75 @@ def test_malformed_cars_csv_exits_1(tmp_path, capsys):
     assert capsys.readouterr().out == "row 3 cells: too_few\n"
 
 
+def test_a_photo_named_twice_is_refused_before_any_call(tmp_path, capsys):
+    # A photo's masks are filed by its stem. A photo named twice would be paid for
+    # twice, and two photos with one stem would overwrite each other's masks.
+    folder = tmp_path / "set_b" / "dev"
+    cars = car_set(
+        folder,
+        [
+            ("B01", "B01-1.jpg", "B01.txt"),
+            ("B01", "B01-1.jpg", "B01.txt"),  # the same row twice
+            ("B03", "B03-1.jpg", "B03.txt"),
+            ("B03", "B03-1.png", "B03.txt"),  # two files, one stem
+            ("B05", "B05-1.jpg", "B05.txt"),
+            ("B05", "b05-1.jpg", "B05.txt"),  # one file on NTFS
+        ],
+    )
+    fake = FakeClient()
+    assert run(dev_argv(cars, folder / "masks"), fake) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "row 2 photo_file: duplicate",
+        "row 4 photo_file: duplicate",
+        "row 6 photo_file: duplicate",
+    ]
+    assert fake.sent == []
+    assert not (folder / "masks").exists()
+
+
+def test_consent_file_must_be_a_bare_name_beside_cars_csv(tmp_path, capsys):
+    # Any existing file used to pass the stat: cars.csv itself, or a photo.
+    folder = tmp_path / "set_b" / "dev"
+    cars = car_set(
+        folder,
+        [
+            ("B01", "B01-1.jpg", "B01.txt"),
+            ("B03", "B03-1.jpg", "cars.csv"),
+            ("B05", "B05-1.jpg", "photos/B05-1.jpg"),
+        ],
+    )
+    fake = FakeClient()
+    assert run(dev_argv(cars, folder / "masks"), fake) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "row 2 consent_file: bad_name",
+        "row 3 consent_file: bad_name",
+    ]
+    assert fake.sent == []
+
+
+@pytest.mark.parametrize(
+    ("header", "row", "problem"),
+    [
+        ("car_id,photo_file,,consent_file", "B01,B01-1.jpg,x,B01.txt", "3: blank"),
+        ("car_id,#,photo_file,consent_file", "B01,1,B01-1.jpg,B01.txt", "2: reserved"),
+        # A blank first consent_file and a filled second one: no cell may win silently.
+        (
+            "car_id,photo_file,consent_file,consent_file",
+            "B01,B01-1.jpg,,B01.txt",
+            "4: duplicate",
+        ),
+    ],
+)
+def test_cars_csv_header_is_checked(tmp_path, capsys, header, row, problem):
+    folder = tmp_path / "set_b" / "dev"
+    cars = car_set(folder, [("B01", "B01-1.jpg", "B01.txt")])
+    cars.write_text(f"{header}\n{row}\n", encoding="utf-8")
+    fake = FakeClient()
+    assert run(dev_argv(cars, folder / "masks"), fake) == 1
+    assert capsys.readouterr().out == f"header column {problem}\n"
+    assert fake.sent == []
+
+
 def test_undecodable_photo_is_skipped_in_both_modes(tmp_path, monkeypatch, capsys):
     dev = tmp_path / "set_b" / "dev"
     cars = car_set(
@@ -671,6 +740,45 @@ def test_undecodable_photo_is_skipped_in_both_modes(tmp_path, monkeypatch, capsy
     assert re.search(r"[Bb][0-9]{2}", captured.out + captured.err) is None
 
 
+def test_missing_photos_and_crops_are_named_before_any_call(
+    tmp_path, monkeypatch, capsys
+):
+    dev = tmp_path / "set_b" / "dev"
+    cars = car_set(
+        dev, [("B01", "B01-1.jpg", "B01.txt"), ("B03", "B03-1.jpg", "B03.txt")]
+    )
+    (dev / "photos" / "B03-1.jpg").unlink()
+    fake = FakeClient()
+    assert run(dev_argv(cars, dev / "masks"), fake) == 1
+    assert capsys.readouterr().out == "B03-1 photo_file: missing\n"
+    assert fake.sent == []
+
+    truth = crop_set(dev / "generated", ["B01-1-1", "B01-1-2"])
+    (dev / "generated" / "crops" / "B01-1-2.jpg").unlink()
+    assert run(["--water", truth, "--out", dev / "masks"], fake) == 1
+    assert capsys.readouterr().out == "B01-1-2 crop_file: missing\n"
+    assert fake.sent == []
+    assert not (dev / "masks").exists()
+
+    # Under --final, by its row, before Rene is asked anything.
+    sealed = tmp_path / "set_b" / "sealed"
+    cars = car_set(
+        sealed, [("B02", "B02-1.jpg", "B02.txt"), ("B04", "B04-1.jpg", "B04.txt")]
+    )
+    (sealed / "photos" / "B04-1.jpg").unlink()
+    prompts = []
+    monkeypatch.setattr(probe, "console_ok", lambda **_: True)
+    monkeypatch.setattr(
+        builtins, "input", lambda prompt="": prompts.append(prompt) or "yes"
+    )
+    assert run(["--final", *dev_argv(cars, sealed / "masks")], fake) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "row 2 photo_file: missing\n"
+    assert re.search(r"[Bb][0-9]{2}", captured.out + captured.err) is None
+    assert prompts == []
+    assert fake.sent == []
+
+
 def test_rerun_pays_nothing(tmp_path, capsys):
     folder = tmp_path / "set_b" / "dev"
     cars = car_set(
@@ -692,6 +800,46 @@ def test_rerun_pays_nothing(tmp_path, capsys):
         "planned photos=0 sam_calls=0 cost=$0.0000",
     ]
     assert re.fullmatch(r"photos=0 skipped=2 sam_calls=0 seconds=[0-9.]+", lines[-1])
+
+
+def test_files_txt_is_repaired_for_finished_folders(tmp_path, monkeypatch):
+    # A run stopped between a folder's meta.json and its files.txt merge left that
+    # folder finished but unlisted. The next run lists it again, and pays nothing.
+    dev = tmp_path / "set_b" / "dev"
+    cars = car_set(
+        dev, [("B01", "B01-1.jpg", "B01.txt"), ("B03", "B03-1.jpg", "B03.txt")]
+    )
+    truth = crop_set(dev / "generated", ["B01-1-1"])
+    out = dev / "masks"
+    water = ["--water", truth, "--out", out]
+    assert run(dev_argv(cars, out), FakeClient()) == 0
+    assert run(water, FakeClient()) == 0
+    full = (out / "files.txt").read_bytes()
+    first = [line for line in full.splitlines(keepends=True) if b"  B01-1/" in line]
+    (out / "files.txt").write_bytes(b"".join(first))  # B03-1 and the crop unlisted
+    for argv in (dev_argv(cars, out), water):
+        again = FakeClient()
+        assert run(argv, again) == 0
+        assert again.sent == []
+    assert (out / "files.txt").read_bytes() == full
+
+    # Under --final the repair is a write, so it waits for Rene's yes.
+    sealed = tmp_path / "set_b" / "sealed"
+    cars = car_set(sealed, [("B02", "B02-1.jpg", "B02.txt")])
+    argv = ["--final", *dev_argv(cars, sealed / "masks")]
+    listing = sealed / "masks" / "files.txt"
+    as_rene(monkeypatch, "yes")
+    assert run(argv, FakeClient()) == 0
+    full = listing.read_bytes()
+    listing.unlink()
+    as_rene(monkeypatch, "no")
+    assert run(argv, FakeClient()) == 2
+    assert not listing.exists()
+    as_rene(monkeypatch, "yes")
+    again = FakeClient()
+    assert run(argv, again) == 0
+    assert again.sent == []
+    assert listing.read_bytes() == full
 
 
 def test_write_files_txt_merges_by_name(tmp_path):
@@ -803,7 +951,43 @@ def test_water_mode_checks_crop_ids(tmp_path, capsys):
     assert fake.sent == []
 
 
+def test_water_mode_refuses_a_final_cars_crop(tmp_path, capsys):
+    # --water is for development crops only. A final car's crop names its row, never
+    # its id, and nothing is sent.
+    generated = tmp_path / "set_b" / "dev" / "generated"
+    truth = crop_set(generated, ["B01-1-1", "B02-1-1"])
+    fake = FakeClient()
+    assert run(["--water", truth, "--out", tmp_path / "masks"], fake) == 1
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == [
+        "row 3 crop_id: wrong_side",
+        "row 4 crop_id: wrong_side",
+    ]
+    assert "B02" not in captured.out + captured.err
+    assert fake.sent == []
+
+
 # The guards in use.
+
+
+@pytest.mark.parametrize("mode", ["cars", "water"])
+def test_out_must_be_absolute(tmp_path, capsys, mode):
+    # uv's --directory runs the tool in backend/analysis, so a relative --out would
+    # put blurred photos in the repo. It is refused before anything is opened: none of
+    # the inputs exists.
+    folder = tmp_path / "set_b" / "dev"
+    for out in ("set_b_masks_out", "C:set_b_masks_out"):  # also drive-relative
+        if mode == "cars":
+            argv = ["--cars", folder / "cars.csv", "--photos", folder / "photos"]
+        else:
+            argv = ["--water", folder / "generated" / "truth.csv"]
+        fake = FakeClient()
+        assert run([*argv, "--out", out], fake) == 2
+        assert capsys.readouterr().err.endswith(
+            "error: --out must be an absolute path\n"
+        )
+        assert fake.sent == []
+        assert not Path(out).exists()
 
 
 @pytest.mark.parametrize(
@@ -829,10 +1013,13 @@ def test_dev_mode_refuses_sealed_paths(tmp_path, capsys, flags, sealed_flag):
 
 
 def test_dev_mode_refuses_a_sealed_consent_path(tmp_path, capsys):
-    # A path cars.csv gives is checked like one from the command line, before its
-    # stat. The consent file doesn't exist, and nothing is made.
+    # A consent file is a bare name beside cars.csv, so only a name such as "Sealed."
+    # can name sealed. It is refused as a command-line path would be, before its stat.
+    # No such file exists, and nothing is made.
     folder = tmp_path / "set_b" / "dev"
-    cars = car_set(folder, [("B01", "B01-1.jpg", "../sealed/B01-missing.txt")])
+    cars = car_set(folder, [("B01", "B01-1.jpg", "B01-missing.txt")])
+    row = {"car_id": "B01", "photo_file": "B01-1.jpg", "consent_file": "Sealed."}
+    write_csv(cars, CARS_COLUMNS, [{**row, **CAR_FACTS}])
     fake = FakeClient()
     assert run(dev_argv(cars, folder / "masks"), fake) == 2
     assert capsys.readouterr().err == SEALED_REFUSAL
