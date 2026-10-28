@@ -12,12 +12,12 @@
 - **Builds on** Window 3's branch `ms3a-landmark-core`:
   - from MS3a: `Outcome` and its `item_fields()` (`pipeline/types.py`), the outcomes in spec §3.4, the offline runner and its saved-run layout (spec §3.7 and C66; plan Task 9)
   - the MS3b spec at `860a294`: C307 to C309, C311, C314, C315, C320, and C321, which records this spec's boundary from MS3b's side
-- **Needs from MS2:** the manifests, the M8 labels, the archives and the audit. Window 2's MS2 spec draft, uncommitted and read at 2:45 PM, already writes to this spec's contract:
-  - its manifest keeps raw labels and rules §9's facts (its C207)
-  - its M8 labels carry points (its C208)
-  - its standard-library audit runs at the sealed run
+- **Needs from MS2:** the manifests, the M8 labels, the archives and the audit. Window 2's MS2 spec is committed on `next-specs` at `586296c` (calls C200 to C224), and MS2's formats win:
+  - its manifest keeps raw labels and rules §9's facts (its C207), M8 labels carry points (C208), and its standard-library audit runs at the sealed run
+  - MS3b's export bridges MS2's files into §4.3's rows: CSV into JSON Lines, `yes`/`no` into booleans, `;`-separated lists into lists, the marks from M8's photo row, M8's points into box ids, `duplicate_of` into `duplicate`, and Set D's `photo_id`, `left`/`right` and `ruler_depth_in`
+  - two differences are settled by C423
 
-  If MS2's approved formats differ, MS2's win, and this spec records the change.
+  If MS2's approved formats change again, MS2's win, and this spec records the change.
 
 ## 1. Intent
 
@@ -128,7 +128,7 @@ The status and unmapped rules are MS6E-Q1's defaults.
 |---|---|---|
 | `run.json` | run (a single JSON object) | `kind` (`sealed` or `development`); `synthetic: true` for a test fixture only (C422); the Manila date; `rules_version`; the freeze commit (sealed runs); the frozen versions (rules §10's list, plus the SAM phrases sent, any backup phrase included, `store` and `max_side`, the annotation (drawing) version, and MS3b's tuning version, k, tire codes and reasoning effort); each dataset's version and split seed (MS2's records, its C216); `self_check` (`on` or `off`) and when MS3 decided it; geometry's live default before the run (C309), or `dropped` (C418); each stop and resume (C419); and, for a rerun, its reason (C421) |
 | `set_a.jsonl` | Set A photo, excluded ones included | see below |
-| `a_neg.jsonl` | A-neg photo | as for Set A without labels or M8, plus `surface`. It keeps MS2's facts, with `match` null, but scoring reads only `duplicate` and `decodes` (MS6E-Q1). |
+| `a_neg.jsonl` | A-neg photo | as for Set A without labels or M8, plus `surface`. It keeps MS2's facts, with `match` null, but scoring reads only `duplicate` and `decodes` (MS6E-Q1). MS2 has no M8 for A-neg, so `quality` is null and `subsets` empty (C423). |
 | `set_b.jsonl` | Set B wheel in one crop (a crop shows up to two wheels) | see below |
 | `set_d.jsonl` | Set D wheel, only if it rained | as for Set B, with the ruler depth as the truth |
 | `latency.jsonl` | live test (optional) | its id, and its seconds from upload to pin |
@@ -142,7 +142,7 @@ The status and unmapped rules are MS6E-Q1's defaults.
 | Ids | `photo_id`, `event_id` | MS2's manifest and split |
 | Labels as written | `level_label_raw` and `passability_raw`: the nearest alert's (empty when it gave none). `other_alerts_raw`: a list of the other matching alerts' labels. | the Set A log (MS2's C209) |
 | Facts for rules §9 | `poster_kind` (`mmda`, `city` or `other`), `label_in_image` (`no`, `cropped` or `yes`), `match` (`same_post`, `separate_post` or `none`), `duplicate`, `metro_manila`, `decodes` | the log, MS2's matching and its split |
-| Marks made before the run | `quality` (`ok`, `dark` or `blurry`) and `subsets` (tags) | the M8 sheet (MS2's C208) |
+| Marks made before the run | `quality` (`ok`, `dark` or `blurry`, or null when no mark was made) and `subsets` (tags, possibly none) | the M8 sheet's photo row (MS2's C208) |
 | Results | `outcomes`: `landmark`, `geometry` and, with the self-check on, `geometry_no_self_check`. Each is an `item_fields()` object, plus MS3b's `levelFrom`, `depthInMin` and `depthInMax` where set, as the item stores them (C308). | the export, by replay |
 | Readings | `answer`: Muse Spark's saved answer without its `reason` (null when no answer was made). `wheel_inches`: `depthInMin` and `depthInMax` by box id, unrounded, for each wheel the geometry configuration measured. | the export |
 | Our labels | `m8`: for each labelled reference, its box id (null when its point matched no box), kind and landmark, plus the type for a vehicle | the M8 sheet, joined by the export (C415) |
@@ -280,6 +280,7 @@ The "Done when" rows S1 to S6 (§6) are proved only here.
 | C420 | **Labels hold only rules §2's words.** `--label-words` lists the words §2's labels use (the phrases' words, `deep`, `level`, the units, `to`, the statuses and the passability words and codes). The export writes the marker `(other words)` for any label with another word. The entry point checks every sealed label the same way before any paid call. | A label maps only when its words are exactly one of §2's phrases, so a label with any other word is unmapped either way, and the marker changes no score. It keeps spot names and times out of the committed labels, and the list stays in one place. |
 | C421 | **The disclosed rerun's place.** Rules §10's one rerun writes to `eval/results/rerun/`, beside the first run, at a second tagged freeze recorded with its reason. The one command rebuilds both reports. The rerun's report gives the first run's headline and gate rows beside its own, and the rerun's decision is the one applied. | Rules §10 requires both sets of numbers and the reason. Keeping the first run's folder untouched shows it as it was committed. |
 | C422 | **Synthetic fixtures say so.** `run.json` may carry `synthetic: true`, used only by test fixtures. Their reports open by saying they hold synthetic test data, not Lusot's results, so a committed fixture can't pass for a run. | The harness's own fixture is committed with its report, where a judge browsing the repo could read made-up rates as results. |
+| C423 | **Two of MS2's format differences** (Window 2, 3:50 PM). **Marks nobody made stay null:** `quality` may be null, which means unmarked, and an unmarked photo is never in the quality subset. A-neg rows always carry null (MS2 has no M8 for A-neg, its C208), and so does a Set A photo without an M8 photo row. **Set B's bins stay a free map of tokens:** the export passes MS2's `view` and `size_bin` under those names, and any bin MS3b derives under its own name. The report groups by each name it finds. | Filling `ok` would claim a mark that nobody made. The harness only groups by bins, so their names are the producers' to choose. |
 
 ## 6. Done when
 

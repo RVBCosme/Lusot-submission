@@ -206,7 +206,7 @@ All new.
     - `Result(status: str, reason: str | None, no_flood_seen: bool, level: str | None, level_is_floor: bool, passability: str | None)`
     - `Facts(poster_kind: str | None, label_in_image: str | None, match: str | None, duplicate: bool, metro_manila: bool, decodes: bool)`
     - `Reference(box_id: int | None, kind: str, m8_landmark: str | None, m8_type: str | None, spark_landmark: str | None, spark_type: str | None)`, where `kind` is `wheel`, `body` or `person`
-    - `PhotoRow(photo_id: str, event_id: str, level_label_raw: str, passability_raw: str, other_alerts_raw: tuple[str, ...], facts: Facts, quality: str, subsets: tuple[str, ...], surface: str | None, results: Mapping[str, Result], answered: bool, references: tuple[Reference, ...])`, where `answered` means `answer` wasn't null
+    - `PhotoRow(photo_id: str, event_id: str, level_label_raw: str, passability_raw: str, other_alerts_raw: tuple[str, ...], facts: Facts, quality: str | None, subsets: tuple[str, ...], surface: str | None, results: Mapping[str, Result], answered: bool, references: tuple[Reference, ...])`, where `answered` means `answer` wasn't null
     - `Estimate(measured: bool, point: Decimal | None, low: Decimal | None, high: Decimal | None, fail: str | None)`
     - `WheelRow(crop_id: str, wheel: int, car_id: str, vehicle_type: str, tire_code: str, true_depth_in: Decimal, sam_water_found: bool, bins: Mapping[str, str], estimates: Mapping[str, Estimate])`
     - `Run(meta: Mapping[str, object], kind: str, synthetic: bool, self_check: bool, geometry_dropped: bool, rerun_reason: str | None, set_a: tuple[PhotoRow, ...] | None, a_neg: tuple[PhotoRow, ...] | None, set_b: tuple[WheelRow, ...] | None, set_d: tuple[WheelRow, ...] | None, latency: tuple[tuple[str, Decimal], ...] | None)`, where `None` means the set's file is absent
@@ -214,7 +214,7 @@ All new.
 - Produces, in `eval/tests/builders.py`:
   - `level(level: str, *, floor: bool = False, landmark: str = "hub", level_from: str | None = None, inches: tuple[str, str] | None = None) -> dict`, plus `nfs() -> dict`, `refused(reason: str) -> dict` and `failed(reason: str) -> dict`, each an `item_fields()` dict
   - `set_a_row(photo_id: str, *, label: str = "knee deep", passability: str = "", others: tuple[str, ...] = (), landmark: dict | None = None, geometry: dict | None = None, **fields) -> dict`. Both results default to `level("knee")`. The facts default to values that pass §9: `poster_kind: "mmda"`, `label_in_image: "no"`, `match: "same_post"`, `duplicate: false`, and `metro_manila` and `decodes` true. `quality` defaults to `"ok"`. Any other field is set through `fields`.
-  - `a_neg_row(photo_id: str, **fields) -> dict`, with `surface: "wet"`, `poster_kind: "other"`, `label_in_image: "no"`, `match: None`, `metro_manila: true`, `duplicate: false` and `decodes: true` by default; `set_b_row(crop_id: str, wheel: int = 1, **fields) -> dict`; `run_json(**overrides) -> dict`
+  - `a_neg_row(photo_id: str, **fields) -> dict`, with `surface: "wet"`, `poster_kind: "other"`, `label_in_image: "no"`, `match: None`, `metro_manila: true`, `duplicate: false`, `decodes: true`, `quality: None` and `subsets: []` by default (MS2 has no M8 for A-neg, spec C423); `set_b_row(crop_id: str, wheel: int = 1, **fields) -> dict`; `run_json(**overrides) -> dict`
   - `write_run(folder: Path, *, run: dict, set_a=None, a_neg=None, set_b=None, set_d=None, latency=None) -> Path`. It writes JSON Lines with `\n` endings, and leaves out any set given as `None`.
 
 **The contract the loader enforces** (spec §4.3, C403, C420):
@@ -243,7 +243,7 @@ All new.
   - ids match the Global Constraints' pattern; `photo_id` is unique within its file, and so is the pair `crop_id` + `wheel`
   - `level_label_raw`, `passability_raw` and each entry of `other_alerts_raw` pass `label_words_ok`
   - `poster_kind` is `mmda`, `city` or `other`; `label_in_image` is `no`, `cropped` or `yes`; `match` is `same_post`, `separate_post` or `none`
-  - `quality` is `ok`, `dark` or `blurry`
+  - `quality` is `ok`, `dark`, `blurry`, or null when no mark was made (spec C423); `subsets` may be empty
   - tags, refusal reasons, bin names and values, and failed checks are tokens matching `^[a-z][a-z0-9_]{0,31}$`
 - **`outcomes`:**
   - **Which configurations:** exactly `landmark` and `geometry`, plus `geometry_no_self_check` when, and only when, `self_check` is `on`. When `geometry_default` is `dropped`, only `landmark`.
@@ -290,6 +290,7 @@ All new.
     - `seconds: NaN` and `seconds: Infinity` are refused
     - `wheel: 1.0` and `wheel: true` are refused
   - `test_synthetic_flag`: `synthetic: true` loads and reaches `run.meta`, and `synthetic: "yes"` is refused.
+  - `test_unmarked_quality` (spec C423): an A-neg row with `quality: null` and `subsets: []` loads, and so does a Set A row with `quality: null`; `quality: "unknown"` is refused.
   - `test_errors_never_echo_values`: a refused label `Espana Maceda` gives a message with the file, the line and the rule, without the word `Espana`.
   - `test_self_check_controls_the_third_configuration`: with `self_check: "on"`, a row without `geometry_no_self_check` is refused; with `"off"`, a row that has it is refused.
   - `test_geometry_dropped`: with `geometry_default: "dropped"` and a reason, rows with only `landmark` load and `run.geometry_dropped` is true; a row with `geometry` is refused; `dropped` without a reason is refused.
@@ -442,7 +443,7 @@ All new.
     - five A-neg rows (a level, NFS, a refusal, a failure and a level) give `levels == 2`, `false_flood == Rate(2, 5)`, `no_flood_seen == 1`, `refused == 1` and `failed == 1`
     - a duplicate row is left out
     - `surface="dry"` keeps only the dry rows
-  - `test_correct_refusals`: dark (refused), blurry (refused), dark (a level), dark (failed) and `ok` (refused) give `n == 4`, `correct == Rate(2, 4)` and `failed == 1`, with the reasons counted.
+  - `test_correct_refusals`: dark (refused), blurry (refused), dark (a level), dark (failed), `ok` (refused) and an unmarked `null` (refused) give `n == 4`, `correct == Rate(2, 4)` and `failed == 1`, with the reasons counted.
   - `test_subsets`: rows tagged `splash` and `reflection`, plus a `waist deep` row, give `reflection`, `splash` and `tire_or_deeper`, in that order, each with its own n, coverage, under and passability.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement the functions in `metrics.py`.
