@@ -22,7 +22,7 @@
 
 **Order (D20).** The branch `ms3a-landmark-core` starts from `ms1-setup` at `461c398`.
 - **Before MS1 closes:** Tasks 1, 6, 10, 11 and 12, in that order. They need nothing from MS1 Tasks 4 and 5.
-- **After MS1 closes:** merge `main` and re-run every test. Then Tasks 2, 3, 4, 5, 7, 8, 9, 13, 14, 15, 16 and 17, in that order. These need MS1 Task 4 (`lusot_analysis/meta_client.py`) and Task 5: `annotate.py`, `prompts/muse_spark_photo_v1.md`, `prompts/muse_spark_photo_v1.schema.json`, `probes/run_probe.py` and the probe note.
+- **After MS1 closes:** merge `main` and re-run every test. Then Tasks 2, 3, 4, 5, 7, 7a, 8, 9, 13, 14, 15, 16 and 17, in that order. These need MS1 Task 4 (`lusot_analysis/meta_client.py`) and Task 5: `annotate.py`, `prompts/muse_spark_photo_v1.md`, `prompts/muse_spark_photo_v1.schema.json`, `probes/run_probe.py` and the probe note.
 
 MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an MS1 interface only where a task says so.
 
@@ -55,14 +55,16 @@ MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an M
   - S3 events on `raw/` only
 - **Meta calls:**
   - The client keeps MS1's retry rule: retry only on 429, 500 and 503, 0.5 s doubling plus up to 1 s of jitter, at most 4 attempts, honouring `Retry-After`. SAM is streamed with the 504 background fallback; `strict: true`; `max_retries=0`.
+  - Every call runs under the run's deadline (C84, Task 7a): a wait, poll or read that would pass it stops instead of retrying early.
   - The pipeline itself never retries a Meta call (C47, C59).
   - The Lambda never calls `count_input_tokens`.
-- **Credits:** Meta credits are spent only in Task 16. It sends the photos the spec names (B1's 5 STURM photos) and runs one offline-runner live run on one of them. C71's fallback adds up to 15 more STURM photos from Level1 to Level3, in the seeded order.
+- **Credits:** Meta credits are spent only in Task 7a's one SAM check (C85, about $0.0025) and in Task 16. It sends the photos the spec names (B1's 5 STURM photos) and runs one offline-runner live run on one of them. C71's fallback adds up to 15 more STURM photos from Level1 to Level3, in the seeded order.
 - **Exact values (spec):**
   - quality: brightness under 40 → `too_dark`, sharpness under 25 → `too_blurry`, on the pre-blur upload shrunk to at most 1,600 px
   - before numbering: a wheel whose SAM box has a longer side under 40 px is dropped; at most 6 vehicles and 6 people, largest boxes first
   - the lease: 900 s (15 minutes)
-  - the smoke run's bound: 60 s from upload to a final status (C68)
+  - the smoke run's bound: 120 s from upload to a final status (C68)
+  - the run's deadline: the Lambda's remaining time less 20 s (C84)
   - the publish blur grows each mask's box by 25% on every side
 - **Screen copy:**
   - Every screen shows exactly: `Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.`
@@ -533,6 +535,37 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
 - [ ] **Step 5:** Commit `feat(analysis): add the quality gate and the face-and-plate blur before storage`.
 
+### Task 7a: A total deadline, and the SAM check (C84, C85)
+
+**Files:**
+- Modify: `backend/analysis/src/lusot_analysis/meta_client.py`, `backend/analysis/src/lusot_analysis/pipeline/types.py` (`ModelClient`), `backend/analysis/tests/fakes.py` (`FakeClient`)
+- Test: `backend/analysis/tests/test_meta_client.py`
+
+**Interfaces:**
+- Consumes: MS1's `MetaClient` and `MetaApiError`. Read `meta_client.py` first: its retry loop, its 504 background poll and its SAM stream reader, and how its tests fake the transport and the clock.
+- Produces:
+  - `segment(image, phrase, *, deadline: float | None = None)` and `judge(image, *, prompt, schema, schema_name, deadline: float | None = None)` on `MetaClient`, the `ModelClient` protocol and `FakeClient` (which records it). `deadline` is an absolute `time.monotonic()` value; `None` keeps MS1's behaviour exactly.
+  - `class DeadlineExceeded(MetaApiError)`, with `status=None`. The client raises it instead of starting anything that would end after the deadline:
+    - a retry wait, `Retry-After` included. The client still never retries early; when the wait it must honour would pass the deadline, it stops.
+    - the next sleep of a 504 background poll
+    - a SAM stream read: its read timeout becomes the smaller of `timeout_s` and the time left, and a read that times out at the deadline raises `DeadlineExceeded`
+  - It subclasses `MetaApiError`, so Task 8 maps it to `failed/model_error` with no new branch.
+  - `MetaClient(..., sam_store: bool | None = None)`: `False` sends `store: false` on every SAM request; `None` sends nothing, as MS1 does. Step 4 sets the default.
+
+- [ ] **Step 1: Write the failing tests**, using the client's existing fakes for the transport and the clock:
+  - `test_retry_after_past_the_deadline_stops`: a 503 with `Retry-After: 60` and a deadline 5 s away → `DeadlineExceeded` after 1 call, with no sleep.
+  - `test_retry_after_within_the_deadline_is_honoured`: a 503 with `Retry-After: 2`, then 200, with a deadline 30 s away → one sleep of at least 2 s, then the result.
+  - `test_background_poll_stops_at_the_deadline`: a 504, then a background job that never finishes → `DeadlineExceeded`, with the fake clock never past the deadline.
+  - `test_stream_read_timeout_shrinks_to_the_time_left`: with 3 s left, the stream's read timeout is at most 3 s.
+  - `test_sam_store_false_is_sent_only_when_set`: `sam_store=False` puts `"store": false` in the SAM request body; the default sends no `store` key.
+  - MS1's tests pass unchanged, which shows `deadline=None` keeps its behaviour.
+- [ ] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py`. Expected: the new tests FAIL.
+- [ ] **Step 3:** Implement the deadline and `sam_store`. Then run `uv run pytest -q` and `uv run ruff check .`. Expected: PASS; clean. Commit `feat(analysis): give every Meta call a total deadline`.
+- [ ] **Step 4 (Claude, about $0.0025; C85):** in one PowerShell command that sets the key from the user variable, make one `segment(image, "wheel")` call with `MetaClient(sam_store=False)` on a synthetic 1,600 × 1,200 noise JPEG made in the session scratchpad and passed through `blur_for_meta`. Record counts and booleans only: whether the client's frame check passed, the HTTP status, and whether the stream echoed `store: false`.
+  - **The frame check fails:** stop and use `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
+  - **Meta accepts `store: false`:** make `False` the default for `sam_store`, with a test, and commit `fix(analysis): ask Meta not to store SAM requests`.
+  - **Meta refuses it (a 400):** keep `None`, and add to the task report that the consent notice and privacy policy must say Meta stores each SAM request (M21).
+
 ### Task 8: The pipeline function
 
 **Files:**
@@ -544,7 +577,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - Produces, in `lusot_analysis.pipeline`:
   - `READING_PHRASES`: `SAM_PHRASES` without `"face"` and `"license plate"`, so 5 phrases (C66)
   - `@dataclass(frozen=True) class PipelineRun: outcome: Outcome; log: dict[str, object]; publish_jpeg: bytes | None`. It carries no answer: Muse Spark's `reason` never reaches the handler (C62).
-  - `run_pipeline(data: bytes, client: ModelClient, prompt: PromptSpec, *, phrases: Sequence[str] = SAM_PHRASES) -> PipelineRun`, in spec §3.2's order:
+  - `run_pipeline(data: bytes, client: ModelClient, prompt: PromptSpec, *, phrases: Sequence[str] = SAM_PHRASES, deadline: float | None = None) -> PipelineRun`, passing `deadline` to every `segment` and `judge` call (C84), in spec §3.2's order:
     - **step 0:** `blur_for_meta(data)`. An `UndecodableImage` here → `failed/bad_file` (undecodable, over 50 MP, or a short side of 32 px or less, R27).
     - **step 1:** `quality_refusal(quality_scores(data))` → `refused/too_dark` or `refused/too_blurry`, with no Meta call
     - **step 2:** `segment_all(client, image, phrases)`
@@ -580,6 +613,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `tests/test_meta_client.py` covers both §3.6 items: a `BlurredImage` subclass is refused (`type(img) is BlurredImage`), and a key under 20 characters is refused. If either test is missing, add it there (`test_rejects_blurred_image_subclass`, `test_short_key_refused`).
   - Read `meta_client.py` for the classes it raises on a timeout or a connection error that outlasts its retries. They are Meta errors, so they end `failed/model_error` (C59), never `pipeline_error`. Add each to the Errors mapping and to `test_model_errors_pay_once`.
   - Read the probe note's count of face boxes that overlap wheel boxes (P5). If it is above 0, stop and report it: the controller rules on P5 before this task goes on.
+  - Read how `meta_client.py` surfaces a Muse Spark refusal (C86). If it can be told apart from an answer that isn't JSON, map it to `refused/model_declined`: add the reason to `REFUSED_REASONS` and a case to `test_gate_outcomes_through_the_pipeline`. If it can't, record why, and the refusal stays `failed/model_error`.
 - [ ] **Step 2: Write the failing tests** (`FakeClient`, `noise_jpeg()`, `prompt = load_prompt(REPO_PROMPTS)`):
   - `test_level_result_end_to_end`, built from `level_case()`:
     - SAM: `vehicle (100, 100, 400, 300)`, `wheel (150, 250, 200, 300)`, `floodwater (0, 280, 640, 480)`, `face (300, 120, 330, 150)`, `license plate (220, 270, 280, 290)`
@@ -601,6 +635,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - the answer has an id as a string
     - `judge` raises the class it raises on a non-JSON answer (see **Errors** above)
   - `test_rejected_key_raises` (C73), parametrized: `segment` raises `meta_error(401)`, `segment` raises `meta_error(402)`, and `judge` raises `meta_error(403)` → each raises `ModelKeyRejected` with that status. In the `judge` case, the fake recorded exactly 1 `judge` call.
+  - `test_deadline_reaches_every_call` (C84): `run_pipeline(..., deadline=123.0)` → every `segment` and `judge` call the fake recorded carries `deadline=123.0`.
+  - `test_deadline_exceeded_is_a_model_error` (C84): `segment` raises `DeadlineExceeded` → `failed/model_error`, `error == "DeadlineExceeded"`, and no `judge` call.
   - `test_other_exceptions_are_pipeline_errors`: `segment` raises `KeyError("boom-marker")` → `failed/pipeline_error`, and `"boom-marker"` isn't in `json.dumps(run.log)`.
   - `test_reason_text_never_reaches_the_log` (C62): `"REASON-MARKER-31"` isn't in `json.dumps(run.log)`, and `PipelineRun` has no field holding the answer.
   - `test_reading_phrases_skip_face_and_plate` (C66): with `phrases=READING_PHRASES`, `segment` is called 5 times, never for `face` or `license plate`, and a level result has `publish_jpeg is None`.
@@ -784,7 +820,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - environment: `TABLE_NAME`, `BUCKET_NAME`, `STOP_PARAM_PREFIX`, `MODEL_KEY_PARAM`, and `PROMPTS_DIR`, which is new and set by the Dockerfile in Task 14
 - Produces:
   - `handler.handler(event: dict, context) -> dict`, with the same shape as MS1's
-  - `handler.analyse(data: bytes, client: ModelClient) -> PipelineRun`: the handler's pipeline call, `run_pipeline(data, client, _prompt(), phrases=SAM_PHRASES)` (B3)
+  - `handler.analyse(data: bytes, client: ModelClient, *, deadline: float | None = None) -> PipelineRun`: the handler's pipeline call, `run_pipeline(data, client, _prompt(), phrases=SAM_PHRASES, deadline=deadline)` (B3)
+  - `DEADLINE_MARGIN_S = 20` and `_deadline(context) -> float | None`: `time.monotonic() + context.get_remaining_time_in_millis() / 1000 - DEADLINE_MARGIN_S`, or `None` when the context has no such method, as in tests that pass `None` (C84)
   - the log `outcome` values (exact): each result's `Outcome.log_name`, plus `already_finished`, `lease_held`, `lease_lost`, `unknown_key`, `s3_test_event`, `error`, `model_key_loaded=true`, `model_key_missing` and `model_key_rejected`
 - **The flow for each S3 record** (spec §3.1):
   1. Skip test events. A key that isn't `raw/r_<32 hex>.jpg` is deleted and logged as `unknown_key` (MS1).
@@ -804,7 +841,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
      - the codes `NoSuchKey` and `AccessDenied` → finish `failed/photo_missing`, logging the error fields
      - any other S3 error raises, and the message retries
      - bytes that don't start with `b"\xff\xd8\xff"` → finish `failed/bad_file`, before `analyse` or any decoder runs (C83, R85). The check stays in the handler: `face_blur.decode_image` and `run_pipeline` keep accepting other formats for the laptop tools.
-  7. `analyse(data, client)`. A `ModelKeyRejected` (C73) sets `_META_CLIENT` to `None`, logs `model_key_rejected` with `meta_status`, and returns the message. The report stays `processing`, and `raw/` is kept.
+  7. `analyse(data, client, deadline=_deadline(context))`, with the Lambda `context` passed down from `handler` (C84). A `ModelKeyRejected` (C73) sets `_META_CLIENT` to `None`, logs `model_key_rejected` with `meta_status`, and returns the message. The report stays `processing`, and `raw/` is kept.
   8. Publish:
      - for a level result, first put `blurred/{id}.jpg` (`ContentType: image/jpeg`)
      - then `write_result` with `item_fields()`, plus `photoKey` on a level. False → `lease_lost`: no batch failure, and `raw/` is left alone.
@@ -839,6 +876,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - **Results:**
     - `test_level_result_is_published`: `done` with the level fields and `photoKey`. The `blurred/` object decodes to 640 × 480, `raw/` is gone, and the fake recorded 7 + 1 calls.
     - `test_non_level_results_store_no_photo`, parametrized over no flood seen, `refused/too_dark` (with `flat_jpeg(10)`), `refused/photo_unusable` and `failed/model_error` (`judge` raises). Each gets exact item fields, no `blurred/` key, and no `raw/` left.
+    - `test_deadline_comes_from_the_lambda_context` (C84): a fake context whose `get_remaining_time_in_millis()` returns 100,000 → the fake client records a deadline within 1 s of `time.monotonic() + 80`. With `context=None` it records `None`.
     - `test_publish_switch_is_not_read` (C64): with `/lusot/stop/publish` set to `on`, a level result is still published.
     - `test_stale_photo_is_removed_after_the_claim` (C72), parametrized over no flood seen and `failed/model_calls_paused`: the report is `processing` with `claimedAt = now - 901`, and `blurred/{id}.jpg` already exists. After the delivery, no `blurred/` object is left and the item has no `photoKey`.
     - `test_failed_photo_cleanup_retries_before_paying` (C72): `delete_object` on `blurred/` raises `InternalError` → `RETRY`, status `processing`, `raw/` kept, and no fake calls.
@@ -928,14 +966,14 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `refuse_sealed(path: Path) -> None`, with the runner's rule
   - `as_app_jpeg(path: Path) -> bytes`: decode, shrink to at most 1,600 px with `INTER_AREA`, then encode as JPEG at quality 85, as the app sends it
   - `dark_jpeg() -> bytes`: 1600 × 1200, a horizontal grey gradient from 0 to 30
-  - `wait_final(http, api_url, report_id, *, since: float, bound_s: float = 60.0, clock=time.monotonic, sleep=time.sleep) -> dict` polls every 2 s through `pending`, `processing` and 404. It raises `CheckFailed` after `bound_s` (C68).
+  - `wait_final(http, api_url, report_id, *, since: float, bound_s: float = 120.0, clock=time.monotonic, sleep=time.sleep) -> dict` polls every 2 s through `pending`, `processing` and 404. It raises `CheckFailed` after `bound_s` (C68).
   - `check_report_body(body: dict) -> None` checks C67's shapes
   - `check_form_fresh(issued_s: float, now_s: float) -> None` raises `CheckFailed("reused link: form too old")` when more than 280 s have passed since `POST /uploads` returned the form (C27's 300 s, less a margin)
   - `log_lines(session, report_id: str, since_ms: int) -> list[dict]` returns the analysis log's JSON lines for one report: the text from the first `{` of each event. It waits up to 30 s and never prints them.
   - the HTTP client is `httpx.Client(timeout=30, transport=httpx.HTTPTransport(local_address="0.0.0.0"))`. That forces IPv4, which matters because IPv6 doesn't connect on this Wi-Fi (Oct 28 log). httpx 0.28.1 documents `local_address`.
 - **The B1 run's checks, in order** (keep MS1's preflight, PNG, key-loaded and stop-switch checks):
   1. the CORS preflight
-  2. Upload the 5 STURM photos and the dark JPEG. The dark one goes from the app origin, with MS1's allow-origin checks. Each report must be final within 60 s of its 204.
+  2. Upload the 5 STURM photos and the dark JPEG. The dark one goes from the app origin, with MS1's allow-origin checks. Each report must be final within 120 s of its 204.
   3. **The reused link (B5), run as soon as the first STURM report is final** and its log line shows `meta_calls` above 0, before the next upload. The upload form expires 300 s after `POST /uploads` (C27), and the whole run takes longer. Re-post that report's form with the same bytes; if the form is older than 280 s, fail with `reused link: form too old`. S3 returns 204; `raw/` is gone within 60 s; the log has an `already_finished` line, and exactly one line with `meta_calls` above 0.
   4. The dark JPEG is `refused/too_dark`, and its log line has `meta_calls` 0.
   5. Every body passes `check_report_body`. If no STURM report has a level, print the outcomes and carry on. The run then ends with exit 3 instead of 0, so the B4 and B5 checks still run.
@@ -957,7 +995,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_probe_selection_mismatch_fails`: a summary naming other photos → `CheckFailed`.
   - `test_photos_are_sent_as_the_app_sends_them`: a 4000 × 3000 PNG → bytes that start with `FF D8` and decode to 1600 × 1200.
   - `test_dark_jpeg_is_below_the_brightness_cutoff`: it decodes to 1600 × 1200 with a mean grey under 40.
-  - `test_wait_final_polls_through_processing`: replies of `pending`, `processing`, 404 and then `done` → `done`. A fake clock that passes 61 s while `processing` → `CheckFailed`.
+  - `test_wait_final_polls_through_processing`: replies of `pending`, `processing`, 404 and then `done` → `done`. A fake clock that passes 121 s while `processing` → `CheckFailed`.
   - `test_report_body_shapes` (C67): a level body, a no-flood body and a refused body pass. A body with `photoKey`, `lat` or `claimToken` fails, and so does a level body without `levelIsFloor`.
   - `test_reused_link_needs_a_fresh_form`: 280 s after issue passes; 280.1 s raises `CheckFailed` with `reused link: form too old`.
   - `test_log_lines_parse_the_lambda_text_format`: the event `"[INFO]\t2026-10-29T01:02:03.000Z\treq-1\t{\"reportId\": \"r_...\", \"meta_calls\": 0}\n"` parses, and a line that isn't JSON is skipped.
