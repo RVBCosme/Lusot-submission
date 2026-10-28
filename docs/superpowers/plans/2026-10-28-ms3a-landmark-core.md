@@ -803,6 +803,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   6. `get_object` on `raw/`:
      - the codes `NoSuchKey` and `AccessDenied` → finish `failed/photo_missing`, logging the error fields
      - any other S3 error raises, and the message retries
+     - bytes that don't start with `b"\xff\xd8\xff"` → finish `failed/bad_file`, before `analyse` or any decoder runs (C83, R85). The check stays in the handler: `face_blur.decode_image` and `run_pipeline` keep accepting other formats for the laptop tools.
   7. `analyse(data, client)`. A `ModelKeyRejected` (C73) sets `_META_CLIENT` to `None`, logs `model_key_rejected` with `meta_status`, and returns the message. The report stays `processing`, and `raw/` is kept.
   8. Publish:
      - for a level result, first put `blurred/{id}.jpg` (`ContentType: image/jpeg`)
@@ -864,6 +865,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - Review Focus 4, `test_reused_link_during_analysis_pays_once_and_leaves_no_raw`: the `judge` hook puts a new `raw/` object and runs a second delivery, which logs `lease_held`. Afterwards there is one set of calls, the first worker's result, and no `raw/` object.
   - **S3 codes (R22, narrowed):**
     - `test_missing_photo_codes`: `NoSuchKey` (no object in moto) and `AccessDenied` (403, patched) → `failed/photo_missing`, with `error` and `http_status` logged and no Meta call.
+    - `test_non_jpeg_bytes_end_bad_file_before_decoding` (C83), parametrized over PNG bytes (`cv2.imencode(".png", …)`) and `b"GIF89a…"`: → `failed/bad_file`, `raw/` gone, no fake calls, and `handler.analyse` (patched to raise if called) never runs. A JPEG starting `FF D8 FF` still reaches `analyse`, as the level-case tests show.
     - `test_other_s3_errors_retry`, parametrized over `SignatureDoesNotMatch` 403, `RequestTimeTooSkewed` 403 and `InternalError` 500 → `RETRY`, status `processing`, no Meta call.
     - `test_aws_error_after_meta_calls_retries`: the `blurred/` put raises `InternalError` → `RETRY`, status `processing`, no `blurred/` object, `raw/` kept.
   - **Logs (§3.6, C62):**
