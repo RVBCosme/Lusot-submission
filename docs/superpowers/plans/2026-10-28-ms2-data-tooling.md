@@ -348,7 +348,7 @@ Most likely first. Each line names its test.
   - **The page:** `start(doc, win, data)` wires the photos, clicks, values, marks, `localStorage` autosave, export, import and "Clear saved work". It runs only when `document` exists. `data` has exactly these keys: `photos` (a list of `{id, file}`), `vehicleTypes`, `bodyWaterlines`, `wheelWaterlines` and `personWaterlines` (Table 5's lists), and `storageKey`. The M8 columns aren't in it.
   - **No `</`:** the script's text contains no `</`, so Task 4b embeds it verbatim.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - In `m8_sheet.test.mjs` (`node:test`, `node:assert/strict`, and `node:vm` loading `m8_sheet.js` into a context without `document`):
     - `fractionOf maps a click to fractions of the shown image`: rect `{left: 10, top: 20, width: 200, height: 100}`; `(110, 70)` gives `{x: 0.5, y: 0.5}`, `(10 + 200/3, 20)` gives `x` 0.3333, and `(5, 70)` gives `null`
     - `references are numbered per photo and never reused`
@@ -357,10 +357,12 @@ Most likely first. Each line names its test.
     - `import tolerates a BOM and CRLF and drops unknown photos`
     - `problems name a photo without marks and a wheel without its waterline`
   - In `test_m8_script.py`: `test_m8_script_passes_its_node_tests`: `node --test` on the test file, by its path from `__file__`, exits 0.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k m8_script`. Expected: FAIL; node reports `ENOENT` for `m8_sheet.js`.
-- [ ] **Step 3:** Implement `m8_sheet.js`.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(data): add the M8 page's script`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k m8_script`. Expected: FAIL; node reports `ENOENT` for `m8_sheet.js`.
+- [x] **Step 3:** Implement `m8_sheet.js`.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(data): add the M8 page's script`.
+
+*Evidence (Task 4a, Oct 28): commits 07ad13d, 58ce186 and 49d4c1f. `uv run --locked --script eval/data/tests/run_tests.py`: 59 passed, also with `-W error`; 12 node tests pass; ruff, the plan-leak check, the account-ID scan and gitleaks clean. The script holds no `</` or `<!--`, one global, no network call and no HTML built from data. The task review approved it; one fix round (S-R5) made an import show its kept and left-out counts and refuse a file with no row for the page's photos, tied the quality and subset lists to `formats.py`, and pinned the photo's border and padding to 0. The re-review was clean.*
 
 ### Task 4b: The M8 sheet command (C208)
 
