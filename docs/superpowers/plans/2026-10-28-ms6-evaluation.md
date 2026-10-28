@@ -764,7 +764,7 @@ All new.
 
 ### Task 10: Two more label readings (MS6E-Q1, items 15 and 16)
 
-Added on Oct 28 at 11:25 PM, after Quezon City's official road-status pages turned up labels that §2 doesn't map. The tracker found them while checking official alert text. This task runs before Task 8.
+Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turned up labels that §2 doesn't map. The tracker found them while checking official alert text. This task runs before Task 8.
 
 **Files:**
 - Modify: `eval/scoring/labels.py` (Task 1's file)
@@ -777,19 +777,24 @@ Added on Oct 28 at 11:25 PM, after Quezon City's official road-status pages turn
 
 **The readings (spec C404):**
 - **Item 15.** When a label's words aren't one of §2's phrases (and aren't a status), the label takes its level from its measures, as a label with no words does. Words that are a phrase still win. Words with no measure stay unmapped.
+  - Two exceptions keep the label unmapped. Both are Window 4's rulings, from the implementer's edge cases.
+    - **A bare number** with no unit among the words: `8 (25 cm)`. Item 11 treats an unmarked number as unmapped, and it could contradict the measure.
+    - **A status word anywhere** among the words: `knee deep, subsided (19 in)`. The water may have gone down.
+  - A label that is only a status still gives `status`.
 - **Item 16.**
   - `head` maps to `above_chest`, as `lagpas tao` does, and takes `deep` or `level` like any phrase.
-  - A number followed by `+` and a unit means "at least that depth". It maps to `above_chest` when the number is over 45 in, and otherwise leaves the label unmapped. "At least 13 in" could be deeper than half tire, and a label never sets a floor.
+  - A number followed by `+` and a unit, or by its unit and then `+` (`13 in+`), means "at least that depth". It maps to `above_chest` when the number is over 45 in, and otherwise leaves the label unmapped. "At least 13 in" could be deeper than half tire, and a label never sets a floor.
 
 - [ ] **Step 1: Write the failing tests** in `test_labels.py`:
   - `test_measures_decide_unmapped_words` (item 15):
     - `ANKLE DEEP (9 inches)` gives `LevelLabel("level", "half_knee")`, and `Ankle Deep` gives `unmapped`
     - `knee deep (25 inches)` still gives `knee`, because words win
     - `ankle deep (61 cm)` gives `tire`, since 61 cm is 24.02 in
+    - `8 (25 cm)` and `knee deep, subsided (19 in)` give `unmapped`
   - `test_head_plus` (item 16):
     - `Head+ (60+ inches)`, `Head+`, `head deep` and `head level` each give `above_chest`
-    - `60+ inches` gives `above_chest`
-    - `13+ in` gives `unmapped`
+    - `60+ inches`, `60 in+` and `120 cm+` give `above_chest`
+    - `13+ in` and `13 in+` give `unmapped`
   - `test_label_words_take_ankle_head_and_plus`: `label_words_ok` passes `ANKLE DEEP (9 inches)` and `Head+ (60+ inches)`, and still refuses `Espana Maceda` and `knee deep 8:00 AM`. `head` and `ankle` are in `LABEL_WORDS`.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement the two readings in `labels.py`, and update its docstring, so it no longer says that only §2's phrases map.
