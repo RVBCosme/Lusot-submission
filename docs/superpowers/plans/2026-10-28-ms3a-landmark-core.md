@@ -982,6 +982,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - C87's photo folder `%LUSOT_DATA_DIR%\set_c\commons-ph-floods\`: `metro_manila_41.txt` (lines of `full path<TAB>licence`, `#` lines are comments) for eligibility, and `attribution.csv` (columns `file_name`, `title`, `commons_page_url`, `author`, `licence`, `licence_url`, `credit_line`, `fetch_mode`, `flags`) for each photo's credit line (R102)
 - Produces: `uv run backend/scripts/smoke_upload.py [--fallback]`. Exit 0 when every check passed, 1 when a check failed, and 3 when no B1 photo gave a level, so C71 applies.
   - `seeded_photo_order(folder: Path) -> list[Path]` follows C87 and R102: the base names listed in `folder/metro_manila_41.txt`, sorted, then the full order `random.Random(20261028).sample(names, n)`, fixed in advance whatever `attribution.csv` holds. Positions 0 to 4 are B1's photos, and 5 to 19 are C71's fallback. A listed file missing from disk raises `CheckFailed`. Nothing reads MS1's STURM `summary.json` any more.
+    - As built (R116): the photos sit in `folder/images/`. Each is opened at `folder / "images" / <base name>`, and the listed full path gives only the name, so it returns `images/<name>` paths. A photo placed directly in the folder counts as missing.
   - `credited(folder: Path, photos: Sequence[Path]) -> tuple[list[Path], int]`: keeps, in order, the photos whose row in `attribution.csv` has a non-empty `credit_line`, and returns how many were skipped. Only kept photos are sent to Meta, and the run prints the skipped count (R102).
   - `refuse_sealed(path: Path) -> None`, with the runner's rule
   - `as_app_jpeg(path: Path) -> bytes`: decode, shrink to at most 1,600 px with `INTER_AREA`, then encode as JPEG at quality 85, as the app sends it
@@ -990,6 +991,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `check_report_body(body: dict) -> None` checks C67's shapes
   - `check_form_fresh(issued_s: float, now_s: float) -> None` raises `CheckFailed("reused link: form too old")` when more than 280 s have passed since `POST /uploads` returned the form (C27's 300 s, less a margin)
   - `log_lines(session, report_id: str, since_ms: int) -> list[dict]` returns the analysis log's JSON lines for one report: the text from the first `{` of each event. It waits up to 30 s and never prints them.
+    - As built: `log_lines(stack, report_id, *, until=None, clock=None, sleep=None)`. The log group is looked up once and kept in `Stack.log_group`. `until` waits for a given outcome, such as B5's `already_finished`. `wait_final`'s `clock` and `sleep` also default to `None` and resolve to `time.monotonic` and `time.sleep` at each call.
+  - As built, also: CI runs these tests, because `check:py`'s scripts part installs httpx, numpy and opencv (R115). The run's 18 failure branches each have a test.
   - the HTTP client is `httpx.Client(timeout=30, transport=httpx.HTTPTransport(local_address="0.0.0.0"))`. That forces IPv4, which matters because IPv6 doesn't connect on this Wi-Fi (Oct 28 log). httpx 0.28.1 documents `local_address`.
 - **The B1 run's checks, in order** (keep MS1's preflight, PNG, key-loaded and stop-switch checks):
   1. the CORS preflight
@@ -1060,6 +1063,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - Run `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis probes/run_pipeline.py live "<the first photo in C87's order>"`. Expected: exit 0, and a run directory under `%LUSOT_DATA_DIR%\runs\`.
   - Then run `$env:LUSOT_B3_RUN_DIR = '<run dir>'; $env:LUSOT_B3_PHOTO = '<the photo>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: 2 passed, 0 skipped.
 - [ ] **Step 6:** Add up the spend: the Meta calls made (8 per cloud photo that reached SAM, plus 6 for Step 5), and the estimated cost from the token counts in the log lines. Record it.
+  - A failed run's spend line is a lower bound. It counts only photos whose reports finished, so add up to 8 calls for each photo that timed out, or read that report's lines in CloudWatch (Task 15's re-review).
 
 ### Task 17: Results note and milestone close (Claude)
 

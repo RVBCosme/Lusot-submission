@@ -26,11 +26,11 @@ In order, it checks that:
 5. every report body has C67's shape. If no photo gave a level, it prints their
    outcomes and drop causes (C75) and carries on, and the run ends with exit 3 (C71).
 6. no raw photo is left for any report, and blurred/{id}.jpg exists for each level
-   report and for no other (B4). It then prints the spend of the photos sent, and
-   prints it too if a check from 2 to 6 fails once a photo was sent: the Meta calls
-   in their log lines, how many ended on a 504 or a 413 from SAM or judge, and the
-   estimated cost, from SAM's calls and Muse Spark's billed usage, never from a
-   token count.
+   report and for no other (B4). It then prints the spend of the photos whose
+   reports finished, and prints it too if a check from 2 to 6 fails after one did:
+   the Meta calls in their log lines, how many ended on a 504 or a 413 from SAM or
+   judge, and the estimated cost, from SAM's calls and Muse Spark's billed usage,
+   never from a token count.
 7. a report whose photo never came ends failed/photo_missing within 60 s (spec §3.6):
    the queue gets one S3-shaped notification for it, and the run prints the log
    line's S3 error code and HTTP status (R93)
