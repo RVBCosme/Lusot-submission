@@ -87,6 +87,7 @@ All new.
 | `eval/scoring/scale.py` | the 9 levels, their limits and classes (rules §1) | 1 |
 | `eval/scoring/labels.py` | rules §2's mapping and its word list (C404, C420) | 1 |
 | `eval/scoring/rows.py` | the results contract: loading, the allow-list and the row types (C402, C403) | 2 |
+| `eval/scoring/paths.py` | the sealed-path guard (C411), shared by the loader and the one command | 2 |
 | `eval/tests/builders.py` | synthetic row builders shared by the tests | 2 |
 | `eval/scoring/exclusions.py` | rules §3 and §9, from the manifest's facts and labels (C404) | 3 |
 | `eval/scoring/metrics.py` | rules §7's metrics (C405, C406) | 3, 4, 5 |
@@ -196,8 +197,8 @@ All new.
 ### Task 2: Rows: the loader and its allow-list
 
 **Files:**
-- Create: `eval/scoring/rows.py`, `eval/tests/builders.py`
-- Test: `eval/tests/test_rows.py`
+- Create: `eval/scoring/rows.py`, `eval/scoring/paths.py`, `eval/tests/builders.py`
+- Test: `eval/tests/test_rows.py`, `eval/tests/test_paths.py`
 
 **Interfaces:**
 - Consumes: `LEVELS`, `CLASSES`, `CLASS_NAMES` (Task 1); `label_words_ok` (Task 1).
@@ -210,14 +211,17 @@ All new.
     - `WHEEL_WATERLINES` (7 values), `BODY_WATERLINES` (6), `PERSON_WATERLINES` (8)
     - `YES_NO_UNSURE`, and `{"yes", "no"}` for `photo_usable`
   - frozen dataclasses:
-    - `Result(status: str, reason: str | None, no_flood_seen: bool, level: str | None, level_is_floor: bool, passability: str | None)`
+    - `Result(status: str, reason: str | None, no_flood_seen: bool, level: str | None, level_is_floor: bool, passability: str | None, landmark: str | None)`, where `landmark` is a level result's landmark and `None` otherwise (Task 8's `review.csv`, C426)
     - `Facts(poster_kind: str | None, label_in_image: str | None, match: str | None, duplicate: bool, metro_manila: bool, decodes: bool)`
     - `Reference(box_id: int | None, kind: str, m8_landmark: str | None, m8_type: str | None, spark_landmark: str | None, spark_type: str | None)`, where `kind` is `wheel`, `body` or `person`
     - `PhotoRow(photo_id: str, event_id: str, level_label_raw: str, passability_raw: str, other_alerts_raw: tuple[str, ...], facts: Facts, quality: str | None, subsets: tuple[str, ...], surface: str | None, results: Mapping[str, Result], answered: bool, references: tuple[Reference, ...])`, where `answered` means `answer` wasn't null
     - `Estimate(measured: bool, point: Decimal | None, low: Decimal | None, high: Decimal | None, fail: str | None)`
     - `WheelRow(crop_id: str, wheel: int, car_id: str, vehicle_type: str, tire_code: str, true_depth_in: Decimal, sam_water_found: bool, bins: Mapping[str, str], estimates: Mapping[str, Estimate])`
     - `Run(meta: Mapping[str, object], kind: str, synthetic: bool, self_check: bool, geometry_dropped: bool, rerun_reason: str | None, baseline_level: str | None, baseline_class: str | None, set_a: tuple[PhotoRow, ...] | None, a_neg: tuple[PhotoRow, ...] | None, set_b: tuple[WheelRow, ...] | None, set_d: tuple[WheelRow, ...] | None, latency: tuple[tuple[str, Decimal], ...] | None)`, where `None` means the set's file is absent
-  - `load_run(folder: Path) -> Run`
+  - `load_run(folder: Path) -> Run`. Its first step is `refuse_sealed(folder)`, before anything is read or listed.
+- Produces, in `scoring.paths` (C411):
+  - `class SealedPath(ValueError)`, whose message is `path inside a folder named sealed` and never names the path
+  - `refuse_sealed(path: Path) -> None`. It raises `SealedPath` when any part of the path as given, or of its absolute, normalised form (`os.path.abspath`, then `normpath`), equals `sealed`, ignoring case. It never touches the disk.
 - Produces, in `eval/tests/builders.py`:
   - `level(level: str, *, floor: bool = False, landmark: str = "hub", level_from: str | None = None, inches: tuple[str, str] | None = None) -> dict`, plus `nfs() -> dict`, `refused(reason: str) -> dict` and `failed(reason: str) -> dict`, each an `item_fields()` dict
   - `set_a_row(photo_id: str, *, label: str = "knee deep", passability: str = "", others: tuple[str, ...] = (), landmark: dict | None = None, geometry: dict | None = None, **fields) -> dict`. Both results default to `level("knee")`. The facts default to values that pass §9: `poster_kind: "mmda"`, `label_in_image: "no"`, `match: "same_post"`, `duplicate: false`, and `metro_manila` and `decodes` true. `quality` defaults to `"ok"`. Any other field is set through `fields`.
@@ -292,7 +296,7 @@ All new.
   - `test_accepts_real_values` (spec E8): a level result with `passability: "NPLV"`; a passability label of `not passable to motorcycles and cars (sedan)` (44 characters); and `other_alerts_raw: ["Knee deep", "(other words)"]` all load.
   - `test_refuses_private_text_in_labels` (spec E8): `level_label_raw` of `Espana Maceda`, `knee deep 8:00 AM` and `http://x`, and an `other_alerts_raw` entry of `Espana`, are each refused.
   - `test_refuses_ids_that_arent_opaque`: `photo_id` of `A 01`, `2026-10-30`, `Espana` and `A0001-1-2-3` are refused; `A001`, `N001`, `E01`, `B01-1-2` and `D01` load. A duplicate `photo_id`, and a duplicate `crop_id` with the same `wheel`, are refused.
-  - `test_result_shapes`: a level with the wrong class, a lowercase class, a level result without `basis`, an NFS result carrying `level`, a refusal carrying `level`, a landmark of `not_visible`, and `basis: {"vehicles": 0, "people": 0}` are each refused. The four builder results load to the expected `Result` values.
+  - `test_result_shapes`: a level with the wrong class, a lowercase class, a level result without `basis`, an NFS result carrying `level`, a refusal carrying `level`, a landmark of `not_visible`, and `basis: {"vehicles": 0, "people": 0}` are each refused. The four builder results load to the expected `Result` values, the level result's with `landmark="hub"` and the other three with `landmark=None`.
   - `test_numbers`:
     - `true_depth_in` of `11.12345` is refused, and `11.1234` loads
     - `true_depth_in: 10` loads as `Decimal("10")`, and `true_depth_in: true` is refused
@@ -314,8 +318,12 @@ All new.
     - an M8 vehicle on box 1 gives a `body` reference with both types
     - a null `answer` gives `answered=False`
   - `test_set_b_estimates`: a measured estimate missing `depthInPoint`, an unmeasured one with numbers, a row without `geometry`, an unknown variant, and two rows with different variant sets are each refused. All five variants load together.
+  - `test_load_run_refuses_sealed_first` (C411): `load_run(tmp_path / "sealed")`, which doesn't exist, raises `SealedPath`, not `RowError` or `OSError`, and nothing is created.
+- [ ] **Step 1b: Write the failing tests** in `test_paths.py`:
+  - `test_refuses_sealed_paths`, parametrized over `tmp_path/"sealed"`, `tmp_path/"a"/"Sealed"/"x"`, `tmp_path/"sealed"/"sub"/".."` and `tmp_path/"sealed"/".."/"x"`: `refuse_sealed(p)` raises `SealedPath`, its message is `path inside a folder named sealed`, and nothing is created.
+  - `test_allows_other_paths`: `refuse_sealed` doesn't raise for `tmp_path/"unsealed"/"x"`, `tmp_path/"sealed_notes"` or `tmp_path/"final"`.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `rows.py`: one validator per kind of object, with the messages above, and `load_run` assembling a `Run` from them. Rows keep their file order; sorting is the report's job.
+- [ ] **Step 3:** Implement `paths.py`, then `rows.py`: one validator per kind of object, with the messages above, and `load_run` assembling a `Run` from them. Rows keep their file order; sorting is the report's job.
 - [ ] **Step 4:** Run the tests. Expected: PASS.
 - [ ] **Step 5:** Run the leak checks, then commit `feat(eval): load results through an allow-list`.
 
@@ -613,7 +621,7 @@ All new.
   - `build_review(run: Run) -> bytes | None` (spec C426): `review.csv` for a development run, and `None` for a sealed one. It is written with `csv.writer`, UTF-8, `\r\n` line endings, and one row per development Set A then A-neg photo, sorted by id. Its columns, in order:
     - `set`, `photo_id`, `event_id`, `excluded` (the reason, or empty)
     - `alert_level`, `alert_class` (mapped, or empty)
-    - for each configuration present, `<config>_result` (the level, `no_flood_seen`, `refused:<reason>` or `failed:<reason>`), `<config>_class` and `<config>_landmark`
+    - for each configuration present, `<config>_result` (the level, `no_flood_seen`, `refused:<reason>` or `failed:<reason>`), `<config>_class` and `<config>_landmark` (from `Result.landmark`)
     - `m8_agreement` (`k of n`, or empty), and `m8_detail`, such as `wheel 3: hub/rim_top; person 5: knee/knee`
     - `rene_verdict` and `rene_note`, both empty
 - **`report.md`'s sections,** in spec §4.4's order, with these exact headings:
@@ -696,12 +704,12 @@ All new.
 - Test: `eval/tests/test_run_eval.py`
 
 **Interfaces:**
-- Consumes: `rows.load_run`, `RowError` (Task 2); `build_report` (Task 8), whose `summary.json` supplies the printed figures; `LABEL_WORDS` (Task 1).
+- Consumes: `rows.load_run`, `RowError` (Task 2); `SealedPath`, `refuse_sealed` from `scoring.paths` (Task 2); `build_report` (Task 8), whose `summary.json` supplies the printed figures; `LABEL_WORDS` (Task 1).
 - Produces, in `eval/run_eval.py`:
   - **Its own folder on the path:** before importing `scoring`, it puts `Path(__file__).resolve().parent` first on `sys.path` when it isn't there, so `python -I eval/run_eval.py` works
   - **Imports by module:** `from scoring import rows`, calling `rows.load_run`, so a test that patches `scoring.rows.load_run` patches what `run_eval` calls
   - `DEFAULT_RESULTS = Path(__file__).resolve().parent / "results"`
-  - `class SealedPath(ValueError)`, and `refuse_sealed(path: Path) -> None`. It raises when any part of the path as given, or of its absolute, normalised form (`os.path.abspath`, then `normpath`), equals `sealed`, ignoring case. It never touches the disk.
+  - **The sealed guard is imported, not redefined:** `main` calls `scoring.paths.refuse_sealed` itself, first, so the loader's own call (Task 2) is a second guard for other callers
   - `main(argv: list[str] | None = None) -> int`:
     - **Arguments:** `--from-saved`, `--results DIR` (default `DEFAULT_RESULTS`), `--write`, and `--label-words`.
     - **`--label-words`** prints `sorted(LABEL_WORDS)`, one per line, and returns 0.
