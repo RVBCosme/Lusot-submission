@@ -783,6 +783,7 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
   - A label that is only a status still gives `status`.
 - **Item 16.**
   - `head` maps to `above_chest`, as `lagpas tao` does, and takes `deep` or `level` like any phrase.
+  - A `+` left in the label after its measures are removed also marks a floor: the label is unmapped unless it reads `above_chest`, so `Knee+` and `Waist+ (37+ inches)` are unmapped while `Head+` maps. A `+` on a passability label leaves the class unmapped. (This is Window 4's ruling, from Task 10's review.)
   - A number followed by `+` and a unit, or by its unit and then `+` (`13 in+`), means "at least that depth". It maps to `above_chest` when the number is over 45 in, and otherwise leaves the label unmapped. "At least 13 in" could be deeper than half tire, and a label never sets a floor.
 
 - [ ] **Step 1: Write the failing tests** in `test_labels.py`:
@@ -795,6 +796,7 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
     - `Head+ (60+ inches)`, `Head+`, `head deep` and `head level` each give `above_chest`
     - `60+ inches`, `60 in+` and `120 cm+` give `above_chest`
     - `13+ in` and `13 in+` give `unmapped`
+    - `Knee+`, `Gutter+`, `Waist+ (37+ inches)`, `knee deep +` and `+13 inches` give `unmapped`, and `map_passability("NPLV+")` gives an unmapped class
   - `test_label_words_take_ankle_head_and_plus`: `label_words_ok` passes `ANKLE DEEP (9 inches)` and `Head+ (60+ inches)`, and still refuses `Espana Maceda` and `knee deep 8:00 AM`. `head` and `ankle` are in `LABEL_WORDS`.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement the two readings in `labels.py`, and update its docstring, so it no longer says that only §2's phrases map.
