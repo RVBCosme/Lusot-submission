@@ -290,7 +290,7 @@ Most likely first. Each line names its test.
   - id and file patterns: `SET_A_ID = r"A[0-9]{3}"`, `A_NEG_ID = r"N[0-9]{3}"`, `ITEM_ID = r"S[0-9]{3}"`, `CAR_ID = r"B[0-9]{2}"`, `SET_D_ID = r"D[0-9]{2}"`, `PHOTO_EXTENSIONS = ("jpg", "jpeg", "png")`
   - `is_date(text: str) -> bool` (`YYYY-MM-DD`, a real date), `is_time(text: str) -> bool` (`YYYY-MM-DD HH:MM`, 24-hour, real) and `parse_time(text: str) -> datetime`
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_templates_match_the_constants`: each file in `TEMPLATES` exists in `eval/templates/`, holds exactly its header line, and that header equals the constant.
   - `test_set_a_template_keeps_the_17_columns_first`: the first 17 names equal today's template, written out in the test, and the last three are `SET_A_OPTIONAL`.
   - `test_table5_lists_match_schema_v1`: reads `backend/analysis/prompts/muse_spark_photo_v1.schema.json` as JSON (no import) and compares the four enums, in order.
@@ -298,9 +298,9 @@ Most likely first. Each line names its test.
   - `test_dates_and_times`: `2026-08-09` passes; `2026-8-9`, `09/08/2026` and `2026-02-30` fail. `2026-08-09 08:20` passes; `2026-08-09 8:20`, `2026-08-09 08:20 AM` and `2026-08-09T08:20` fail.
   - `test_no_consent_version_is_approved_yet`: all three sets are empty. Its docstring says the test changes with C218's constant, when Rene approves a text.
   - `test_guide_names_every_column`: every column of every template appears in backticks in `docs/data/set-a-collection-guide.md`.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k formats`. Expected: FAIL, with `ModuleNotFoundError: No module named 'formats'`.
-- [ ] **Step 3:** Write `formats.py` and the templates: headers only, a `\n` ending, no BOM.
-- [ ] **Step 4: Update the guide.** Fold in the tracker's search checklist v2 (`C:\Systems\Lusot\lusot\.superpowers\handoff\rene\set-a-search-checklist.md`, which follows C209, C223 and C224). Make sure the guide covers:
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k formats`. Expected: FAIL, with `ModuleNotFoundError: No module named 'formats'`.
+- [x] **Step 3:** Write `formats.py` and the templates: headers only, a `\n` ending, no BOM.
+- [x] **Step 4: Update the guide.** Fold in the tracker's search checklist v2 (`C:\Systems\Lusot\lusot\.superpowers\handoff\rene\set-a-search-checklist.md`, which follows C209, C223 and C224). Make sure the guide covers:
   - **Set A (C209):**
     - one row per alert a photo may fit, with the photo's columns repeated
     - separate-post rows fill `alert_poster`, `alert_spot_text` and `alert_time_pht`: the time the alert's text gives, or else its post's time
@@ -322,8 +322,10 @@ Most likely first. Each line names its test.
   - **Set D (M13):** `set_d_log.csv` in `set_d\sealed\`, with the photos in `set_d\sealed\photos\`.
   - **M9:** `consented_log.csv`, whose `consent_version` is the donor message's version, such as `M9-v2` once approved. The old draft message is replaced by a pointer to the message Rene approves (Window 4's draft `M9-v2`).
   - **M11:** `sidewalls.csv`.
-- [ ] **Step 5:** Run the tests again. Expected: all pass.
-- [ ] **Step 6:** Commit `feat(data): add MS2's formats, the log templates and the updated collection guide`.
+- [x] **Step 5:** Run the tests again. Expected: all pass.
+- [x] **Step 6:** Commit `feat(data): add MS2's formats, the log templates and the updated collection guide`.
+
+*Evidence (Task 3, Oct 28): commits 9d10803, e9d58ad and e756694. `uv run --locked --script eval/data/tests/run_tests.py`: 57 passed, also with `-W error`; ruff, the plan-leak check, the account-ID scan and gitleaks clean. All seven column lists match spec §5.9 in order. The task review found plan text copied into the guide's Set D paragraph (the leak check misses text split across the plan's table lines), fixed with the guide's own wording (no shared run longer than 4 words); two fix rounds also added Excel's date handling (keep an .xlsx working copy with Text columns, save CSV UTF-8 for the tools), the office words the tools recognise, and the rule that `raw\` is deleted only after 7-Zip opens the archive, with Excel closed. Both re-reviews were clean.*
 
 ### Task 4a: The M8 page's script (C208)
 
