@@ -7,6 +7,7 @@ names its source in its docstring.
 import base64
 import email.policy
 import email.utils
+import inspect
 import json
 import logging
 import time
@@ -18,6 +19,7 @@ import cv2
 import httpx
 import numpy as np
 import pytest
+from fakes import FakeClient
 
 from lusot_analysis import face_blur
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta
@@ -27,11 +29,14 @@ from lusot_analysis.meta_client import (
     SAM_PHRASES,
     SPARK_MODEL,
     TRANSCRIBE_MODEL,
+    DeadlineExceeded,
     MetaApiError,
     MetaClient,
     MissingApiKey,
+    ModelRefused,
     SparkResult,
 )
+from lusot_analysis.pipeline.types import ModelClient
 
 FIXTURES = Path(__file__).parent / "fixtures" / "meta"
 FAKE_KEY = "fake-model-key-" + "0" * 33  # 48 characters, like the real key (spec A8)
@@ -127,6 +132,34 @@ def client(meta, **kwargs) -> tuple[MetaClient, list[float]]:
     return c, sleeps
 
 
+class FakeClock:
+    """A monotonic clock that moves only when the client sleeps, so no test waits."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def timed_client(
+    meta, clock: FakeClock | None = None, **kwargs
+) -> tuple[MetaClient, FakeClock]:
+    """A client on `meta` that reads its deadlines on a FakeClock (C84)."""
+    if clock is None:
+        clock = FakeClock()
+    transport = httpx.MockTransport(meta)
+    c = MetaClient(
+        FAKE_KEY, transport=transport, sleep=clock.sleep, clock=clock, **kwargs
+    )
+    return c, clock
+
+
 def fixture(name: str) -> httpx.Response:
     return httpx.Response(200, json=json.loads((FIXTURES / name).read_text()))
 
@@ -191,8 +224,10 @@ def data_url(image: BlurredImage) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(image.jpeg).decode()
 
 
-def judge(c: MetaClient, image) -> SparkResult:
-    return c.judge(image, prompt=PROMPT, schema=ADDRESS_SCHEMA, schema_name="address")
+def judge(c: MetaClient, image, **kwargs) -> SparkResult:
+    return c.judge(
+        image, prompt=PROMPT, schema=ADDRESS_SCHEMA, schema_name="address", **kwargs
+    )
 
 
 def image_calls(c: MetaClient, image) -> list:
@@ -202,6 +237,18 @@ def image_calls(c: MetaClient, image) -> list:
         lambda: judge(c, image),
         lambda: c.count_input_tokens(image, prompt=PROMPT),
     ]
+
+
+def answered(kind: str) -> httpx.Response:
+    """A good answer to `kind`: the documented Muse Spark answer, or a SAM stream."""
+    return fixture("spark_response.json") if kind == "judge" else sam_stream(DOC_TEXT)
+
+
+def call(c: MetaClient, kind: str, image, **kwargs):
+    """`judge`, or `segment` for "wheel", on `image`, passing `kwargs` on."""
+    if kind == "judge":
+        return judge(c, image, **kwargs)
+    return c.segment(image, "wheel", **kwargs)
 
 
 def request_json(request: httpx.Request) -> dict:
@@ -410,6 +457,63 @@ def test_judge_non_json_raises_json_decode_error(photo):
         judge(c, photo)
 
 
+def test_judge_sends_reasoning_effort_and_records_reasoning_tokens(photo, caplog):
+    """The usage is in the shape of "Response Usage" on
+    https://dev.meta.ai/docs/api-reference/responses/schemas, with 1,234 reasoning
+    tokens. The documented example's usage has no breakdown."""
+    caplog.set_level(logging.INFO)
+    answer = json.loads((FIXTURES / "spark_response.json").read_text())
+    answer["usage"] = {
+        "input_tokens": 69,
+        "input_tokens_details": {"cached_tokens": 0},
+        "output_tokens": 1397,
+        "output_tokens_details": {"reasoning_tokens": 1234},
+        "total_tokens": 1466,
+    }
+    meta = FakeMeta(httpx.Response(200, json=answer), fixture("spark_response.json"))
+    c, _ = client(meta)
+    result = judge(c, photo, reasoning_effort="low")
+    assert request_json(meta.requests[0])["reasoning"] == {"effort": "low"}
+    assert result.reasoning_tokens == 1234
+    [line] = [r for r in caplog.records if r.name == "lusot.meta"]
+    assert json.loads(line.getMessage())["reasoning_tokens"] == 1234
+    plain = judge(c, photo)
+    assert "reasoning" not in request_json(meta.requests[1])
+    assert plain.reasoning_tokens is None
+
+
+def test_judge_raises_model_refused_on_a_refusal_part(photo, caplog):
+    """The refusal is a RefusalContent part, {"type": "refusal", "refusal": ...}, on
+    https://dev.meta.ai/docs/api-reference/responses/schemas, in place of the
+    documented answer's output_text part (C86)."""
+    caplog.set_level(logging.DEBUG)
+    words = "REFUSAL-MARKER-86: I can't help with that."
+    refusal = {"type": "refusal", "refusal": words}
+    answer = json.loads((FIXTURES / "spark_response.json").read_text())
+    answer["output"][0]["content"] = [refusal]
+    meta = FakeMeta(httpx.Response(200, json=answer))
+    c, _ = client(meta)
+    with pytest.raises(ModelRefused) as exc:
+        judge(c, photo)
+    assert not isinstance(exc.value, MetaApiError)  # it ends refused, not failed
+    assert words not in str(exc.value)
+    assert words not in caplog.text
+    # An incomplete answer stays a model error, cut-off JSON and refusal alike.
+    cut_off = {"type": "output_text", "text": '{"street": "1 Hack', "annotations": []}
+    for part in (cut_off, refusal):
+        answer["output"][0] |= {"status": "incomplete", "content": [part]}
+        incomplete = answer | {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+        }
+        meta = FakeMeta(httpx.Response(200, json=incomplete))
+        c, _ = client(meta)
+        with pytest.raises(MetaApiError) as exc:
+            judge(c, photo)
+        assert exc.value.status is None
+    assert words not in caplog.text
+
+
 def test_count_input_tokens(photo):
     """The count is the response on https://dev.meta.ai/docs/token-counting, its
     integer filled in."""
@@ -456,6 +560,25 @@ def test_segment_parses_masks_and_empty_result(photo):
     empty = c.segment(photo, "floodwater")
     assert empty.instances == []
     assert empty.raw == LIVE_NO_MATCH.decode()
+
+
+def test_sam_store_false_is_sent_only_when_set(photo):
+    # C85: Task 7a's Step 4 checks that Meta accepts it before it becomes the default.
+    meta = FakeMeta(
+        sam_stream(DOC_TEXT), error(504), background("queued"), background("completed")
+    )
+    c, _ = client(meta, sam_store=False)
+    c.segment(photo, "wheel")
+    c.segment(photo, "wheel")  # a 504, then the background path
+    streamed, gateway, submitted = (request_json(r) for r in meta.requests[:3])
+    assert streamed["store"] is False
+    assert gateway["store"] is False
+    assert submitted["store"] is False
+    assert submitted["background"] is True
+    meta = FakeMeta(sam_stream(DOC_TEXT))
+    c, _ = client(meta)
+    c.segment(photo, "wheel")
+    assert "store" not in request_json(meta.requests[0])  # as MS1 sends it
 
 
 def test_segment_box_is_half_open_in_sent_pixels(photo):
@@ -750,6 +873,140 @@ def test_segment_runs_in_parallel_on_one_client(photo):
     ]
 
 
+TIMEOUT_KEYS = ("connect", "read", "write", "pool")
+
+
+@pytest.mark.parametrize("kind", ["judge", "segment"])
+def test_retry_after_past_the_deadline_stops(photo, kind):
+    # Meta's overload replies ask for 60 s. The client never retries early, so with
+    # 5 s left it stops instead of waiting (C84).
+    meta = FakeMeta(error(503, {"Retry-After": "60"}))
+    c, clock = timed_client(meta)
+    with pytest.raises(DeadlineExceeded) as exc:
+        call(c, kind, photo, deadline=clock.now + 5)
+    assert isinstance(exc.value, MetaApiError)  # so it ends failed/model_error
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+    assert clock.sleeps == []
+
+
+@pytest.mark.parametrize("kind", ["judge", "segment"])
+def test_retry_after_within_the_deadline_is_honoured(photo, kind):
+    meta = FakeMeta(error(503, {"Retry-After": "2"}), answered(kind))
+    c, clock = timed_client(meta, rng=lambda: 0.0)
+    result = call(c, kind, photo, deadline=clock.now + 30)
+    assert result.raw  # the parsed answer
+    assert clock.sleeps == [2.0]  # Retry-After, not the 0.5 s backoff
+    # Each try's timeout is the time left when it starts.
+    assert [r.extensions["timeout"]["read"] for r in meta.requests] == [30.0, 28.0]
+
+
+@pytest.mark.parametrize("kind", ["judge", "segment"])
+def test_no_time_left_sends_nothing(photo, kind):
+    meta = FakeMeta()
+    c, clock = timed_client(meta)
+    with pytest.raises(DeadlineExceeded):
+        call(c, kind, photo, deadline=clock.now)
+    assert meta.requests == []
+
+
+def test_background_poll_stops_at_the_deadline(photo):
+    never = [background("in_progress") for _ in range(10)]
+    meta = FakeMeta(error(504), background("queued"), *never)
+    c, clock = timed_client(meta)
+    deadline = clock.now + 5
+    with pytest.raises(DeadlineExceeded) as exc:
+        c.segment(photo, "wheel", deadline=deadline)
+    assert exc.value.status is None
+    assert clock.now <= deadline  # no wait ran past it
+    assert clock.sleeps == [1.0] * 4  # a fifth would have reached it
+    assert len(meta.requests) == 6  # the stream, the submit and 4 polls
+
+
+class Chunks(httpx.SyncByteStream):
+    """A response body served in `chunks`. Before each chunk after the first, the
+    clock moves `gap` seconds; a chunk that is an exception is raised instead."""
+
+    def __init__(self, chunks: list, clock: FakeClock, gap: float = 0.0) -> None:
+        self.chunks = chunks
+        self.clock = clock
+        self.gap = gap
+        self.closed = False
+
+    def __iter__(self):
+        for n, chunk in enumerate(self.chunks):
+            if n:
+                self.clock.now += self.gap
+            if isinstance(chunk, Exception):
+                raise chunk
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def chunked(body: Chunks) -> httpx.Response:
+    return httpx.Response(
+        200, headers={"content-type": "text/event-stream"}, stream=body
+    )
+
+
+def test_stream_read_timeout_shrinks_to_the_time_left(photo):
+    clock = FakeClock()
+    stalled = Chunks([SAM_STREAM[:200], httpx.ReadTimeout("no event in time")], clock)
+    meta = FakeMeta(sam_stream(DOC_TEXT), chunked(stalled))
+    c, _ = timed_client(meta, clock)
+    assert len(c.segment(photo, "wheel", deadline=clock.now + 3).instances) == 2
+    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 3.0)
+    # The read timeout was the time left, so a read that times out is at the deadline.
+    with pytest.raises(DeadlineExceeded) as exc:
+        c.segment(photo, "wheel", deadline=clock.now + 3)
+    assert exc.value.status is None
+    assert stalled.closed  # its connection isn't left open
+    assert len(meta.requests) == 2
+
+
+@pytest.mark.parametrize(("left", "stops"), [(5.0, True), (30.0, False)])
+def test_stream_kept_open_past_the_deadline_stops(photo, left, stops):
+    # httpx sets one read timeout per request, and keepalive events can hold a SAM
+    # stream open, so the client also checks the clock as each chunk arrives (R101).
+    clock = FakeClock()
+    body = Chunks([SAM_STREAM[:200], SAM_STREAM[200:]], clock, gap=10.0)
+    meta = FakeMeta(chunked(body))
+    c, _ = timed_client(meta, clock)
+    if stops:
+        with pytest.raises(DeadlineExceeded) as exc:
+            c.segment(photo, "wheel", deadline=clock.now + left)
+        assert exc.value.status is None
+    else:
+        assert len(c.segment(photo, "wheel", deadline=clock.now + left).instances) == 2
+    assert body.closed
+    assert len(meta.requests) == 1
+
+
+def test_judge_timeout_shrinks_to_the_time_left(photo):
+    meta = FakeMeta(fixture("spark_response.json"))
+    c, clock = timed_client(meta)
+    judge(c, photo, deadline=clock.now + 3)
+    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 3.0)
+    sent = []
+
+    def times_out(request):
+        sent.append(request)
+        raise httpx.ReadTimeout("no answer in time")
+
+    c, clock = timed_client(times_out)
+    with pytest.raises(DeadlineExceeded) as exc:  # the timeout was the time left
+        judge(c, photo, deadline=clock.now + 3)
+    assert exc.value.status is None
+    # With more time left than timeout_s, a timeout is the client's own, as in MS1.
+    with pytest.raises(MetaApiError) as exc:
+        judge(c, photo, deadline=clock.now + 300)
+    assert type(exc.value) is MetaApiError
+    assert sent[1].extensions["timeout"]["read"] == 90.0
+    assert len(sent) == 2  # neither timeout is retried
+
+
 def form_parts(request: httpx.Request) -> dict[str, tuple[str, bytes]]:
     """Each multipart part's name, mapped to its content type and body."""
     head = b"Content-Type: " + request.headers["content-type"].encode() + b"\r\n\r\n"
@@ -796,6 +1053,27 @@ def test_contributor_model_is_refused():
         MetaClient._check_model("muse-spark-1.3-contributor")
     for model in (SAM_MODEL, SPARK_MODEL, TRANSCRIBE_MODEL):
         MetaClient._check_model(model)
+
+
+def test_protocol_and_fake_take_the_clients_arguments():
+    # The pipeline is typed against ModelClient and tested with FakeClient, and no
+    # type checker runs, so this keeps both in step with the client (C84).
+    def arguments(function) -> list[tuple]:
+        parameters = inspect.signature(function).parameters.values()
+        return [(p.name, p.kind, p.default) for p in parameters]
+
+    keyword_only = inspect.Parameter.KEYWORD_ONLY
+    for method, added in [
+        ("segment", {"deadline"}),
+        ("judge", {"deadline", "reasoning_effort"}),
+    ]:
+        real = arguments(getattr(MetaClient, method))
+        keywords = {
+            name: default for name, kind, default in real if kind == keyword_only
+        }
+        assert all(keywords.get(name, "missing") is None for name in added)
+        assert arguments(getattr(ModelClient, method)) == real
+        assert arguments(getattr(FakeClient, method)) == real
 
 
 @pytest.mark.parametrize(

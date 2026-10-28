@@ -195,6 +195,8 @@ class FakeClient:
     `on_segment(phrase)` or `on_judge()`: a hook can wait, or raise to fail the call
     before it is recorded. `calls` holds (method, phrase or schema_name, image type)
     for each call, added behind a lock, because the phrases run in parallel.
+    `keywords` holds each call's keyword arguments in the same order: `deadline`,
+    and `reasoning_effort` for `judge` (C84, R101).
     """
 
     def __init__(
@@ -210,20 +212,36 @@ class FakeClient:
         self.on_segment = on_segment
         self.on_judge = on_judge
         self.calls: list[tuple[str, str, type]] = []
+        self.keywords: list[dict[str, object]] = []
         self._lock = threading.Lock()
 
-    def segment(self, image: BlurredImage, phrase: str) -> SamResult:
+    def segment(
+        self, image: BlurredImage, phrase: str, *, deadline: float | None = None
+    ) -> SamResult:
         if self.on_segment is not None:
             self.on_segment(phrase)
-        self._record("segment", phrase, image)
+        self._record("segment", phrase, image, deadline=deadline)
         return self.sam[phrase]
 
     def judge(
-        self, image: BlurredImage, *, prompt: str, schema: dict, schema_name: str
+        self,
+        image: BlurredImage,
+        *,
+        prompt: str,
+        schema: dict,
+        schema_name: str,
+        deadline: float | None = None,
+        reasoning_effort: str | None = None,
     ) -> SparkResult:
         if self.on_judge is not None:
             self.on_judge()
-        self._record("judge", schema_name, image)
+        self._record(
+            "judge",
+            schema_name,
+            image,
+            deadline=deadline,
+            reasoning_effort=reasoning_effort,
+        )
         if isinstance(self.answer, Exception):
             raise self.answer
         return SparkResult(
@@ -237,9 +255,12 @@ class FakeClient:
     def count_input_tokens(self, *args: object, **kwargs: object) -> NoReturn:
         raise AssertionError("the pipeline never counts input tokens (spec §3.6)")
 
-    def _record(self, method: str, name: str, image: object) -> None:
+    def _record(
+        self, method: str, name: str, image: object, **keywords: object
+    ) -> None:
         with self._lock:
             self.calls.append((method, name, type(image)))
+            self.keywords.append(keywords)
 
 
 def _jpeg(bgr: np.ndarray) -> bytes:

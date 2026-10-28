@@ -3,7 +3,8 @@
 It sends only BlurredImages, so the face blur always runs first (C37). SAM and Muse
 Spark go through the OpenAI SDK at Meta's base URL (plan Table 17), and transcription is
 a plain HTTPS multipart call. One httpx client carries both, so connections are kept.
-Only 429, 500 and 503 are retried.
+Only 429, 500 and 503 are retried. A call given a deadline starts no try or wait that
+would pass it (C84).
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import os
 import random
 import re
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TypeVar
@@ -74,13 +75,32 @@ class MetaApiError(RuntimeError):
     """A Meta call failed, or its response didn't complete.
 
     `status` is the HTTP status, or None when there was none: a lost connection, a
-    timeout, or a SAM response that came with HTTP 200 but didn't complete or
-    couldn't be read.
+    timeout, or a response that came with HTTP 200 but didn't complete or couldn't
+    be read.
     """
 
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+
+
+class DeadlineExceeded(MetaApiError):
+    """A Meta call stopped at the run's deadline (C84). `status` is None.
+
+    The client raises it instead of starting a try with no time left, or a retry or
+    poll wait that would reach the deadline. It also raises it when a SAM stream is
+    still running at the deadline, and when a timeout cut to the time left fires. It
+    is a MetaApiError, so the report ends failed/model_error like any other Meta
+    failure.
+    """
+
+
+class ModelRefused(Exception):
+    """Muse Spark refused to answer: its message held a refusal part (C86).
+
+    It carries none of the refusal's text, so nothing that logs it can show the
+    model's words. It isn't a MetaApiError: the report ends refused, not failed.
+    """
 
 
 # Meta's error page (https://dev.meta.ai/docs/error-handling, "503 Service
@@ -124,13 +144,18 @@ class SamResult:
 
 @dataclass
 class SparkResult:
-    """Muse Spark's answer. `raw` is the output text that `data` was parsed from."""
+    """Muse Spark's answer. `raw` is the output text that `data` was parsed from.
+
+    `reasoning_tokens` is usage.output_tokens_details.reasoning_tokens, or None when
+    the response doesn't report it (Meta's documented example doesn't).
+    """
 
     data: dict
     input_tokens: int | None
     output_tokens: int | None
     elapsed_s: float
     raw: str
+    reasoning_tokens: int | None = None
 
 
 @dataclass
@@ -152,15 +177,19 @@ class MetaClient:
         base_url: str = BASE_URL,
         timeout_s: float = 90.0,
         max_attempts: int = 4,
+        sam_store: bool | None = None,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
         rng: Callable[[], float] = random.random,
     ) -> None:
         """Read the key from `api_key`, or else from MODEL_API_KEY.
 
         A missing key, or one shorter than 20 characters, raises MissingApiKey. The
         OpenAI SDK makes no retries of its own (max_retries=0), and it shares this
-        client's one httpx client.
+        client's one httpx client. `sam_store` is the `store` value sent with every
+        SAM request, or None to send none, as MS1 did (C85). `clock` is the
+        monotonic clock that deadlines are read on; tests pass a fake with `sleep`.
         """
         key = os.environ.get("MODEL_API_KEY") if api_key is None else api_key
         if not key or len(key) < _MIN_KEY_LENGTH:
@@ -168,7 +197,9 @@ class MetaClient:
         self._transcribe_url = base_url.rstrip("/") + "/asr/transcribe"
         self._timeout_s = timeout_s
         self._max_attempts = max_attempts
+        self._sam_store = sam_store
         self._sleep = sleep
+        self._clock = clock
         self._rng = rng
         self._http = httpx.Client(transport=transport, timeout=timeout_s)
         self._openai = openai.OpenAI(
@@ -179,12 +210,17 @@ class MetaClient:
             http_client=self._http,
         )
 
-    def segment(self, image: BlurredImage, phrase: str) -> SamResult:
+    def segment(
+        self, image: BlurredImage, phrase: str, *, deadline: float | None = None
+    ) -> SamResult:
         """Find every match of `phrase` in `image` with SAM 3.1 (plan §7 step 2).
 
         The request is streamed. On a 504 it is sent again in the background and
         polled (C10). A result comes only from a completed response: any other end
         raises MetaApiError, so a failure never reads as "no matches" (R63).
+        With a `deadline`, a time.monotonic() value, the call starts no try or wait
+        that would pass it, and each try's timeouts are cut to the time left (C84).
+        None sets no deadline.
         """
         _check_image(image)
         request = {
@@ -193,26 +229,41 @@ class MetaClient:
             # SAM adds its confidence `c` to each box and mask only when asked (R77).
             "metadata": {"include_confidence": "true"},
         }
+        if self._sam_store is not None:
+            request["store"] = self._sam_store  # C85
         started = time.monotonic()
         try:
-            raw, text = self._sam_streamed(request, phrase)
+            raw, text = self._sam_streamed(request, phrase, deadline)
         except MetaApiError as exc:
             if exc.status != 504:
                 raise
             # A background body over 1 MiB gets 413, and a 1,600 px photo inlined as
             # base64 can come close (R75). A 413 isn't retried: it raises from here.
-            raw, text = self._sam_background(request, phrase)
+            raw, text = self._sam_background(request, phrase, deadline)
         elapsed = time.monotonic() - started
         return SamResult(phrase, _instances(text, image), elapsed, raw)
 
     def judge(
-        self, image: BlurredImage, *, prompt: str, schema: dict, schema_name: str
+        self,
+        image: BlurredImage,
+        *,
+        prompt: str,
+        schema: dict,
+        schema_name: str,
+        deadline: float | None = None,
+        reasoning_effort: str | None = None,
     ) -> SparkResult:
         """Ask Muse Spark about `image`, its answer held to `schema` in strict mode.
 
         `schema_name` names the schema and is logged as the prompt version. The
-        response isn't stored at Meta (store: false, R76). The answer is parsed with
-        json.loads, so one that isn't JSON raises json.JSONDecodeError (R62).
+        response isn't stored at Meta (store: false, R76). `deadline` bounds the call
+        as in `segment` (C84). `reasoning_effort` is sent as reasoning.effort when
+        set; otherwise Meta's default applies.
+
+        Before any parsing, an answer whose status is incomplete raises
+        MetaApiError, and one that holds a refusal part raises ModelRefused (C86).
+        The answer is then parsed with json.loads, so one that isn't JSON raises
+        json.JSONDecodeError (R62).
         """
         _check_image(image)
         message = _message(prompt, image)
@@ -222,18 +273,30 @@ class MetaClient:
             "schema": schema,
             "strict": True,
         }
+        options = {}
+        if reasoning_effort is not None:
+            options["reasoning"] = {"effort": reasoning_effort}
         started = time.monotonic()
         response = self._send(
-            lambda: self._openai.responses.with_raw_response.create(
+            lambda timeout: self._openai.responses.with_raw_response.create(
                 model=SPARK_MODEL,
                 input=message,
                 text={"format": text_format},
                 store=False,
+                timeout=timeout,
+                **options,
             ),
             SPARK_MODEL,
+            deadline,
+            log_extra=_reasoning_logged,
             schema_name=schema_name,
         ).parse()
         elapsed = time.monotonic() - started
+        # Meta's schema makes `status` optional, so only an explicit incomplete counts.
+        if response.status == "incomplete":
+            raise MetaApiError("Muse Spark's answer is incomplete")
+        if _refused(response):
+            raise ModelRefused("Muse Spark refused to answer")
         text = response.output_text
         usage = response.usage
         return SparkResult(
@@ -242,6 +305,7 @@ class MetaClient:
             output_tokens=usage.output_tokens if usage else None,
             elapsed_s=elapsed,
             raw=text,
+            reasoning_tokens=_reasoning_tokens(usage),
         )
 
     def count_input_tokens(self, image: BlurredImage, *, prompt: str) -> int:
@@ -249,8 +313,8 @@ class MetaClient:
         _check_image(image)
         message = _message(prompt, image)
         response = self._send(
-            lambda: self._openai.responses.input_tokens.with_raw_response.count(
-                model=SPARK_MODEL, input=message
+            lambda timeout: self._openai.responses.input_tokens.with_raw_response.count(
+                model=SPARK_MODEL, input=message, timeout=timeout
             ),
             SPARK_MODEL,
         )
@@ -281,8 +345,8 @@ class MetaClient:
         }
         started = time.monotonic()
         response = self._send(
-            lambda: self._http.post(
-                self._transcribe_url, headers=headers, files=files
+            lambda timeout: self._http.post(
+                self._transcribe_url, headers=headers, files=files, timeout=timeout
             ).raise_for_status(),
             TRANSCRIBE_MODEL,
         )
@@ -295,46 +359,65 @@ class MetaClient:
         if model not in _MODELS:
             raise ValueError(f"model {model!r} isn't one of the allowed ids")
 
-    def _sam_streamed(self, request: dict, phrase: str) -> tuple[str, str]:
+    def _sam_streamed(
+        self, request: dict, phrase: str, deadline: float | None
+    ) -> tuple[str, str]:
         """Stream a SAM request. Return the SSE text and SAM's output text.
 
         The stream is read inside the retry loop, so a shutdown in it is retried.
+        httpx sets one read timeout per request, and keepalive events can hold a
+        stream open, so with a deadline each chunk is also checked against it as it
+        arrives (C84, R101). A read that began before the deadline can still wait
+        out its timeout, which is at most the time left when the try began.
         """
         text = ""
 
-        def call() -> Any:
+        def call(timeout: float) -> Any:
             nonlocal text
             response = self._openai.responses.with_raw_response.create(
-                **request, stream=True
+                **request, stream=True, timeout=timeout
             )
-            response.http_response.read()  # the whole stream, kept as the raw text
+            body = response.http_response
+            if deadline is not None:
+                body.stream = _UntilDeadline(body.stream, deadline, self._clock)
+            try:
+                body.read()  # the whole stream, kept as the raw text
+            finally:
+                body.close()  # a read that failed would leave the connection open
             text = _stream_text(response.parse())
             return response
 
-        response = self._send(call, SAM_MODEL, phrase=phrase)
+        response = self._send(call, SAM_MODEL, deadline, phrase=phrase)
         return response.text, text
 
-    def _sam_background(self, request: dict, phrase: str) -> tuple[str, str]:
+    def _sam_background(
+        self, request: dict, phrase: str, deadline: float | None
+    ) -> tuple[str, str]:
         """Run a SAM request in the background, then poll it after each 1 s wait.
 
         It gives up once those waits add up to timeout_s. The polls' own time and any
         retry waits inside them aren't counted, so the fallback can run longer than
-        timeout_s. Return the final response JSON and SAM's output text.
+        timeout_s, unless the deadline stops a wait first (C84). Return the final
+        response JSON and SAM's output text.
         """
         submitted = self._send(
-            lambda: self._openai.responses.with_raw_response.create(
-                **request, background=True
+            lambda timeout: self._openai.responses.with_raw_response.create(
+                **request, background=True, timeout=timeout
             ),
             SAM_MODEL,
+            deadline,
             phrase=phrase,
         ).parse()
         waited = 0.0
         while True:
-            self._sleep(_POLL_S)
+            self._wait(_POLL_S, deadline)
             waited += _POLL_S
             raw = self._send(
-                lambda: self._openai.responses.with_raw_response.retrieve(submitted.id),
+                lambda timeout: self._openai.responses.with_raw_response.retrieve(
+                    submitted.id, timeout=timeout
+                ),
                 SAM_MODEL,
+                deadline,
                 phrase=phrase,
             )
             response = raw.parse()
@@ -347,23 +430,40 @@ class MetaClient:
                     f"SAM's background response timed out after {waited:g} s"
                 )
 
-    def _send(self, request: Callable[[], _R], model: str, **fields: str) -> _R:
+    def _send(
+        self,
+        request: Callable[[float], _R],
+        model: str,
+        deadline: float | None = None,
+        *,
+        log_extra: Callable[[_R], dict[str, object]] | None = None,
+        **fields: object,
+    ) -> _R:
         """Make one Meta call, retrying only 429, 500 and 503 (C10); log each try.
 
-        `request` returns the raw HTTP response. Before try n + 1 the wait is 0.5 s x
-        2^(n - 1) plus up to 1 s of jitter, or the server's Retry-After if longer, for
-        at most max_attempts tries. A shutdown in a SAM stream counts as a 503 (R77).
-        Any other HTTP error, and a lost connection or a timeout, raises MetaApiError
-        at once (R65).
+        `request` takes the try's timeout and returns the raw HTTP response. Before
+        try n + 1 the wait is 0.5 s x 2^(n - 1) plus up to 1 s of jitter, or the
+        server's Retry-After if longer, for at most max_attempts tries. A shutdown in
+        a SAM stream counts as a 503 (R77). Any other HTTP error, and a lost
+        connection or a timeout, raises MetaApiError at once (R65). `log_extra` adds
+        fields read from a response to its try's log line.
+
+        With a deadline (C84), each try's timeout is cut to the time left. A try with
+        no time left, a wait that would reach the deadline, and a cut timeout that
+        fires raise DeadlineExceeded. A wait is never shortened, so a retry never
+        comes early.
         """
         self._check_model(model)
         attempt = 1
         while True:
+            timeout, cut = self._timeout(deadline)
             started = time.monotonic()
             status = retry_after = None
             try:
-                response = request()
+                response = request(timeout)
                 status = response.status_code
+                if log_extra is not None:
+                    fields.update(log_extra(response))
                 return response
             except (openai.APIStatusError, httpx.HTTPStatusError) as exc:
                 status = exc.response.status_code
@@ -376,15 +476,40 @@ class MetaClient:
                 if attempt >= self._max_attempts:
                     raise MetaApiError("SAM's stream shut down; no tries left") from exc
             except (openai.APIConnectionError, httpx.TransportError) as exc:
+                timed_out = (openai.APITimeoutError, httpx.TimeoutException)
+                if cut and isinstance(exc, timed_out):
+                    raise DeadlineExceeded("timed out at the deadline") from exc
                 raise MetaApiError("connection failed or timed out") from exc
             finally:
                 _log(model, fields, status, started)
-            self._sleep(self._delay(attempt, retry_after))
+            self._wait(self._delay(attempt, retry_after), deadline)
             attempt += 1
 
     def _delay(self, attempt: int, retry_after: str | None) -> float:
         backoff = 0.5 * 2 ** (attempt - 1) + self._rng()
         return max(backoff, _retry_after(retry_after))
+
+    def _timeout(self, deadline: float | None) -> tuple[float, bool]:
+        """A try's timeout, and whether the deadline cut it (C84).
+
+        It is timeout_s, or the time left if that is less. With no time left it
+        raises DeadlineExceeded, so nothing is sent.
+        """
+        if deadline is None:
+            return self._timeout_s, False
+        left = deadline - self._clock()
+        if left <= 0:
+            raise DeadlineExceeded("no time left before the deadline")
+        return min(self._timeout_s, left), left <= self._timeout_s
+
+    def _wait(self, seconds: float, deadline: float | None) -> None:
+        """Sleep, unless that would reach the deadline: then raise DeadlineExceeded.
+
+        The wait is never shortened, so a retry or a poll never comes early (C84).
+        """
+        if deadline is not None and self._clock() + seconds >= deadline:
+            raise DeadlineExceeded(f"a {seconds:g} s wait would reach the deadline")
+        self._sleep(seconds)
 
 
 def _check_image(image: object) -> None:
@@ -401,6 +526,27 @@ def _message(text: str, image: BlurredImage) -> list[dict]:
         {"type": "input_image", "image_url": url},
     ]
     return [{"type": "message", "role": "user", "content": content}]
+
+
+class _UntilDeadline(httpx.SyncByteStream):
+    """A response body that raises DeadlineExceeded at a chunk arriving at or after
+    the deadline (C84), so keepalive events can't hold a stream open past it."""
+
+    def __init__(
+        self, stream: httpx.SyncByteStream, deadline: float, clock: Callable[[], float]
+    ) -> None:
+        self._stream = stream
+        self._deadline = deadline
+        self._clock = clock
+
+    def __iter__(self) -> Iterator[bytes]:
+        for chunk in self._stream:
+            if self._clock() >= self._deadline:
+                raise DeadlineExceeded("SAM's stream ran to the deadline")
+            yield chunk
+
+    def close(self) -> None:
+        self._stream.close()
 
 
 def _stream_text(events: Iterable[Any]) -> str:
@@ -467,6 +613,28 @@ def _output_text(response: Any) -> str:
     if len(parts) != 1:
         raise MetaApiError(f"SAM's completed response has {len(parts)} text parts")
     return parts[0]
+
+
+def _refused(response: Any) -> bool:
+    """True when the answer's message holds a refusal part (RefusalContent, C86)."""
+    return any(
+        part.type == "refusal"
+        for item in response.output
+        if item.type == "message"
+        for part in item.content
+    )
+
+
+def _reasoning_tokens(usage: Any) -> int | None:
+    """usage.output_tokens_details.reasoning_tokens, or None when it isn't reported."""
+    details = usage.output_tokens_details if usage else None
+    return details.reasoning_tokens if details else None
+
+
+def _reasoning_logged(raw: Any) -> dict[str, object]:
+    """The reasoning token count for a Muse Spark try's log line, when reported."""
+    tokens = _reasoning_tokens(raw.parse().usage)
+    return {} if tokens is None else {"reasoning_tokens": tokens}
 
 
 def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
@@ -537,6 +705,7 @@ def _retry_after(value: str | None) -> float:
 def _log(model: str, fields: dict, status: int | None, started: float) -> None:
     """One JSON line: the model, the phrase or schema_name, the status and the time.
 
+    A Muse Spark answer's line also has its reasoning token count, when reported.
     Never the key, an image, a prompt or a model's output (R64).
     """
     ms = round((time.monotonic() - started) * 1000)

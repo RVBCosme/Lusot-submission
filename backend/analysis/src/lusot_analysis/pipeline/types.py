@@ -158,12 +158,24 @@ class Reference:
 
 
 class ModelClient(Protocol):
-    """The Meta client as the pipeline uses it, so tests and replays can pass fakes."""
+    """The Meta client as the pipeline uses it, so tests and replays can pass fakes.
 
-    def segment(self, image: BlurredImage, phrase: str) -> SamResult: ...
+    `deadline` is the run's deadline as a time.monotonic() value, or None (C84).
+    """
+
+    def segment(
+        self, image: BlurredImage, phrase: str, *, deadline: float | None = None
+    ) -> SamResult: ...
 
     def judge(
-        self, image: BlurredImage, *, prompt: str, schema: dict, schema_name: str
+        self,
+        image: BlurredImage,
+        *,
+        prompt: str,
+        schema: dict,
+        schema_name: str,
+        deadline: float | None = None,
+        reasoning_effort: str | None = None,
     ) -> SparkResult: ...
 
 
