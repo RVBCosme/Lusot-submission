@@ -845,12 +845,13 @@ def test_background_413_raises_after_one_call(photo):
 
 @pytest.mark.parametrize("status", ["failed", "incomplete", "cancelled"])
 def test_background_response_that_does_not_complete_raises(photo, status):
-    meta = FakeMeta(error(504), background("queued"), background(status))
+    meta = FakeMeta(error(504), background("queued"), background(status), deleted())
     c, _ = client(meta)
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
     assert exc.value.status is None
-    assert len(meta.requests) == 3  # no further poll
+    assert len(meta.requests) == 4  # no further poll, then the delete (R106)
+    assert meta.requests[-1].method == "DELETE"
 
 
 @pytest.mark.parametrize(
@@ -910,14 +911,59 @@ def test_background_response_is_deleted_once_read(photo, caplog, outcome, status
 
 def test_background_polling_is_bounded(photo):
     meta = FakeMeta(
-        error(504), background("queued"), *(background("in_progress") for _ in range(3))
+        error(504),
+        background("queued"),
+        *(background("in_progress") for _ in range(3)),
+        deleted(),
     )
     c, sleeps = client(meta, timeout_s=3.0)
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
     assert exc.value.status is None
     assert sum(sleeps) == 3.0
-    assert len(meta.requests) == 5
+    assert len(meta.requests) == 6  # the last deletes the abandoned job (R106)
+    assert meta.requests[-1].method == "DELETE"
+
+
+@pytest.mark.parametrize("delete_fails", [False, True], ids=["deleted", "not-deleted"])
+@pytest.mark.parametrize(
+    ("ending", "raised", "message"),
+    [
+        ("deadline", DeadlineExceeded, "wait leaves too little time"),
+        ("poll bound", MetaApiError, "timed out after 3 s"),
+        ("failed", MetaApiError, "ended failed"),
+    ],
+)
+def test_abandoned_background_job_is_still_deleted(
+    photo, ending, raised, message, delete_fails
+):
+    # R106: once Meta has stored the job, the client tries once to delete it however
+    # the polling ends, and the delete never changes or masks the error raised.
+    status = "failed" if ending == "failed" else "in_progress"
+    script = FakeMeta(
+        error(504), background("queued"), *(background(status) for _ in range(20))
+    )
+    deletes = []
+
+    def meta(request):
+        if request.method != "DELETE":
+            return script(request)
+        deletes.append(request)
+        if delete_fails:
+            raise httpx.ConnectError("refused")
+        return deleted()
+
+    if ending == "deadline":
+        c, clock = timed_client(meta)
+        kwargs = {"deadline": clock.now + 8}
+    else:
+        c, _ = client(meta, timeout_s=3.0)
+        kwargs = {}
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel", **kwargs)
+    assert type(exc.value) is raised  # the polling's own error, not the delete's
+    assert message in str(exc.value)
+    assert [str(r.url) for r in deletes] == [BASE_URL + "/responses/resp_abc123"]
 
 
 def test_segment_runs_in_parallel_on_one_client(photo):
@@ -968,12 +1014,18 @@ def test_retry_after_within_the_deadline_is_honoured(photo, kind):
 
 
 @pytest.mark.parametrize("kind", ["judge", "segment"])
-def test_no_time_left_sends_nothing(photo, kind):
-    meta = FakeMeta()
+@pytest.mark.parametrize(("left", "sent"), [(0.0, 0), (4.0, 0), (5.0, 1)])
+def test_no_try_starts_with_under_5_s_left(photo, kind, left, sent):
+    # R106 (C88): a try with under 5 s left can't finish but may still be billed, so
+    # not even the first one is sent.
+    meta = FakeMeta(answered(kind))
     c, clock = timed_client(meta)
-    with pytest.raises(DeadlineExceeded):
-        call(c, kind, photo, deadline=clock.now)
-    assert meta.requests == []
+    if sent:
+        assert call(c, kind, photo, deadline=clock.now + left).raw
+    else:
+        with pytest.raises(DeadlineExceeded):
+            call(c, kind, photo, deadline=clock.now + left)
+    assert len(meta.requests) == sent
 
 
 @pytest.mark.parametrize(("left", "retried"), [(5.4, False), (5.5, True)])
@@ -993,16 +1045,18 @@ def test_no_retry_starts_with_under_5_s_left(photo, left, retried):
 
 
 def test_background_poll_stops_at_the_deadline(photo):
-    never = [background("in_progress") for _ in range(10)]
-    meta = FakeMeta(error(504), background("queued"), *never)
+    never = (background("in_progress") for _ in range(3))
+    meta = FakeMeta(error(504), background("queued"), *never, deleted())
     c, clock = timed_client(meta)
-    deadline = clock.now + 5
+    deadline = clock.now + 8
     with pytest.raises(DeadlineExceeded) as exc:
         c.segment(photo, "wheel", deadline=deadline)
     assert exc.value.status is None
     assert clock.now <= deadline  # no wait ran past it
-    assert clock.sleeps == [1.0] * 4  # a fifth would have reached it
-    assert len(meta.requests) == 6  # the stream, the submit and 4 polls
+    # Each poll is a try, so a fourth wait, which would leave 4 s, isn't started.
+    assert clock.sleeps == [1.0] * 3
+    # The stream, the submit, 3 polls, then the delete of the abandoned job (R106).
+    assert [r.method for r in meta.requests] == ["POST"] * 2 + ["GET"] * 3 + ["DELETE"]
 
 
 class Chunks(httpx.SyncByteStream):
@@ -1042,15 +1096,16 @@ def stalls(clock: FakeClock, wait: float) -> Chunks:
 
 
 def test_stream_read_timeout_shrinks_to_the_time_left(photo):
+    # With 6 s left (R106 sends nothing under 5 s), every timeout is at most 6 s.
     clock = FakeClock()
-    stalled = stalls(clock, 3.0)
+    stalled = stalls(clock, 6.0)
     meta = FakeMeta(sam_stream(DOC_TEXT), chunked(stalled))
     c, _ = timed_client(meta, clock)
-    assert len(c.segment(photo, "wheel", deadline=clock.now + 3).instances) == 2
-    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 3.0)
+    assert len(c.segment(photo, "wheel", deadline=clock.now + 6).instances) == 2
+    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 6.0)
     # The read timeout is the time left, so a read that times out is at the deadline.
     with pytest.raises(DeadlineExceeded) as exc:
-        c.segment(photo, "wheel", deadline=clock.now + 3)
+        c.segment(photo, "wheel", deadline=clock.now + 6)
     assert exc.value.status is None
     assert stalled.closed  # its connection isn't left open
     assert len(meta.requests) == 2
@@ -1102,10 +1157,11 @@ def test_stream_kept_open_past_the_deadline_stops(photo, left, stops):
 
 
 def test_judge_timeout_shrinks_to_the_time_left(photo):
+    # With 6 s left (R106 sends nothing under 5 s), every timeout is at most 6 s.
     meta = FakeMeta(fixture("spark_response.json"))
     c, clock = timed_client(meta)
-    judge(c, photo, deadline=clock.now + 3)
-    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 3.0)
+    judge(c, photo, deadline=clock.now + 6)
+    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 6.0)
     sent = []
     clock = FakeClock()
 
@@ -1116,7 +1172,7 @@ def test_judge_timeout_shrinks_to_the_time_left(photo):
 
     c, _ = timed_client(times_out, clock)
     with pytest.raises(DeadlineExceeded) as exc:  # the timeout was the time left
-        judge(c, photo, deadline=clock.now + 3)
+        judge(c, photo, deadline=clock.now + 6)
     assert exc.value.status is None
     # With more time left than timeout_s, a timeout is the client's own, as in MS1.
     with pytest.raises(MetaApiError) as exc:

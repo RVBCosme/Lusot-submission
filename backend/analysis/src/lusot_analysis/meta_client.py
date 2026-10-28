@@ -94,10 +94,10 @@ class MetaApiError(RuntimeError):
 class DeadlineExceeded(MetaApiError):
     """A Meta call stopped at the run's deadline (C84). `status` is None.
 
-    The client raises it instead of starting a try with no time left, a retry with
-    under 5 s left, or a poll wait that would reach the deadline (C88). It also
-    raises it at a SAM stream's first chunk at or after the deadline, and when a
-    timeout fires at or after it. It is a MetaApiError, so the report ends
+    The client raises it instead of starting a try, first or retry, with under 5 s
+    left, or a retry or poll wait that would leave under 5 s (C88, R104, R106). It
+    also raises it at a SAM stream's first chunk at or after the deadline, and when
+    a timeout fires at or after it. It is a MetaApiError, so the report ends
     failed/model_error like any other Meta failure.
     """
 
@@ -224,11 +224,11 @@ class MetaClient:
         """Find every match of `phrase` in `image` with SAM 3.1 (plan §7 step 2).
 
         The request is streamed. On a 504 it is sent again in the background and
-        polled (C10), with no `store`, and the stored response is deleted once read
-        (C88). A result comes only from a completed response: any other end raises
-        MetaApiError, so a failure never reads as "no matches" (R63). `deadline` is a
-        time.monotonic() value that bounds the call as `_send` describes (C84, C88);
-        None sets no deadline.
+        polled (C10), with no `store`, and the stored job is deleted however the
+        polling ends (C88, R106). A result comes only from a completed response: any
+        other end raises MetaApiError, so a failure never reads as "no matches"
+        (R63). `deadline` is a time.monotonic() value that bounds the call as `_send`
+        describes (C84, C88); None sets no deadline.
         """
         _check_image(image)
         request = {
@@ -412,9 +412,11 @@ class MetaClient:
 
         It gives up once those waits add up to timeout_s. The polls' own time and any
         retry waits inside them aren't counted, so the fallback can run longer than
-        timeout_s, unless the deadline stops a wait first (C84). Meta stores a
-        background job so it can be polled, so a completed one is deleted once read
-        (C88). Return the final response JSON and SAM's output text.
+        timeout_s, unless the deadline stops a wait first (C84). Each poll is a try,
+        so no poll wait starts that would leave under 5 s (R106). Meta stores a
+        background job so it can be polled, so once the submit has returned an id,
+        the job is deleted however the polling ends (C88, R106). Return the final
+        response JSON and SAM's output text.
         """
         submitted = self._send(
             lambda timeout: self._openai.responses.with_raw_response.create(
@@ -424,34 +426,41 @@ class MetaClient:
             deadline,
             phrase=phrase,
         ).parse()
-        waited = 0.0
-        while True:
-            self._wait(_POLL_S, deadline)
-            waited += _POLL_S
-            raw = self._send(
-                lambda timeout: self._openai.responses.with_raw_response.retrieve(
-                    submitted.id, timeout=timeout
-                ),
-                SAM_MODEL,
-                deadline,
-                phrase=phrase,
-            )
-            response = raw.parse()
-            if response.status == "completed":
-                self._delete(submitted.id, phrase, deadline)
-                return raw.text, _output_text(response)
-            if response.status not in ("queued", "in_progress"):
-                raise MetaApiError(f"SAM's background response ended {response.status}")
-            if waited >= self._timeout_s:
-                raise MetaApiError(
-                    f"SAM's background response timed out after {waited:g} s"
+        try:
+            waited = 0.0
+            while True:
+                self._wait(_POLL_S, deadline, then_left=_MIN_TRY_S)
+                waited += _POLL_S
+                raw = self._send(
+                    lambda timeout: self._openai.responses.with_raw_response.retrieve(
+                        submitted.id, timeout=timeout
+                    ),
+                    SAM_MODEL,
+                    deadline,
+                    phrase=phrase,
                 )
+                response = raw.parse()
+                if response.status == "completed":
+                    return raw.text, _output_text(response)
+                if response.status not in ("queued", "in_progress"):
+                    raise MetaApiError(
+                        f"SAM's background response ended {response.status}"
+                    )
+                if waited >= self._timeout_s:
+                    raise MetaApiError(
+                        f"SAM's background response timed out after {waited:g} s"
+                    )
+        finally:
+            if submitted.id:
+                self._delete(submitted.id, phrase, deadline)
 
     def _delete(self, response_id: str, phrase: str, deadline: float | None) -> None:
-        """Delete a stored background response that has been read (C88).
+        """Delete a stored background job, best effort (C88, R106).
 
-        Best effort: a failure never fails the call. Each try's log line carries
-        `delete` and the status alone.
+        It needs only some time left before the deadline, not the 5 s floor of a
+        billed try, so it still runs when polling stopped at that floor. A failure
+        never fails the call or masks the error that ended the polling. Each try's
+        log line carries `delete` and the status alone.
         """
         with contextlib.suppress(MetaApiError):
             self._send(
@@ -460,6 +469,7 @@ class MetaClient:
                 ),
                 SAM_MODEL,
                 deadline,
+                floor=0.0,
                 phrase=phrase,
                 delete=True,
             )
@@ -470,6 +480,7 @@ class MetaClient:
         model: str,
         deadline: float | None = None,
         *,
+        floor: float = _MIN_TRY_S,
         log_extra: Callable[[_R], dict[str, object]] | None = None,
         **fields: object,
     ) -> _R:
@@ -483,8 +494,9 @@ class MetaClient:
         fields read from a response to its try's log line.
 
         With a deadline (C84, C88), each try's timeouts are cut to the time left, and
-        DeadlineExceeded is raised instead of starting a try with no time left, or a
-        retry wait that would leave under 5 s. A timeout that fires at or after the
+        DeadlineExceeded is raised instead of starting a try, first or retry, with
+        less than `floor` seconds left (R104, R106): 5 s, except for the best-effort
+        delete, which needs only some time left. A timeout that fires at or after the
         deadline raises it too; one that fires before it is a MetaApiError. A wait is
         never shortened, so a retry never comes early. A read under way at the
         deadline can still run to its timeout: at most 20 s for a SAM stream, and at
@@ -493,7 +505,7 @@ class MetaClient:
         self._check_model(model)
         attempt = 1
         while True:
-            timeout = self._timeout(deadline)
+            timeout = self._timeout(deadline, floor)
             started = time.monotonic()
             status = retry_after = None
             try:
@@ -521,27 +533,28 @@ class MetaClient:
             finally:
                 _log(model, fields, status, started)
             delay = self._delay(attempt, retry_after)
-            self._wait(delay, deadline, then_left=_MIN_TRY_S)
+            self._wait(delay, deadline, then_left=floor)
             attempt += 1
 
     def _delay(self, attempt: int, retry_after: str | None) -> float:
         backoff = 0.5 * 2 ** (attempt - 1) + self._rng()
         return max(backoff, _retry_after(retry_after))
 
-    def _timeout(self, deadline: float | None) -> float:
+    def _timeout(self, deadline: float | None, floor: float) -> float:
         """A try's timeout: timeout_s, or the time left if that is less (C84).
 
-        With no time left it raises DeadlineExceeded, so nothing is sent.
+        With no time left, or less than `floor` seconds (C88, R106), it raises
+        DeadlineExceeded, so nothing is sent.
         """
         if deadline is None:
             return self._timeout_s
         left = deadline - self._clock()
-        if left <= 0:
-            raise DeadlineExceeded("no time left before the deadline")
+        if left <= 0 or left < floor:
+            raise DeadlineExceeded("too little time left before the deadline")
         return min(self._timeout_s, left)
 
     def _wait(
-        self, seconds: float, deadline: float | None, *, then_left: float = 0.0
+        self, seconds: float, deadline: float | None, *, then_left: float
     ) -> None:
         """Sleep, unless the deadline rules the wait out: then raise DeadlineExceeded.
 
