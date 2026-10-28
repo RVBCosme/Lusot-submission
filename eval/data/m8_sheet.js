@@ -145,7 +145,9 @@ var M8 = (function () {
   }
 
   // What is left to label, in the export's order: a photo whose quality isn't picked, and
-  // each blank value of a reference. Each is written as the intake writes a problem.
+  // each blank value of a reference, in the intake's form, <photo_id> <ref_id>.<column>:
+  // missing. A photo with no marks at all reads P1.quality too, where the intake, finding
+  // no P1 row, reports <photo_id> m8: no_photo_row.
   function problems(state) {
     const found = [];
     for (const photoId of Object.keys(state.photos).sort()) {
@@ -324,13 +326,13 @@ var M8 = (function () {
     const drawPhoto = (id) => {
       const view = views[id];
       const marks = marksOf(id);
-      view.marks.textContent = "";
-      view.marks.append(make("legend", "Photo marks"));
+      view.marksBox.textContent = "";
+      view.marksBox.append(make("legend", "Photo marks"));
       const quality = picker(QUALITIES, marks.quality, (value) => {
         setMarks(state, id, value, marksOf(id).subsets);
         save();
       });
-      view.marks.append(labelled("quality", quality));
+      view.marksBox.append(labelled("quality", quality));
       const boxes = SUBSETS.map((tag) => {
         const box = make("input");
         box.type = "checkbox";
@@ -341,7 +343,7 @@ var M8 = (function () {
           setMarks(state, id, marksOf(id).quality, checked);
           save();
         });
-        view.marks.append(" ", labelled(tag, box));
+        view.marksBox.append(" ", labelled(tag, box));
         return box;
       });
 
@@ -450,7 +452,7 @@ var M8 = (function () {
     doc.body.append(tools, todo);
 
     for (const photo of data.photos) {
-      const marks = make("fieldset");
+      const marksBox = make("fieldset");
       const aim = make("fieldset");
       aim.append(make("legend", "Next click marks"));
       let kind = AIMS[0][0];
@@ -492,9 +494,9 @@ var M8 = (function () {
       const section = make("section");
       section.id = "m8-" + photo.id;
       section.className = "m8-photo";
-      section.append(make("h2", photo.id), marks, aim, row);
+      section.append(make("h2", photo.id), marksBox, aim, row);
       doc.body.append(section);
-      views[photo.id] = { marks, layer, list };
+      views[photo.id] = { marksBox, layer, list };
     }
 
     let saved = null;
