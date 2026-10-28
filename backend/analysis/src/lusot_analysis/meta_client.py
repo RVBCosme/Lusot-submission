@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import random
+import re
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -54,6 +55,7 @@ _POLL_S = 1.0  # between polls of a background SAM response
 _STREAM_FAILURES = frozenset(
     {"response.failed", "response.incomplete", "response.refusal.done", "error"}
 )
+_BOX_TOKEN = re.compile(r"<\|box;([^|]*)\|>")  # a box token's fields hold no `|`
 
 _R = TypeVar("_R")
 
@@ -335,7 +337,7 @@ class MetaClient:
             )
             response = raw.parse()
             if response.status == "completed":
-                return raw.text, response.output_text
+                return raw.text, _output_text(response)
             if response.status not in ("queued", "in_progress"):
                 raise MetaApiError(f"SAM's background response ended {response.status}")
             if waited >= self._timeout_s:
@@ -400,11 +402,16 @@ def _message(text: str, image: BlurredImage) -> list[dict]:
 
 
 def _stream_text(events: Iterable[Any]) -> str:
-    """SAM's output text from a stream that completed (R63).
+    """SAM's output text from a stream that completed (R63, R78).
 
-    The text is the deltas joined, or the finished content part when one is sent.
-    A shutdown raises _ShuttingDown, which _send retries. A stream that fails, stops
-    short, refuses or reports any other error raises MetaApiError.
+    The text lane must be finished, by `response.output_text.done` or by an
+    `output_text` part in `response.content_part.done`. Meta's live streams send both
+    after the deltas, and no match comes as a finished empty lane (two captures, Oct
+    28). As in meta-sam-parser's own stream adapter, a completed stream whose lane
+    never finished, finishing events that disagree, or deltas that don't add up to
+    the finished text raise MetaApiError. A shutdown raises _ShuttingDown, which _send
+    retries. A stream that fails, stops short, refuses or reports any other error
+    raises MetaApiError.
     """
     deltas: list[str] = []
     finished = None
@@ -413,11 +420,17 @@ def _stream_text(events: Iterable[Any]) -> str:
             kind = getattr(event, "type", None)
             if kind == "response.output_text.delta":
                 deltas.append(event.delta)
+            elif kind == "response.output_text.done":
+                finished = _finish(finished, event.text)
             elif kind == "response.content_part.done":
-                if event.part.type == "output_text":
-                    finished = event.part.text
+                if event.part.type == "output_text":  # not a refusal part
+                    finished = _finish(finished, event.part.text)
             elif kind == "response.completed":
-                return "".join(deltas) if finished is None else finished
+                if finished is None:
+                    raise MetaApiError("SAM's text lane never finished")
+                if deltas and "".join(deltas) != finished:
+                    raise MetaApiError("SAM's finished text differs from its deltas")
+                return finished
             elif kind == "error" and event.code == "server_shutting_down":
                 raise _ShuttingDown
             elif kind in _STREAM_FAILURES:
@@ -428,11 +441,37 @@ def _stream_text(events: Iterable[Any]) -> str:
     raise MetaApiError("SAM's stream ended without completing")
 
 
+def _finish(finished: str | None, text: str) -> str:
+    """The lane's finished text. A second finishing event must carry the same text."""
+    if finished is not None and text != finished:
+        raise MetaApiError("SAM's stream finished its text twice, differently")
+    return text
+
+
+def _output_text(response: Any) -> str:
+    """The one output_text part of a completed background response (R78).
+
+    No match comes as one empty part, as in the live capture, so a completed response
+    with no such part, or with more than one, raises MetaApiError.
+    """
+    parts = [
+        part.text
+        for item in response.output
+        if item.type == "message"
+        for part in item.content
+        if part.type == "output_text"
+    ]
+    if len(parts) != 1:
+        raise MetaApiError(f"SAM's completed response has {len(parts)} text parts")
+    return parts[0]
+
+
 def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
     """Read SAM's output text (meta-sam-parser) into instances on `image` (R61).
 
-    Text the parser drops or keeps as plain text, and a mask that doesn't fill its box
-    inside the image, raise MetaApiError: a lost record must not read as no match.
+    Text the parser drops or keeps as plain text, a box whose frame (its `w` and `h`)
+    isn't the image's size, and a mask that doesn't fill its box inside the image
+    raise MetaApiError: a lost or misplaced record must not read as no match.
     """
     parser = image_segmentation_format().create_parser()
     parser.push(text)
@@ -440,6 +479,12 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
     errors = [d.code for d in result.diagnostics if d.severity == "error"]
     if errors or any(record.kind == "text" for record in result.records):
         raise MetaApiError(f"SAM's output couldn't be read: {errors or 'plain text'}")
+    # The parser checks each box against its frame but doesn't keep the frame's size.
+    for body in _BOX_TOKEN.findall(text):
+        fields = _token_fields(body)
+        frame = [int(fields[key]) for key in ("w", "h") if key in fields]
+        if len(frame) == 2 and frame != [image.width, image.height]:
+            raise MetaApiError("a SAM box is in a frame of another size than the image")
     instances = []
     for record in result.records:
         if record.kind != "mask":
@@ -459,6 +504,16 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
             SamInstance(int(record.object_id), box, mask, record.confidence)
         )
     return instances
+
+
+def _token_fields(body: str) -> dict[str, str]:
+    """A token's `key=value` fields by name, trimmed, as SAM's protocol reads them."""
+    fields = {}
+    for field in body.split(";"):
+        key, sep, value = field.partition("=")
+        if sep:
+            fields[key.strip()] = value.strip()
+    return fields
 
 
 def _retry_after(value: str | None) -> float:

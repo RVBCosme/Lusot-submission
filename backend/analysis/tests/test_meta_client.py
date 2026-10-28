@@ -9,6 +9,7 @@ import email.policy
 import email.utils
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -48,22 +49,27 @@ ADDRESS_SCHEMA = {
     "additionalProperties": False,
 }
 SAM_STREAM = (FIXTURES / "sam_stream.sse").read_bytes()
-SAM_EVENTS = [
-    json.loads(line.removeprefix("data: "))
-    for line in SAM_STREAM.decode().splitlines()
-    if line.startswith("data: {")
-]
+# A live sam-3.1 stream, captured Oct 28 for a synthetic 640 x 480 image and the phrase
+# "floodwater" (R78). No match comes as a finished empty lane.
+LIVE_NO_MATCH = (FIXTURES / "sam_live_no_match.sse").read_bytes()
 
 
-def sam_event(kind: str) -> dict:
-    """The first event of `kind` in the documented SAM stream."""
-    return next(event for event in SAM_EVENTS if event["type"] == kind)
+def sam_event(kind: str, stream: bytes = SAM_STREAM) -> dict:
+    """The first event of `kind` in a captured or documented SAM stream."""
+    events = (
+        json.loads(line.removeprefix("data: "))
+        for line in stream.decode().splitlines()
+        if line.startswith("data: {")
+    )
+    return next(event for event in events if event["type"] == kind)
 
 
 CREATED = sam_event("response.created")
-DELTA = sam_event("response.output_text.delta")
+DELTA = sam_event("response.output_text.delta")  # the first half of the text
 PART_DONE = sam_event("response.content_part.done")
-COMPLETED = sam_event("response.completed")["response"]  # SAM's output included
+DOC_TEXT = PART_DONE["part"]["text"]  # the documented output: two matches
+COMPLETED_FULL = sam_event("response.completed")  # its response carries the output
+COMPLETED = COMPLETED_FULL["response"]
 # The completed event with no output: the client reads the text from earlier events.
 COMPLETED_EVENT = {
     "type": "response.completed",
@@ -107,6 +113,9 @@ class FakeMeta:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if not self.responses:
+            # Failed is a BaseException, so the SDK can't wrap it in a connection error.
+            pytest.fail(f"no scripted response for {request.method} {request.url}")
         return self.responses.pop(0)
 
 
@@ -147,15 +156,27 @@ def sse(*events: dict) -> httpx.Response:
     )
 
 
-def documented_stream() -> httpx.Response:
-    """The SAM stream in fixtures/meta/sam_stream.sse, as Meta would send it."""
+def raw_stream(body: bytes) -> httpx.Response:
+    """A documented or captured SSE body, served as Meta serves it."""
     headers = {"content-type": "text/event-stream"}
-    return httpx.Response(200, headers=headers, content=SAM_STREAM)
+    return httpx.Response(200, headers=headers, content=body)
+
+
+def text_done(text: str) -> dict:
+    """`response.output_text.done`, which Meta's live streams send (R78)."""
+    lane = {"item_id": "msg_abc123", "output_index": 0, "content_index": 0}
+    return {"type": "response.output_text.done", **lane, "text": text, "logprobs": []}
+
+
+def part_done(text: str) -> dict:
+    return {**PART_DONE, "part": {**PART_DONE["part"], "text": text}}
 
 
 def sam_stream(text: str) -> httpx.Response:
-    """A SAM stream that sends `text` as its output, then completes."""
-    return sse(CREATED, {**DELTA, "delta": text}, COMPLETED_EVENT)
+    """A SAM stream shaped like Meta's live ones: `text` as one delta, finished by
+    both finishing events, then completed."""
+    delta = {**DELTA, "delta": text}
+    return sse(CREATED, delta, text_done(text), part_done(text), COMPLETED_EVENT)
 
 
 def background(status: str) -> httpx.Response:
@@ -406,12 +427,15 @@ def test_count_input_tokens(photo):
 
 
 def test_segment_parses_masks_and_empty_result(photo):
-    """The stream carries the SAM output on
+    """The first stream carries the SAM output on
     https://dev.meta.ai/docs/sam/reading-segmentation ("Video output grammar", frame 0,
     a 320 x 334 frame) in the event shapes on
     https://dev.meta.ai/docs/api-reference/responses/schemas, ending in `data: [DONE]`
-    as on https://dev.meta.ai/docs/api-reference/responses/retrieve-response."""
-    meta = FakeMeta(documented_stream(), sse(CREATED, COMPLETED_EVENT))
+    as on https://dev.meta.ai/docs/api-reference/responses/retrieve-response.
+
+    The empty one is a live sam-3.1 capture from a synthetic image on Oct 28 (R78),
+    fixtures/meta/sam_live_no_match.sse: no match is a finished empty lane."""
+    meta = FakeMeta(raw_stream(SAM_STREAM), raw_stream(LIVE_NO_MATCH))
     c, _ = client(meta)
     result = c.segment(photo, "wheel")
     assert result.phrase == "wheel"
@@ -429,13 +453,15 @@ def test_segment_parses_masks_and_empty_result(photo):
         {"type": "input_text", "text": "wheel"},
         {"type": "input_image", "image_url": data_url(photo)},
     ]
-    assert c.segment(photo, "wheel").instances == []
+    empty = c.segment(photo, "floodwater")
+    assert empty.instances == []
+    assert empty.raw == LIVE_NO_MATCH.decode()
 
 
 def test_segment_box_is_half_open_in_sent_pixels(photo):
     """SAM's first record on https://dev.meta.ai/docs/sam/reading-segmentation is
     x1=211;y1=228;x2=270;y2=254 with inclusive x2 and y2, and a 27 x 60 mask (R61)."""
-    meta = FakeMeta(sam_stream(PART_DONE["part"]["text"]))
+    meta = FakeMeta(sam_stream(DOC_TEXT))
     c, _ = client(meta)
     first, second = c.segment(photo, "wheel").instances
     assert (first.id, second.id) == (0, 1)
@@ -458,11 +484,75 @@ def test_segment_reads_sams_confidence_as_the_score(photo):
     assert second.score == 0.75  # the mask's `c`, not the box's 0.5
 
 
-def test_segment_reads_a_finished_part_without_deltas(photo):
-    # Meta's protocol lets a stream send its text only in the finished content part.
-    meta = FakeMeta(sse(CREATED, PART_DONE, COMPLETED_EVENT))
+@pytest.mark.parametrize(
+    "finish",
+    [
+        [part_done(DOC_TEXT)],  # as meta-sam-parser's README describes the live API
+        [text_done(DOC_TEXT)],  # the review's first probe (R78)
+        [text_done(DOC_TEXT), part_done(DOC_TEXT)],  # as the Oct 28 live streams do
+    ],
+)
+def test_segment_reads_a_text_finished_without_deltas(photo, finish):
+    meta = FakeMeta(sse(CREATED, *finish, COMPLETED_EVENT))
     c, _ = client(meta)
     assert len(c.segment(photo, "wheel").instances) == 2
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        # The review's second probe: the output only in the completed event
+        [CREATED, COMPLETED_FULL],
+        [CREATED, DELTA, COMPLETED_FULL],  # deltas, but the lane never finished
+        [CREATED, COMPLETED_EVENT],  # no lane at all
+    ],
+)
+def test_segment_completed_without_a_finished_lane_raises(photo, events):
+    # A completed stream must finish its text lane, as every live one does (R78).
+    meta = FakeMeta(sse(*events))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        # Deltas that hold half the text the finished part holds
+        [CREATED, DELTA, part_done(DOC_TEXT), COMPLETED_EVENT],
+        # Two finishing events that disagree
+        [CREATED, text_done(DOC_TEXT), part_done(""), COMPLETED_EVENT],
+    ],
+)
+def test_segment_finished_text_that_disagrees_raises(photo, events):
+    meta = FakeMeta(sse(*events))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+def test_segment_ignores_keepalive_events(photo):
+    # https://dev.meta.ai/docs/api-reference/responses/schemas lists a heartbeat
+    # among a stream's wire events ("Response Keepalive Event").
+    keepalive = {"type": "keepalive", "sequence_number": 1}
+    finish = [text_done(DOC_TEXT), part_done(DOC_TEXT)]
+    meta = FakeMeta(sse(CREATED, keepalive, *finish, keepalive, COMPLETED_EVENT))
+    c, _ = client(meta)
+    assert len(c.segment(photo, "wheel").instances) == 2
+
+
+def test_segment_refuses_a_frame_size_other_than_the_image(photo):
+    # Each box token names the frame it was found in; it must be the sent photo.
+    meta = FakeMeta(sam_stream(DOC_TEXT.replace("w=320;h=334", "w=640;h=480")))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
 
 
 @pytest.mark.parametrize(
@@ -492,7 +582,7 @@ def test_segment_stream_that_does_not_complete_raises(photo, ending):
 
 def test_segment_retries_a_mid_stream_shutdown(photo):
     # A shutdown counts as a 503: the whole request runs again after the backoff (R77).
-    meta = FakeMeta(sse(CREATED, DELTA, SHUTDOWN), documented_stream())
+    meta = FakeMeta(sse(CREATED, DELTA, SHUTDOWN), raw_stream(SAM_STREAM))
     c, sleeps = client(meta, rng=lambda: 0.0)
     result = c.segment(photo, "wheel")
     assert len(result.instances) == 2
@@ -554,6 +644,7 @@ def test_segment_output_it_cannot_place_raises(photo, text):
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
     assert exc.value.status is None
+    assert len(meta.requests) == 1
 
 
 def test_segment_504_falls_back_to_background_polling(photo):
@@ -604,6 +695,29 @@ def test_background_response_that_does_not_complete_raises(photo, status):
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
     assert exc.value.status is None
+    assert len(meta.requests) == 3  # no further poll
+
+
+@pytest.mark.parametrize(
+    ("output", "matches"),
+    [
+        # The live completed response for no match: one finished empty part (R78)
+        (sam_event("response.completed", LIVE_NO_MATCH)["response"]["output"], 0),
+        (COMPLETED["output"], 2),
+        ([], None),  # no output_text part: not a reading of "no matches"
+    ],
+)
+def test_background_reads_only_a_finished_output_text_part(photo, output, matches):
+    done = httpx.Response(200, json={**COMPLETED, "background": True, "output": output})
+    meta = FakeMeta(error(504), background("queued"), done)
+    c, _ = client(meta)
+    if matches is None:
+        with pytest.raises(MetaApiError) as exc:
+            c.segment(photo, "wheel")
+        assert exc.value.status is None
+    else:
+        assert len(c.segment(photo, "wheel").instances) == matches
+    assert len(meta.requests) == 3
 
 
 def test_background_polling_is_bounded(photo):
@@ -619,14 +733,21 @@ def test_background_polling_is_bounded(photo):
 
 
 def test_segment_runs_in_parallel_on_one_client(photo):
+    # Each phrase gets its own object ids, and earlier phrases answer later, so a
+    # result that crossed threads would carry another phrase's ids.
     def meta(request):
-        return documented_stream()
+        n = SAM_PHRASES.index(request_json(request)["input"][0]["content"][0]["text"])
+        time.sleep(0.005 * (len(SAM_PHRASES) - n))
+        ids = DOC_TEXT.replace("<0f>0<|", f"<0f>{2 * n}<|")
+        return sam_stream(ids.replace(",1<|", f",{2 * n + 1}<|"))
 
     c, _ = client(meta)
     with ThreadPoolExecutor(len(SAM_PHRASES)) as pool:
         results = list(pool.map(lambda phrase: c.segment(photo, phrase), SAM_PHRASES))
     assert [result.phrase for result in results] == list(SAM_PHRASES)
-    assert all(len(result.instances) == 2 for result in results)
+    assert [[i.id for i in result.instances] for result in results] == [
+        [2 * n, 2 * n + 1] for n in range(len(SAM_PHRASES))
+    ]
 
 
 def form_parts(request: httpx.Request) -> dict[str, tuple[str, bytes]]:
@@ -692,7 +813,7 @@ def test_key_never_logged(photo, caplog, call, fields):
         c, _ = client(meta)
         judge(c, photo)
     else:
-        meta = FakeMeta(sam_stream(PART_DONE["part"]["text"]))
+        meta = FakeMeta(sam_stream(DOC_TEXT))
         c, _ = client(meta)
         c.segment(photo, "wheel")
     image = base64.b64encode(photo.jpeg).decode()
