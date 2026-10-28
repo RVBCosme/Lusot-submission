@@ -113,6 +113,25 @@ def test_model_hash_matches():
     )
 
 
+def test_face_blur_settings_are_pinned_to_their_version():
+    # eval/rules.md §10 freezes the face-blur setting with its version (D12), so a
+    # silent change to any of these must fail here (R94).
+    pinned = {
+        "FACE_BLUR_VERSION": "yunet-2023mar/multiscale-1-0.5-0.25/pixelate-gauss-v2",
+        "SCORE_THRESHOLD": 0.6,
+        "MARGIN": 0.25,
+        "PIXELATE_CELLS": 10,
+        "KERNEL_DIVISOR": 3,
+        "JPEG_QUALITY": 90,
+        "MAX_SIDE": 1600,
+    }
+    setting = {name: getattr(face_blur, name) for name in pinned}
+    assert setting == pinned, (
+        "The face-blur setting changed. A new setting needs a new FACE_BLUR_VERSION "
+        "(eval/rules.md §10, D12): bump the version, then pin both here."
+    )
+
+
 def test_no_faces_leaves_image_unchanged():
     img = noise(400, 300)
     out = blur_faces(img, [])
