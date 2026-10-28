@@ -1051,6 +1051,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the missing-photo code. If it is `NoSuchKey` (404) under the prefix-limited `s3:ListBucket` grant, remove `AccessDenied` from the missing-photo rule in a follow-up commit, so a real 403 retries into the dead-letter queue and its alarm instead of marking every report `photo_missing` (R93, from MS1's final review). Update `test_missing_photo_codes` and spec §3.1 step 6 to match.
     - If it is `AccessDenied` (403), the prefix-limited grant buys nothing. Delete the `s3:ListBucket` statement and keep `AccessDenied` in the rule (Task 14's review, Minor 2).
     - Either way, update the two comments that point to this run, the ListBucket statement's in `template.yaml` and the missing-photo rule's in `handler.py`. Cite the recorded result as "MS3a Task 16" (Task 14's review, Minor 3).
+  - **The test spot stays where it is** (R118, from the tracker's cross-spec audit, row 4). MS3a publishes nothing, so the smoke script's `SPOT`, the plan §12 example in Manila, is left alone here. MS4 moves it outside Metro Manila in the same change that turns publishing on (its C513), so the spot moves once.
+  - **The bound stays 120 s here** (R119, audit row 22). It is B1's recorded figure (C68). Runs after MS3b adds geometry use at least 180 s, since a run may stop as late as about 150 s (C84, C88).
     - The MS3a image builds as `analysisfunction:ms1`, because the template's `DockerTag` is `ms1`. CLAUDE.md's pre-deploy image check uses that tag.
   - the B4 checks
 
