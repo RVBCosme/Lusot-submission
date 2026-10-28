@@ -11,9 +11,15 @@ A run folder holds:
   image SAM saw, the outcome and the log
 - `sam/<phrase>.json`, with the phrase's spaces as `_`: the phrase, its time, and
   each instance's id, box and score. `sam/<phrase>.npz` holds the masks, N x H x W,
-  only when SAM found something, and `sam/<phrase>.raw` SAM's raw output text.
+  only when SAM found something, and `sam/<phrase>.raw` SAM's raw output text. A
+  call that failed leaves none of the three.
 - `spark.json`: Muse Spark's answer, reason included, its token counts and its time,
-  with `spark.raw`, the answer's raw text. Neither exists when no answer came back.
+  with `spark.raw`, the answer's raw text. A refusal (C86) is kept as exactly
+  `{"refused": true}`, with no `spark.raw`: ModelRefused carries no text. Neither
+  file exists when the call failed or was never made.
+
+A replay ends as the live run did when that run ended on a model's answer, a
+refusal or a failed call (R109).
 """
 
 from __future__ import annotations
@@ -32,6 +38,8 @@ from lusot_analysis.meta_client import (
     SAM_MODEL,
     SAM_PHRASES,
     SPARK_MODEL,
+    MetaApiError,
+    ModelRefused,
     SamInstance,
     SamResult,
     SparkResult,
@@ -54,7 +62,8 @@ class RecordingClient:
     `client` is the Meta client in the offline runner's live mode. Each call's
     keywords pass through unchanged (R108). The phrases run in parallel, so what is
     kept is kept behind a lock, but the calls themselves run outside it. A call that
-    raises keeps nothing, though its phrase still counts as asked.
+    raises keeps nothing, though its phrase still counts as asked. The exception is
+    a Muse Spark refusal: it is kept, then raised again unchanged (R109).
     """
 
     def __init__(self, client: ModelClient) -> None:
@@ -64,6 +73,7 @@ class RecordingClient:
         self._size: tuple[int, int] | None = None  # the image SAM saw: width, height
         self._sam: dict[str, SamResult] = {}
         self._spark: SparkResult | None = None
+        self._refused = False
 
     def segment(
         self, image: BlurredImage, phrase: str, *, deadline: float | None = None
@@ -86,14 +96,19 @@ class RecordingClient:
         deadline: float | None = None,
         reasoning_effort: str | None = None,
     ) -> SparkResult:
-        result = self._client.judge(
-            image,
-            prompt=prompt,
-            schema=schema,
-            schema_name=schema_name,
-            deadline=deadline,
-            reasoning_effort=reasoning_effort,
-        )
+        try:
+            result = self._client.judge(
+                image,
+                prompt=prompt,
+                schema=schema,
+                schema_name=schema_name,
+                deadline=deadline,
+                reasoning_effort=reasoning_effort,
+            )
+        except ModelRefused:
+            with self._lock:
+                self._refused = True
+            raise
         with self._lock:
             self._spark = result
         return result
@@ -128,7 +143,9 @@ class RecordingClient:
                 np.savez_compressed(sam_dir / f"{stem}.npz", masks=masks)
             # Bytes, so line ends come back exactly as SAM sent them.
             (sam_dir / f"{stem}.raw").write_bytes(result.raw.encode("utf-8"))
-        if self._spark is not None:
+        if self._refused:  # no reason or text: ModelRefused carries none (C86)
+            _write_json(run_dir / "spark.json", {"refused": True})
+        elif self._spark is not None:
             answer = {
                 "data": self._spark.data,  # with its reason (C62)
                 "input_tokens": self._spark.input_tokens,
@@ -161,7 +178,9 @@ class SavedOutputsClient:
 
     It reads run.json first. When `photo_data` isn't the photo the outputs were saved
     for, it raises PhotoMismatch, a ValueError. Each call's keywords are accepted and
-    ignored (R108): a replay has no deadline to keep and no effort to ask for.
+    ignored (R108): a replay has no deadline to keep and no effort to ask for. A
+    refusal or a failed call is raised again, so the replay ends as the live run did
+    (R109).
     """
 
     def __init__(self, run_dir: Path, photo_data: bytes) -> None:
@@ -175,16 +194,25 @@ class SavedOutputsClient:
     ) -> SamResult:
         """The saved result for `phrase`, for an image of the saved size.
 
-        Another size raises ValueError. `face` and `license plate` come back empty
-        when they weren't saved, as the runner never asks for them (C66), so the
-        handler's pipeline call can replay a runner's folder. Any other phrase that
-        wasn't saved raises KeyError.
+        Another size raises ValueError. A phrase the live run asked for but saved no
+        result for failed live, and fails again (R109):
+        - when the saved log has `meta_status`, the run ended on a MetaApiError, so
+          this raises one with that status: failed/model_error, as live
+        - otherwise KeyError, which ends failed/pipeline_error, as live
+
+        A phrase the live run never asked for: `face` and `license plate` come back
+        empty, as the runner never asks for them (C66), so the handler's pipeline
+        call can replay a runner's folder. Any other raises KeyError.
         """
         if self._run["image"] != {"width": image.width, "height": image.height}:
             raise ValueError("saved outputs are for an image of another size")
         path = self._dir / "sam" / f"{_stem(phrase)}.json"
         if not path.exists():
-            if phrase in PUBLISH_PHRASES:
+            asked = phrase in self._run["phrases"]
+            if asked and "meta_status" in self._run["log"]:
+                status = self._run["log"]["meta_status"]
+                raise MetaApiError("SAM's call failed in the live run", status=status)
+            if not asked and phrase in PUBLISH_PHRASES:
                 return SamResult(phrase, [], 0.0, "")
             raise KeyError(phrase)
         saved = json.loads(path.read_text(encoding="utf-8"))
@@ -216,8 +244,10 @@ class SavedOutputsClient:
     ) -> SparkResult:
         """The saved answer, asked for under the schema it was saved under.
 
-        Another `schema_name` raises ValueError. When the live run saved no answer,
-        it raises ModelAnswerError, which the pipeline ends as failed/model_error.
+        Another `schema_name` raises ValueError, checked first. A saved refusal
+        raises ModelRefused, which ends refused/model_declined, as live (C86, R109).
+        When the live run saved no answer, it raises ModelAnswerError, which the
+        pipeline ends as failed/model_error.
         """
         if schema_name != self._run["schema_name"]:
             raise ValueError("the saved answer is for another schema")
@@ -225,6 +255,8 @@ class SavedOutputsClient:
         if not path.exists():
             raise ModelAnswerError("the live run saved no answer")
         saved = json.loads(path.read_text(encoding="utf-8"))
+        if saved.get("refused"):
+            raise ModelRefused("Muse Spark refused to answer")
         return SparkResult(
             data=saved["data"],
             input_tokens=saved["input_tokens"],

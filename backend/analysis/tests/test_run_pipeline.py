@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from fakes import FakeClient, level_case, meta_error, noise_jpeg
 
+from lusot_analysis.meta_client import ModelRefused
 from lusot_analysis.pipeline import READING_PHRASES
 from lusot_analysis.pipeline.types import Outcome
 
@@ -85,6 +86,32 @@ def test_refuses_paths_inside_sealed_folders(tmp_path, monkeypatch, capsys, part
     assert exc.value.code == 2
     assert list(tmp_path.iterdir()) == []
     runner.refuse_sealed(tmp_path / "unsealed" / "x.jpg")  # a part must equal it
+
+
+class LinkedPath:
+    """Stands in for a link: as written it names no sealed folder, but it resolves
+    into one. Nothing is made on disk, so no symlink and no sealed folder is needed.
+    """
+
+    def __init__(self, written: Path, resolved: Path) -> None:
+        self.written, self.resolved = written, resolved
+
+    def absolute(self) -> Path:
+        return self.written
+
+    def resolve(self) -> Path:
+        return self.resolved
+
+
+def test_refuses_a_path_that_resolves_into_a_sealed_folder(tmp_path, capsys):
+    link = LinkedPath(tmp_path / "a" / "x.jpg", tmp_path / "sealed" / "x.jpg")
+    with pytest.raises(SystemExit) as exc:
+        runner.refuse_sealed(link)
+    assert exc.value.code == 2
+    assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
+    # Resolving elsewhere passes, and nothing was made.
+    runner.refuse_sealed(LinkedPath(tmp_path / "a" / "x.jpg", tmp_path / "b" / "x.jpg"))
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_refuses_sealed_data_and_run_folders(tmp_path, monkeypatch, capsys):
@@ -186,6 +213,51 @@ def test_replay_needs_no_key(tmp_path, monkeypatch, capsys):
     # The same counts and timings as the live run, then the comparison.
     assert out.splitlines() == [*live_out.splitlines(), "same as saved: True"]
     assert REASON not in out
+
+
+def failing_wheel(error: Exception):
+    """A segment hook that fails the wheel call with `error`, and no other call."""
+
+    def hook(phrase: str) -> None:
+        if phrase == "wheel":
+            raise error
+
+    return hook
+
+
+@pytest.mark.parametrize(
+    ("judged", "hook", "outcome"),
+    [
+        pytest.param(
+            ModelRefused("Muse Spark refused to answer"),
+            None,
+            "refused/model_declined",
+            id="refusal",
+        ),
+        pytest.param(
+            None, failing_wheel(meta_error(500)), "failed/model_error", id="sam-500"
+        ),
+        pytest.param(
+            None,
+            failing_wheel(AttributeError("boom")),
+            "failed/pipeline_error",
+            id="not-meta",
+        ),
+    ],
+)
+def test_refused_and_failed_runs_replay_as_saved(
+    tmp_path, monkeypatch, capsys, judged, hook, outcome
+):
+    # R109: `same as saved` flags only real differences, so a run that ended on a
+    # refusal or a failed call replays to its live outcome.
+    _, sam, given = level_case()
+    client = FakeClient(sam, given if judged is None else judged, on_segment=hook)
+    photo, run_dir, _, live_out = live_run(tmp_path, monkeypatch, capsys, client)
+    assert live_out.splitlines()[0] == f"outcome: {outcome}"
+    monkeypatch.setattr(runner, "make_client", no_client)
+    assert runner.main(["replay", str(photo), str(run_dir)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert (out[0], out[-1]) == (f"outcome: {outcome}", "same as saved: True")
 
 
 def test_replay_of_another_photo_exits_2(tmp_path, monkeypatch, capsys):

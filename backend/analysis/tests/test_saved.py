@@ -21,7 +21,13 @@ from fakes import (
 )
 
 from lusot_analysis.face_blur import FACE_BLUR_VERSION, blur_for_meta
-from lusot_analysis.meta_client import SamResult, SparkResult
+from lusot_analysis.meta_client import (
+    SAM_PHRASES,
+    MetaApiError,
+    ModelRefused,
+    SamResult,
+    SparkResult,
+)
 from lusot_analysis.pipeline import READING_PHRASES, run_pipeline
 from lusot_analysis.pipeline.saved import RecordingClient, SavedOutputsClient
 from lusot_analysis.pipeline.types import ModelAnswerError, Outcome
@@ -74,6 +80,16 @@ def judge_saved(client, prompt, image, **keywords):
         schema_name=prompt.schema_name,
         **keywords,
     )
+
+
+def failing(error: Exception, phrase: str):
+    """A segment hook that fails `phrase`'s call with `error`, and no other call."""
+
+    def hook(asked: str) -> None:
+        if asked == phrase:
+            raise error
+
+    return hook
 
 
 def test_record_then_replay_gives_the_same_outcome(tmp_path, prompt):
@@ -201,6 +217,89 @@ def test_replay_of_a_model_error(tmp_path, prompt):
     assert replayed.log["error"] == "ModelAnswerError"
     with pytest.raises(ModelAnswerError):
         judge_saved(client, prompt, blur_for_meta(photo))
+
+
+def test_replay_of_a_refusal(tmp_path, prompt):
+    # R109: Muse Spark refused (C86). The refusal is kept with no text, as
+    # ModelRefused carries none, and the replay refuses the same way.
+    _, sam, _ = level_case()
+    refusal = ModelRefused("Muse Spark refused to answer")
+    photo, live, run_dir = record(tmp_path, FakeClient(sam, refusal), prompt)
+    assert live.outcome == Outcome.refused("model_declined")
+    assert read_json(run_dir / "spark.json") == {"refused": True}
+    assert not (run_dir / "spark.raw").exists()
+    client = SavedOutputsClient(run_dir, photo)
+    replayed = run_pipeline(photo, client, prompt, phrases=READING_PHRASES)
+    assert replayed.outcome == live.outcome
+    assert replayed.log == live.log
+    # The schema name is still checked first.
+    image = blur_for_meta(photo)
+    other = dataclasses.replace(prompt, schema_name="muse_spark_photo_v2")
+    with pytest.raises(ValueError, match="another schema"):
+        judge_saved(client, other, image)
+    with pytest.raises(ModelRefused):
+        judge_saved(client, prompt, image)
+    # The recording raises the live refusal itself, unchanged.
+    with pytest.raises(ModelRefused) as exc:
+        judge_saved(RecordingClient(FakeClient(sam, refusal)), prompt, image)
+    assert exc.value is refusal
+
+
+@pytest.mark.parametrize(
+    ("phrase", "error", "phrases", "reason", "status"),
+    [
+        pytest.param(
+            "wheel", meta_error(500), READING_PHRASES, "model_error", 500, id="500"
+        ),
+        pytest.param(
+            "wheel",
+            MetaApiError("connection failed or timed out"),
+            READING_PHRASES,
+            "model_error",
+            None,
+            id="timeout",
+        ),
+        # Asked for, a face is replayed like any other phrase, never as empty.
+        pytest.param(
+            "face", meta_error(503), SAM_PHRASES, "model_error", 503, id="face-503"
+        ),
+        # Not Meta's failure: the log has no meta_status.
+        pytest.param(
+            "wheel",
+            AttributeError("boom"),
+            READING_PHRASES,
+            "pipeline_error",
+            "absent",
+            id="not-meta",
+        ),
+        pytest.param(
+            "face",
+            AttributeError("boom"),
+            SAM_PHRASES,
+            "pipeline_error",
+            "absent",
+            id="face-not-meta",
+        ),
+    ],
+)
+def test_replay_of_a_failed_sam_call(
+    tmp_path, prompt, phrase, error, phrases, reason, status
+):
+    # R109: the failed call saved no result, and the replay fails the same way.
+    _, sam, given = level_case()
+    fake = FakeClient(sam, given, on_segment=failing(error, phrase))
+    photo, live, run_dir = record(tmp_path, fake, prompt, phrases=phrases)
+    assert live.outcome == Outcome.failed(reason)
+    assert not (run_dir / "sam" / f"{phrase.replace(' ', '_')}.json").exists()
+    assert phrase in read_json(run_dir / "run.json")["phrases"]
+    client = SavedOutputsClient(run_dir, photo)
+    replayed = run_pipeline(photo, client, prompt, phrases=phrases)
+    assert replayed.outcome == live.outcome
+    if status == "absent":
+        assert "meta_status" not in live.log
+        assert "meta_status" not in replayed.log
+    else:
+        assert live.log["meta_status"] == replayed.log["meta_status"] == status
 
 
 def test_faces_and_plates_come_back_empty_when_not_saved(tmp_path, prompt):
