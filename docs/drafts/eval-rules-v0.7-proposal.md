@@ -3,7 +3,7 @@
 > **Draft, Oct 28, 2026 (Window 4), from the tracker's verified updates (Rene delegated the recommended action).** It gathers in one file every change now proposed for `eval/rules.md`, so Rene can approve them at once.
 >
 > - **When:** Rene approves the whole file before any Set A result is seen. The target is Oct 30, when MS2's split runs.
-> - **Who applies it:** after his written OK, the log owner (Window 3, since MS1 closed) edits `eval/rules.md` to v0.7, updates its status line, and adds the change-log line at the end. Until then, v0.6 stands, and the harness and the other windows follow the defaults below (D7).
+> - **Who applies it:** after his written OK, the log owner (Window 3, since MS1 closed) edits `eval/rules.md` to v0.7, updates its status line, and adds the change-log line at the end. **In the same commit,** the harness follows the MS6 plan's "When `eval/rules.md` becomes v0.7" steps: `RULES_VERSION` and the fixture's `rules_version` move to "0.7", the §2 drift tests are updated and made two-way, and the fixture's report is regenerated. Without these steps, CI fails. Until then, v0.6 stands, and the harness and the other windows follow the defaults below (D7).
 > - **Form:** each item gives the text to add or change, its source, and the default that applies until Rene answers. Section numbers are `eval/rules.md`'s. Quoted "current text" is v0.6's, exactly.
 > - **MS2's items** point at MS2's calls by number. MS2's spec wasn't committed when this was written (`next-specs` was still at `28b3530` at 3:31 PM), and its C203 and C209 were being revised (`specs.md`, 3:27 PM). Recheck their wording once MS2's spec is committed.
 

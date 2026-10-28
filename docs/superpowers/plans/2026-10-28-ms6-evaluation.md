@@ -810,8 +810,21 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
 
 - [ ] Add `uv run --locked --script eval/tests/run_tests.py` to `check:py` in the root `package.json`, so `npm run check` runs the eval tests.
 - [ ] Add the same command to `.github/workflows/ci.yml`, plus a step that runs `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` on Python 3.9 (for example with `actions/setup-python`, pinned to a commit SHA like the workflow's other actions).
-- [ ] Credit the new test libraries in the README, in its existing credits style (CLAUDE.md: every third-party library is credited). That covers scikit-learn and what its wheels bring (SciPy, joblib, threadpoolctl and NumPy, each with its licence, checked in the installed wheels), pytest if its row doesn't already cover this use, and `actions/setup-python` if CI adds it.
+- [ ] Credit the new test libraries in the README, in its existing credits style (CLAUDE.md: every third-party library is credited), each with its licence, checked in the installed wheels:
+  - scikit-learn, and what its wheels bring: SciPy, joblib, threadpoolctl, NumPy, cloudpickle 3.1.2 and narwhals 2.28.0
+  - pytest, if its row doesn't already cover this use, with what it brings: colorama, iniconfig, packaging, pluggy and Pygments
+  - `actions/setup-python`, if CI adds it
+- [ ] Add `eval/**/review.csv` and `.playwright-mcp/` to `.gitignore`. `review.csv` holds Rene's notes, and Task 7's chart check used the Playwright plugin.
 - [ ] Record the changes on the board and in the day's log.
+
+## When `eval/rules.md` becomes v0.7 (the same commit as the rules change)
+
+Rene approves v0.7, and the log owner applies it. The harness changes in the same commit, or CI fails:
+- [ ] Set `RULES_VERSION = "0.7"` in `eval/scoring/__init__.py`, and `rules_version: "0.7"` in the fixture's `run.json`.
+- [ ] Update the §2 drift tests for v0.7's table: its row count, and the `head` row (item 2.7). Make the phrase test two-way (C408), so a code phrase that §2 doesn't list fails.
+- [ ] Remove `ankle` and `head` from the drift test's named extras once §2 lists them.
+- [ ] Regenerate the fixture's report with `--write`. Its "v0.6" lines change.
+- [ ] Re-run the full suite and the literal command.
 
 ## Done-when map
 
