@@ -18,6 +18,7 @@ from builders import (
     set_b_row,
     write_run,
 )
+from scoring.paths import SealedPath
 from scoring.rows import (
     BODY_WATERLINES,
     PERSON_WATERLINES,
@@ -38,7 +39,7 @@ from scoring.rows import (
     load_run,
 )
 
-KNEE = Result("done", None, False, "knee", False, "NPLV")
+KNEE = Result("done", None, False, "knee", False, "NPLV", "hub")
 
 
 def load(folder: Path, run: dict | None = None, **sets: list) -> Run:
@@ -357,16 +358,16 @@ SHAPES = {
             level_from="geometry",
             inches=("19.5", "24.25"),
         ),
-        Result("done", None, False, "tire", True, "NPATV"),
+        Result("done", None, False, "tire", True, "NPATV", "wheel_covered"),
     ),
-    "no flood seen": (nfs(), Result("done", None, True, None, False, None)),
+    "no flood seen": (nfs(), Result("done", None, True, None, False, None, None)),
     "refused": (
         refused("too_dark"),
-        Result("refused", "too_dark", False, None, False, None),
+        Result("refused", "too_dark", False, None, False, None, None),
     ),
     "failed": (
         failed("model_error"),
-        Result("failed", "model_error", False, None, False, None),
+        Result("failed", "model_error", False, None, False, None, None),
     ),
 }
 
@@ -423,7 +424,8 @@ def test_replay_and_baseline_fields(tmp_path):
         "landmark" + REPLAY_SUFFIX: level("waist"),
     }
     run = load(tmp_path / "development", set_a=[set_a_row("A001", outcomes=replayed)])
-    waist = Result("done", None, False, "waist", False, "NPATV")
+    # A replay result carries its landmark too.
+    waist = Result("done", None, False, "waist", False, "NPATV", "hub")
     assert run.set_a[0].results["landmark_replay"] == waist
     final = {
         "set_a": [set_a_row("A001", outcomes=replayed)],
@@ -680,6 +682,13 @@ def test_set_b_estimates(tmp_path):
     unread = Estimate(False, None, None, None, "no_waterline")
     assert run.set_b[1].estimates["known_waterline_uncalibrated"] == unread
     assert run.set_d[0].estimates["geometry"] == run.set_b[0].estimates["geometry"]
+
+
+def test_load_run_refuses_sealed_first(tmp_path):
+    # C411: refused by its name, before anything is read, listed or created.
+    with pytest.raises(SealedPath):
+        load_run(tmp_path / "sealed")
+    assert not any(tmp_path.iterdir())
 
 
 RUN_JSON = {

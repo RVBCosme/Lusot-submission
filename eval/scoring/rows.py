@@ -19,6 +19,7 @@ from typing import TypeVar
 
 from scoring import RULES_VERSION
 from scoring.labels import label_words_ok
+from scoring.paths import refuse_sealed
 from scoring.scale import CLASS_NAMES, CLASSES, LEVELS
 
 CONFIGS = ("landmark", "geometry", "geometry_no_self_check")
@@ -78,7 +79,8 @@ YES_NO = frozenset({"yes", "no"})  # photo_usable's values
 
 @dataclass(frozen=True)
 class Result:
-    """One configuration's result for a photo. `reason` is a refusal's or failure's."""
+    """One configuration's result for a photo. `reason` is a refusal's or failure's,
+    and `landmark` a level's, for review.csv (C426)."""
 
     status: str
     reason: str | None
@@ -86,6 +88,7 @@ class Result:
     level: str | None
     level_is_floor: bool
     passability: str | None
+    landmark: str | None
 
 
 @dataclass(frozen=True)
@@ -188,7 +191,10 @@ class RowError(ValueError):
 
 def load_run(folder: Path) -> Run:
     """Load a results folder through the row contract. Rows keep their file order.
-    Raises RowError at the first thing outside the contract."""
+    Raises SealedPath when any part of the folder's path is named sealed, before
+    anything is read or listed (C411), and RowError at the first thing outside the
+    contract."""
+    refuse_sealed(folder)
     folder = Path(folder)
     meta = _read_manifest(folder)
     sealed = meta["kind"] == "sealed"
@@ -544,10 +550,10 @@ def _result(value: object, where: str) -> Result:
     status = _STATUS(value.get("status"), _at(where, "status"))
     if status != "done":
         result = _object(value, where, _REFUSAL_FIELDS)
-        return Result(status, result["refusalReason"], False, None, False, None)
+        return Result(status, result["refusalReason"], False, None, False, None, None)
     if _bool(value.get("noFloodSeen"), _at(where, "noFloodSeen")):
         _object(value, where, _NO_FLOOD_FIELDS)
-        return Result("done", None, True, None, False, None)
+        return Result("done", None, True, None, False, None, None)
     result = _object(value, where, _LEVEL_FIELDS, _LEVEL_OPTIONAL)
     if result["passability"] != CLASSES[result["level"]]:
         raise _Bad(
@@ -564,6 +570,7 @@ def _result(value: object, where: str) -> Result:
         result["level"],
         result["levelIsFloor"],
         result["passability"],
+        result["landmark"],
     )
 
 
