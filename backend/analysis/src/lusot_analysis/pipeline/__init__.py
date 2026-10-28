@@ -39,6 +39,7 @@ from lusot_analysis.pipeline.references import (
 )
 from lusot_analysis.pipeline.segment import segment_all
 from lusot_analysis.pipeline.types import (
+    KEY_REJECTED_STATUSES,
     ModelAnswerError,
     ModelClient,
     ModelKeyRejected,
@@ -49,8 +50,6 @@ from lusot_analysis.prompts import PromptSpec
 # The phrases the reading uses: SAM_PHRASES without the two that only the publish
 # blur reads. The offline runner sends these, since nothing it makes is stored (C66).
 READING_PHRASES = tuple(p for p in SAM_PHRASES if p not in PUBLISH_PHRASES)
-# Meta's statuses for a rejected key or account, which aren't the photo's fault (C73).
-_KEY_REJECTED = frozenset({401, 402, 403})
 
 
 @dataclass(frozen=True)
@@ -102,7 +101,7 @@ def run_pipeline(
     except ModelRefused:
         return PipelineRun(Outcome.refused("model_declined"), log, None)
     except MetaApiError as exc:  # before Exception, as it is a RuntimeError
-        if exc.status in _KEY_REJECTED:
+        if exc.status in KEY_REJECTED_STATUSES:
             raise ModelKeyRejected(exc.status) from exc
         log |= {"error": type(exc).__name__, "meta_status": exc.status}
         return PipelineRun(Outcome.failed("model_error"), log, None)

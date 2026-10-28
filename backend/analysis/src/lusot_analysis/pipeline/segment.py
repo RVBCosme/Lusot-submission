@@ -9,8 +9,8 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
 from lusot_analysis.face_blur import BlurredImage
-from lusot_analysis.meta_client import SamInstance, SamResult
-from lusot_analysis.pipeline.types import ModelClient
+from lusot_analysis.meta_client import MetaApiError, SamInstance, SamResult
+from lusot_analysis.pipeline.types import KEY_REJECTED_STATUSES, ModelClient
 
 
 def box_xyxy(inst: SamInstance) -> tuple[float, float, float, float]:
@@ -34,14 +34,22 @@ def segment_all(
     """Ask SAM for every phrase at once, one thread each, keyed by phrase.
 
     The threads share the client and its connections (R61). Each call runs under
-    `deadline`, the run's (C84). If a call raises, the first error in phrase order
-    propagates once every call has ended, so a MetaApiError keeps its status.
+    `deadline`, the run's (C84). If calls raise, one error propagates, unwrapped,
+    once every call has ended, so a MetaApiError keeps its status:
+    - the first MetaApiError in phrase order whose status is 401, 402 or 403, ahead
+      of any other failure, so another phrase's error can't hide a rejected key or
+      account (C73, R107)
+    - otherwise the first error in phrase order
     """
     with ThreadPoolExecutor(max_workers=len(phrases)) as pool:
         futures = {
             phrase: pool.submit(client.segment, image, phrase, deadline=deadline)
             for phrase in phrases
         }
+    for future in futures.values():  # a rejected key or account first (R107)
+        error = future.exception()
+        if isinstance(error, MetaApiError) and error.status in KEY_REJECTED_STATUSES:
+            raise error
     return {phrase: future.result() for phrase, future in futures.items()}
 
 

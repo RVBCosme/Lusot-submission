@@ -73,6 +73,52 @@ def test_segment_all_propagates_a_meta_error(image):
     assert exc.value.status == 503
 
 
+@pytest.mark.parametrize(
+    ("errors", "raised_by"),
+    [
+        # R107: a rejected key or account goes first, from any phrase (C73).
+        pytest.param(
+            {"floodwater": meta_error(500), "wheel": meta_error(401)},
+            "wheel",
+            id="500-then-401",
+        ),
+        pytest.param(
+            {
+                "floodwater": MetaApiError("connection failed or timed out"),
+                "wheel": meta_error(403),
+            },
+            "wheel",
+            id="timeout-then-403",
+        ),
+        pytest.param(
+            {"floodwater": KeyError("boom"), "wheel": meta_error(402)},
+            "wheel",
+            id="not-meta-then-402",
+        ),
+        pytest.param(
+            {"floodwater": meta_error(403), "wheel": meta_error(401)},
+            "floodwater",
+            id="two-rejections",
+        ),
+        # Otherwise the first error in phrase order, as before.
+        pytest.param(
+            {"floodwater": meta_error(500), "wheel": meta_error(503)},
+            "floodwater",
+            id="two-other-errors",
+        ),
+    ],
+)
+def test_segment_all_raises_a_rejected_key_first(image, errors, raised_by):
+    def on_segment(phrase):
+        if phrase in errors:
+            raise errors[phrase]
+
+    client = FakeClient(sam_results({}), on_segment=on_segment)
+    with pytest.raises(MetaApiError) as exc:
+        segment_all(client, image, SAM_PHRASES)
+    assert exc.value is errors[raised_by]
+
+
 def test_link_wheels_by_centre():
     vehicles = [instance(i, box) for i, box in enumerate(VEHICLES)]
     centres = [

@@ -184,6 +184,10 @@ class ModelAnswerError(Exception):
     """Muse Spark's answer isn't valid JSON or fails the schema (C47)."""
 
 
+# Meta's statuses for a rejected key or account, which aren't the photo's fault (C73).
+KEY_REJECTED_STATUSES = frozenset({401, 402, 403})
+
+
 class ModelKeyRejected(Exception):
     """Meta answered 401, 402 or 403: it rejected the key or the account (C73).
 

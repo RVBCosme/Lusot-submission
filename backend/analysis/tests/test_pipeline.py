@@ -336,6 +336,22 @@ def test_rejected_key_raises(prompt, segment_error, judged, status):
     assert len(calls(client, "judge")) == (1 if judged is not None else 0)
 
 
+def test_rejected_key_wins_over_other_sam_failures(prompt):
+    # R107: a 500 on floodwater must not hide a 401 on wheel (C73).
+    photo, sam, given = level_case()
+    errors = {"floodwater": meta_error(500), "wheel": meta_error(401)}
+
+    def on_segment(phrase: str) -> None:
+        if phrase in errors:
+            raise errors[phrase]
+
+    client = FakeClient(sam, given, on_segment=on_segment)
+    with pytest.raises(ModelKeyRejected) as exc:
+        run_pipeline(photo, client, prompt)
+    assert exc.value.status == 401
+    assert calls(client, "judge") == []
+
+
 def test_deadline_reaches_every_call(prompt):
     photo, sam, given = level_case()
     client = FakeClient(sam, given)
@@ -370,6 +386,21 @@ def test_other_exceptions_are_pipeline_errors(prompt):
     assert "meta_status" not in run.log
     assert "boom-marker" not in json.dumps(run.log)
     assert calls(client, "judge") == []
+
+
+def test_failed_publish_is_a_pipeline_error(prompt, monkeypatch):
+    # A level result stores its photo (C61), so one whose photo can't be made fails,
+    # with no level and no deciding reference.
+    def broken(image, sam):
+        raise ValueError("JPEG encoding failed")
+
+    monkeypatch.setattr("lusot_analysis.pipeline.publish_jpeg", broken)
+    photo, sam, given = level_case()
+    run = run_pipeline(photo, FakeClient(sam, given), prompt)
+    assert run.outcome == Outcome.failed("pipeline_error")
+    assert run.publish_jpeg is None
+    assert "deciding" not in run.log
+    assert run.log["error"] == "ValueError"
 
 
 @pytest.mark.parametrize(
