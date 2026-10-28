@@ -3,8 +3,9 @@
 It sends only BlurredImages, so the face blur always runs first (C37). SAM and Muse
 Spark go through the OpenAI SDK at Meta's base URL (plan Table 17), and transcription is
 a plain HTTPS multipart call. One httpx client carries both, so connections are kept.
-Only 429, 500 and 503 are retried. A call given a deadline starts no try or wait that
-would pass it (C84).
+Only 429, 500 and 503 are retried. A call can run under a deadline (C84, C88): it then
+starts no try or wait that the deadline rules out, and cuts its timeouts to the time
+left, but a read already under way can end after it (MetaClient._send says by how much).
 """
 
 from __future__ import annotations
@@ -52,6 +53,11 @@ _MODELS = frozenset({SAM_MODEL, SPARK_MODEL, TRANSCRIBE_MODEL})
 _MIN_KEY_LENGTH = 20  # the real key has 48 characters (spec A8), the stale shell copy 1
 _RETRY_STATUSES = frozenset({429, 500, 503})
 _POLL_S = 1.0  # between polls of a background SAM response
+# Under a deadline (C88): no retry starts with less time than this left, because it
+# couldn't finish but might still be billed, and a SAM stream waits at most this long
+# for its next event, 2.4 times the slowest call C85 saw at the app's size (R103).
+_MIN_TRY_S = 5.0
+_STREAM_GAP_S = 20.0
 # Stream events that end a SAM response without a result (R63).
 _STREAM_FAILURES = frozenset(
     {"response.failed", "response.incomplete", "response.refusal.done", "error"}
@@ -87,11 +93,11 @@ class MetaApiError(RuntimeError):
 class DeadlineExceeded(MetaApiError):
     """A Meta call stopped at the run's deadline (C84). `status` is None.
 
-    The client raises it instead of starting a try with no time left, or a retry or
-    poll wait that would reach the deadline. It also raises it when a SAM stream is
-    still running at the deadline, and when a timeout cut to the time left fires. It
-    is a MetaApiError, so the report ends failed/model_error like any other Meta
-    failure.
+    The client raises it instead of starting a try with no time left, a retry with
+    under 5 s left, or a poll wait that would reach the deadline (C88). It also
+    raises it at a SAM stream's first chunk at or after the deadline, and when a
+    timeout fires at or after it. It is a MetaApiError, so the report ends
+    failed/model_error like any other Meta failure.
     """
 
 
@@ -218,9 +224,8 @@ class MetaClient:
         The request is streamed. On a 504 it is sent again in the background and
         polled (C10). A result comes only from a completed response: any other end
         raises MetaApiError, so a failure never reads as "no matches" (R63).
-        With a `deadline`, a time.monotonic() value, the call starts no try or wait
-        that would pass it, and each try's timeouts are cut to the time left (C84).
-        None sets no deadline.
+        `deadline` is a time.monotonic() value that bounds the call as `_send`
+        describes (C84, C88); None sets no deadline.
         """
         _check_image(image)
         request = {
@@ -261,10 +266,11 @@ class MetaClient:
         as in `segment` (C84). `reasoning_effort` is sent as reasoning.effort when
         set; otherwise Meta's default applies.
 
-        Before any parsing, an answer whose status is incomplete raises
-        MetaApiError, and one that holds a refusal part raises ModelRefused (C86).
-        The answer is then parsed with json.loads, so one that isn't JSON raises
-        json.JSONDecodeError (R62).
+        Before any parsing, an answer with a status other than completed raises
+        MetaApiError (C86, R104), and one that holds a refusal part raises
+        ModelRefused (C86). Meta's schema makes `status` optional, so an answer
+        without one is read. The answer is then parsed with json.loads, so one that
+        isn't JSON raises json.JSONDecodeError (R62).
         """
         _check_image(image)
         message = _message(prompt, image)
@@ -293,9 +299,8 @@ class MetaClient:
             schema_name=schema_name,
         ).parse()
         elapsed = time.monotonic() - started
-        # Meta's schema makes `status` optional, so only an explicit incomplete counts.
-        if response.status == "incomplete":
-            raise MetaApiError("Muse Spark's answer is incomplete")
+        if response.status not in (None, "completed"):
+            raise MetaApiError(f"Muse Spark's answer ended {response.status}")
         if _refused(response):
             raise ModelRefused("Muse Spark refused to answer")
         text = response.output_text
@@ -366,17 +371,20 @@ class MetaClient:
         """Stream a SAM request. Return the SSE text and SAM's output text.
 
         The stream is read inside the retry loop, so a shutdown in it is retried.
-        httpx sets one read timeout per request, and keepalive events can hold a
-        stream open, so with a deadline each chunk is also checked against it as it
-        arrives (C84, R101). A read that began before the deadline can still wait
-        out its timeout, which is at most the time left when the try began.
+        Under a deadline, each read waits at most 20 s for the next event (C88, R103),
+        and each chunk is checked against the deadline as it arrives, because
+        keepalive events can hold a stream open (R101). So a stalled stream ends
+        within 20 s, and one still running at the deadline ends at its next chunk.
         """
         text = ""
 
         def call(timeout: float) -> Any:
             nonlocal text
+            limits: float | httpx.Timeout = timeout
+            if deadline is not None:
+                limits = httpx.Timeout(timeout, read=min(timeout, _STREAM_GAP_S))
             response = self._openai.responses.with_raw_response.create(
-                **request, stream=True, timeout=timeout
+                **request, stream=True, timeout=limits
             )
             body = response.http_response
             if deadline is not None:
@@ -449,15 +457,18 @@ class MetaClient:
         connection or a timeout, raises MetaApiError at once (R65). `log_extra` adds
         fields read from a response to its try's log line.
 
-        With a deadline (C84), each try's timeout is cut to the time left. A try with
-        no time left, a wait that would reach the deadline, and a cut timeout that
-        fires raise DeadlineExceeded. A wait is never shortened, so a retry never
-        comes early.
+        With a deadline (C84, C88), each try's timeouts are cut to the time left, and
+        DeadlineExceeded is raised instead of starting a try with no time left, or a
+        retry wait that would leave under 5 s. A timeout that fires at or after the
+        deadline raises it too; one that fires before it is a MetaApiError. A wait is
+        never shortened, so a retry never comes early. A read under way at the
+        deadline can still run to its timeout: at most 20 s for a SAM stream, and at
+        most the time left when the try began for the other calls.
         """
         self._check_model(model)
         attempt = 1
         while True:
-            timeout, cut = self._timeout(deadline)
+            timeout = self._timeout(deadline)
             started = time.monotonic()
             status = retry_after = None
             try:
@@ -477,39 +488,46 @@ class MetaClient:
                 if attempt >= self._max_attempts:
                     raise MetaApiError("SAM's stream shut down; no tries left") from exc
             except (openai.APIConnectionError, httpx.TransportError) as exc:
-                timed_out = (openai.APITimeoutError, httpx.TimeoutException)
-                if cut and isinstance(exc, timed_out):
+                timeouts = (openai.APITimeoutError, httpx.TimeoutException)
+                late = deadline is not None and self._clock() >= deadline
+                if late and isinstance(exc, timeouts):
                     raise DeadlineExceeded("timed out at the deadline") from exc
                 raise MetaApiError("connection failed or timed out") from exc
             finally:
                 _log(model, fields, status, started)
-            self._wait(self._delay(attempt, retry_after), deadline)
+            delay = self._delay(attempt, retry_after)
+            self._wait(delay, deadline, then_left=_MIN_TRY_S)
             attempt += 1
 
     def _delay(self, attempt: int, retry_after: str | None) -> float:
         backoff = 0.5 * 2 ** (attempt - 1) + self._rng()
         return max(backoff, _retry_after(retry_after))
 
-    def _timeout(self, deadline: float | None) -> tuple[float, bool]:
-        """A try's timeout, and whether the deadline cut it (C84).
+    def _timeout(self, deadline: float | None) -> float:
+        """A try's timeout: timeout_s, or the time left if that is less (C84).
 
-        It is timeout_s, or the time left if that is less. With no time left it
-        raises DeadlineExceeded, so nothing is sent.
+        With no time left it raises DeadlineExceeded, so nothing is sent.
         """
         if deadline is None:
-            return self._timeout_s, False
+            return self._timeout_s
         left = deadline - self._clock()
         if left <= 0:
             raise DeadlineExceeded("no time left before the deadline")
-        return min(self._timeout_s, left), left <= self._timeout_s
+        return min(self._timeout_s, left)
 
-    def _wait(self, seconds: float, deadline: float | None) -> None:
-        """Sleep, unless that would reach the deadline: then raise DeadlineExceeded.
+    def _wait(
+        self, seconds: float, deadline: float | None, *, then_left: float = 0.0
+    ) -> None:
+        """Sleep, unless the deadline rules the wait out: then raise DeadlineExceeded.
 
-        The wait is never shortened, so a retry or a poll never comes early (C84).
+        A wait is ruled out when it would reach the deadline, or leave less than
+        `then_left` seconds after it (C88). It is never shortened, so a retry or a
+        poll never comes early (C84).
         """
-        if deadline is not None and self._clock() + seconds >= deadline:
-            raise DeadlineExceeded(f"a {seconds:g} s wait would reach the deadline")
+        if deadline is not None:
+            left = deadline - (self._clock() + seconds)
+            if left <= 0 or left < then_left:
+                raise DeadlineExceeded(f"a {seconds:g} s wait leaves too little time")
         self._sleep(seconds)
 
 

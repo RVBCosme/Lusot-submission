@@ -514,6 +514,23 @@ def test_judge_raises_model_refused_on_a_refusal_part(photo, caplog):
     assert words not in caplog.text
 
 
+def test_judge_reads_only_a_finished_answer(photo):
+    # R104: Meta's schema makes `status` optional, so an answer without one is read,
+    # but any status other than completed is a model error, before the refusal check.
+    answer = json.loads((FIXTURES / "spark_response.json").read_text())
+    del answer["status"]
+    meta = FakeMeta(httpx.Response(200, json=answer))
+    c, _ = client(meta)
+    assert judge(c, photo).data["city"] == "Menlo Park"
+    answer["output"][0]["content"] = [{"type": "refusal", "refusal": "No."}]
+    for status in ("failed", "cancelled", "queued", "in_progress"):
+        meta = FakeMeta(httpx.Response(200, json=answer | {"status": status}))
+        c, _ = client(meta)
+        with pytest.raises(MetaApiError) as exc:
+            judge(c, photo)
+        assert exc.value.status is None
+
+
 def test_count_input_tokens(photo):
     """The count is the response on https://dev.meta.ai/docs/token-counting, its
     integer filled in."""
@@ -898,8 +915,9 @@ def test_retry_after_within_the_deadline_is_honoured(photo, kind):
     result = call(c, kind, photo, deadline=clock.now + 30)
     assert result.raw  # the parsed answer
     assert clock.sleeps == [2.0]  # Retry-After, not the 0.5 s backoff
-    # Each try's timeout is the time left when it starts.
-    assert [r.extensions["timeout"]["read"] for r in meta.requests] == [30.0, 28.0]
+    # Each try's timeouts are the time left when it starts (a SAM stream's read is also
+    # capped at 20 s, so the connect timeout shows it for both).
+    assert [r.extensions["timeout"]["connect"] for r in meta.requests] == [30.0, 28.0]
 
 
 @pytest.mark.parametrize("kind", ["judge", "segment"])
@@ -909,6 +927,22 @@ def test_no_time_left_sends_nothing(photo, kind):
     with pytest.raises(DeadlineExceeded):
         call(c, kind, photo, deadline=clock.now)
     assert meta.requests == []
+
+
+@pytest.mark.parametrize(("left", "retried"), [(5.4, False), (5.5, True)])
+def test_no_retry_starts_with_under_5_s_left(photo, left, retried):
+    # R104 (C88): a try with under 5 s left can't finish but may still be billed. The
+    # 503's backoff is 0.5 s, so 4.9 s or 5.0 s would be left for the retry.
+    meta = FakeMeta(error(503), fixture("spark_response.json"))
+    c, clock = timed_client(meta, rng=lambda: 0.0)
+    if retried:
+        judge(c, photo, deadline=clock.now + left)
+        assert clock.sleeps == [0.5]
+    else:
+        with pytest.raises(DeadlineExceeded):
+            judge(c, photo, deadline=clock.now + left)
+        assert clock.sleeps == []
+    assert len(meta.requests) == (2 if retried else 1)
 
 
 def test_background_poll_stops_at_the_deadline(photo):
@@ -952,19 +986,54 @@ def chunked(body: Chunks) -> httpx.Response:
     )
 
 
+def stalls(clock: FakeClock, wait: float) -> Chunks:
+    """A SAM stream that sends one chunk, then stalls: its next read waits `wait`
+    seconds, its read timeout, and times out."""
+    return Chunks(
+        [SAM_STREAM[:200], httpx.ReadTimeout("no event in time")], clock, gap=wait
+    )
+
+
 def test_stream_read_timeout_shrinks_to_the_time_left(photo):
     clock = FakeClock()
-    stalled = Chunks([SAM_STREAM[:200], httpx.ReadTimeout("no event in time")], clock)
+    stalled = stalls(clock, 3.0)
     meta = FakeMeta(sam_stream(DOC_TEXT), chunked(stalled))
     c, _ = timed_client(meta, clock)
     assert len(c.segment(photo, "wheel", deadline=clock.now + 3).instances) == 2
     assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 3.0)
-    # The read timeout was the time left, so a read that times out is at the deadline.
+    # The read timeout is the time left, so a read that times out is at the deadline.
     with pytest.raises(DeadlineExceeded) as exc:
         c.segment(photo, "wheel", deadline=clock.now + 3)
     assert exc.value.status is None
     assert stalled.closed  # its connection isn't left open
     assert len(meta.requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("left", "read", "raised"),
+    [
+        (None, 90.0, MetaApiError),  # no deadline: MS1's read timeout, uncapped
+        (150.0, 20.0, MetaApiError),  # a stall well before the deadline
+        (60.0, 20.0, MetaApiError),  # cut by the cap, yet still before the deadline
+        (5.0, 5.0, DeadlineExceeded),  # the time left is shorter, so it ends at it
+    ],
+)
+def test_stream_idle_wait_is_capped_under_a_deadline(photo, left, read, raised):
+    # R103 (C88): under a deadline a SAM stream read waits at most 20 s for its next
+    # event, and a timeout is DeadlineExceeded only at or after the deadline.
+    clock = FakeClock()
+    stalled = stalls(clock, read)
+    meta = FakeMeta(chunked(stalled))
+    c, _ = timed_client(meta, clock)
+    deadline = None if left is None else clock.now + left
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel", deadline=deadline)
+    assert type(exc.value) is raised
+    assert exc.value.status is None
+    timeout = meta.requests[0].extensions["timeout"]
+    assert timeout["read"] == read
+    assert timeout["connect"] == min(90.0, left or 90.0)  # only the read is capped
+    assert stalled.closed
 
 
 @pytest.mark.parametrize(("left", "stops"), [(5.0, True), (30.0, False)])
@@ -991,12 +1060,14 @@ def test_judge_timeout_shrinks_to_the_time_left(photo):
     judge(c, photo, deadline=clock.now + 3)
     assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 3.0)
     sent = []
+    clock = FakeClock()
 
     def times_out(request):
         sent.append(request)
+        clock.now += request.extensions["timeout"]["read"]  # it waits it out
         raise httpx.ReadTimeout("no answer in time")
 
-    c, clock = timed_client(times_out)
+    c, _ = timed_client(times_out, clock)
     with pytest.raises(DeadlineExceeded) as exc:  # the timeout was the time left
         judge(c, photo, deadline=clock.now + 3)
     assert exc.value.status is None
