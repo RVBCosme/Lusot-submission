@@ -8,6 +8,8 @@
 > - The old Tasks 7 to 10 are now 9 to 12.
 > - The old Task 11 is now Task 13 (the sweep and event replay) and Task 14 (the other development tools).
 > - The old Tasks 12 to 15 are now 15 to 18.
+>
+> **Fix round 1, Oct 29, 5:26 AM:** the fresh review's P1 to P18 (and the spec's S1 to S10), and the rulings R117 and R119. Task 19, the sealed-run entry point, is new and comes last (C329). Task 7 gains a first step, so its steps are renumbered. Task 17 gains a step for the drawing on labelled photos (MS3b-Q8), so its later steps move down one.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -28,13 +30,15 @@
 Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four.
 
 **Start condition:** after MS3a merges into `main`. Branch `ms3b-geometry` from `main` then. Every task changes files that MS3a's Tasks 1 to 13 create, so nothing starts earlier. Rene's overnight plan sets what runs first:
-- Tasks 1 to 15 build on synthetic data.
+- Tasks 1 to 10 and 12 to 15 build on synthetic data.
 - Task 11 sends C87's Commons photos, and Task 16 runs the Set C checks (C323).
 - Steps that need Set A, A-neg or Set B development data wait, marked waiting. So does every step that scores or shows a Set A or A-neg development result, until Rene approves v0.7 (C322).
+- Task 19 starts after Task 18 merges MS3b into `main`, on its own branch, and is due by Nov 2 (C329).
 
 ## Global Constraints
 
 - **AWS:** as MS3a: region `ap-southeast-1`, profile `lusot`, `--no-cli-pager`, and `MSYS_NO_PATHCONV=1` in Git Bash for arguments that start with `/`.
+- **Cloud waits (R119):** MS3b's smoke runs wait at least 180 s for each report's final status. MS3a's runs stop as late as about 150 s (C84, C88), and geometry adds time. B1's recorded bound stays 120 s (C68).
 - **Model IDs:** exactly `sam-3.1` and `muse-spark-1.3`. Never `muse-spark-1.3-contributor`.
 - **The face blur comes first.** Every image sent to Meta comes from `blur_for_meta` or `BlurredImage.derive`: live runs, Set B crops, the effort test and the Set C checks alike.
 - **No new Meta call per photo.** Geometry uses masks the pipeline already requests (`wheel`, `wheel rim`, `floodwater`). The Lambda still makes 7 + 1 calls, the offline runner 5 + 1, and a replay none. Pay once (G2) is unchanged.
@@ -43,6 +47,8 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
 - **Printed output:** counts and timings only, with runs of 12 digits masked. No photo names or paths.
 - **What never enters the repo:** account IDs, the Meta Team ID, console links, emails, plan text (cite "plan §N"), photos of any set, manifests, run folders and results rows. Tests build synthetic images and masks only.
 - **Sealed data:** nothing under a folder named `sealed` is opened, listed or searched. Every new script calls the runner's `refuse_sealed` on every path it is given before opening anything. Set B's final cars and Set D are never touched. No Set A or A-neg photo is opened before MS2's split.
+  - Task 19's entry point is the one tool that reads inside a folder named `sealed`, and only when Rene runs it (C329).
+  - Its tests make their own `tmp_path` folder named `sealed`. That folder is synthetic, not sealed data. No test reads `lusot-data` or any real sealed folder, and no one opens the test folders by hand.
 - **STURM stays offline** (MS3a's C87): the runner's `refuse_sturm_live` refuses a live run on it, and no MS3b command sends it to Meta. New Meta calls use only C323's sources, each with its credit line kept (R102).
 - **v0.7 first (C322):** before any step that scores or shows a Set A or A-neg development result (C310's tuning and replay, C312 on labelled photos, C313, C315), the controller checks that `eval/rules.md`'s status line says v0.7, approved by Rene. If it doesn't, the step waits, marked waiting, and MS3b-Q2's fallback (b) applies. Set B's figures show no Set A result, so Set B doesn't wait for it.
 - **Scoring belongs to MS6 (C321; MS6's C400).**
@@ -67,7 +73,7 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
     - **check 9 (R88, R89, R91), the rim's size:**
       - The fit's horizontal extent (its full width along x, from its axes and angle) is divided by the wheel box's width.
       - The result must lie between `rim_size_low` × the smallest and `rim_size_high` × the largest of each code's `rim × cos φ ÷ (D × cos φ + W × sin φ)`, over the type's codes. Otherwise `rim_size`.
-      - `rim_size_low` (0.85) and `rim_size_high` (1.15) are tuning fields, so C310 can tune them (finding 1).
+      - `rim_size_low` (0.85) and `rim_size_high` (1.15) are tuning fields, so C310 can tune them (finding 1). `rim_size_low` never goes below 0.50, and `rim_size_high` never above 1.55: past them, Task 3's side-on hubcap (0.2985) or whole wheel (0.9805) would pass (S3).
       - D is the tire's diameter and W its section width, both in inches. `cos φ` is the fit's axis ratio, and `sin φ = √(1 − cos² φ)`.
       - The ratio allows for the tread a box takes in when the wheel is seen at an angle.
     - any code's depth of 0 or less → `depth_not_positive` (C306)
@@ -88,14 +94,17 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
     - C309's guards (coverage falls by no more than 10 points, passability by no more than 5)
     - C319's trigger (under 70% measured, or a median error above 3 in)
     - the replay's difference in within-one photos (MS6's C425), which guard 3 reads (C324)
+    - development A-neg's false floods (W9), which C310's rule for T, the touch share, the IQR share and the rim score reads (S6)
 - **Tuning uses development data only:** Set A and A-neg development photos after MS2's split and v0.7 (C322), Set B development cars, and Set C.
 - **Cost:**
   - Set B: about $0.15 (about 20 crops × 3 SAM phrases)
-  - C312, its own line (§D2): about $0.90, under $2 (10 photos: one full run, then 4 runs of Muse Spark alone)
+  - C312, its own line (§D2): about $0.90, under $2 (10 photos: one full run, then 4 runs of Muse Spark alone), plus about $0.15 to run a lower effort and the drawing together if both pass (P16)
+  - the drawing on labelled photos (MS3b-Q8, Task 17): about $0.30, plus about $0.60 to re-judge the development photos if it is adopted
   - development runs: about $0.03 a photo, so about $1.10 for 40 photos
   - the water phrases (C326): about $0.20 on 40 development photos, plus an optional $0.05 on 10 Commons photos
   - the Set C checks (C323): about $0.57 for the 19 PUV photos, and $0.02 for the 4 coded cars
   - D1: at most $0.50 (up to 10 offline runs, MS3a's smoke run and one geometry photo)
+  - Task 19: nothing, since its tests use synthetic data and fakes
 
   Every paid command prints its call count and estimated cost, and stops there unless given `--yes`.
 - **Freeze:** the tuning version (with the reasoning effort and the drawing), the tire codes, the SAM phrases and `geometry_in_level`'s default are frozen before the sealed run, and each is recorded in the results folder's `run.json` (v0.7 item 10.1).
@@ -125,14 +134,15 @@ Most likely first. Each line names its tests.
 5. **Set B's composited water that SAM can't see.** The SAM variants record the wheel as unmeasured, the known-waterline variants still measure it, and `sam_water_found` is false. Task 15 `test_sam_missing_water_still_measures_the_known_waterline`.
 6. **The evidence record leaks nothing.** No face or plate outline, no `reason`, and never a log line. Task 8 `test_evidence_holds_no_face_plate_or_reason` and `test_evidence_never_reaches_the_log`; Task 10 `test_log_line_holds_no_evidence`.
 7. **Efforts never mix in the ablation (finding 5).** Development runs live in folders named by their effort and drawing, and the export refuses a run whose settings aren't the tuning's. Task 12 `test_export_refuses_mixed_settings`.
+8. **A label the harness can map stays mappable (P1).** The export's label check mirrors the harness's `scoring.labels` exactly, or labels such as "Knee deep." and "9in" would become `(other words)` and their photos would be excluded, in the sealed run too. Task 12 `test_labels_match_the_harness`.
 
 ## Execution notes
 
 - **Routing (D18, R81):**
-  - Opus 5.5 at max: the implementers of Tasks 1 to 15, and each task's review, one seat with both verdicts (R81)
+  - Opus 5.5 at max: the implementers of Tasks 1 to 15 and 19, and each task's review, one seat with both verdicts (R81)
   - Sonnet 5.5 at xhigh: scoped re-reviews after a fix round
   - Claude itself: Task 11's paid steps, and Tasks 16 to 18
-- **Order:** one task at a time, in number order. Task 11 deploys the core before the development tools, because C311's Oct 31 gate needs D1. Task 16 runs on Set C before the split. Task 17 runs when its data exists and Rene has approved v0.7 (C322, MS3b-Q1 and Q2).
+- **Order:** one task at a time, in number order. Task 11 deploys the core before the development tools, because C311's Oct 31 gate needs D1. Task 16 runs on Set C before the split. Task 17 runs when its data exists and Rene has approved v0.7 (C322, MS3b-Q1 and Q2). Task 19 runs after Task 18's merge, by Nov 2 (C329).
 - **MS3a interfaces used,** as built (checked against the code on Oct 29):
   - `rules`: `LEVELS`, `PASSABILITY`, `level_index`, `Reading`, `WHEEL_ROWS`, `PEOPLE_ROWS`, `BODY_ROWS`, `HIDDEN_WHEEL`, `READING_TYPES`, `disagree`
   - `pipeline.types`: `Outcome` (its builders, `item_fields()`, `log_name`), `Reference`, `ModelClient` (whose `judge` already takes `deadline` and `reasoning_effort`), `ModelAnswerError`
@@ -149,6 +159,7 @@ Most likely first. Each line names its tests.
   - `tests/fakes.py`: `SIZE`, `noise_jpeg`, `flat_jpeg`, `instance(..., mask_xyxy=None, score=0.9)`, `sam_results`, `FakeClient` (its `keywords` record `deadline` and `reasoning_effort`, R101), `vehicle`, `wheel`, `person`, `answer`, `meta_error`, `REPO_PROMPTS`, `level_case`
   - `backend/scripts/smoke_upload.py` (MS3a Task 15; R102, R115, R116): `photo_folder`, `seeded_photo_order(folder)` (C87's order, as `images/<name>` paths), `credited(folder, photos)`, `as_app_jpeg`, `upload_photo` (which runs `wait_final` and `log_lines`), `wait_final(..., clock=None, sleep=None)`, `check_report_body`, `log_lines(stack, report_id, *, until=None, clock=None, sleep=None)`, `Stack` (with `log_group`), `say_spend`, `CheckFailed`, `refuse_sealed`, `say`
   - MS1's `SamInstance(id, box, mask, score)`: `box` is half-open `(x0, y0, x1, y1)` floats in sent-image pixels, `mask` is an H×W bool array, and `score` is `float | None`
+- **MS2's interfaces used by Task 19,** on `ms2-data` until MS2 merges: `backend/analysis/probes/set_b_masks.py` holds verbatim copies of `eval/data/guards.py`'s `is_sealed_name`, `refuse_sealed`, `require_sealed`, `console_ok` (`GetConsoleMode` on stdin and stdout, MS2's C202), `require_console`, `confirm` and `quiet`, with a parity test. `backend/analysis` can't import `eval/`, so these copies are the ones to reuse.
 - **Commands** run from `backend/analysis` unless a step says otherwise.
 
 ---
@@ -386,7 +397,8 @@ Most likely first. Each line names its tests.
     - `rim_r=17.5` (a hubcap): axis ratio 0.9988, `width_x` 34.33, a rim size of 0.2985, against bounds 0.5108 to 0.7412 → `rim_size`
     - `rim_r=57` (the whole wheel): 0.9895, `width_x` 112.76, 0.9805, against 0.4966 to 0.7197 → `rim_size`
     - `rim_r=35` (the true rim): 0.9894, `width_x` 68.99, 0.5999, against 0.4965 to 0.7196 → passes
-    - each within 0.002
+    - each within 0.002, with `START`'s factors
+    - under `TUNING` too, the hubcap and the whole wheel still give `rim_size`, so a tuned factor can't let them through (S3, P4). They would pass only with `rim_size_low` at 0.4967 or below, or `rim_size_high` at 1.5667 or above, hence the limits of 0.50 and 1.55.
     - `keep_reading(WHEEL_ROWS["rim_quarter"], None)` keeps the landmark, so a failed rim leaves the wheel its landmark reading
 - [ ] **Step 3:** Run `uv run pytest -q tests/test_geometry.py`. Expected: FAIL, except the Step 1 test.
 - [ ] **Step 4:** Implement `geometry.py`.
@@ -515,7 +527,7 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
 
       Every Waterline with a cause enters `step3_drops`.
     - **Steps 4 and 5, only with geometry on:**
-      - `link_rims(kept wheel instances, sam["wheel rim"].instances)`
+      - `link_rims(sam["wheel"].instances, sam["wheel rim"].instances)`, over all of SAM's wheels before the cuts, as C55 links wheels among all of SAM's vehicles (P14). So a rim inside a cut wheel's box never joins a kept wheel. Each kept wheel then takes its own rims.
       - for every wheel of a kept vehicle: `wheel_geometry(answer_waterline=..., codes=tire_codes(vehicle_type), rims=..., waterline=..., wheel_box=box_xyxy(instance), brightness=scores.brightness, tuning=tuning)`
     - **Then** `measure(kept, step3_drops=..., geometry=...)` and `combine`, as before.
   - **New log keys (C316):**
@@ -523,7 +535,7 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
     - with geometry on: `wheels_measured` and `geometry_checks` (`{cause: count}`)
     - on level results: `level_from`, plus `depth_in` (`[min, max]`, rounded out) when it is `"geometry"`
     - step 3's causes and `wheel_methods_disagree` join `drops`
-- Produces, in `tests/fakes.py`: `geometry_case(vehicle_type="sedan_hatch", waterline="rim_quarter") -> tuple[bytes, dict[str, SamResult], dict]`, the photo, SAM results and answer below. Tasks 7 to 12 reuse it.
+- Produces, in `tests/fakes.py`: `geometry_case(vehicle_type="sedan_hatch", waterline="rim_quarter") -> tuple[bytes, dict[str, SamResult], dict]`, the photo, SAM results and answer below. Tasks 7 to 10 and 12 reuse it.
   - the photo is `noise_jpeg()`
   - from `wheel_scene(y_true=257)`, built with `instance(..., mask=...)`: `wheel` box `(263, 183, 378, 257)`, `wheel rim` box `(285, 205, 356, 257)` and `floodwater` box `(0, 257, 640, 480)`. `vehicle` is `(150, 100, 500, 300)`. Other phrases are empty.
   - the answer: vehicle 1 of the given type, not moving, body `not_visible`; wheel 2 at the given waterline
@@ -541,6 +553,7 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
   - `test_a_dry_reference_refuses_rather_than_reads_shallow` (C317): `level_case()` plus person 3, box `(450, 50, 480, 200)`, answered at `waist`. No water reaches the person, so the result is `references_disagree`, with `drops["no_water_contact"] == 1`.
   - `test_a_dry_standing_adult_still_blocks_wading_adults` (C317, C57; finding 8): `level_case()` plus person 3 (box `(450, 50, 480, 200)`, an adult standing still, at `knee`, with no water near) and person 4 (box `(520, 150, 560, 280)`, an adult not standing still, at `knee`). Person 4 drops as `person_wading`, before step 3 runs, and step 3 then drops person 3 as `no_water_contact`. The result is `knee` from wheel 2, with `drops["person_wading"] == 1` and `drops["no_water_contact"] == 1`.
   - Review Focus 3, `test_not_visible_wheel_gets_no_geometry`: `geometry_case(waterline="not_visible")` with geometry on → `geometry_checks == {"waterline_not_visible": 1}`, `wheels_measured == 0`, `no_usable_reference`, and no step 3 cause in `drops`.
+  - `test_a_rim_in_a_cut_wheel_never_joins_a_kept_one` (P14): `geometry_case()` plus a 30 px `wheel` at `(300, 228, 330, 257)`, which the 40 px rule cuts, and a second `wheel rim` centred at (315, 245), inside both wheel boxes. That rim links to no single wheel, so wheel 2 keeps its own rim and still measures: `wheels_measured == 1` and `geometry_checks == {}`. Linking among the kept wheels only would give wheel 2 two rims (`rim_several`).
   - `test_log_keys_are_the_known_set` (C316): `set(run.log)` sits inside MS3a's keys plus the new ones above, so a mask can't reach the log.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_pipeline.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement.
@@ -563,7 +576,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 **Interfaces:**
 - Consumes: `Tuning` (Task 1); `run_pipeline(..., tuning=...)` (Task 6)
 - Produces:
-  - `meta_client.REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")`, from Meta's reasoning page (read Oct 28; `none` returns HTTP 400 for Muse Spark). `MetaClient.judge` raises `ValueError` for any other `reasoning_effort` before a request is sent. `None` still sends no `reasoning` key.
+  - `meta_client.REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")`, as the plan writer read Meta's reasoning page on Oct 28. MS1's probe note records only "minimal to max", and that `none` returns HTTP 400 for Muse Spark, so Step 1 re-reads the page first (P15). `MetaClient.judge` raises `ValueError` for any other `reasoning_effort` before a request is sent. `None` still sends no `reasoning` key.
   - `annotate.DRAWINGS = ("boxes-v1", "boxes-v2")`, and `outline_corners(box: tuple[int, int, int, int], drawing: str) -> tuple[tuple[int, int], tuple[int, int]]`, the two corners `draw_numbered_boxes` passes to `cv2.rectangle` at thickness 2 (C325, §D6):
     - `boxes-v1`, MS3a's drawing, unchanged: `((x0, y0), (x1 − 1, y1 − 1))`. Its 3 px outline is centred on the box's edge, so it covers a wheel box's rows y1 − 2 to y1.
     - `boxes-v2`: `((x0 − 4, y0 − 4), (x1 + 3, y1 + 3))`. The same 3 px outline lies outside the box with a 2 px gap: its bottom covers rows y1 + 2 to y1 + 4.
@@ -574,7 +587,8 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - The handler and the offline runner both use `TUNING` by default, so the Lambda and the laptop send the same effort and draw the same way (§D2). Only a development run's explicit flag changes them (Task 9).
   - `FakeClient(..., reasoning_tokens: int | None = None)` puts that count in its answer.
 
-- [ ] **Step 1: Write the failing tests:**
+- [ ] **Step 1:** Re-read Meta's reasoning page (`https://dev.meta.ai/docs/reasoning`), and record the values it lists for `reasoning.effort`, with the date, in the task report. If they differ from the tuple above, the page's list wins (P15).
+- [ ] **Step 2: Write the failing tests:**
   - `test_judge_refuses_an_unknown_effort` (`test_meta_client.py`): `"none"` and `"turbo"` raise `ValueError`, and no request is made.
   - `test_tuning_effort_and_drawing_are_known_values` (`test_tuning.py`): `TUNING.reasoning_effort` is `None` or in `REASONING_EFFORTS`, and `TUNING.drawing` is in `DRAWINGS`.
   - `test_drawing_v2_leaves_the_wheels_edge_clear` (`test_annotate.py`), for the box `(100, 100, 160, 160)`:
@@ -586,10 +600,10 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - With `TUNING`, the fake recorded `None`, and the log has `"default"` and `"boxes-v1"`.
   - `test_reasoning_tokens_are_logged`: `FakeClient(..., reasoning_tokens=180)` → `run.log["reasoning_tokens"] == 180`; without it → `None`.
   - `test_log_keys_are_the_known_set` (Task 6) gains the three keys.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py tests/test_annotate.py tests/test_pipeline.py tests/test_tuning.py`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement. Read `meta_client.py` first: the check goes in `judge` before `options` is built.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): send the tuning's reasoning effort and box drawing to Muse Spark`.
+- [ ] **Step 3:** Run `uv run pytest -q tests/test_meta_client.py tests/test_annotate.py tests/test_pipeline.py tests/test_tuning.py`. Expected: the new tests FAIL.
+- [ ] **Step 4:** Implement. Read `meta_client.py` first: the check goes in `judge` before `options` is built.
+- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
+- [ ] **Step 6:** Commit `feat(analysis): send the tuning's reasoning effort and box drawing to Muse Spark`.
 
 ### Task 8: The evidence record (C328; MS4's C518)
 
@@ -662,7 +676,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - the commands:
     - `live <photo> [--data-dir DIR] [--run-dir DIR] [--geometry on|off] [--effort E] [--drawing D] [--sam-from RUN_DIR]`. `--effort` is a `REASONING_EFFORTS` value or `default`, and `--drawing` a `DRAWINGS` value. `--sam-from` reuses that run's SAM outputs and pays for `judge` only.
     - `replay` uses the saved `geometry_in_level` and `tuning`. A run without them, from MS3a, replays with geometry off and `START`.
-    - `same as saved` compares `rebuild_outcome(saved["outcome"])` with the replay's outcome, so an MS3a run folder still compares equal.
+    - `same as saved` compares `rebuild_outcome(saved["outcome"])` with the replay's outcome, so an MS3a run folder isn't judged by the keys it lacks. Its outcome can still really change, since step 3 now runs even with geometry off, and the printout then says `same as saved: False` (P12).
   - The printout adds `level_from`, `wheels_measured`, `geometry_checks`, `reasoning_effort`, `drawing_version` and `reasoning_tokens` (Task 11 reads them).
   - `refuse_sealed` also covers `--run-dir` and `--sam-from`
 
@@ -674,7 +688,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_sam_from_pays_only_for_judge`: a recorded run, then `live --sam-from <dir>` with a fake whose `segment` raises `AssertionError` → 0 `segment` calls and 1 `judge`. The new run replays to its own saved outcome.
   - `test_run_dir_flag_writes_there`, and `test_sealed_run_dirs_are_refused` (`--run-dir` or `--sam-from` under `sealed` → exit 2).
   - `test_rebuild_outcome_round_trips`: a landmark level, a geometry level with inches, no flood seen and a refusal each satisfy `rebuild_outcome(asdict(o)) == o`. An MS3a-shaped `asdict`, without the three new keys, rebuilds to the same level with `level_from == "landmark"`.
-  - `test_old_runs_replay_with_geometry_off`: a `run.json` without the new keys, whose saved outcome lacks the three new fields → geometry off, `START`, and `same as saved: True`.
+  - `test_old_runs_replay_with_geometry_off`: a `run.json` without the new keys, whose saved outcome lacks the three new fields, from `level_case()`, whose water touches its wheel so step 3 changes nothing → geometry off, `START`, and `same as saved: True`.
   - `test_sam_results_round_trip`: `save_sam_results`, then `load_sam_results`, gives equal boxes and scores, and `np.array_equal` masks. MS3a's saved-layout tests pass unchanged.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_run_pipeline.py tests/test_saved.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement.
@@ -703,11 +717,11 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_geometry_result_is_stored_with_its_source_and_inches` (C308): `geometry_case()` gives an item with `level` `half_knee`, `levelFrom` `geometry`, `depthInMin` 7.7 and `depthInMax` 8.2, stored as numbers.
   - `test_landmark_result_stores_level_from_only` (C320): `level_case()` gives `levelFrom` `landmark` and no `depthIn*`.
   - `test_b3_geometry_replay_matches` (D1, B3): the runner's `live()` records `geometry_case()` with geometry on. `replay(...).outcome == analyse(data, SavedOutputsClient(run_dir, data)).outcome`, both carry the inches, and their evidence records are equal (C328).
-  - MS3a's `test_b3_on_a_real_saved_run` compares `rebuild_outcome(saved["outcome"])` with the handler's outcome, so an MS3a run folder still passes it.
+  - MS3a's `test_b3_on_a_real_saved_run` compares `rebuild_outcome(saved["outcome"])` with the handler's outcome, so a folder isn't failed by the keys it lacks. It is meant for a folder MS3b's runner saved (Task 11 Step 7). An MS3a folder can still fail it on a real change, since the handler now runs step 3, and geometry by `GEOMETRY_IN_LEVEL` (P12).
   - `test_log_line_carries_the_geometry_fields` (C316): the line has `geometry_in_level`, `tuning_version`, `rim_edge_k`, `reasoning_effort`, `drawing_version`, `reasoning_tokens`, `wheels_measured`, `geometry_checks`, `level_from` and `depth_in`.
   - Review Focus 6, `test_log_line_holds_no_evidence` (C328): for `geometry_case()`, no key at any depth of the handler's log line is `evidence`, `outline`, `water_outline` or `rechecked`, and the stored item holds none either.
   - In `reports.test.ts`, `never returns levelFrom or the inches before the release gate` (C320): a stored level item with those three fields gives exactly MS3a's level body, and the body text contains none of the three names.
-  - The handler fixture sets `GEOMETRY_IN_LEVEL=on`. (MS3a's exact-field tests gained `levelFrom` in Task 4.)
+  - The `prompts` fixture in `test_handler.py` sets `GEOMETRY_IN_LEVEL=on` and clears `_geometry_in_level`'s cache, as it does for the prompt (P12). Both B3 tests use `prompts` alone, and the `aws` fixture builds on it, so every handler test gets the setting. (MS3a's exact-field tests gained `levelFrom` in Task 4.)
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_report_store.py tests/test_handler.py` and `npm test -w backend/api` (from the repo root). Expected: the Python tests FAIL. The API test PASSES with no code change. If it fails, the allow-list leaks: fix it in `reports.ts`.
 - [ ] **Step 3:** Implement the store, the handler and the template.
 - [ ] **Step 4:** Run `uv run pytest -q` and `uv run ruff check .`. From `backend`, run `sam validate --lint --profile lusot --region ap-southeast-1` and `grep -n "GEOMETRY_IN_LEVEL" template.yaml`. Expected: PASS; clean; valid; one match, and no `GeometryInLevel` parameter.
@@ -724,25 +738,36 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - Produces:
   - `check_geometry_line(line: dict) -> None` raises `CheckFailed("no wheel measured")` unless `wheels_measured >= 1`
   - No new body check: `check_report_body` already fails a body with any key beyond C67's, so `levelFrom`, `depthInMin` and `depthInMax` fail it (C320). A test pins that.
-  - `smoke_upload.py --geometry N`: sends the photo at position N of C87's order (`seeded_photo_order(folder)[N]`), as the app sends it, and only that photo. It stops with `CheckFailed`, before any upload, if `credited` skips that photo. Through `upload_photo` it waits for the final status (120 s, C68) and checks the body. It then runs `check_geometry_line` on the report's final log line, and prints the outcome, `level_from`, `wheels_measured`, `geometry_checks` and the spend. It exits 0 when every check passes and 1 otherwise. No path or name is typed or printed.
+  - `smoke_upload.py --bound S` (R119): the wait for each report's final status, passed through `upload_photo` to `await_report`'s `bound_s`. It defaults to 120 s, B1's bound (C68). MS3b's runs pass `--bound 180`, since MS3a's runs stop as late as about 150 s (C84, C88) and geometry adds time.
+  - `smoke_upload.py --geometry N`: sends the photo at position N of C87's order (`seeded_photo_order(folder)[N]`), as the app sends it, and only that photo. It stops with `CheckFailed`, before any upload, if `credited` skips that photo. Through `upload_photo` it waits for the final status within `--bound` and checks the body. It then runs `check_geometry_line` on the report's final log line, and prints the outcome, `level_from`, `wheels_measured`, `geometry_checks` and the spend. It exits 0 when every check passes and 1 otherwise. No path or name is typed or printed.
 
 - [ ] **Step 1:** Write the failing tests:
   - `test_geometry_check_needs_a_measured_wheel`: `wheels_measured` 1 passes; 0 or missing → `CheckFailed`.
   - `test_report_body_refuses_levelfrom_and_the_inches` (C320): a level body plus any one of the three keys → `CheckFailed` naming that key.
   - `test_geometry_mode_sends_one_credited_photo` (on fakes): position N's credited photo is the one sent; an uncredited one stops with `CheckFailed` before any upload.
+  - `test_bound_reaches_every_wait` (R119): with `--bound 180`, every report's wait gets 180 s; without it, 120 s.
 
   Run them with MS3a's command (its Task 15, Step 2): `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root. Expected: FAIL. Implement them, re-run, expect PASS, and commit `test(backend): add the smoke run's geometry check`.
-- [ ] **Step 2 (Claude; about $0.03 a photo):** find a photo with a geometry reading, offline. Go through C87's credited photos in its order, positions 0 to 9, one at a time. The smoke script's `seeded_photo_order` and `credited` give their paths; print none. For each, run `uv run python probes/run_pipeline.py live "<that photo>" --geometry on`, with the key line. Stop at the first run whose output shows `wheels_measured` of at least 1, and record its position, never its name. The Commons car photos can't serve: they are dry, so Muse Spark sees no flood and geometry never runs (C323). If none of the 10 measures a wheel, D1's cloud half is partly met. Record that, go on, and let the first Manila development or consented photo prove it.
+- [ ] **Step 2 (Claude; about $0.03 a photo):** find a photo with a geometry reading, offline, on the photo the cloud will get (P7).
+  - Go through C87's credited photos in its order, positions 0 to 9, one at a time. The smoke script's `seeded_photo_order` and `credited` give their paths; print none.
+  - For each, write `as_app_jpeg(that photo)`, the app's 1,600 px at quality 85, to `<LUSOT_DATA_DIR>\d1_search\<position>.jpg`. Then run `uv run python probes/run_pipeline.py live "<that file>" --geometry on`, with the key line.
+  - Stop at the first run whose output shows `wheels_measured` of at least 1, and record its position, never its name.
+  - The Commons car photos can't serve: they are dry, so Muse Spark sees no flood and geometry never runs (C323).
+  - If none of the 10 measures a wheel, D1's cloud half is partly met. Record that, go on, and let the first Manila development or consented photo prove it.
 - [ ] **Step 3: Preconditions**, as MS3a's Task 16 Step 1:
   - Rene's AWS login holds: the `ends_with(Arn, 'user/rene-dev')` query prints `true`.
   - Docker is running, and no Gradle build is. `git status` is clean.
+  - **A heads-up** in the handoff note: after this deploy, the cloud runs step 3 and geometry, so a photo's result can change, and the smoke run turns uploads off for about a minute (P6).
+  - **No phone test is running (M14).** CLAUDE.md says never to run the smoke during one. If Rene is testing the phone, wait (P6).
   - Post `DOCKER/DEPLOY RUNNING <time>` in the handoff note and to the tracker before Step 4, and `DOCKER/DEPLOY DONE <time>` after the last smoke run (the tracker's update A.2).
 - [ ] **Step 4:** Build and check the image as `CLAUDE.md`'s deploy line says. From PowerShell, with PATH refreshed, run `npm run build -w backend/api`, then `sam build --parallel` from `backend`. Check the image SAM built, `analysisfunction:<the template's DockerTag>` (`ms1` today), never a manual `docker build`:
   - `docker run --rm --network none --entrypoint python <image> -c "import lusot_analysis.meta_client, lusot_analysis.handler"`, and list `/var/task/prompts`
   - `docker run --rm --network none --entrypoint python <image> -c "from lusot_analysis.rules import tire_codes, TIRE_CODES_VERSION; print(TIRE_CODES_VERSION, len(tire_codes('unknown')))"` → `tire-codes-v1 12`
 - [ ] **Step 5:** Run `npm run deploy` from PowerShell. Expected: the stack updates, then `lifecycle: keep 3`.
-- [ ] **Step 6:** Run `uv run backend/scripts/smoke_upload.py` from the repo root. Expected: `SMOKE OK`; an exit 3 follows MS3a's C71 path (its Task 16, Step 4). Then, if Step 2 found a photo, run `uv run backend/scripts/smoke_upload.py --geometry <Step 2's position>`. Expected: exit 0. Record the outcome, `level_from`, `wheels_measured` and the seconds to a final status.
-- [ ] **Step 7:** If Step 2 found a photo, check B3 on its real run: `$env:LUSOT_B3_RUN_DIR = '<Step 2's run dir>'; $env:LUSOT_B3_PHOTO = '<that photo>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: all passed, 0 skipped.
+- [ ] **Step 6:** Run `uv run backend/scripts/smoke_upload.py --bound 180` from the repo root. Expected: `SMOKE OK`; an exit 3 follows MS3a's C71 path (its Task 16, Step 4). Then, if Step 2 found a photo, run `uv run backend/scripts/smoke_upload.py --bound 180 --geometry <Step 2's position>`. Expected: exit 0. Record the outcome, `level_from`, `wheels_measured` and the seconds to a final status.
+  - Muse Spark's answers vary between runs, so the cloud can miss a wheel the offline run measured. If `--geometry` exits 1, go back to Step 2's search from the next position, and try the next photo found (P7).
+  - Once positions 0 to 9 are used up, record D1's cloud half as partly met.
+- [ ] **Step 7:** If a photo passed, check B3 on its real run: `$env:LUSOT_B3_RUN_DIR = '<its run dir from Step 2>'; $env:LUSOT_B3_PHOTO = '<its file in d1_search>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: all passed, 0 skipped.
 - [ ] **Step 8:** Record the spend: the photos sent, 6 calls for each offline run, 8 for each cloud photo, and the estimate from billed usage in the log lines.
 
 ### Task 12: The export: development rows for MS6's harness (C315, C327)
@@ -756,14 +781,27 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - **The input, in MS2's formats** (its §5.9; MS6's spec header lists the bridging):
   - `set_a\dev\manifest.csv` and `a_neg\dev\manifest.csv`, UTF-8 CSV with a header row; each photo is `photos\<photo_file>` beside its manifest
   - Set A's `m8.csv`: one row per labelled item, with `photo_id`, `ref_id` (`P1` is the photo row), `kind` (`photo`, `vehicle`, `wheel` or `person`), `x` and `y` (fractions of the photo's width and height, from the top left), `vehicle_type`, `body_waterline`, `waterline`, `quality` and `subsets`
-  - The tools need `photo_id` (unique), `set`, `event_id` and `photo_file`. The export bridges the rest into §4.3's fields: `yes` and `no` into booleans, `;`-separated lists into lists, `quality` and `subsets` from M8's photo row, M8's points into box ids, and `duplicate_of` into `duplicate`. Only §4.3's fields reach a row: cities, spots, notes, file names, hashes, sizes and times stay out.
+  - The tools need `photo_id` (unique), `set` and `photo_file`. Set A rows also need `event_id`, which the replay groups by; other manifests, such as Task 16's for Set C, may leave it out (P10). The export bridges the rest into §4.3's fields: `yes` and `no` into booleans, `;`-separated lists into lists, `quality` and `subsets` from M8's photo row, M8's points into box ids, and `duplicate_of` into `duplicate`. Only §4.3's fields reach a row: cities, spots, notes, file names, hashes, sizes and times stay out.
   - If MS2's format changes, MS2's wins: adapt the reader in Step 1 and record how.
 - Produces, in `lusot_analysis.export` (MS6's sealed-run entry point reuses it, C412; MS3b doesn't build that entry point):
   - `CONFIGURATIONS = {"landmark": False, "geometry": True}`: each outcome key and its `geometry_in_level`
-  - `answer_without_reason(data: Mapping | None) -> dict | None`
+  - `answer_without_reason(data: Mapping | None, schema: dict) -> dict | None`: the answer without its `reason`. It is `None` when there was no answer, or when the answer fails the schema (`validate_answer`), since MS6's allow-list would refuse such a row (P13).
   - `replay_configurations(photo_data: bytes, run_dir: Path, prompt: PromptSpec, *, tuning: Tuning = TUNING, configurations=CONFIGURATIONS) -> dict[str, PipelineRun]`: one replay per configuration, with no Meta call
   - `m8_boxes(labels: Sequence[Mapping], evidence: Evidence, size: tuple[int, int]) -> list[dict]` (C327, MS6's C415, MS2's C208): each labelled reference's point, scaled to the sent image's width and height, goes to the numbered box of its kind that holds it, edges included (M8's `vehicle` is the record's `body`). Where two hold it, the one whose centre is nearest wins; where none does, the box id is `null`. Each entry has `box_id`, `kind`, `landmark` (a wheel's or a person's `waterline`, a vehicle's `body_waterline`) and, for a vehicle, `vehicle_type`.
-  - `label_or_marker(label: str, words: frozenset[str]) -> str` (C327, MS6's C420): a label stays as written when every word in it, compared without case, is in `words`, and everything else is a number of up to 3 digits or one of C420's marks (`- – , ( ) " ' ” “ ″ / +`, and a `.` inside a number). Any other label becomes `(other words)`. `words` comes from `python eval/run_eval.py --label-words`, run once as a subprocess and never imported (C321). Its list includes "ankle" and "head", and "+" is among the marks (MS6E-Q1, items 15 and 16).
+  - `label_or_marker(label: str, words: frozenset[str]) -> str` (C327, MS6's C420): a mirror of the harness's `scoring.labels.label_words_ok`, as committed on Window 4's branch (P1). Step 1 reads `eval/scoring/labels.py` there, read-only, and copies its three patterns exactly:
+
+    ```python
+    _MARKS = "-–,()\"'”“″/+"
+    _LABEL_CHARS = re.compile(f"[A-Za-z0-9 .{re.escape(_MARKS)}]*")
+    _SEPARATOR = re.compile(f"[ {re.escape(_MARKS)}]+|(?<![0-9])[.]|[.](?![0-9])")
+    _NUMBER_TOKEN = re.compile("[0-9]{1,3}(?:[.][0-9]{1,2})?(?:in|cm)?")
+    ```
+
+    - A blank label, and the marker itself, stay as they are.
+    - Any other label stays as written when it fullmatches `_LABEL_CHARS`, and every non-empty token of `_SEPARATOR.split(label.lower())` is in `words` or fullmatches `_NUMBER_TOKEN`. So a `.` outside a number separates words, and a number may be glued to `in` or `cm`.
+    - Any other label becomes `(other words)`.
+    - `words` comes from `python eval/run_eval.py --label-words`, run once as a subprocess and never imported (C321). Its list includes "ankle" and "head", and "+" is among the marks (MS6E-Q1, items 15 and 16).
+    - If `labels.py` no longer has these patterns, its own win; record the change in the task report.
   - `photo_row(base: Mapping[str, object], runs: Mapping[str, PipelineRun], answer: Mapping | None, *, m8: Sequence[dict] = (), replay: Mapping[str, Mapping] | None = None) -> dict[str, object]`: `base`'s §4.3 fields, plus:
     - `outcomes`: `{key: run.outcome.item_fields()}`, and `<key>_replay` for each replayed configuration (C324, MS6's C425)
     - `answer`
@@ -789,16 +827,20 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - `--replay` takes Task 13's `replay.jsonl` and adds each Set A row's `<key>_replay` outcomes. Every Set A row must have them, or it exits 2 (MS6's C425).
     - It prints counts only: the photos, the G4 drops, `wheels_measured`, the geometry checks by cause, the labels written as `(other words)`, and the drops before numbering (`wheel_small`, `wheel_unlinked`, `vehicle_cap`, `wheel_cap`, `person_cap`; P2, P6). Then it prints the harness command to run next.
 
-- [ ] **Step 1:** Check MS6's harness. If `eval/run_eval.py` and `eval/scoring/` exist on `main`, read its loader's contract (read-only) and match every row and `run.json` key it names, including `m8`, `geometry_default`, `datasets`, `self_check` and the replay keys. Where its names differ from this task's, MS6's win; record each difference in the task report. Run `python eval/run_eval.py --label-words` once to see the list. If the harness doesn't exist yet, build to this task's names and record that.
+- [ ] **Step 1:** Check MS6's harness. If `eval/run_eval.py` and `eval/scoring/` exist on `main`, read its loader's contract (read-only) and match every row and `run.json` key it names, including `m8`, `geometry_default`, `datasets`, `self_check` and the replay keys. Where its names differ from this task's, MS6's win; record each difference in the task report. Run `python eval/run_eval.py --label-words` once to see the list. Read `eval/scoring/labels.py` from `main`, or else read-only with `git show w4-independent:eval/scoring/labels.py`, and check `label_or_marker`'s three patterns against it (P1). If the harness doesn't exist yet, build to this task's names and record that.
 - [ ] **Step 2: Write the failing tests** (runs recorded with the runner's `live()` and a `FakeClient`; manifests and M8 sheets as CSV in `tmp_path`):
-  - `test_answer_without_reason`: `reason` is gone and every other key stays; `None` gives `None`.
+  - `test_answer_without_reason`: `reason` is gone and every other key stays; `None` gives `None`; an answer that fails the schema gives `None` (P13).
   - `test_photo_row_has_both_configurations`, on a `geometry_case("van")` run:
     - `outcomes.landmark` equals `Outcome.refused("no_usable_reference").item_fields()`
     - `outcomes.geometry` has `level` `half_knee`, `levelFrom` `geometry`, `depthInMin` 9.8 and `depthInMax` 9.9, as the item stores them (C308)
     - `wheel_inches["2"]` has `depthInMin` equal to `depthInMax`, within 0.02 of 9.887, with at most 4 decimal places (finding 2)
     - `answer` has no `reason`, the base fields pass through, and `photo_file` is gone
   - `test_m8_points_join_boxes` (C327): a wheel point inside wheel 2's box → box 2; a person point inside two person boxes → the one whose centre is nearer; a point in no box → `null`; a vehicle point → the vehicle's box, with its `vehicle_type`.
-  - `test_labels_keep_listed_words_or_get_the_marker` (C327), with a patched `--label-words` list: "Knee deep", "ANKLE DEEP (9 inches)" and "Head+ (60+ inches)" stay as written; "knee deep near the market" becomes `(other words)`; and an `other_alerts_raw` entry is handled the same way.
+  - Review Focus 8, `test_labels_match_the_harness` (C327; P1), over one shared table:
+    - **Stay as written:** "Knee deep.", "9in", "8.25 cm", "Head+ (60+ inches)", "10/28", "ANKLE DEEP (9 inches)", "Not passable to light vehicles (NPLV)", a blank label, and `(other words)` itself.
+    - **Become `(other words)`:** "knee deep near the market", "8:00 AM", "1234 in" and "8.255 cm".
+    - The same table runs through the harness's own `label_words_ok`, in a subprocess that loads `scoring.labels` from `eval/`, so `backend/analysis` never imports it (C321). The test checks that both give the same verdict on every row, so the export can't drift from the harness.
+    - It is skipped, with its reason, only while `eval/scoring/labels.py` isn't in the tree. A second check, with a patched `--label-words` list, needs no harness: it runs the table through `label_or_marker` alone, and an `other_alerts_raw` entry is handled the same way.
   - `test_export_writes_the_results_folder`: two Set A rows and one A-neg row give 2 and 1 lines. `run.json` has `kind` `development`, the given `rules_version`, tuning `tuning-v1`, `rim_edge_k` 1.0, the tire codes version, `reasoning_effort` null, the drawing `boxes-v1`, `store` false, `max_side` 1600, the SAM phrases sent, and `geometry_default` `on`. The fake makes no call during the export.
   - `test_dropped_geometry_writes_only_landmark` (MS6's C418): `--geometry-default dropped --dropped-reason manila_check` → `run.json` records both, every row's `outcomes` has only `landmark`, and `wheel_inches` is empty.
   - `test_replay_outcomes_join_every_set_a_row` (MS6's C425): with a `replay.jsonl`, each Set A row gains `landmark_replay` and `geometry_replay`; a Set A row missing from it → exit 2.
@@ -823,38 +865,49 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 **Interfaces:**
 - Consumes: Task 12's export; `Tuning`, `START`, `TUNING`
 - Produces, in `probes/dev_eval.py`:
-  - `SWEEP_GRID`: one field at a time, the others at `TUNING`, with no candidate equal to `TUNING` (finding 3). That gives 21 candidates, plus the baseline, `TUNING` itself, so 22 exports in all:
-    - `brightness_min` 50, 60, 70; `sharpness_min` 50, 100, 200. Quality cutoffs never go below `TUNING`'s, because a photo refused before Meta has no saved outputs.
-    - `daylight_brightness_min` 40, 60, 100
-    - `touch_tolerance_px` 3, 4, 6, 8; `touch_share_min` 0.15, 0.35, 0.5
-    - `ragged_iqr_share` 0.06, 0.08, 0.12. It stays under the 12.3% where R86's reflection case begins, so tuning can't reopen it.
-    - `rim_score_min` 0.3, 0.7
+  - `SWEEP_VALUES`: each swept field's fixed list of values. The start values are among them:
+    - `brightness_min` 40, 50, 60, 70; `sharpness_min` 25, 50, 100, 200
+    - `daylight_brightness_min` 40, 60, 80, 100
+    - `touch_tolerance_px` 3, 4, 5, 6, 8; `touch_share_min` 0.15, 0.25, 0.35, 0.5
+    - `ragged_iqr_share` 0.06, 0.08, 0.10, 0.12. It stays under the 12.3% where R86's reflection case begins, so tuning can't reopen it.
+    - `rim_score_min` 0.3, 0.5, 0.7
     - Check 9's factors, k, the effort and the drawing aren't swept: Set B and C312 set them.
-  - `SUMMARY_FIGURES: dict[str, tuple[str, ...]]`: JSON paths, set in Step 1, to Set A's within-one agreement, underestimation and coverage, each as "k of n", for the configuration geometry's default names (`landmark` when geometry is dropped)
+  - `SWEPT_FIELDS`: the 7 fields above, which C310 tunes on Set A, and the ones guard 3 resets (C324)
+  - `sweep_grid(tuning: Tuning) -> list[Tuning]`: one field at a time, the others at `tuning`. Each field takes its listed values except its current one, and the quality cutoffs take none below their current value, because a photo refused before Meta has no saved outputs.
+    - With `START`, that gives 21 candidates (finding 3), plus the baseline, `tuning` itself, so 22 exports in all.
+    - Built from fixed lists, the grid stays right after the tuning moves a value onto one of them (P9).
+  - `SUMMARY_FIGURES: dict[str, tuple[str, ...]]`: JSON paths, set in Step 1, to the configuration geometry's default names (`landmark` when geometry is dropped). Each is "k of n": Set A's within-one agreement, underestimation and coverage, and development A-neg's false floods (W9; S6).
   - `sweep --set-a F --m8 F --a-neg F --out DIR --rules-version V`:
-    - For each candidate and the baseline, it runs the export into `DIR/<field>-<value>/` (the baseline into `DIR/baseline/`), then `[sys.executable, <repo>/eval/run_eval.py, "--from-saved", "--results", <dir>, "--write"]`.
+    - For each candidate in `sweep_grid(TUNING)` and the baseline, it runs the export into `DIR/<field>-<value>/` (the baseline into `DIR/baseline/`), then `[sys.executable, <repo>/eval/run_eval.py, "--from-saved", "--results", <dir>, "--write"]`.
     - It prints one line per candidate with the figures `SUMMARY_FIGURES` names from that folder's `report/summary.json`, or `n/a`.
   - `choose_tuning(figures: Mapping[str, Mapping[str, tuple[int, int]]], *, start: Tuning) -> Tuning`: C310's rules as code (C324), so the in-sample choice and every held-out choice follow the same rules. Each field is chosen alone, from its candidates and the baseline:
     - **Quality and daylight cutoffs:** the highest value whose within-one count is no lower than that field's lowest value's.
-    - **T, the touch share, the IQR share and the rim score:** the most within-one photos, among values whose underestimated count is no higher than the baseline's and whose coverage is no more than 10 points below the baseline's. Ties go to the stricter value: smaller T, a larger share, a smaller IQR share, a larger score.
-    - The result keeps `start`'s other fields: k, check 9's factors, the effort, the drawing and the caps.
+    - **T, the touch share, the IQR share and the rim score:** the most photos within one level, a count (S6). A value qualifies only if:
+      - its underestimation is no higher than the baseline's, as a count and as a rate (MS6E-Q5's default (d))
+      - its false floods on development A-neg are no more than the baseline's (W9; S6)
+      - its coverage is no more than 10 points below the baseline's
+
+      Ties go to the stricter value: smaller T, a larger share, a smaller IQR share, a larger score.
+    - The result keeps `start`'s other fields. Both the in-sample choice and `replay-events` pass `start=TUNING`, so k, check 9's factors, the effort, the drawing and the caps stay as tuned (P3).
+  - `reset_swept(tuning: Tuning) -> Tuning` (guard 3; C324, P3): `SWEPT_FIELDS` back to `START`'s values, and added to `untuned`. Everything else stays as `tuning` has it, so the development runs still match the tuning's effort and drawing, and the export still takes them.
   - `replay-events --set-a F --m8 F --a-neg F --sweep DIR --out DIR --rules-version V` (C324, MS6's C425): for each development Set A event, by `event_id`:
     1. Each sweep folder is copied without that event's Set A rows, and the harness rescores the copy.
-    2. `choose_tuning` picks that event's tuning from those figures.
+    2. `choose_tuning(..., start=TUNING)` picks that event's tuning from those figures.
     3. That event's photos are replayed with it, in both configurations, with no Meta call.
 
     It writes `DIR/replay.jsonl`, one line per Set A photo with its `landmark_replay` and `geometry_replay` outcomes (only `landmark_replay` when geometry is dropped), for Task 12's `export --replay`. A-neg rows get none. It prints counts only: the events, the photos, and for each event how many values its tuning changed. It never prints a figure: the harness's report shows them.
 
-- [ ] **Step 1:** If MS6's harness is on `main`, read its `summary.json` writer and set `SUMMARY_FIGURES`. If any of the three figures is missing, record it and ask Window 4, through the tracker, to add it. Until then the sweep prints `n/a`, the controller reads each candidate's `report.md` for the in-sample choice, and `replay-events` waits. Otherwise leave `SUMMARY_FIGURES` empty.
+- [ ] **Step 1:** If MS6's harness is on `main`, read its `summary.json` writer and set `SUMMARY_FIGURES`. If any of the four figures is missing, record it and ask Window 4, through the tracker, to add it. Until then the sweep prints `n/a`, the controller reads each candidate's `report.md` for the in-sample choice, and `replay-events` waits. Otherwise leave `SUMMARY_FIGURES` empty.
 - [ ] **Step 2: Write the failing tests:**
-  - `test_sweep_grid_is_one_field_at_a_time` (finding 3): 21 candidates, each differing from `TUNING` in exactly one field and none equal to it; none below `TUNING`'s quality cutoffs; no `ragged_iqr_share` above 0.12; no check 9 factor, k, effort or drawing; plus the baseline.
-  - `test_sweep_runs_the_harness_per_candidate`: with `subprocess.run` patched, it is called 22 times, each with exactly the command above. A fake `summary.json` holding one figure prints it, and a missing one prints `n/a`.
+  - `test_sweep_grid_is_one_field_at_a_time` (finding 3; P9), pinned to `START`, not `TUNING`: `sweep_grid(START)` has 21 candidates, each differing from `START` in exactly one field and none equal to it; none below the quality cutoffs; no `ragged_iqr_share` above 0.12; no check 9 factor, k, effort or drawing. For a tuning whose `touch_tolerance_px` is 4, every candidate still differs from it in one field, and 5 is among the candidates.
+  - `test_sweep_runs_the_harness_per_candidate`: with `subprocess.run` patched and `TUNING` at `START`, it is called 22 times, each with exactly the command above. A fake `summary.json` holding one figure prints it, and a missing one prints `n/a`.
   - `test_choose_tuning_follows_c310`, on synthetic figures:
     - quality picks the highest value that loses no within-one photo
-    - T picks the most within-one photos within the underestimation and coverage limits, and a tie goes to the smaller T
-    - a value with one more underestimated photo, or 10.1 points less coverage, is never chosen
+    - T picks the most within-one photos within the limits, and a tie goes to the smaller T
+    - a value is never chosen with one more underestimated photo, with an underestimation rate that rises while its count holds, with one more false flood on A-neg, or with 10.1 points less coverage
     - k, check 9's factors, the effort and the drawing stay as `start` has them
-  - `test_replay_events_holds_each_event_out`, with 3 events: the harness rescored folders without E01's rows for E01's choice; each event's photos were replayed with its own chosen tuning; `replay.jsonl` has both replay outcomes for every Set A row and none for A-neg.
+  - `test_reset_swept_keeps_set_b_and_c312_values` (P3): from a tuning with k 1.05, `rim_size_low` 0.80, effort `low`, drawing `boxes-v2`, and moved swept fields, `reset_swept` returns the 7 swept fields to `START`'s values and marks them untuned, and keeps the rest.
+  - `test_replay_events_holds_each_event_out`, with 3 events: the harness rescored folders without E01's rows for E01's choice; `choose_tuning` got `start=TUNING`; each event's photos were replayed with its own chosen tuning; `replay.jsonl` has both replay outcomes for every Set A row and none for A-neg.
 - [ ] **Step 3:** Run `uv run pytest -q tests/test_dev_eval.py`. Expected: the new tests FAIL.
 - [ ] **Step 4:** Implement.
 - [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
@@ -885,7 +938,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - the `photo_unusable` answers, and the photos whose people and wheels read more than one level apart by `disagree` (§D5)
 
     These are diagnostics, not rules §7 metrics.
-  - `types --folder DIR [--yes]` (C323, W14; paid, about $0.03 a photo): for each photo in `DIR\images\` named in `DIR\puv_meta.csv` with a credit line in `DIR\attribution.csv` (R102; any without one is skipped and counted), a live run saved under `runs/set_c_puv/<settings>/<sha1>/`. Then, from the saved runs:
+  - `types --folder DIR [--yes]` (C323, W14; paid, about $0.03 a photo): for each photo in `DIR\images\` named in `DIR\puv_meta.csv` with a credit line in `DIR\attribution.csv` (R102; any without one is skipped and counted), a live run saved under `runs/set_c_puv/<settings>/<sha1>/`. The runs have geometry off (P11): the PUV photos' `ATTRIBUTION.md` says no geometry, and a wet road could reach step 4.6. Then, from the saved runs:
     - the subject is each photo's largest numbered vehicle, the one `puv_meta.csv` describes
     - the confusion matrix of the subject's answered `type` against `puv_meta.csv`'s `vehicle_type`, as counts, with photos that have no answered vehicle counted apart
     - replaying `apply_drops` on each saved answer, with and without `GEOMETRY_ONLY_TYPES`, the vehicles kept for a reading by answered type, and the subjects that `puv_meta.csv` expects as non-cars but that are kept, with geometry off (a typing error that lets them give wheel readings, against C45) and with it on (C318)
@@ -903,7 +956,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_water_phrases_print_cost_first_and_need_yes` (C326): 10 rows print "20 SAM calls, about $0.05" and exit 2 without `--yes`; with it, the fake records `flood water` and `water` for each photo, each on a `blur_for_meta` image.
   - `test_water_share_counts_photos_with_water`: 3 photos, 2 with water → 2 of 3, per phrase.
   - `test_effort_comparison` (C312): a reference run, a second default run that changes one wheel's waterline, and a `low` run that changes nothing → items 1 of 2 and 2 of 2, outcomes 1 of 1 each, the medians from the saved `elapsed_s` and `reasoning_tokens`, and the `photo_unusable` and person-against-wheel counts.
-  - `test_type_check` (C323), on saved runs in `tmp_path` with a small `puv_meta.csv` and `attribution.csv`: a jeepney answered `jeepney` fills its cell and is kept neither way; a pedicab answered `unknown` is counted as a non-car kept with geometry on only; a jeepney answered `sedan_hatch` is counted as a non-car kept both ways; a photo without a credit line is skipped before any call; a folder under `sealed` → exit 2.
+  - `test_type_check` (C323), on saved runs in `tmp_path` with a small `puv_meta.csv` and `attribution.csv`: a jeepney answered `jeepney` fills its cell and is kept neither way; a pedicab answered `unknown` is counted as a non-car kept with geometry on only; a jeepney answered `sedan_hatch` is counted as a non-car kept both ways; every live run is made with geometry off (P11); a photo without a credit line is skipped before any call; a folder under `sealed` → exit 2.
 - [ ] **Step 3:** Run `uv run pytest -q tests/test_dev_eval.py`. Expected: the new tests FAIL.
 - [ ] **Step 4:** Implement.
 - [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
@@ -938,14 +991,16 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
       - the min and max are the reading's envelope
     - An unmeasured variant is `{"measured": false, "cause": <token>}`: a step 3 cause, `wheel_not_found`, or a `GEOMETRY_CAUSES` value, `rim_size` included.
   - `k_estimate(ratios_by_car: Mapping[str, Sequence[float]]) -> float | None`: the median of each car's median of `(2 r ÷ px_per_in) ÷ rim_in`, taken from the `fit` of each `known_waterline_uncalibrated` variant that measured. Check 9 thereby keeps hubcap and whole-wheel masks out of k (G3, C310).
-  - `export --truth F --out DIR --rules-version V` (free): it writes `run.json` and `set_b.jsonl`, one row per wheel: `crop_id`, `wheel`, `car_id`, `vehicle_type`, `tire_code`, `true_depth_in`, `sam_water_found`, `bins` (MS2's `view` and `size_bin`, passed under those names, MS6's C423) and `estimates`. It prints the wheels, the measured count per variant, and `k_estimate` with its number of cars, beside the median of MS2's `rim_edge_ratio`, a cross-check from the dry rim mask (MS2's C212; C310).
-  - `rims --folder DIR [--yes]` (C323; paid, about $0.005 a photo): the early rim check on the Commons car photos, before Set B exists. For each photo in `DIR\images\` whose `cars_meta.csv` row (joined by `sha1`) gives `tire_code_candidates` (4 of the 6) and whose `attribution.csv` row gives a credit line, it runs `blur_for_meta`, then `segment_all` with `wheel` and `wheel rim`, saved under `<data_dir>/set_c_rims/<sha1>/`. For each wheel, it prints counts only:
-    - one linked rim or not
-    - the fit's points and axis ratio, fitting the whole rim (no waterline: `y_w` lies below the image)
-    - whether check 9 passes at the candidates' bounds, with the SAM wheel's box
-    - the rim-edge ratio `2 r ÷ (box height ÷ D) ÷ rim`, over the candidates
-
-    It is diagnostic only: nothing is tuned on it (C310 tunes k and check 9 on Set B development rims), and dry cars give no geometry depth.
+  - `export --truth F --out DIR --rules-version V` (free): it writes `run.json` and `set_b.jsonl`, one row per wheel: `crop_id`, `wheel`, `car_id`, `vehicle_type`, `tire_code`, `true_depth_in`, `sam_water_found`, `bins` (MS2's `view` and `size_bin`, passed under those names, MS6's C423) and `estimates`. It prints the wheels, the measured count per variant, the wheels that fail check 9 by axis ratio, and `k_estimate` with its number of cars, beside the median of MS2's `rim_edge_ratio`, a cross-check from the dry rim mask (MS2's C212; C310).
+  - `overlay --truth F --crop ID --wheel N` (free; P4): the crop with that wheel's SAM wheel and rim masks and its rim fit drawn, written under `<data_dir>/set_b_overlays/`, never in the repo. Task 17 uses it to check by eye whether a rim that fails check 9 is the true rim. It prints only the count of files written, never a path.
+  - `rims --folder DIR [--yes]` (C323; paid, about $0.005 a photo): the early rim check on the Commons car photos, before Set B exists.
+    - **The join (P2):** each `cars_meta.csv` row joins `attribution.csv` by `title`, and that row's `file_name` names the photo in `DIR\images\`. All 6 titles match. `cars_meta.csv` has no `file_name`, and its `sha1` is the Commons original's, while the files are 1920 px thumbnails. So `sha1` is only a key for the saved folder, never compared with a file's hash.
+    - For each photo whose row gives `tire_code_candidates` (4 of the 6) and whose credit line is present, it runs `blur_for_meta`, then `segment_all` with `wheel` and `wheel rim`, saved under `<data_dir>/set_c_rims/<sha1>/`. It prints how many photos it matched before any call. For each wheel, it prints counts only:
+      - one linked rim or not
+      - the fit's points and axis ratio, fitting the whole rim (no waterline: `y_w` lies below the image)
+      - whether check 9 passes at the candidates' bounds, with the SAM wheel's box
+      - the rim-edge ratio `2 r ÷ (box height ÷ D) ÷ rim`, over the candidates
+    - It is diagnostic only: nothing is tuned on it (C310 tunes k and check 9 on Set B development rims), and dry cars give no geometry depth.
 
 - [ ] **Step 1:** As Task 12's Step 1, for `set_b.jsonl`: if MS6's loader is on `main`, match its field names and its rule for the uncalibrated variants (its draft gives them only when k isn't 1), and record any difference from C314.
 - [ ] **Step 2: Write the failing tests** (crop images are `noise_jpeg()` files in `tmp_path`, and SAM results come from `wheel_scene(y_true=257)`; the wheel is a `sedan_hatch` on 175/65R14 with `px_per_in` 5.0, `waterline_row` 257, `true_depth_in` 8.08 and the box `(263, 183, 378, 257)`):
@@ -959,6 +1014,8 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_set_b_paths_are_refused`: a truth file or crop under `set_b\sealed\`, or `--out` under `sealed` → exit 2.
   - `test_rows_are_the_contracts`: one written row has exactly the fields above, keyed by `crop_id` and `wheel`, with `bins == {"view": ..., "size_bin": ...}` from the truth row, and no number with more than 4 decimal places.
   - `test_rims_check_prints_counts_only` (C323), with a folder in `tmp_path`: only photos with codes and a credit line are sent, each through `blur_for_meta` with exactly the 2 phrases; the cost prints first and `--yes` is needed; the printout holds no name or path; a folder under `sealed` → exit 2.
+  - `test_rims_check_joins_by_title` (P2): a `cars_meta.csv` row whose `sha1` isn't its file's hash, and matches no file name, still finds its photo through `attribution.csv`'s `title` and `file_name`. A title with no `attribution.csv` row is counted as unmatched and sent nothing.
+  - `test_overlay_writes_under_the_data_dir` (P4): `overlay` writes one image for the named wheel under `LUSOT_DATA_DIR`, never in the repo; a path under `sealed` → exit 2.
 - [ ] **Step 3:** Run `uv run pytest -q tests/test_set_b.py`. Expected: FAIL.
 - [ ] **Step 4:** Implement.
 - [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
@@ -982,7 +1039,12 @@ This task runs on Set C, before the split and before v0.7 (C322, C323), and open
 - [ ] **Step 4: Apply C312's rule, written before any result.** Run `dev_eval.py effort --manifest <m> --runs default_boxes-v1,default_boxes-v1_r2,low_boxes-v1,minimal_boxes-v1,default_boxes-v2`.
   - **Without labels (Set C):** a run is no worse when its answer items and its outcomes that match the reference are each at least the baseline run's counts.
   - **With M8 labels** (Set A, after v0.7): export each run's rows with `--runs <settings>`, and `--set` for that run's effort and drawing so the export's settings check passes, then run the harness. A run is no worse when its landmark agreement is at least the lower of the two default runs'.
-  - Keep the lowest effort that is no worse: `minimal`, then `low`, else the default. Adopt `boxes-v2` only if its wheels' items are no worse (C325). If it is adopted, it counts as one of guard 4's 2 changes.
+  - Keep the lowest effort that is no worse: `minimal`, then `low`, else the default.
+  - **The drawing follows MS3b-Q8's default (C325).**
+    - On Set C, without labels, record the drawing run's figures and keep `boxes-v1` (P5). Task 17 decides the drawing on labelled photos.
+    - With M8 labels, adopt `boxes-v2` only if its wheels' landmark agreement is no worse.
+    - If a lower effort and `boxes-v2` both pass, run that pair once more (`--effort <E> --drawing boxes-v2`, about $0.15), and adopt the drawing only if the pair is no worse too (P16).
+    - An adopted drawing counts as one of guard 4's 2 changes.
   - Record each run's figures, latency and reasoning tokens, and the `photo_unusable` and person-against-wheel counts (§D5). If those counts show a cost, put it to Rene as a new question, with the evidence. Prompt v1 stays until he answers.
   - If the effort or the drawing changes, set them in a new tuning version, with the change-log entry and its figures. Update `test_start_values_are_the_specs`, run the tests, and commit `feat(analysis): set Muse Spark's reasoning effort and drawing from the C312 test`.
 - [ ] **Step 5 (about $0.57): the type check (C323, W14).** Run `dev_eval.py types --folder <LUSOT_DATA_DIR>\set_c\commons-puv-side --yes`, with the key line. Record the confusion matrix and the kept counts for D8. A non-car vehicle kept for geometry, such as a pedicab answered `unknown`, goes to Rene as a question with the evidence. Geometry keeps `unknown` as C318 says until he answers.
@@ -992,48 +1054,59 @@ This task runs on Set C, before the split and before v0.7 (C322, C323), and open
   - MS3a is merged
   - D1 is green (Task 11)
   - D3 is green (Tasks 1 to 10, `uv run pytest -q`)
-  - the chosen effort's median SAM plus Muse Spark time is at most 10 s (MS3b-Q3's default (a), v0.7 item 8.4)
+  - over C312's photos, the median of the slowest SAM phrase plus Muse Spark's time, at the chosen effort, is at most 10 s (C311; MS3b-Q3's default (a), v0.7 item 8.4). That median is only a lower bound on photo to pin, which also counts the upload, the queue, the blur and the publish (S4).
 
   Record the decision and its figures in the day's log and `docs/PROGRESS.md`.
   - **Yes:** start the self-check's own spec addendum and plan (the Superpowers loop, outside this plan). It is built by Nov 1 with its own development ablation, and C311's Nov 1 turn-off check follows. Its addendum sets the evidence record's `rechecked` (C328).
   - **No:** record "not built" and why.
 
-### Task 17: Development data through the harness (C313, C326, C314, C319, C310, C324, C315, C309; Claude)
+### Task 17: Development data through the harness (C325, C313, C326, C314, C319, C310, C324, C315, C309; Claude)
 
 **Files:** possibly `tuning.py`, the tests that pin start values, and `backend/template.yaml` (`GEOMETRY_IN_LEVEL`'s literal); results only under `LUSOT_DATA_DIR`
 
-The steps run in this order: Set B before the tuning, and the live default last, after the final ablation (finding 4).
+The steps run in this order: the drawing first, if it is still open, then Set B before the tuning, and the live default last, after the final ablation (finding 4).
 
 - [ ] **Step 1: The harness.** Merge `main`, then run `python eval/run_eval.py --help` from the repo root. Expected: the usage text, exit 0. If it doesn't exist, every step below still writes its rows. Record that D2 and D7 wait for the harness, and run the harness steps once it merges.
 - [ ] **Step 2: The data and the preconditions.**
   - Record which of MS2's files exist: Set A and A-neg development (MS3b-Q2), and Set B's development `truth.csv` (MS3b-Q1).
-  - Check that `eval/rules.md`'s status line says v0.7, approved by Rene (C322). Until it does, Steps 3, 4 and 7 to 9 wait, marked waiting. Steps 5 and 6 don't, since Set B shows no Set A result.
+  - Check that `eval/rules.md`'s status line says v0.7, approved by Rene (C322). Until it does, Steps 3 to 5 and 8 to 10 wait, marked waiting. Steps 6 and 7 don't, since Set B shows no Set A result.
   - No Set A or A-neg photo is opened before the split.
   - **No development Set A by Oct 31:** Q2's (b) applies. The cutoffs stay untuned, C315 and C313 wait, and geometry stays on.
+  - **Consented photos instead (P18):** if consented photos (M9) exist but development Set A doesn't, C313 can run on them. Write a manifest from `consented_log.csv`'s photo rows (`photo_id` from `item_id`, `set` `consented`, `photo_file` from `file`, and `--photos` naming their folder), run `dev_eval.py run` on it, then `manila` on it. They never join Set A (MS2's C218).
   - **No Set B by Oct 31:** Q1's (b) applies. D2 slips, and the release gate can't pass until it is done.
 - [ ] **Step 3 (about $0.03 a photo): the development runs,** at the frozen effort and drawing: `dev_eval.py run --manifest <set_a_dev> --yes` and `dev_eval.py run --manifest <a_neg_dev> --yes`. They land in the tuning's settings folder, so they never mix with other efforts (finding 5). When C312 ran on Set A, its 10 rows at the chosen settings are already there, and the rest run in full.
-- [ ] **Step 4: The Manila check and the water phrases (C313, C326; about $0.20).**
+- [ ] **Step 4: The drawing on labelled photos (MS3b-Q8's default; S1, P5).** Only when Task 16 ran C312 on Set C, which left the drawing open, and only if time allows before the freeze. Otherwise `boxes-v1` stays.
+  - On the first 10 development Set A rows, Step 3's runs are the reference. Run `--repeat 2` and `--drawing boxes-v2`, both with `--sam-from <the tuning's settings>` (about $0.30). The drawing run uses the frozen effort, so the effort and the drawing are tested together (P16).
+  - Export each run's rows with `--runs` and `--set` for its settings, and run the harness. Apply C312's rule to the wheels' landmark agreement.
+  - If `boxes-v2` is no worse, set it in a new tuning version, as one of guard 4's 2 changes. Then re-run Muse Spark on every development row at the new settings (`dev_eval.py run --sam-from <the old settings> --yes`, about $0.60), so no run mixes drawings, and continue on those runs.
+- [ ] **Step 5: The Manila check and the water phrases (C313, C326; about $0.20).**
   - Run `dev_eval.py manila --set-a <set_a_dev>`. Record the counts, the decision, and the share of photos with no water mask for Q1, beside the probe's small samples: 5 of 15 probe photos and 5 of 10 A2 photos (§D4) (D6).
   - Run `dev_eval.py water-phrases --manifest <set_a_dev> --yes` and the same for `<a_neg_dev>`. Then run `water-share` on both, and `manila --phrase` for each phrase. A phrase that finds water on more development Set A photos, with no more false water on development A-neg, goes to Rene as MS3b-Q6 with the figures. `floodwater` stays until he answers, and the phrases are frozen.
   - **If geometry is dropped** (Table 18): change `GEOMETRY_IN_LEVEL` to `"off"` in the template, and pass `--geometry-default dropped --dropped-reason manila_check` to every export from here on (MS6's C418). Commit `chore(backend): drop geometry from the level path after the Manila check`.
-- [ ] **Step 5: Set B (C314, about $0.15).**
+- [ ] **Step 6: Set B (C314, about $0.15).**
   - Run `set_b.py segment --truth <truth.csv> --yes`, then `set_b.py export --truth <truth.csv> --out <data>\dev_results\<date>-set-b --rules-version <v>`, then the harness on that folder.
-  - **Check 9's factors first (C305, C310; finding 1).** A rim partly hidden behind the near sidewall can fall under the 0.85 factor at steep angles, which synthetic masks can't show. Record how many development wheels fail check 9, and at what axis ratio, beside Task 16's rim check. If real rims fail it, move `rim_size_low` (or `rim_size_high`) only as far as needed to pass every Set B development rim, in a new tuning version with its n, then re-export.
+  - **Check 9's factors first (C305, C310; finding 1, S3, P4).** A rim partly hidden behind the near sidewall can fall under the 0.85 factor at steep angles, which synthetic masks can't show.
+    - From the export's printout, record how many development wheels fail check 9, and at what axis ratio, beside Task 16's rim check.
+    - Look at each failing rim with `set_b.py overlay`. A mask that isn't the true rim (a hubcap, the whole wheel, or one cut by the frame) is left out. Record each one left out, with its cause, as counts in the results note.
+    - If true rims still fail, move `rim_size_low` (or `rim_size_high`) only as far as needed to pass every true rim, and never below 0.50 nor above 1.55. Write a new tuning version with its n.
+    - Then run Task 3's `test_hubcap_and_whole_wheel_rims_fail_rim_size`: under the new `TUNING`, the hubcap and the whole wheel must still fail. Re-export.
   - **Then k.** If `k_estimate` gives a value, set `rim_edge_k` in a new tuning version with its n of cars and MS2's `rim_edge_ratio` median beside it, then re-export and re-run the harness.
   - Record the Set B figures from the report: each variant, by type (W2) and by view and size (W7) (D2). Set B's crops stop at half tire (MS2's C211), so these figures cover readings up to half tire, and knee depth and deeper rest on Set A.
-- [ ] **Step 6: The backup method (C319, D9).** If the `geometry` variant is under 70% measured or above a 3 in median error, the visible-height backup is built only if it fits before the freeze; otherwise record it. If neither holds, record that the trigger didn't fire.
-- [ ] **Step 7: Tuning, then event replay (C310, C324).**
-  - Run `dev_eval.py sweep ...`, then apply `choose_tuning` to the in-sample figures. When values change, write a new tuning version with each value's evidence (n and figures) in the change log, update the tests that pin start values, and commit `feat(analysis): tune the step 3 and geometry cutoffs on development data`.
+- [ ] **Step 7: The backup method (C319, D9).** If the `geometry` variant is under 70% measured or above a 3 in median error, the visible-height backup is built only if it fits before the freeze; otherwise record it. If neither holds, record that the trigger didn't fire.
+- [ ] **Step 8: Tuning, then event replay (C310, C324).**
+  - Run `dev_eval.py sweep ...`, then apply `choose_tuning(..., start=TUNING)` to the in-sample figures. When values change, write a new tuning version with each value's evidence (n and figures) in the change log, update the tests that pin start values, and commit `feat(analysis): tune the step 3 and geometry cutoffs on development data`.
   - Run `dev_eval.py replay-events ... --sweep <the sweep folder>`.
   - **§D7:** if C47's id drops (`wrong_list` and the like) recur on Manila development photos, record them. Only then is a minimum box size for numbering tuned, by the same rules (C310).
-- [ ] **Step 8: The final ablation and guard 3 (C315, C324).**
-  - Run `dev_eval.py export --set-a ... --m8 ... --a-neg ... --out <data>\dev_results\<date>-ablation --rules-version <eval/rules.md's version> --replay <replay.jsonl>` (with Step 4's geometry default), then `python eval/run_eval.py --from-saved --results <dir> --write`.
+- [ ] **Step 9: The final ablation and guard 3 (C315, C324).**
+  - Run `dev_eval.py export --set-a ... --m8 ... --a-neg ... --out <data>\dev_results\<date>-ablation --rules-version <eval/rules.md's version> --replay <replay.jsonl>` (with Step 5's geometry default), then `python eval/run_eval.py --from-saved --results <dir> --write`.
   - From the development report, record the ablation tables with coverage beside every rate and the replay columns (D7), the subsets (W4, W6, W8), A-neg (W9) and passability with within-one agreement (W5). Rene's `reflection` and `splash` marks come from the M8 sheet, made before the run (MS6's C414).
-  - Count Level 3 refusals by cause from the rows (W6, §D8). The body floor for taller types stays MS3b-Q7's.
+  - Count the refusals in W6's deep subset, photos whose alert gave tire or deeper, by cause (§D8; S7). The body floor for taller types stays MS3b-Q7's.
   - From the export's printout, record the G4 drops (W3). Check C70's caps and C56's 40 px against the drops before numbering (C310, P2, P6), and record whether either cut readable references.
-  - **Guard 3:** if either configuration's replay is 3 or more photos below its in-sample within-one count, the cutoffs go back to `START`, marked untuned, in a new tuning version whose change-log entry says why. Then re-export without `--replay`, re-run the harness, and commit.
-- [ ] **Step 9: The live default (C309).** Read the final report's "outcome rule on development data". If geometry doesn't stay, change `GEOMETRY_IN_LEVEL` to `"off"` in the template, and commit `chore(backend): set geometry's live default from the development ablation`. Repeat this step after any later change to the tuning.
-- [ ] **Step 10:** If `tuning.py` or the template changed, re-run `uv run pytest -q`, then deploy as Task 11's Steps 3 to 5 do, and run `uv run backend/scripts/smoke_upload.py --geometry <Task 11's position>`. Expected: `SMOKE OK`.
+  - **Guard 3 (P3):** if either configuration's replay is 3 or more photos below its in-sample within-one count, apply `reset_swept`. The 7 swept fields go back to `START`'s values, marked untuned, in a new tuning version whose change-log entry says why. Set B's k and check 9's factors, the effort, the drawing and the caps stay, so the development runs still match the tuning. Then re-export without `--replay`, re-run the harness, and commit.
+- [ ] **Step 10: The live default (C309).** Read the final report's "outcome rule on development data". If geometry doesn't stay, change `GEOMETRY_IN_LEVEL` to `"off"` in the template, and commit `chore(backend): set geometry's live default from the development ablation`. Repeat this step after any later change to the tuning.
+- [ ] **Step 11:** If `tuning.py` or the template changed, re-run `uv run pytest -q`, then deploy as Task 11's Steps 3 to 5 do (P8, R119):
+  - Run `uv run backend/scripts/smoke_upload.py --bound 180`. Expected: `SMOKE OK`.
+  - Only if geometry is still on and Task 11 recorded a position, also run `uv run backend/scripts/smoke_upload.py --bound 180 --geometry <that position>`. Expected: exit 0.
 
 ### Task 18: Results note and milestone close (D2 to D10; Claude)
 
@@ -1047,7 +1120,7 @@ The steps run in this order: Set B before the tuning, and the live default last,
   - D4: C312's effort and C325's drawing, with each run's figures, and the self-check decision
   - D5: the tuning change log, or "untuned"; the replay against the in-sample figures, and guard 3's result
   - D6: C313's counts, the no-water share beside the probe's small samples, and C326's phrase comparison
-  - D8: W2 to W9 and W14, each called indicative, with Level 3 refusals by cause and the Set C checks
+  - D8: W2 to W9 and W14, each called indicative, with the refusals in W6's deep subset by cause, and the Set C checks
   - D9: C319
   - D10: the evidence record's field list as sent to Window 4
   - the spend
@@ -1062,4 +1135,60 @@ The steps run in this order: Set B before the tuning, and the live default last,
   - `node scripts/check_account_ids.mjs` and `uv run --python 3.13 scripts/check_no_plan_leak.py`, from the repo root
   - `git diff --name-only main | xargs grep -n -i -w "safe"`: nothing about flood conditions. Run it once more without `-w`, as MS3a's Task 17 did.
 - [ ] **Step 5:** Run `security-review` (the dev tools build Meta clients from the key), then `superpowers:requesting-code-review` on the whole branch. Fix anything confirmed, and re-run Step 4.
-- [ ] **Step 6:** Commit `docs: record MS3b results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3b-geometry` into `main`, and push to the private repo (D16).
+- [ ] **Step 6 (P17):** Run `claude-md-management:revise-claude-md` for what MS3b adds: the commands `probes/dev_eval.py` and `probes/set_b.py`, the smoke script's `--bound` and `--geometry`, and the `GEOMETRY_IN_LEVEL` literal in the template, which a deploy applies. Rene approves the CLAUDE.md change before it is committed.
+- [ ] **Step 7:** Commit `docs: record MS3b results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3b-geometry` into `main`, and push to the private repo (D16).
+
+### Task 19: The sealed-run entry point, `run_sealed.py` (MS6's C412; R117, C329)
+
+*Added on Oct 29 by Window 3, from the tracker's cross-spec audit, row 5: a ruling under Rene's delegation. It starts after Task 18 merges MS3b into `main`, on a new branch from `main`, and is due by Nov 2. Building the entry point isn't the sealed run: the run stays Rene's gate (CLAUDE.md), and Claude never runs it.*
+
+**Files:**
+- Create: `backend/analysis/probes/run_sealed.py`
+- Test: `backend/analysis/tests/test_run_sealed.py`
+
+**Interfaces:**
+- **Consumes:**
+  - MS3a's pipeline: `run_pipeline` with `READING_PHRASES` (C66)
+  - Task 9's saved runs: `RecordingClient`, `SavedOutputsClient`, `rebuild_outcome`, `save_sam_results` and `load_sam_results` (R108, R109); and the runner's conventions, R110's exit codes and `say()`'s masking
+  - Task 12's export: `replay_configurations`, `photo_row`, `m8_boxes`, `label_or_marker` and `results_manifest` (C315, C327)
+  - Task 15's Set B tools: `read_wheels`, `wheel_estimates` and its export, for Set B's final crops and, only if it rained, Set D's photos
+  - the label words, from `python eval/run_eval.py --label-words`, run as a subprocess (MS6's C420)
+  - MS2's guard copies in `probes/set_b_masks.py`: `require_sealed`, `console_ok`, `require_console`, `confirm` and `quiet` (MS2's C202). If MS2 hasn't merged by then, copy the seven guards verbatim from `eval/data/guards.py`, and extend MS2's parity test to the new copy.
+  - MS6's row contract (its §4.3) and freeze (its §4.6)
+- **Produces:** `python probes/run_sealed.py <sealed folder> [--resume RUN]`, as MS6's §4.5 step 6 and C412 describe:
+  - **The folder.** It reads only inside a folder named `sealed`, by MS2's `require_sealed`: in any case, with a trailing dot or space, or as an NTFS stream name. Both the path as written and its resolved form must name it. This mirrors C66's runner, which refuses sealed paths, so each tool refuses the other's inputs.
+  - **The console.** It starts only from an interactive console (`console_ok`: `GetConsoleMode` on stdin and stdout, MS2's C202), after Rene types a confirmation (`confirm`). `isatty()` isn't enough, because it passes on NUL, where an agent's shell sends stdin.
+  - **The freeze.** It refuses a tree with changes, and any commit but the tagged freeze, or the second freeze for the one disclosed rerun (MS6's C413, C421). It records the freeze commit. It writes the last development report's `baseline_level` and `baseline_class`, from that report's `summary.json`, into `run.json` (MS6's C424).
+  - **The labels (C420, C329).** Before any paid call, it checks every label with Task 12's `label_or_marker`. If any would become `(other words)`, it prints how many and stops with exit 2, unless Rene confirms that too. On his go-ahead, the export writes the marker, and those photos are excluded as unmapped. A label it can't read stops it.
+  - **The run:**
+    - It runs the frozen pipeline once per photo, with the self-check if it is on. It sends the same face-blurred photo the live system would (rules §10), with the 5 phrases the reading uses, skipping the face and plate phrases.
+    - It saves the raw SAM masks and Muse Spark answers under the `sealed` folder (rules §10).
+    - It replays the saved outputs for every configuration (C309, C315).
+    - Set B's final crops, and any Set D photos, go through SAM's phrases and the geometry. Set D's `set_d_log.csv` rows (`photo_id`, `wheel` left or right, `ruler_depth_in`, `vehicle_type`, `tire_code`) are bridged to MS6's Set D rows.
+  - **Paying once.** It pays for each photo once.
+    - **Resume (MS6's C419):** a stop for a rejected key, a crash or a lost connection resumes as the same run. Photos with saved outputs are never sent again. `run.json` records each stop and its cause, and only a completed run is exported. A resume isn't the disclosed rerun.
+    - **MS6E-Q6,** a photo that failed because Meta's service failed: under default (a), it is retried once before the export, and the count of retries is disclosed. A photo whose answer was invalid is never retried. Follow Rene's answer if it differs.
+  - **The export.** Through MS3b's export, it writes only §4.3's fields to the repo's `eval/results/`. That is the one place any MS3b tool writes into the repo, and only in Rene's run (MS6 §4.5 step 6). Its `run.json` has `kind` `sealed`, the freeze commit, the frozen versions and each stop. The raw outputs stay under `sealed`.
+  - **Output:** counts and timings only. It never prints a photo's name, a path, a label, an answer, a reason or a key, and every line masks 12-digit runs.
+
+- [ ] **Step 1: Write the failing tests.** They use synthetic data only: `tmp_path` trees, flat test images and `FakeClient`.
+  - A `tmp_path/"sealed"` folder made by a test is synthetic, not sealed data.
+  - No test reads `lusot-data` or any real sealed folder, and none writes into the repo's `eval/results/`. No test makes a Meta call.
+  - No one opens these test folders by hand: the deny rules on `**/sealed/**` block that anyway.
+
+  The tests:
+  - `test_refuses_a_folder_not_named_sealed`: a folder not named `sealed` exits 2 before anything is read. So does a path that reaches a `sealed` folder only through a link.
+  - `test_refuses_a_non_console_stdin`: NUL, a pipe and a file all exit 2 before anything is read.
+  - `test_refuses_a_dirty_tree_or_another_commit`, using a fake git reader.
+  - `test_checks_every_label_before_paying`: a label with another word is counted before any client call. Declining the second confirmation exits 2, with no client call. Confirming goes on, and the export writes `(other words)` for it.
+  - `test_pays_once_and_resumes`: a stop after photo 2 of 4, then a resume. That gives 4 sets of calls in all, and the stop is recorded in `run.json`.
+  - `test_service_failure_is_retried_once`: under default (a), a 503 after the client's retries is retried once and counted. An invalid answer is never retried.
+  - `test_export_holds_only_the_row_contract`: the rows hold only §4.3's fields, the raw outputs stay under the synthetic `sealed` folder, and `run.json` has `kind` `sealed`, the freeze commit and the baseline pair from a synthetic `summary.json`.
+  - `test_prints_counts_only`: no name, path, label, reason or 12-digit run.
+- [ ] **Step 2:** Run `uv run pytest -q tests/test_run_sealed.py`. Expected: FAIL.
+- [ ] **Step 3:** Implement `run_sealed.py`, reusing the runner's helpers, Task 12's export and Task 15's Set B tools. It never imports `eval/` code (C321).
+- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`, then `node scripts/check_account_ids.mjs` from the repo root. Expected: PASS, clean and clean.
+- [ ] **Step 5:** Commit `feat(analysis): add the sealed-run entry point (MS6 C412)`.
+- [ ] **Step 6:** Run `security-review`, since the entry point reads sealed paths and builds a Meta client from the key, then `superpowers:requesting-code-review`. Fix anything confirmed, and re-run Step 4.
+- [ ] **Step 7:** Tick D11 in the spec's §6 with its evidence. Then use `superpowers:finishing-a-development-branch` to merge into `main`, and push to the private repo (D16).
+- [ ] **Step 8:** Tell the tracker that the entry point is built and tested on synthetic data only, for Window 4's freeze checklist (MS6's §4.5 step 4). Never run it on the real `sealed` folder.
