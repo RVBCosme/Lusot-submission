@@ -153,7 +153,7 @@ Wet streets that aren't flooded, and dry streets, ideally with parked cars or pe
 
 ## M8: your labels for each Set A photo (C208)
 
-Before the split, and before Lusot ever runs on these photos, you label what each photo shows, without seeing its alert. Answer MS3b-Q5 first (by Oct 30), because your answer sets the in-between rule below.
+Before the split, and before Lusot ever runs on these photos, you label what each photo shows, without seeing its alert.
 
 1. **The page.** Claude makes `set_a\m8_sheet.html` from your Set A log, and remakes it when you add photos. It shows every Set A photo once, by id. It never shows an alert's labels, passability, link or spot, so you never see the alert while labelling. Claude never opens the page in a browser, because it shows the photos.
 2. **Click what you can read.** Open the page in your own browser. On each photo, click each vehicle, wheel and person you can read, and pick its values:
@@ -161,7 +161,7 @@ Before the split, and before Lusot ever runs on these photos, you label what eac
    - a **wheel:** click its hub, then pick its `waterline`
    - a **person:** click the torso, then pick the `waterline`
 3. **Mark the photo:** its `quality` (`ok`, `dark` or `blurry`) and any `subsets` that apply (`reflection`, `splash`, `moving`). A photo with nothing you can read gets its marks only.
-4. **Between two marks:** when the water sits between two marks, pick the higher one. This holds for wheels, people and car bodies alike, and prompt v1 tells Muse Spark the same. If your MS3b-Q5 answer changes it, the page states your final rule, and that rule counts.
+4. **Between two marks:** when the water sits between two marks, pick the higher one. This holds for wheels, people and car bodies alike, and prompt v1 tells Muse Spark the same. It is your final rule (your MS3b-Q5 answer, Oct 28), and the page states it above the photos.
 5. **Export.** The page keeps your work in the browser as you go, and can export it and import it back. When every photo is done, export `m8_labels.csv` and move it into `set_a\`. The split needs the marks of every Set A photo.
 6. **After the split,** once 7-Zip has opened the archive, click **Clear saved work** on the page, so that your browser no longer holds the labels. Then close Excel, and delete the page with the split's other inputs, `raw\` included (C219).
 
