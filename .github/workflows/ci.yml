@@ -55,6 +55,7 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.13.6"
+          enable-cache: false # this job installs no packages, and the python job owns the cache key
       - name: Install gitleaks 8.30.1
         run: |
           cd "$RUNNER_TEMP"
