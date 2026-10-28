@@ -69,6 +69,25 @@ COMPLETED_EVENT = {
     "type": "response.completed",
     "response": {**COMPLETED, "output": []},
 }
+# A mid-stream shutdown, with the message on https://dev.meta.ai/docs/error-handling
+# ("503 Service Unavailable").
+SHUTDOWN = {
+    "type": "error",
+    "code": "server_shutting_down",
+    "message": "Server is shutting down. Please retry your request.",
+    "param": None,
+}
+# The documented records with the `c` values a request with include_confidence gets,
+# in the format on https://dev.meta.ai/docs/sam/segmenting ("Request confidence"). The
+# second record's box and mask values differ, which the protocol allows.
+CONFIDENT_TEXT = (
+    "<0f>0<|box;x1=211;y1=228;x2=270;y2=254;w=320;h=334;c=0.9609375|>"
+    "<|mask;x=0;y=0;c=0.9609375;data=27,60,"
+    "~!!!!M!0c[0o91w?q1!pIH4pPRVp2B3'7`e.ioeAf6-k/#Xd8%dX9x(|>"
+    ",1<|box;x1=155;y1=228;x2=202;y2=254;w=320;h=334;c=0.5|>"
+    "<|mask;x=0;y=0;c=0.75;data=27,48,"
+    "~!!!!J!0c[q=Pj_zs=*4C4(/./x#:/`S_GnD`=o3?X{emCgO$y@|>\n"
+)
 
 
 @pytest.fixture(scope="module")
@@ -404,6 +423,7 @@ def test_segment_parses_masks_and_empty_result(photo):
     body = request_json(meta.requests[0])
     assert body["model"] == "sam-3.1"
     assert body["stream"] is True
+    assert body["metadata"] == {"include_confidence": "true"}  # R77
     assert "store" not in body  # Meta's SAM pages never show `store` (R76)
     assert body["input"][0]["content"] == [
         {"type": "input_text", "text": "wheel"},
@@ -426,7 +446,16 @@ def test_segment_box_is_half_open_in_sent_pixels(photo):
     outside[y0:y1, x0:x1] = False
     assert not outside.any()
     assert first.mask[y0:y1, x0:x1].sum() == 1539  # the decoded 27 x 60 mask
-    assert first.score is None  # the request doesn't ask for SAM's confidence
+    assert first.score is None  # this documented record carries no `c`
+
+
+def test_segment_reads_sams_confidence_as_the_score(photo):
+    meta = FakeMeta(sam_stream(CONFIDENT_TEXT))
+    c, _ = client(meta)
+    first, second = c.segment(photo, "wheel").instances
+    assert isinstance(first.score, float)
+    assert first.score == 0.9609375
+    assert second.score == 0.75  # the mask's `c`, not the box's 0.5
 
 
 def test_segment_reads_a_finished_part_without_deltas(photo):
@@ -444,7 +473,7 @@ def test_segment_reads_a_finished_part_without_deltas(photo):
             "type": "response.incomplete",
             "response": {**COMPLETED, "status": "incomplete"},
         },
-        {"type": "error", "code": "server_shutting_down", "message": "Shutting down."},
+        {"type": "error", "code": "server_error", "message": "Something failed."},
         {"type": "response.refusal.done", "refusal": "I can't help with that."},
         {"error": {"message": "Stream failed.", "type": "server_error"}},
         None,  # the stream ends with no terminal event
@@ -459,6 +488,27 @@ def test_segment_stream_that_does_not_complete_raises(photo, ending):
     assert exc.value.status is None
     assert len(meta.requests) == 1
     assert sleeps == []
+
+
+def test_segment_retries_a_mid_stream_shutdown(photo):
+    # A shutdown counts as a 503: the whole request runs again after the backoff (R77).
+    meta = FakeMeta(sse(CREATED, DELTA, SHUTDOWN), documented_stream())
+    c, sleeps = client(meta, rng=lambda: 0.0)
+    result = c.segment(photo, "wheel")
+    assert len(result.instances) == 2
+    assert len(meta.requests) == 2
+    assert request_json(meta.requests[0]) == request_json(meta.requests[1])
+    assert sleeps == [0.5]
+
+
+def test_segment_shutdowns_on_every_try_raise_after_max_attempts(photo):
+    meta = FakeMeta(*(sse(CREATED, DELTA, SHUTDOWN) for _ in range(4)))
+    c, sleeps = client(meta, rng=lambda: 0.0)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 4
+    assert sleeps == [0.5, 1.0, 2.0]
 
 
 def test_segment_dropped_stream_raises_without_retry(photo):
@@ -526,6 +576,7 @@ def test_segment_504_falls_back_to_background_polling(photo):
     assert submitted["background"] is True
     assert "stream" not in submitted
     assert "store" not in submitted  # stored, as Meta stores by default, to be polled
+    assert submitted["metadata"] == {"include_confidence": "true"}
     assert submitted["input"] == streamed["input"]
     assert submitted["model"] == "sam-3.1"
     assert len(result.instances) == 2

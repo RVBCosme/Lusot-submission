@@ -81,6 +81,14 @@ class MetaApiError(RuntimeError):
         self.status = status
 
 
+# Meta's error page (https://dev.meta.ai/docs/error-handling, "503 Service
+# Unavailable"): "When a shutdown happens mid-stream, it arrives as a terminal `error`
+# SSE event with `code: server_shutting_down` before the stream closes; detect it and
+# retry the full request (see Streaming errors)." So _send retries it as a 503 (R77).
+class _ShuttingDown(Exception):
+    """A SAM stream ended with an `error` event whose code is server_shutting_down."""
+
+
 @dataclass
 class SamInstance:
     """One SAM match, in pixels of the image that was sent (R61).
@@ -89,7 +97,7 @@ class SamInstance:
     and y1 are one past the last, so `mask[y0:y1, x0:x1]` holds the whole match. SAM
     sends inclusive x2 and y2, which become x1 = x2 + 1 and y1 = y2 + 1. `mask` is a
     bool array of the image's height x width. `score` is SAM's confidence for the
-    mask, or None when SAM sent none.
+    mask (its `c`, which the client asks for), or None when a record has none.
     """
 
     id: int
@@ -177,7 +185,12 @@ class MetaClient:
         raises MetaApiError, so a failure never reads as "no matches" (R63).
         """
         _check_image(image)
-        request = {"model": SAM_MODEL, "input": _message(phrase, image)}
+        request = {
+            "model": SAM_MODEL,
+            "input": _message(phrase, image),
+            # SAM adds its confidence `c` to each box and mask only when asked (R77).
+            "metadata": {"include_confidence": "true"},
+        }
         started = time.monotonic()
         try:
             raw, text = self._sam_streamed(request, phrase)
@@ -281,17 +294,23 @@ class MetaClient:
             raise ValueError(f"model {model!r} isn't one of the allowed ids")
 
     def _sam_streamed(self, request: dict, phrase: str) -> tuple[str, str]:
-        """Stream a SAM request. Return the SSE text and SAM's output text."""
+        """Stream a SAM request. Return the SSE text and SAM's output text.
+
+        The stream is read inside the retry loop, so a shutdown in it is retried.
+        """
+        text = ""
 
         def call() -> Any:
+            nonlocal text
             response = self._openai.responses.with_raw_response.create(
                 **request, stream=True
             )
             response.http_response.read()  # the whole stream, kept as the raw text
+            text = _stream_text(response.parse())
             return response
 
         response = self._send(call, SAM_MODEL, phrase=phrase)
-        return response.text, _stream_text(response.parse())
+        return response.text, text
 
     def _sam_background(self, request: dict, phrase: str) -> tuple[str, str]:
         """Run a SAM request in the background and poll it, for up to timeout_s.
@@ -329,34 +348,39 @@ class MetaClient:
 
         `request` returns the raw HTTP response. Before try n + 1 the wait is 0.5 s x
         2^(n - 1) plus up to 1 s of jitter, or the server's Retry-After if longer, for
-        at most max_attempts tries. Any other HTTP error, and a lost connection or a
-        timeout, raises MetaApiError at once (R65).
+        at most max_attempts tries. A shutdown in a SAM stream counts as a 503 (R77).
+        Any other HTTP error, and a lost connection or a timeout, raises MetaApiError
+        at once (R65).
         """
         self._check_model(model)
         attempt = 1
         while True:
             started = time.monotonic()
+            status = retry_after = None
             try:
                 response = request()
+                status = response.status_code
+                return response
             except (openai.APIStatusError, httpx.HTTPStatusError) as exc:
                 status = exc.response.status_code
-                _log(model, fields, status, started)
                 if status not in _RETRY_STATUSES or attempt >= self._max_attempts:
                     code = getattr(exc, "code", None)  # Meta's error code, when sent
                     message = f"HTTP {status}" + (f" ({code})" if code else "")
                     raise MetaApiError(message, status=status) from exc
-                self._sleep(self._delay(attempt, exc.response.headers))
-                attempt += 1
-                continue
+                retry_after = exc.response.headers.get("retry-after")
+            except _ShuttingDown as exc:  # an event, not a response: no Retry-After
+                if attempt >= self._max_attempts:
+                    raise MetaApiError("SAM's stream shut down; no tries left") from exc
             except (openai.APIConnectionError, httpx.TransportError) as exc:
-                _log(model, fields, None, started)
                 raise MetaApiError("connection failed or timed out") from exc
-            _log(model, fields, response.status_code, started)
-            return response
+            finally:
+                _log(model, fields, status, started)
+            self._sleep(self._delay(attempt, retry_after))
+            attempt += 1
 
-    def _delay(self, attempt: int, headers: httpx.Headers) -> float:
+    def _delay(self, attempt: int, retry_after: str | None) -> float:
         backoff = 0.5 * 2 ** (attempt - 1) + self._rng()
-        return max(backoff, _retry_after(headers.get("retry-after")))
+        return max(backoff, _retry_after(retry_after))
 
 
 def _check_image(image: object) -> None:
@@ -379,7 +403,8 @@ def _stream_text(events: Iterable[Any]) -> str:
     """SAM's output text from a stream that completed (R63).
 
     The text is the deltas joined, or the finished content part when one is sent.
-    A stream that fails, stops short, refuses or reports an error raises MetaApiError.
+    A shutdown raises _ShuttingDown, which _send retries. A stream that fails, stops
+    short, refuses or reports any other error raises MetaApiError.
     """
     deltas: list[str] = []
     finished = None
@@ -393,6 +418,8 @@ def _stream_text(events: Iterable[Any]) -> str:
                     finished = event.part.text
             elif kind == "response.completed":
                 return "".join(deltas) if finished is None else finished
+            elif kind == "error" and event.code == "server_shutting_down":
+                raise _ShuttingDown
             elif kind in _STREAM_FAILURES:
                 raise MetaApiError(f"SAM's stream ended with {kind}")
     except (openai.APIError, json.JSONDecodeError) as exc:
