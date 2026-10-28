@@ -1,6 +1,6 @@
 # Lusot progress board
 
-- **Last updated:** Oct 28, 2026, 1:35 PM Manila, by Claude (Window 1: MS1 Tasks 10 and 11 done; the APK is ready for M14)
+- **Last updated:** Oct 28, 2026, 12:45 PM Manila, by Claude (Window 1: MS1 Tasks 10 and 11 done; the APK is ready for M14)
 - **Rule:** tick a box only after its check passes, and write the evidence next to it.
 - **Status words:** Not started, In progress, Done, Blocked, Dropped (with a reason).
 - **Key dates (Manila time):** kickoff Oct 27, 12:00 AM. Core working by Oct 29. Build ends Nov 3. **Submit Nov 4, 10:00 PM.** Hard cutoff Nov 5, 10:00 AM. Closing ceremony and finals Nov 10, 1:00 AM.
