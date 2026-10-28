@@ -139,7 +139,8 @@ def test_page_embeds_the_script():
     page = m8_sheet.build_page([("A001", name)])
     assert page.count("<script") == page.count("</script") == 1
     inside = page[page.index("<script>") + len("<script>") : page.index("</script>")]
-    assert inside.startswith("\n" + script + START)
+    # The call has a line of its own, so a script ending in a // comment can't swallow it.
+    assert inside.startswith("\n" + script + "\n" + START)
     assert inside.endswith(");\n")
     assert "<!--" not in inside
     assert page.endswith("</script>\n</body>\n</html>\n")
@@ -204,6 +205,62 @@ def test_refuses_sealed_paths(tmp_path, capsys, where):
     assert capsys.readouterr().err == "refused: path inside a folder named sealed\n"
     assert not (tmp_path / "sealed").exists()
     assert not (tmp_path / "m8_sheet.html").exists()
+
+
+@pytest.mark.parametrize("name", ["set_a_log.csv", "m8_labels.csv"])
+def test_out_must_name_the_page(tmp_path, capsys, name):
+    """--out must name the .html page, so a slip can't overwrite Rene's log or his
+    export: either keeps its bytes. The check reads the string only."""
+    log, _ = set_a(tmp_path, [row("A001")], ["A001.jpg"])
+    target = tmp_path / name
+    if target != log:
+        target.write_bytes(b"photo_id,ref_id\nA001,P1\n")  # an earlier export
+    before = target.read_bytes()
+    with pytest.raises(SystemExit) as stop:
+        run(log, target)
+    assert stop.value.code == 2
+    assert capsys.readouterr().err.endswith("error: --out must name the .html page\n")
+    assert target.read_bytes() == before
+    assert not (tmp_path / "m8_sheet.html").exists()
+
+
+def test_photo_file_must_be_the_ids_own(tmp_path, capsys):
+    """As the intake has it, a photo is <id>.<jpg|jpeg|png>, in any case, and an id's
+    rows name one file. Saved labels follow the id, so a photo filed under another id
+    would carry them onto the wrong photo, which the split can't undo. Each problem
+    names the id once, never a file. Nothing is written."""
+    rows = [
+        row("A001", "A002.jpg"),  # another id's photo
+        row("A003", "sub/A003.jpg"),  # not a bare name
+        row("A004", "A004.jpg"),
+        row("A004", "A004.png"),  # one id, two files
+        row("A005", "a005.JPG"),  # any case is fine
+        row("A006", "B001.jpg"),
+        row("A006", "B001.jpg"),  # an alert row repeats the problem, printed once
+    ]
+    log, out = set_a(tmp_path, rows, ["A002.jpg", "A004.jpg", "A004.png", "a005.JPG"])
+    assert run(log, out) == 1
+    assert capsys.readouterr().out == (
+        "A001 photo_file: id_file_mismatch\n"
+        "A003 photo_file: id_file_mismatch\n"
+        "A004 photo_file: differs\n"
+        "A006 photo_file: id_file_mismatch\n"
+    )
+    assert not out.exists()
+
+
+def test_missing_columns_write_nothing(tmp_path, capsys):
+    """A log without candidate_id or photo_file, such as an M8 export given by mistake,
+    is named as the intake names it, and nothing is written."""
+    log = synth.write_csv(
+        tmp_path / "m8_labels.csv", formats.M8_COLUMNS, [{"photo_id": "A001"}]
+    )
+    out = tmp_path / "m8_sheet.html"
+    assert run(log, out) == 1
+    assert capsys.readouterr().out == (
+        "log candidate_id: missing_column\nlog photo_file: missing_column\n"
+    )
+    assert not out.exists()
 
 
 def test_malformed_log_writes_nothing(tmp_path, capsys):

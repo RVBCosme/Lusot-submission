@@ -6,9 +6,10 @@ r"""Write the M8 page, set_a\m8_sheet.html, from Rene's Set A log (spec §5.4, C
 
 The page lists each Set A photo once, by id, and shows it from raw\ beside the page.
 Rene labels the photos there, in his own browser. Of the log, the command uses only
-candidate_id and photo_file, and it checks that each photo exists with a stat, never
-reading its bytes (C201). So the page holds the ids, the file names and Table 5's lists,
-and no label, passability, link or spot text.
+candidate_id and photo_file. Each photo must be named <id>.<jpg|jpeg|png>, in any case,
+as the intake requires, and it is checked with a stat, never by reading its bytes (C201).
+So the page holds the ids, the file names and Table 5's lists, and no label,
+passability, link or spot text.
 
 The page is one self-contained file that makes no network call: an inline stylesheet,
 then one classic inline script at the end of the body, which holds m8_sheet.js verbatim
@@ -19,7 +20,8 @@ Usage, from the repo root (Claude runs it, and again whenever Rene adds photos):
         --set-a-log <data>\set_a\set_a_log.csv --out <data>\set_a\m8_sheet.html
 It prints photos=<n> and a reminder to export the labels before the next remake.
 Exit codes: 0 the page is written; 1 a problem, each printed as <id> <column>: <kind>
-(row <n> when the id itself is bad), and nothing written; 2 a path inside a folder
+(row <n> when the id itself is bad, log for a missing column), and nothing written;
+2 a usage error, such as an --out that isn't an .html page, or a path inside a folder
 named sealed (C222).
 """
 
@@ -135,7 +137,8 @@ legend { padding: 0 4px; font-weight: 600; }
 """
 
 # The script element comes last in the body, so M8.start, which appends to the body,
-# puts the tools and the photos after the rule.
+# puts the tools and the photos after the rule. The call has a line of its own, so a
+# script that ends in a // comment can't swallow it.
 PAGE = """\
 <!doctype html>
 <html lang="en">
@@ -153,7 +156,8 @@ and pick its values. Then set the photo's marks. A photo with nothing you can re
 its marks only.</p>
 <p class="m8-rule"><strong>Between two marks:</strong> {rule}</p>
 <script>
-{script}M8.start(document, window, {data});
+{script}
+M8.start(document, window, {data});
 </script>
 </body>
 </html>
@@ -191,11 +195,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--out", required=True, help="the page to write, beside the photos' raw folder"
     )
     args = parser.parse_args(argv)
+    # A string check, so that a slip can't overwrite Rene's log or his export.
+    if Path(args.out).suffix.casefold() != ".html":
+        parser.error("--out must name the .html page")
     guards.refuse_sealed(args.set_a_log, args.out)
     try:
         log = table.read_table(Path(args.set_a_log))
     except table.MalformedCsv as error:
         print(error.args[0])
+        return 1
+    missing = [c for c in ("candidate_id", "photo_file") if c not in log.columns]
+    for column in missing:
+        print(table.Finding("log", column, "missing_column"))
+    if missing:
         return 1
 
     raw = Path(args.out).parent / "raw"
@@ -205,12 +217,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         photo_id, name = row["candidate_id"], row["photo_file"]
         if re.fullmatch(formats.SET_A_ID, photo_id) is None:
             problems.append(table.Finding(f"row {row['#']}", "candidate_id", "bad_id"))
-        elif photo_id not in photos:  # an alert row repeats its photo's row (C223)
+            continue
+        guards.refuse_sealed(raw / name)
+        # The intake's rule: a photo is <id>.<jpg|jpeg|png>, in any case. Saved labels
+        # follow the id, so another id's photo would carry them onto the wrong photo.
+        own = {f"{photo_id}.{ext}".casefold() for ext in formats.PHOTO_EXTENSIONS}
+        if name and name.casefold() not in own:
+            problems.append(table.Finding(photo_id, "photo_file", "id_file_mismatch"))
+        elif photo_id in photos:  # an alert row repeats its photo's row (C223)
+            if name != photos[photo_id]:
+                problems.append(table.Finding(photo_id, "photo_file", "differs"))
+        else:
             photos[photo_id] = name
-            guards.refuse_sealed(raw / name)
             if not (raw / name).is_file():  # a stat, which reads no byte (C201)
                 problems.append(table.Finding(photo_id, "photo_file", "missing"))
-    for problem in problems:
+    for problem in dict.fromkeys(problems):  # alert rows may repeat a photo's problem
         print(problem)
     if problems:
         return 1
