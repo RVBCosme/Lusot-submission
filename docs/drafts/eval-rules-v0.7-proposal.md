@@ -43,7 +43,7 @@
 
 | # | Add or change | Source | Default |
 |---|---|---|---|
-| 6.1 | New bullet: "**In-between waterlines.** When the water sits between two marks, the reading takes the higher mark. Table 5 says so for wheels. Prompt v1 also applies it to people and to car bodies, and our own M8 labels follow the same convention." Rene answers wheels, people and car bodies separately, by Oct 30. One answer settles this item and MS3b-Q5 together. That the M8 sheet labels this way is pending MS2's sheet (Window 2's update B.4). | MS3b-Q5; the probe note §4; the tracker's update | the higher mark for all three |
+| 6.1 | New bullet: "**In-between waterlines.** When the water sits between two marks, the reading takes the higher mark, for wheels, people and car bodies alike. Table 5 says so for wheels; prompt v1 and our own M8 labels follow the same convention. A photo that shows no street is unusable." That the M8 sheet labels this way is pending MS2's sheet (Window 2's update B.4). | MS3b-Q5; the probe note §4; the tracker's update | **Answered by Rene, 11:09 PM, Oct 28 (MS3b-Q5, relayed by the tracker):** the higher mark for all three, and a photo with no street is unusable |
 
 ## §7. Metrics
 
