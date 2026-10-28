@@ -129,13 +129,18 @@ def map_level_label(raw: str) -> LevelLabel:
     # The numbers come out before the words are normalised, so no mark is lost.
     text = raw.lower()
     measures = list(_MEASURE.finditer(text))
-    words = _words(_MEASURE.sub(" ", text))
+    rest = _MEASURE.sub(" ", text)
+    words = _words(rest)
     if words in STATUS_WORDS:
         return LevelLabel("status", None)
     level = _WORDS_LEVELS.get(words)
     if level is None and _measures_decide(words):
         levels = {_measure_level(measure) for measure in measures}
         level = levels.pop() if len(levels) == 1 else None
+    # A "+" left outside the measures, as in "Knee+", is a floor on the level too,
+    # so only above_chest survives it (MS6E-Q1, item 16).
+    if "+" in rest and level != "above_chest":
+        level = None
     if level is None:
         return LevelLabel("unmapped", None)
     return LevelLabel("level", level)
@@ -147,6 +152,10 @@ def map_passability(raw: str) -> ClassLabel:
     if raw.strip() == "":
         return ClassLabel("blank", None)
     text = raw.lower()
+    # A "+", as in "NPLV+", would set a floor on the class, and a label never sets
+    # one (MS6E-Q1, item 16).
+    if "+" in text:
+        return ClassLabel("unmapped", None)
     cls = _PASSABILITY.get(_bracketless(text))
     if cls is None:
         pair = _PARENTHETICAL.fullmatch(text)

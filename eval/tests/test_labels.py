@@ -213,6 +213,14 @@ def test_head_plus():
             "13 in +": UNMAPPED,
             "60 in+": level("above_chest"),
             "120 cm+": level("above_chest"),
+            # So is a "+" anywhere else, on whatever level the label gives.
+            "Knee+": UNMAPPED,
+            "Gutter+": UNMAPPED,
+            "Waist+ (37+ inches)": UNMAPPED,
+            "knee deep +": UNMAPPED,
+            "+13 inches": UNMAPPED,
+            # A measure's own "+" isn't stray, so words that map still win over it.
+            "knee deep (13+ in)": level("knee"),
         }
     )
 
@@ -236,6 +244,7 @@ def test_passability_forms():
         "NPATV (passable to all vehicles)": ClassLabel("unmapped", None),
         "": ClassLabel("blank", None),
         "closed": ClassLabel("unmapped", None),
+        "NPLV+": ClassLabel("unmapped", None),  # a floor (MS6E-Q1, item 16)
     }
     for raw, expected in cases.items():
         assert map_passability(raw) == expected, raw
