@@ -12,7 +12,7 @@
 | # | Add or change | Source | Default |
 |---|---|---|---|
 | 2.1 | After the bullet `- **A single number** ("10"", "12"", "37 inches") takes its level from the level rule in §1.`, add: "A number written without a unit (such as "25") is unmapped." | MS6E-Q1, item 11 | unmapped |
-| 2.2 | After the variants bullet, add: "`deep` may be left off any phrase. `level` is written only where the table writes it, after `above gutter` and `above knee`." | MS6 spec C404 | as written |
+| 2.2 | After the variants bullet, add: "Any phrase may end with `deep` or `level`, or with neither: the two words are interchangeable, as "above gutter deep" beside "above gutter level" shows. Real alerts write "half tire level"." | MS6E-Q1, item 12; MS6 spec C404 | interchangeable |
 | 2.3 | Replace `- **Statuses that are not depths**, such as "subsided", can't match a photo.` with: "- **Statuses that are not depths**, such as "subsided", can't match a photo. As a photo's own label, a status gives "no matching alert". Among a photo's other matching alerts, it is ignored." | MS6E-Q1, item 7 | as written |
 | 2.4 | After the "Any other label is excluded" bullet, add: "A passability phrase that maps to no class leaves the photo out of the passability metric only, and is logged. A photo whose alert gives neither a depth nor a class is excluded as "unmapped label"." | MS6E-Q1, item 2; MS6 spec C404 | as written |
 
@@ -28,7 +28,9 @@
 | # | Add or change | Source | Default |
 |---|---|---|---|
 | 4.1 | MS2-Q2's §4 items, in the wording of MS2's committed spec:<ul><li>the seed `20261030`, fixed in the code, so the line "Split seed: `TBD at split time`" gets that value now and only the date is filled at split time</li><li>the shares by whole events, with a cap: an event goes to sealed only while the sealed side would hold at most 45% of a set's rows (A-neg 40%), and the walk ends at 40% (A-neg a third); a single split (C204)</li><li>C203's event rule</li><li>Set B's split by car number: odd cars development, even cars final (C210)</li><li>the final-car run as two of Rene's commands, with the masks in plaintext in `set_b\sealed\` until the archive is tested (C214). This replaces "The generator and the G3 ground truth run on them as one unattended script, writing straight into the encrypted archive."</li></ul> | MS2-Q2 (MS2's C203, C204, C210, C214) | MS2's defaults, which MS2's tools follow as Claude's calls until Rene answers |
-| 4.2 | Replace "It writes the sealed rows straight into the encrypted archive (M19), and agents only ever see development rows." with: "It writes the sealed rows into a write-once encrypted archive (M19), one per sealing step: Set A and A-neg, Set B's final cars, and Set D if it rains (MS2's C205). Agents only ever see development rows." | MS2-Q2 | MS2's default: one write-once archive per sealing step. The alternative is a single archive, written once after the last sealing input exists. |
+| 4.2 | **The split is stratified by passability.** After the split bullet, add: "The walk runs separately for two groups of events, with the same seed and the same shares: events with any NPLV or NPATV row (by §2's passability table), and the rest. In a group with 2 or more events, each side gets at least one." | Rene's data-roles instruction (§3, about 3:35 PM); MS2-Q2 (MS2's C204, as amended) | stratified |
+| 4.3 | **Validation is event replay.** New bullet: "Development data has two uses. All of it tunes (MS3b's C310). Then, as validation, each development flood event is scored with C310's settings chosen on the other events, by replaying the saved model outputs, with no new Meta call. Reports show the replay figures beside the in-sample ones. If the replay's within-one agreement falls 3 or more photos below the in-sample figure, the cutoffs go back to their start values, marked untuned, and the tuning change log says why." | Rene's data-roles instruction (§3; guard 3); MS6 spec C425 | as written |
+| 4.4 | Replace "It writes the sealed rows straight into the encrypted archive (M19), and agents only ever see development rows." with: "It writes the sealed rows into a write-once encrypted archive (M19), one per sealing step: Set A and A-neg, Set B's final cars, and Set D if it rains (MS2's C205). Agents only ever see development rows." | MS2-Q2 | MS2's default: one write-once archive per sealing step. The alternative is a single archive, written once after the last sealing input exists. |
 
 ## §5. Ground truth for Set B
 
@@ -50,7 +52,9 @@
 | 7.2 | In the "Envelope coverage" row, after "`depthInMin` to `depthInMax`", add: ", over the wheels measured". | MS6E-Q1, item 4 | over measured wheels |
 | 7.3 | In the "False flood rate" row, add: "Over every scored A-neg photo. A processing failure counts in n, never as a false flood, and is shown beside it." | MS6E-Q1, item 9 | as written |
 | 7.4 | In the "Correct refusals" row, add: "A processing failure is not a refusal." | MS6 spec §4.2 (CLAUDE.md keeps the two apart) | as written |
-| 7.5 | In the "Landmark agreement" row, add: "Over the references our labels give a landmark, in photos Muse Spark answered. A labelled box that Muse Spark skipped counts as a disagreement. A label that matched no box is counted apart and left out." | MS6E-Q1, item 10; MS6 spec C415 | as written |
+| 7.5 | **The baseline row.** New bullet: "Every report shows two baselines, "always the most common level" and "always the most common passability class". Both come from the development rows, and are scored on Lusot's answered rows. Lusot should beat them on within-one agreement and on underestimation, and falling short on either is underfitting. Exact agreement is shown but not judged, because landmarks never read `gutter` (§6). The report also counts the NPLV and NPATV photos caught. Reports print numbers, not verdicts." | Rene's data-roles instruction (§4, underfitting guard 1); MS6 spec C424 | as written |
+| 7.6 | New bullet: "In results by level, a level with fewer than 5 photos shows counts, not percentages." | Rene's data-roles instruction (§4, guard 1) | as written |
+| 7.7 | In the "Landmark agreement" row, add: "Over the references our labels give a landmark, in photos Muse Spark answered. A labelled box that Muse Spark skipped counts as a disagreement. A label that matched no box is counted apart and left out." | MS6E-Q1, item 10; MS6 spec C415 | as written |
 
 ## §8. Release gate for inches
 
@@ -68,6 +72,7 @@
 | 9.1 | After "duplicate or repost", add: "(identical files, or difference hashes within 6 bits of each other, found by MS2's split)". | MS2-Q2 | MS2's default |
 | 9.2 | After "the file can't be decoded", add: "(checked by MS2's split, before any run; a file that decoded but fails in the pipeline is a processing failure, not an exclusion)". | MS6 spec C404 | as written |
 | 9.3 | New line: "A-neg photos are excluded only as duplicates or files that can't be decoded." | MS6E-Q1, item 6 | as written |
+| 9.4 | After "A photo is **never** excluded because of Lusot's output.", add: "**Notes never change the ground truth.** No photo is relabeled after its prediction is seen. A new exclusion must be a written rule that tests facts recorded before the run, applies to every row, and is made before the sealed run with Rene's OK." | Rene's data-roles instruction (§4, overfitting guard 5) | as written |
 
 ## §10. Reproducibility (the sealed run)
 
@@ -90,4 +95,4 @@ Two questions change nothing here:
 
 | Date | Version | Change | Approved by |
 |---|---|---|---|
-| [date] | 0.7 | <ul><li>§2 and §3: label and matching readings, the alert time for separate posts</li><li>§4: the split, its seed and cap, Set B's split by car, the final-car run, and one archive per sealing step (MS2-Q2)</li><li>§5: Set B's crops and truth (MS2-Q2)</li><li>§6: in-between waterlines (MS3b-Q5)</li><li>§7: metric denominators</li><li>§8: what "rise" means, Set B's gate figures, and undefined guards and targets</li><li>§9: duplicates, files checked before the run, and A-neg's exclusions</li><li>§10: the freeze list, resume, retry and the rerun</li></ul> | Rene, [date], in writing |
+| [date] | 0.7 | <ul><li>§2 and §3: label and matching readings, the alert time for separate posts</li><li>§4: the split, its seed, cap and stratification by passability, Set B's split by car, the final-car run, one archive per sealing step (MS2-Q2), and validation by event replay</li><li>§5: Set B's crops and truth (MS2-Q2)</li><li>§6: in-between waterlines (MS3b-Q5)</li><li>§7: metric denominators, the baseline row and the per-level counts rule</li><li>§8: what "rise" means, Set B's gate figures, and undefined guards and targets</li><li>§9: duplicates, files checked before the run, A-neg's exclusions, and notes that never change the ground truth</li><li>§10: the freeze list, resume, retry and the rerun</li></ul> | Rene, [date], in writing |

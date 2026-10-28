@@ -47,12 +47,12 @@
   - `RULES_VERSION = "0.6"`
   - **Shown values** round half up: rates to 0.1%, inches to 0.01 in.
 - **Names:**
-  - **Configurations:** `landmark`, `geometry`, `geometry_no_self_check`.
+  - **Configurations:** `landmark`, `geometry`, `geometry_no_self_check`; on development runs, each may also come as `<configuration>_replay` (spec C425).
   - **Set B variants:** `geometry`, `geometry_uncalibrated`, `known_waterline`, `known_waterline_uncalibrated`, `geometry_no_self_check`.
   - **Result fields** keep Table 14's names (`status`, `refusalReason`, `noFloodSeen`, `level`, `landmark`, `passability`, `levelIsFloor`, `basis`, `depthInMin`, `depthInMax`), plus MS3b's `levelFrom`. The per-wheel point estimate is `depthInPoint`.
 - **Report copy:**
   - The footer carries exactly two lines: `Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.` and `Not affiliated with MMDA.`
-  - The word "safe" never appears in any case. Neither does "MMDA's 9 levels" or "accuracy".
+  - The word "safe" never appears in any case. Neither do "MMDA's 9 levels", "accuracy", or the verdict words "overfit" and "underfit": comparisons are stated as numbers (spec §4.2).
   - Set A figures are called agreement. Every figure carries its n, and the report calls its results indicative.
   - Axis and row labels say "the alert's level", never "MMDA's level", since the 9 levels aren't all MMDA's and city alerts count too.
 - **Printed output** is ASCII only: counts and file names. A path is printed with `backslashreplace`, so a non-ASCII folder name can't break a console. Every printed line masks runs of 12 digits as `<account>`.
@@ -151,10 +151,11 @@ All new.
     - `test_range_takes_its_upper_value`: `13-18 inches` → `knee`; `8 to 10 inches` → `half_knee`.
     - `test_centimetres`: `25 cm` → `half_knee` (9.84 in); `33 cm` → `half_tire` (12.99 in).
     - `test_label_spacing_case_and_units` (Review Focus 5): `Knee  Deep` → `knee`; `10”` → `half_knee`; `13 - 18 inches` → `knee`; `13–18 inches` (an en dash) → `knee`; `25 centimeters` → `half_knee`.
-    - `test_bare_number_and_suffixes` (MS6E-Q1, item 11; C404):
+    - `test_bare_number_and_suffixes` (MS6E-Q1, items 11 and 12; C404):
       - `25` → `unmapped`, because a number with no unit maps to nothing
-      - `knee level` and `waist level` → `unmapped`, because §2 writes `level` only after `above gutter` and `above knee`
-      - `above knee level` and `above knee deep` → `tire`; `knee` → `knee`, because `deep` may be left off
+      - `knee level` → `knee` and `waist level` → `waist`, because `level` and `deep` are interchangeable
+      - `13-18 inches ("half tire level")`, a real Valenzuela alert form, → `half_tire`: the words map, and words beat the range
+      - `above knee level` and `above knee deep` → `tire`; `knee` → `knee`, because the suffix may be left off
     - `test_status_blank_and_unmapped`:
       - `subsided` → kind `status`
       - `""` and `"  "` → kind `blank`
@@ -177,7 +178,7 @@ All new.
     1. Lowercase the raw text.
     2. Pull out every number with its unit (`"`, `”`, `″`, `in`, `inch`, `inches`, `cm` and the centimetre spellings), including a range: two numbers joined by `-`, `–` or `to`.
     3. Only then normalise the words that are left: hyphens, underscores and runs of whitespace become single spaces, and outer punctuation is stripped.
-    - **Words that remain** must equal one of rules §2's phrases exactly: `gutter`, `half knee`, `half tire`, `knee`, `tire`, `waist`, `chest`, `half gutter`, `above gutter`, `above knee` and `lagpas tao`. Each may carry `deep`, and only `above gutter` and `above knee` may carry `level`.
+    - **Words that remain** must equal one of rules §2's phrases exactly: `gutter`, `half knee`, `half tire`, `knee`, `tire`, `waist`, `chest`, `half gutter`, `above gutter`, `above knee` and `lagpas tao`. Each may end with `deep` or `level`, or neither, since §2 treats the two words alike (spec C404; MS6E-Q1, item 12).
     - **A number with no unit** maps to nothing (MS6E-Q1, item 11).
     - **Words win** when they map. Words that don't map give `unmapped`.
     - **With no words left,** the number decides through `level_for_inches`, after centimetres are converted and a range is taken at its upper value.
@@ -209,7 +210,7 @@ All new.
     - `PhotoRow(photo_id: str, event_id: str, level_label_raw: str, passability_raw: str, other_alerts_raw: tuple[str, ...], facts: Facts, quality: str | None, subsets: tuple[str, ...], surface: str | None, results: Mapping[str, Result], answered: bool, references: tuple[Reference, ...])`, where `answered` means `answer` wasn't null
     - `Estimate(measured: bool, point: Decimal | None, low: Decimal | None, high: Decimal | None, fail: str | None)`
     - `WheelRow(crop_id: str, wheel: int, car_id: str, vehicle_type: str, tire_code: str, true_depth_in: Decimal, sam_water_found: bool, bins: Mapping[str, str], estimates: Mapping[str, Estimate])`
-    - `Run(meta: Mapping[str, object], kind: str, synthetic: bool, self_check: bool, geometry_dropped: bool, rerun_reason: str | None, set_a: tuple[PhotoRow, ...] | None, a_neg: tuple[PhotoRow, ...] | None, set_b: tuple[WheelRow, ...] | None, set_d: tuple[WheelRow, ...] | None, latency: tuple[tuple[str, Decimal], ...] | None)`, where `None` means the set's file is absent
+    - `Run(meta: Mapping[str, object], kind: str, synthetic: bool, self_check: bool, geometry_dropped: bool, rerun_reason: str | None, baseline_level: str | None, baseline_class: str | None, set_a: tuple[PhotoRow, ...] | None, a_neg: tuple[PhotoRow, ...] | None, set_b: tuple[WheelRow, ...] | None, set_d: tuple[WheelRow, ...] | None, latency: tuple[tuple[str, Decimal], ...] | None)`, where `None` means the set's file is absent
   - `load_run(folder: Path) -> Run`
 - Produces, in `eval/tests/builders.py`:
   - `level(level: str, *, floor: bool = False, landmark: str = "hub", level_from: str | None = None, inches: tuple[str, str] | None = None) -> dict`, plus `nfs() -> dict`, `refused(reason: str) -> dict` and `failed(reason: str) -> dict`, each an `item_fields()` dict
@@ -234,7 +235,8 @@ All new.
     - `stops`: a list of `{at, cause, resumed}`, all short strings
     - `rerun_reason` (a short string, only in a `rerun/` folder)
     - `synthetic: true`, only in test fixtures (C422)
-  - **Required:** a sealed run needs every key except `geometry_dropped_reason`, `rerun_reason`, `stops` and `synthetic`. A development run may also leave out `rules_version`, `freeze_commit`, `self_check_decided` and `geometry_default`.
+    - `baseline_level` (one of `LEVELS`) and `baseline_class` (one of `CLASS_NAMES`), the frozen baseline (C424)
+  - **Required:** a sealed run needs every key except `geometry_dropped_reason`, `rerun_reason`, `stops` and `synthetic`. A development run may leave out the baseline pair, and the harness then computes it from the run's own rows (Task 4). A development run may also leave out `rules_version`, `freeze_commit`, `self_check_decided` and `geometry_default`.
   - **Version:** `rules_version`, when present, must equal `RULES_VERSION`.
   - **Strings:** each is at most 80 characters from `[A-Za-z0-9 ._:/,+()=-]`, with no `://` and no `@`.
 - **A Set A row** has exactly these keys: `photo_id`, `event_id`, `level_label_raw`, `passability_raw`, `other_alerts_raw`, `poster_kind`, `label_in_image`, `match`, `duplicate`, `metro_manila`, `decodes`, `quality`, `subsets`, `outcomes`, `answer`, `wheel_inches`, `m8`.
@@ -247,6 +249,7 @@ All new.
   - tags, refusal reasons, bin names and values, and failed checks are tokens matching `^[a-z][a-z0-9_]{0,31}$`
 - **`outcomes`:**
   - **Which configurations:** exactly `landmark` and `geometry`, plus `geometry_no_self_check` when, and only when, `self_check` is `on`. When `geometry_default` is `dropped`, only `landmark`.
+  - **Replay results (C425):** in a development run only, any present configuration may also have `<configuration>_replay` (for example `landmark_replay`), a result of the same shape. A sealed run with any `_replay` key is refused. `PhotoRow.results` holds them under those keys, and `REPLAY_SUFFIX = "_replay"` names the suffix.
   - **Each result:**
     - `refused` or `failed`: exactly `status` and `refusalReason`
     - "no flood seen": exactly `status: "done"` and `noFloodSeen: true`
@@ -290,6 +293,7 @@ All new.
     - `seconds: NaN` and `seconds: Infinity` are refused
     - `wheel: 1.0` and `wheel: true` are refused
   - `test_synthetic_flag`: `synthetic: true` loads and reaches `run.meta`, and `synthetic: "yes"` is refused.
+  - `test_replay_and_baseline_fields` (C424, C425): a development row with `landmark_replay` loads; a sealed row with it is refused; `geometry_replay` without `geometry` is refused. A sealed `run.json` without `baseline_level` is refused, `baseline_level: "ankle"` is refused, and a development `run.json` without the pair loads.
   - `test_unmarked_quality` (spec C423): an A-neg row with `quality: null` and `subsets: []` loads, and so does a Set A row with `quality: null`; `quality: "unknown"` is refused.
   - `test_errors_never_echo_values`: a refused label `Espana Maceda` gives a message with the file, the line and the rule, without the word `Espana`.
   - `test_self_check_controls_the_third_configuration`: with `self_check: "on"`, a row without `geometry_no_self_check` is refused; with `"off"`, a row that has it is refused.
@@ -410,7 +414,7 @@ All new.
 - [ ] **Step 4:** Run the tests. Expected: PASS.
 - [ ] **Step 5:** Run the leak checks, then commit `feat(eval): score Set A and apply the exclusions`.
 
-### Task 4: Landmark agreement, A-neg, the quality subset and subsets
+### Task 4: Landmark agreement, A-neg, the quality subset, subsets, the baseline and replay
 
 **Files:**
 - Modify: `eval/scoring/metrics.py` (this branch's own file, from Task 3)
@@ -431,6 +435,12 @@ All new.
   - `correct_refusals(set_a: Sequence[PhotoRow], a_neg: Sequence[PhotoRow], config: str) -> QualityScores`, over rows that aren't excluded and have `quality` `dark` or `blurry`
   - `SubsetScores(tag: str, n: int, coverage: Rate, under: Rate, passability: Rate)`
   - `score_subsets(rows, config: str) -> tuple[SubsetScores, ...]`: one per tag found in Set A rows, sorted, then `tire_or_deeper` (W6: rows whose level label maps to `tire` or deeper), which is always present
+  - **The baseline (spec C424):**
+    - `baseline_from_rows(rows: Sequence[PhotoRow]) -> tuple[str | None, str | None]`: the most common mapped level among scored rows with a mapped level, with ties going to the deeper level, and the most common mapped class among scored rows with a mapped class, with ties going to the stricter class (NPATV, then NPLV, then PATV). Each is `None` when there's nothing to count.
+    - `BaselineScores(config: str, level: str, cls: str, exact: Rate, within_one: Rate, under: Rate, passability: Rate, caught_nplv: Rate, caught_npatv: Rate)`, and `score_baseline(rows, config: str, level: str, cls: str) -> BaselineScores`. The constant answer is scored on exactly the rows `score_set_a` uses for that configuration: answered rows with a mapped level for the level rates, and answered rows with a mapped class for passability and the caught counts.
+    - `caught(rows, config: str) -> tuple[Rate, Rate]`: Lusot's NPLV and NPATV catches, over answered rows whose stated class is NPLV (then NPATV). A row counts as caught when Lusot's class is NPLV or NPATV.
+  - **Per level:** `LevelRow(level: str, n: int, answered: int, exact: int, within_one: int, under: int)`, and `score_by_level(rows, config: str) -> tuple[LevelRow, ...]`, over scored rows with a mapped level, in level order. Only levels present get a row.
+  - **Replay (spec C425):** `ReplayComparison(config: str, in_sample: SetAScores, replay: SetAScores, within_one_drop: int)`, and `replay_comparison(rows, config: str) -> ReplayComparison | None`. It returns `None` when no row carries `<config>_replay`. `within_one_drop` is `in_sample.within_one.k - replay.within_one.k`. `score_set_a` accepts a replay key as its `config`.
 - [ ] **Step 1: Write the failing tests:**
   - `test_landmark_agreement`: wheels at `hub`/`hub` and `hub`/`rim_top`, a body at `door_sill`/`door_sill`, and a person at `knee`/`knee` give `wheel Rate(1, 2)`, `body Rate(1, 1)`, `person Rate(1, 1)` and `all Rate(3, 4)`.
   - `test_landmark_agreement_counts_unanswered_and_unmatched` (Review Focus 3):
@@ -445,6 +455,13 @@ All new.
     - `surface="dry"` keeps only the dry rows
   - `test_correct_refusals`: dark (refused), blurry (refused), dark (a level), dark (failed), `ok` (refused) and an unmarked `null` (refused) give `n == 4`, `correct == Rate(2, 4)` and `failed == 1`, with the reasons counted.
   - `test_subsets`: rows tagged `splash` and `reflection`, plus a `waist deep` row, give `reflection`, `splash` and `tire_or_deeper`, in that order, each with its own n, coverage, under and passability.
+  - `test_baseline_ties`: labels knee ×3, gutter ×3 and tire ×1 give `knee` (a tie goes to the deeper level); classes NPLV ×3, PATV ×3 and NPATV ×1 give `NPLV` (a tie goes to the stricter class); no labelled rows give `(None, None)`.
+  - `test_baseline_on_the_hand_computed_set`, on Task 3's ten-row set with its `landmark` results:
+    - `baseline_from_rows` gives `("knee", "NPATV")`. Knee appears twice among the scored levels; PATV and NPATV tie at 3 among the stated classes, and NPATV is stricter.
+    - `score_baseline(rows, "landmark", "knee", "NPATV")` gives `exact == Rate(2, 6)`, `within_one == Rate(3, 6)`, `under == Rate(2, 6)` (A03 and A09), `passability == Rate(2, 6)`, `caught_nplv == Rate(2, 2)` and `caught_npatv == Rate(2, 2)`.
+    - `caught(rows, "landmark")` gives `(Rate(2, 2), Rate(1, 2))`: A03's "no flood seen" reads PATV.
+  - `test_by_level`: on the same set, `knee` gives `LevelRow("knee", 2, 2, 1, 2, 1)`, and `waist` gives `LevelRow("waist", 1, 0, 0, 0, 0)` (A06 failed).
+  - `test_replay_comparison`: rows whose `landmark` results put 5 of 6 within one level, and whose `landmark_replay` results put 2 of 6, give `within_one_drop == 3`; rows without replay results give `None`.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement the functions in `metrics.py`.
 - [ ] **Step 4:** Run the tests. Expected: PASS.
@@ -585,11 +602,18 @@ All new.
 
 **Interfaces:**
 - Consumes: everything from Tasks 1 to 7, including `fmt_rate`, `fmt_inches`, `excluded_set_a`, `excluded_a_neg` and `left_out_of_passability` (Task 3); `Run` (Task 2).
-- Produces, in `scoring.report`: `build_report(run: Run, *, first_run: Run | None = None) -> dict[str, bytes]`. The keys are file names: `report.md`, `summary.json`, `level-matrix-<config>.svg` for each configuration present, and `set-b-errors.svg` when Set B exists. The values are UTF-8, with `\n` line endings and a final newline. `first_run` is given only when building a rerun's report (C421).
+- Produces, in `scoring.report`:
+  - `build_report(run: Run, *, first_run: Run | None = None) -> dict[str, bytes]`. The keys are file names: `report.md`, `summary.json`, `level-matrix-<config>.svg` for each configuration present, and `set-b-errors.svg` when Set B exists. The values are UTF-8, with `\n` line endings and a final newline. `first_run` is given only when building a rerun's report (C421).
+  - `build_review(run: Run) -> bytes | None` (spec C426): `review.csv` for a development run, and `None` for a sealed one. It is written with `csv.writer`, UTF-8, `\r\n` line endings, and one row per development Set A then A-neg photo, sorted by id. Its columns, in order:
+    - `set`, `photo_id`, `event_id`, `excluded` (the reason, or empty)
+    - `alert_level`, `alert_class` (mapped, or empty)
+    - for each configuration present, `<config>_result` (the level, `no_flood_seen`, `refused:<reason>` or `failed:<reason>`), `<config>_class` and `<config>_landmark`
+    - `m8_agreement` (`k of n`, or empty), and `m8_detail`, such as `wheel 3: hub/rim_top; person 5: knee/knee`
+    - `rene_verdict` and `rene_note`, both empty
 - **`report.md`'s sections,** in spec §4.4's order, with these exact headings:
   - `# Lusot evaluation report`
   - `## Reported first`, `## Release gate`
-  - `## Set A: every metric`, `## Set A: level matrices`, `## Landmark agreement`
+  - `## Set A: every metric`, `## Baseline`, `## By the alert's level`, `## Set A: level matrices`, `## Landmark agreement`
   - `## A-neg: flood-free photos`, `## Correct refusals`, `## Subsets`
   - `## Set B`, `## Set D`, `## Latency`
   - `## Exclusions`, `## Frozen versions and data`, `## Rebuild this report`
@@ -607,6 +631,10 @@ All new.
   - **Configuration labels:** "Landmark alone", "Landmark plus geometry", and "Landmark plus geometry, without the self-check". The shipped one comes first in "Reported first" and is marked `(ships)`.
   - **The self-check line** reads `Self-check: off (decided <self_check_decided>, MS3).`, or `Self-check: on (decided …). Its extra row, geometry without the self-check, is reported but never chosen (eval/rules.md §8).` A development run without `self_check_decided` reads `decided: not recorded`.
   - **A-neg** gives the false flood rate overall, then for `wet` and `dry`.
+  - **Replay (C425):** on a development run with replay results, "Set A: every metric" gets a column for each `<config>_replay`, labelled with its configuration's name plus `(replay)`. A line per configuration then gives the within-one counts both ways and the difference, such as `Within one level: 5 of 6 in-sample, 2 of 6 in replay (3 fewer photos).`
+  - **"Baseline" (C424)** names the two constant answers, and says where they came from: `run.json`, or "computed from these development rows". A table gives, for each configuration and then for the baseline scored on that configuration's rows: exact (marked "shown, not compared"), within one level, underestimation, passability agreement, and the NPLV and NPATV photos caught. Then one plain sentence per comparison where Lusot is behind, such as `The baseline's within-one agreement is higher: 3 of 6 against 2 of 6.`
+  - **"By the alert's level"** has a table with one row per level present: n, answered, exact, within one level and underestimated, as counts. A row with n of 5 or more also gives the three percentages.
+  - **Verdict words:** the report never writes "overfit" or "underfit" in any form. It states numbers.
   - **A missing set** gets its heading and the line `Not run in this results folder.`. Missing latency instead reads `Latency wasn't measured in this run.` (C416).
   - **Every metric line or table row** shows k and n through `fmt_rate`, or `n = N` beside a count, a median or a kappa.
   - **The Set B table** has one row per variant present, then one per vehicle type and one per bin value for `geometry`, plus the `sam_water_found` line. Set D gets the same table and groups.
@@ -625,12 +653,18 @@ All new.
   - `kind`, `date`, `rules_version`, `shipped`, `geometry_stays`, `inches_shown`
   - per configuration: `underestimation`, `passability` and `coverage`, each `{"k", "n"}`, plus `refused` and `failed`
   - for Set B's `geometry` variant: `wheels`, `measured` (`{"k", "n"}`), `median_error_in` and `worst_error_in` (strings, or null), and `envelope`
+  - `baseline_level` and `baseline_class`, which the freeze copies into the sealed run's `run.json` (C424)
 - [ ] **Step 1: Write the failing tests,** on runs built with `builders.write_run` and `rows.load_run`:
   - `test_sections_in_order`: the headings above appear in order.
   - `test_every_metric_row_has_n`: every Markdown table row, apart from header and separator rows, under "Reported first", "Release gate", the Set A, A-neg, quality, subset, Set B and Set D sections and "Latency" matches ` of [0-9]+ ` or `n = [0-9]+`. The chart twins' count tables are exempt.
   - `test_each_chart_has_its_twin`: every `![…](….svg)` link is followed, before the next heading, by a Markdown table.
   - `test_set_b_only_report`: a development run with only `set_b.jsonl` builds without error; "Reported first" reads `Not run in this results folder.`; the Set B section has its rows; and `summary.json` holds nulls for Set A.
   - `test_synthetic_report`: `synthetic: true` gives the synthetic heading and line, and no "ran once on the sealed sets".
+  - `test_baseline_section`: on Task 3's set, the section names `knee` and `NPATV`, gives "computed from these development rows" for a development run without the pair, and states the within-one comparison sentence only where the baseline is ahead. A sealed run with the pair says it came from `run.json`.
+  - `test_by_level_hides_small_percentages`: a level with 4 photos shows counts and no `%`, and a level with 5 shows the percentages.
+  - `test_replay_columns`: a development run with `landmark_replay` gets the `(replay)` column and the within-one line with `3 fewer photos`; a run without replay results gets neither.
+  - `test_no_verdict_words`: `"overfit" not in report.lower()` and `"underfit" not in report.lower()`, for runs that put Lusot behind the baseline.
+  - `test_review_sheet`: `build_review` on a development run gives one row per Set A and A-neg photo, with the header above in order, an excluded row's reason, and empty `rene_verdict` and `rene_note`; on a sealed run it gives `None`.
   - `test_required_words`: the report contains `indicative`, `agreement` and both footer lines exactly. It contains neither `accuracy` nor `MMDA's 9 levels`.
   - `test_never_says_safe`: `"safe" not in report.lower()`, for runs that exercise every section.
   - `test_both_configurations_and_the_self_check_line`: with `self_check: "off"`, two configuration columns and the "off" line; with `"on"`, three columns, the extra row's label and the "never chosen" sentence.
@@ -666,11 +700,12 @@ All new.
     - **Arguments:** `--from-saved`, `--results DIR` (default `DEFAULT_RESULTS`), `--write`, and `--label-words`.
     - **`--label-words`** prints `sorted(LABEL_WORDS)`, one per line, and returns 0.
     - **Otherwise `--from-saved` is required.** The order is fixed: refuse a sealed path first, before any read; load; build; then write the files to `<results>/report/`, or compare them. If `<results>/rerun/run.json` exists, it does the same for the rerun, with `first_run` set to the main run (C421).
-    - **Comparing** reads each committed file and turns `\r\n` into `\n` on both sides. It reports any built file that differs or is missing, and any extra `.md`, `.json` or `.svg` file in a `report/` folder.
+    - **Comparing** reads each committed file and turns `\r\n` into `\n` on both sides. It reports any built file that differs or is missing, and any extra `.md`, `.json` or `.svg` file in a `report/` folder. It never reads or reports `review.csv`.
+    - **The review sheet (C426):** with `--write` on a development run, `build_review`'s bytes go to `<results>/report/review.csv` only when that file doesn't exist yet. Otherwise the run prints `review.csv kept (it may hold Rene's notes)` and leaves it alone.
     - **Exit codes:** 0 when identical or written; 1 when different; 2 for a sealed path, a `RowError`, a missing results folder, or a run without `--from-saved` or `--label-words`.
     - **Printed lines,** ASCII only, with 12-digit runs masked: the results folder, then from the `summary.json` just built, the run's kind and date, each configuration's three headline rates and the gate's decision (or `Set A: not run`). They end with `report: N files identical`, `report: differs: <names>`, `refused: path inside a folder named sealed`, or `invalid: <file>:<line>: <what>`.
 - **The fixture** is hand-written and synthetic:
-  - a `sealed` run with `synthetic: true` (C422), `freeze_commit` `abcdef0123456789abcdef0123456789abcdef01` and `self_check: "off"`
+  - a `sealed` run with `synthetic: true` (C422), `freeze_commit` `abcdef0123456789abcdef0123456789abcdef01`, `self_check: "off"`, `baseline_level: "knee"` and `baseline_class: "NPLV"`
   - 12 Set A rows, covering every kind of result and at least four exclusion reasons, one of them `conflicting alerts`
   - 4 A-neg rows, both wet and dry
   - 8 Set B rows over 4 crops (two wheels each), with the four variants `geometry`, `geometry_uncalibrated`, `known_waterline` and `known_waterline_uncalibrated`
@@ -688,6 +723,7 @@ All new.
   - `test_rebuilds_the_fixture_identically`: `main(["--from-saved", "--results", <fixture>]) == 0`, and the output ends with `report: N files identical`.
   - `test_a_changed_row_gives_exit_1`: in a copy under `tmp_path`, a scored row's `geometry` result becomes `level: "waist", passability: "NPATV"`, which the loader accepts. That gives 1, and the output names `report.md`.
   - `test_set_b_only_folder`: a development folder with only `run.json` and `set_b.jsonl`, written with `--write` and then checked, gives 0, and the output says `Set A: not run`.
+  - `test_review_sheet_is_written_once` (spec E11): a development folder written with `--write` gets `report/review.csv`. After a `rene_verdict` cell is filled in, a second `--write` leaves the file byte for byte the same and prints `review.csv kept`. The check without `--write` still gives 0. The sealed fixture has no `review.csv`.
   - `test_write_then_compare`: a copy without `report/` gives 0 with `--write`, then 0 without it.
   - `test_rerun_folder`: a copy with a `rerun/` folder (its `run.json` carrying `rerun_reason`), written with `--write`, rebuilds both reports with 0. Changing a rerun row then gives 1.
   - `test_invalid_input_gives_exit_2`: a broken JSON line gives 2 and `invalid: set_a.jsonl:<line>`.
@@ -728,4 +764,5 @@ All new.
 | E8 the allow-list | 1, 2 |
 | E9 report wording and charts | 7, 8 |
 | E10 plain Pythons | 9 |
+| E11 Rene's review sheet | 8, 9 |
 | S1 to S6 | the sealed run (spec §4.5), not this plan |
