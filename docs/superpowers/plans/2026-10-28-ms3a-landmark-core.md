@@ -570,7 +570,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py`. Expected: the new tests FAIL.
 - [ ] **Step 3:** Implement the deadline and `sam_store`. Then run `uv run pytest -q` and `uv run ruff check .`. Expected: PASS; clean. Commit `feat(analysis): give every Meta call a total deadline`.
 - [ ] **Step 4 (Claude, at most about $0.0075; C85), before Task 16 and before any Set A development photo goes to Meta.** In one PowerShell command that sets the key from the user variable. Record counts, booleans and statuses only, then put the result in `ms3a.md` for Window 4's privacy drafts.
-  - **The frame check:** the first photo in C87's order that has a credit line in `attribution.csv` (a Commons photo; STURM stays offline), enlarged or padded to 1,600 × 1,200 in the session scratchpad and passed through `blur_for_meta`, goes to `segment(image, "vehicle")`. It passes only if a returned box's frame is 1,600 × 1,200. Zero matches is inconclusive: retry once with `"wheel"`. A failure stops everything: `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
+  - **The frame check:** the first photo in C87's full order that has a credit line in `attribution.csv` (a Commons photo; STURM stays offline), enlarged or padded to 1,600 × 1,200 in the session scratchpad and passed through `blur_for_meta`, goes to `segment(image, "vehicle")`. It passes only if a returned box's frame is 1,600 × 1,200. Zero matches is inconclusive: retry once with `"wheel"`. A failure stops everything: `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
   - **`store: false` on the stream:** with `MetaClient(sam_store=False)`, judge it by the echoed `store` value, not by the HTTP status. A 400 → resend without it and record the refusal.
   - **The background path:** one `background: true` call with `store: false`, polled to the end. If it fails, the background path keeps Meta's default and deletes the response after reading it.
   - **Muse Spark:** record `judge`'s echoed `store` value once (it already sends `false`).
@@ -977,7 +977,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - Task 13's log fields: `outcome`, `meta_calls`, `error`, `http_status`
   - C87's photo folder `%LUSOT_DATA_DIR%\set_c\commons-ph-floods\`: `metro_manila_41.txt` (lines of `full path<TAB>licence`, `#` lines are comments) for eligibility, and `attribution.csv` (columns `file_name`, `title`, `commons_page_url`, `author`, `licence`, `licence_url`, `credit_line`, `fetch_mode`, `flags`) for each photo's credit line (R102)
 - Produces: `uv run backend/scripts/smoke_upload.py [--fallback]`. Exit 0 when every check passed, 1 when a check failed, and 3 when no B1 photo gave a level, so C71 applies.
-  - `seeded_photo_order(folder: Path) -> list[Path]` follows C87 and R102: the base names listed in `folder/metro_manila_41.txt`, sorted, then `random.Random(20261028).sample(names, min(20, n))`, fixed in advance whatever `attribution.csv` holds. Positions 0 to 4 are B1's photos, and 5 to 19 are C71's fallback. A listed file missing from disk raises `CheckFailed`. Nothing reads MS1's STURM `summary.json` any more.
+  - `seeded_photo_order(folder: Path) -> list[Path]` follows C87 and R102: the base names listed in `folder/metro_manila_41.txt`, sorted, then the full order `random.Random(20261028).sample(names, n)`, fixed in advance whatever `attribution.csv` holds. Positions 0 to 4 are B1's photos, and 5 to 19 are C71's fallback. A listed file missing from disk raises `CheckFailed`. Nothing reads MS1's STURM `summary.json` any more.
   - `credited(folder: Path, photos: Sequence[Path]) -> tuple[list[Path], int]`: keeps, in order, the photos whose row in `attribution.csv` has a non-empty `credit_line`, and returns how many were skipped. Only kept photos are sent to Meta, and the run prints the skipped count (R102).
   - `refuse_sealed(path: Path) -> None`, with the runner's rule
   - `as_app_jpeg(path: Path) -> bytes`: decode, shrink to at most 1,600 px with `INTER_AREA`, then encode as JPEG at quality 85, as the app sends it
@@ -1005,8 +1005,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 
 - [ ] **Step 1: Write the failing tests.** They use only fakes: `httpx.MockTransport`, `tmp_path` trees and no AWS.
   - `test_seeded_order_follows_c87`: a `tmp_path` folder with a `metro_manila_41.txt` of 30 lines (a comment line first) and one empty file per line:
-    - the order equals `random.Random(20261028).sample(sorted(names), 20)` over the listed base names
-    - with 8 listed files, all 8 come back, in `random.Random(20261028).sample(sorted(names), 8)` order
+    - the order equals `random.Random(20261028).sample(sorted(names), 30)` over the listed base names, and its first 20 equal `random.Random(20261028).sample(sorted(names), 20)` (the prefix property R102 relies on)
     - a listed file missing from the folder → `CheckFailed`
   - `test_only_credited_photos_are_sent` (R102): an `attribution.csv` with credit lines for some listed photos, an empty credit line for one and no row for another → `credited` keeps the credited ones in order and reports 2 skipped.
   - `test_photos_are_sent_as_the_app_sends_them`: a 4000 × 3000 PNG → bytes that start with `FF D8` and decode to 1600 × 1200.
