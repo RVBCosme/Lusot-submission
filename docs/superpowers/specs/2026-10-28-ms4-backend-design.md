@@ -1,9 +1,10 @@
 # MS4 Backend: spec
 
 - **Date:** Oct 28 to 29, 2026 (Manila)
-- **Status:** Draft 3. Window 4 wrote it overnight under Rene's delegation, through the tracker, without a live conversation (D7, D15).
+- **Status:** Draft 4. Window 4 wrote it overnight under Rene's delegation, through the tracker, without a live conversation (D7, D15).
   - It was revised after an accuracy review (Opus 5.5 max): 3 Critical, 15 Important and 18 Minor findings, all addressed.
   - It was then revised after a builder check (Opus 5.5 max). Its seven questions became C518 to C521, a change to C515, and MS4-Q13.
+  - Draft 4 (Oct 29) takes the tracker's cross-spec audit (rows 1, 2, 4, 6 to 11, 16 to 18, 23 to 25, 29 and 30, with the tracker's calls) and the plan review's spec-level findings. They became C522 to C526, MS4-Q14 and §4.9, with changes to C503, C505, C508, C512, C513 and C521.
   - Claude proceeds on the calls in §5 and the defaults in §8 until Rene approves.
 - **Implements:**
   - design §8's MS4 row, with G1 (demo pins), G2 (pay once, built in MS3a's C46, re-tested here), D14 and C21 (`private` mode), and C17 (`levelIsFloor`)
@@ -27,7 +28,7 @@ What makes it worth judging is that every path has one rule: who sees a result a
 - Every mode has one creation path, with its checks (§4.1).
 - Demo pins (G1) and samples are seeded and removed by scripts, never by hand.
 - `private` mode keeps results from outside Metro Manila off the map and the feed (D14, C21).
-- The analysis path's recovery is tested before the freeze (B2), with G2 re-tested on MS4's handler.
+- The analysis path's recovery is tested before the freeze (design B2), with G2 re-tested on MS4's handler.
 
 **Non-goals**
 - Changing how depth is measured. That is MS3a's and MS3b's, and it freezes before the sealed run (design §8). MS4 may change code that runs before the result only where no depth output changes.
@@ -73,19 +74,19 @@ What makes it worth judging is that every path has one rule: who sees a result a
 
 - **Published** means a `live` or `demo` result that is `done` with a level, written while the publish switch was off (C516). It gets `published: true`, and `feedPart` set to its mode (`live` or `demo`) for the feed index.
 - **"No flood seen"** isn't published by default (C506, MS4-Q2): it carries no photo or basis to show its work.
-- **Smoke runs** post a point outside Metro Manila, so they exercise the whole upload path as `private` and never make a pin (C513).
+- **Smoke runs** post a point outside Metro Manila, so they exercise the whole upload path as `private` and never make a pin (C513). `smoke_upload.py`'s `SPOT` is still a Manila point, so MS4 moves it outside the NCR polygon in the same change that turns publishing on. The script then stops before sending a photo unless its report reads `mode: private`.
 
 ### 4.2 The analysis Lambda: from result to publish
 
 MS3a's handler claims the report, runs the pipeline under its deadline (C84, with C88's 30 s margin), saves `blurred/{id}.jpg` for a level result (its C61), and writes the result under the claim token. MS4 adds, for a level result, before the final write:
-- **The overlay** (C505): `overlay/{id}.jpg`, the blurred photo with these drawn on it:
+- **The overlay** (C505): `overlay/{id}.jpg`, the stored photo (`publish_jpeg`, with SAM's faces and plates blurred) with these drawn on it:
   - the masks: wheel, person, water, and a rim once MS3b links it
   - the waterline wherever the record holds one (MS3b's step 3 finds it for landmark readings too), and the fitted rim where geometry ran
   - the numbered boxes, each with its reading in plain words: the landmark category for a landmark reading, and its level
 
-  Dropped references are dimmed and carry no level, and a wheel the self-check re-checked is marked.
-- **The layers** (C505): `overlay/{id}.json`, the same marks as simplified vector outlines, in the order they're drawn, so MS5's overlay can draw itself (plan §4, should-have). Face and plate outlines are never in it.
-- **`readings`** (C507), stored on the item, and `overlayKey` (plan Table 14), which names the overlay.
+  Dropped references are dimmed and carry no level, and a wheel the self-check re-checked is marked. The overlay and its layers show no inches (C505).
+- **The layers** (C505, C524): `overlay/{id}.json`, the same marks as simplified vector outlines, in the order they're drawn, so MS5's overlay can draw itself (plan §4, should-have). Face and plate outlines are never in it.
+- **`readings`** (C507), built from the evidence record alone and stored on the item, with `overlayKey` (plan Table 14) and `layersKey`, which name the overlay and its layers.
 - **Mode-aware storage:** `live`, `private`, `sample` and `eval` write under `blurred/` and `overlay/`, which keep their 7-day lifecycle. `demo` writes under `demo/blurred/` and `demo/overlay/` (C510).
 - **Publishing** sets `published` and `feedPart` (§4.1), after reading the publish switch (C516).
 
@@ -110,45 +111,47 @@ The record also holds the water mask's outline. It adds no computation: it keeps
 - **`rechecked`** is always false in MS3b.
 - **The record is `None`** until the answer passes the schema and the id check.
 
+**A sample's seeding run keeps its stored copy whatever the outcome** (C512, MS4-Q14). The pipeline makes `publish_jpeg` only for a level result (MS3a's C61), though every run that reached SAM has its face and plate masks. So, after MS3b merges, MS4 gives the pipeline's entry point a `keep_photo` flag, off by default. With it on, step 8.1 makes the stored copy for every outcome once SAM has run with the face and plate phrases, and the outcome is the same either way. The handler sets it only for an `eval` report that `samples.py seed` marked as a seed. Every other report keeps C61: a stored copy only for a level result.
+
 ### 4.3 The API
 
 | Method and path | What it does | Limits and switches |
 |---|---|---|
-| `POST /uploads` | As in MS1, plus the checks below, the Metro Manila test (C502) that sets `live` or `private`, and the device limit (C508) | uploads switch; 10 reports per device per hour, and 300 in all per hour (MS4-Q13); JPEG up to 10 MB |
-| `GET /reports/{id}` | The report's result, which is also the pin detail. It returns MS3a's C67 fields plus `mode`, `levelFrom` (MS3b) and, for a level result, `readings`, `gpsAccuracyM`, and short-lived `photoUrl`, `overlayUrl` and `layersUrl` (C503) | none |
+| `POST /uploads` | As in MS1, plus the checks below, the Metro Manila test (C502) that sets `live` or `private`, the device limit (C508), and `consentVersion`, stored on the item (MS5's N4) | uploads switch; 10 reports per device per hour, and 300 in all per hour (MS4-Q13), refused as C522 says; JPEG up to 10 MB |
+| `GET /reports/{id}` | The report's result, which is also the pin detail. It returns MS3a's C67 fields plus `mode`, `published`, `levelFrom` (MS3b) and, for a level result, `readings`, `gpsAccuracyM`, and short-lived `photoUrl`, `overlayUrl` and `layersUrl` (C503). A demo pin adds `credit`, `place` and `event` (C523). Past `expiresAt` it answers 404 (C526). | its own route throttle (C508) |
 | `GET /reports?lat=&lng=&radius=` | Published pins near a point (C509), as public pins (§4.4) | publish switch; `radius` up to 300 m |
 | `GET /map/pins` | Every visible published pin, `live` and `demo`, for the app's map across Metro Manila, read from `feed-index`'s two partitions (C519) | publish switch |
-| `GET /pins.geojson` | Published `live` pins as a GeoJSON FeatureCollection, read from `feed-index` (C517); `Cache-Control: public, max-age=60` (should-have). It is served by a second, read-only API that any site may load (C521). | publish switch |
-| `POST /reports/{id}/flag` | Records a flag on a published `live` pin (C511) | one flag per device per pin; demo pins can't be flagged |
-| `POST /samples/{sampleId}` | Runs a stored sample in `sample` mode and returns its report id (C512) | uploads switch; 5 runs per device per hour and 30 in all per hour |
-| `GET /samples` | Each sample's id, credit line, licence, place and capture date, and nothing else (C512). MS8's README, video and Tested page credit them. | none |
+| `GET /pins.geojson` | Published `live` pins as a GeoJSON FeatureCollection, read from `feed-index` (C517); `Cache-Control: public, max-age=60` (should-have). It is served by a second, read-only API that any site may load (C521). The collection carries the screen line, word for word, as a `notice` member. | publish switch; its own stage throttle (C521) |
+| `POST /reports/{id}/flag` | Records a flag on a published `live` pin (C511) | one flag per device per pin, and a repeat answers 200 without counting (C522); demo pins can't be flagged |
+| `POST /samples/{sampleId}` | Runs a stored sample in `sample` mode and returns its `reportId`, as `POST /uploads` does (C512) | uploads switch; 5 runs per device per hour and 30 in all per hour, refused as C522 says |
+| `GET /samples` | Each sample's `sampleId`, `credit`, `license`, `place`, `date` and optional `event`, from `samples/manifest.json`, with a 5-minute `photoUrl` for its stored copy, and nothing else (C512). MS8's README, video and Tested page credit them. | none |
 
 **The upload checks** (plan Table 4):
 - GPS accuracy of 50 m or better, and a nudge of at most 100 m, both stored (`gpsAccuracyM`, `nudgeM`).
 - The capture time within 15 minutes, as in MS1.
 
-The Metro Manila test uses the final point, after the nudge.
+The Metro Manila test uses the final point, after the nudge. `nudgeM` is optional and defaults to 0, as MS1 stores it today, so older clients and the smoke run keep working. The two new refusals are 422s, like MS1's `capture_too_old`: `gps_too_coarse` and `nudge_too_far`. A boundary file that fails to load makes every upload `private`, never `live`.
 
 ### 4.4 Public pins
 
-- **Fields:** `id` (the report id, as plan Table 15's routes use it), `lat` and `lng` rounded to 4 decimal places (C514), `gpsAccuracyM`, `capturedAt`, `mode`, `level`, `landmark`, `passability`, `levelIsFloor`, `basis` as counts, and `flags`. `depthInMin` and `depthInMax` appear only once the release gate shows inches (C515).
+- **Fields:** `id` (the report id, as plan Table 15's routes use it), `lat` and `lng` rounded to 4 decimal places (C514), `gpsAccuracyM`, `capturedAt`, `mode`, `level`, `landmark`, `passability`, `levelIsFloor`, `basis` as counts, and `flags`. A demo pin adds `credit`, `place` and `event` (C523). `depthInMin` and `depthInMax` appear only once the release gate shows inches (C515).
 - **Never:** the device id, `readings`, `nudgeM`, the claim, or any link. Links come only from `GET /reports/{id}`.
 - **Nearby** (plan §12): the point's 6-character geohash cell and the 8 cells around it, then a distance filter of at most 300 m. The pin must have `published` set and `visibleUntil > now`. Newest first.
-- **The feed:** `feed-index` (partition `feedPart`, sort `visibleUntil`), queried for `feedPart = live` and `visibleUntil > now`. It is cached 60 s in the Lambda and by the header.
+- **The feed:** `feed-index` (partition `feedPart`, sort `visibleUntil`), queried for `feedPart = live` and `visibleUntil > now`. It is cached 60 s in the Lambda and by the header. The index projects only the public pin fields (`INCLUDE`), so each write to it stays one unit on its 2 write units.
 
 ### 4.5 Demo pins and samples
 
 - **Demo pins** (G1, C510): `backend/scripts/demo_pins.py seed|remove`.
-  - **Sources:** photos from the consented log (M9), and from Rene's open-licensed set, only those marked `demo_use ok`, never CC BY-SA, each with its credit line (Rene's decision, 8:26 PM, Oct 28).
-  - **What `seed` writes:** each photo goes through the real pipeline in `demo` mode, at the photo's real spot and with its real capture time, so a demo pin never passes as current. A spot outside Metro Manila is refused. The item gets `visibleUntil` from `--until` and `expiresAt` from `--until` plus 7 days, and the `demo/` prefix has a 60-day lifecycle rule as a backstop.
-  - **What `remove` deletes:** the items and their `demo/` photos, or a single pin with `remove <id>` (the tracker's N9).
-  - **The `--until` date:** if MS5-Q2 keeps any demo pins, they're seeded with `--until 2026-12-20` (the tracker's N7, from MS10).
-- **Samples** (C512): `backend/scripts/samples.py seed|remove`.
-  - **How a sample is made:** each candidate runs once in the cloud in `eval` mode, and only its blurred copy, with faces and plates blurred by the pipeline before storage, is kept as `samples/{sampleId}.jpg`. The original is never stored.
-  - **The manifest:** its id, credit line, licence, place (a short public place name, such as a street and city) and capture date, and a private source note kept apart.
+  - **Sources:** photos from the consented log (M9), and from Rene's open-licensed set, only those marked `demo_use ok` under CC0 or CC BY (MS4-Q12), each with its credit line (Rene's decision, 8:26 PM, Oct 28). Both scripts apply the same allowlist. A photo whose source gives no spot is a sample only, never a demo pin (MS4-Q9).
+  - **What `seed` writes:** each photo goes through the real pipeline in `demo` mode, at the photo's real spot and with its real capture time, so a demo pin never passes as current. A spot outside Metro Manila is refused. The item gets `visibleUntil` from `--until` and `expiresAt` from `--until` plus 7 days, and the `demo/` prefix has a 60-day lifecycle rule as a backstop. The item also stores the photo's `credit`, with the change note CC BY asks for (such as "faces and plates blurred by Lusot"), its `place`, and its `event` when the source names one (C523). An `--until` more than 53 days ahead is refused, so the backstop never deletes a visible pin's photos.
+  - **What `remove` deletes:** the items and their `demo/` photos, or a single pin with `remove <id>` (MS9's N9).
+  - **The `--until` date:** if MS5-Q2 keeps any demo pins, they're seeded with `--until 2026-12-20` (MS9's N7, its C1005).
+- **Samples** (C512): `backend/scripts/samples.py seed|remove`, and `remove <sampleId>` for one sample, as when a donor withdraws (MS10's P6).
+  - **How a sample is made:** each candidate runs once in the cloud in `eval` mode, marked as a seed. Only its stored copy, with faces and plates blurred by the pipeline, is kept, as `samples/{sampleId}.jpg`, whatever the outcome (§4.2, MS4-Q14). A candidate whose run made no copy, such as a processing failure before SAM, is skipped and counted. The original is never stored.
+  - **The manifest:** `samples/manifest.json` in the bucket, written only by `samples.py`. Each entry holds `sampleId`, `credit`, `license`, `place` (a short public place name, such as a street and city), `date` (the capture date, `YYYY-MM-DD`) and, when the source names one, `event`. Only a synthetic composite leaves out `place` and `date`, and its credit says it is synthetic. Each sample's private source note stays in `lusot-data`, never in the bucket or the repo.
   - **Sources:** as for demo pins, plus R6's fallback, clearly labelled synthetic Set B composites.
   - **Retention:** samples are kept while the sample button exists (MS4-Q11).
-  - **`GET /samples`** serves the id, credit line, licence, place and capture date only, never the source note.
+  - **`GET /samples`** serves the manifest's fields and a 5-minute `photoUrl` per sample, never the source note.
   - **`POST /samples/{sampleId}`** writes a `sample` report and copies the stored sample to `raw/{reportId}.jpg`, so the usual event runs the real pipeline (MS4-Q8).
 
 ### 4.6 Limits, flags and the stop switches
@@ -156,13 +159,13 @@ The Metro Manila test uses the final point, after the nudge.
 - **Device limits** (plan §12, C508):
   - The app sends a random device id in `X-Lusot-Device`, which CORS allows. MS5 makes the id. MS1's test screen and the scripts send one too.
   - A request without a well-formed id counts in one shared `none` bucket under the same limits, so older clients keep working.
-  - A small `limits` table counts uploads and samples per device per clock hour, in UTC, with a conditional increment and a 2-hour TTL.
-  - Global counters in the same table cap sample runs at 30 an hour and uploads at 300 an hour, against credit drain (MS4-Q13).
+  - A small `limits` table counts uploads and samples per device per clock hour, in UTC, with a conditional increment and a 2-hour TTL. A refusal is C522's `device_limit`.
+  - Global counters in the same table cap sample runs at 30 an hour and uploads at 300 an hour, against credit drain (MS4-Q13). A refusal is C522's `global_cap`. The device's count is taken first, so one device can't use up the hour's cap, and a global refusal gives that count back.
   - The table stores only a SHA-256 hash of each device id, never the id itself. The report item never stores a device id at all (C520).
 - **Flags** (C511):
-  - Each flag adds 1 to the pin's `flags`, once per device per pin.
-  - Flags never hide a pin on their own (MS4-Q3). The app shows the count, and Rene can hide a pin with `hide_pin.py`. The script hides `live` and `demo` pins alike, without deleting them (the tracker's N9).
-  - A flag record holds its device id until the pin's `expiresAt`, at most 7 days (PRIV-Q7).
+  - Each flag adds 1 to the pin's `flags`, once per device per pin. The flag record and the count change in one transaction. A repeat answers 200 and isn't counted (C522). Clients without an id share the `none` bucket, so they flag a pin once between them.
+  - Flags never hide a pin on their own (MS4-Q3). The app shows the count, and Rene can hide a pin with `hide_pin.py`. The script hides `live` and `demo` pins alike, without deleting them (MS9's N9).
+  - A flag record holds the device id's SHA-256 hash, never the id (C520), until the pin's `expiresAt`, at most 7 days (PRIV-Q7).
   - Demo pins can't be flagged.
 - **The stop switches** (plan §13, MS1):
   - **`uploads`:** stops `POST /uploads` and `POST /samples/{id}`.
@@ -172,22 +175,24 @@ The Metro Manila test uses the final point, after the nudge.
 
 ### 4.7 Operations and guards (section D)
 
-- **Spend alarms** (the tracker's N6, from the MS9 draft): the Meta credits probably lapse during judging, about Nov 5, 10:00 AM Manila, and later calls are billed to the card. Two CloudWatch alarms email Rene through MS1's alarm topic, inside the free 10 alarms. MS7 verifies them.
+- **Spend alarms** (MS9's N6): the Meta credits probably lapse during judging, about Nov 5, 10:00 AM Manila, and later calls are billed to the card. Two CloudWatch alarms email Rene through MS1's alarm topic, inside the free 10 alarms. MS7 verifies them.
   - one on the analysis function's invocations in an hour, above 100
-  - one on the API function's invocations in an hour, above a threshold sized for Ask Lusot, which that spec sets (5,000 until then)
+  - one on the API function's invocations in an hour, above a threshold sized for Ask Lusot, which that spec sets (5,000 until then). It counts the feed's and the map's calls too, since they run on the same function.
 - **The dead-letter queue:**
   - The alarm gains `OKActions`, so Rene also hears when it clears (section D, item 2).
-  - `backend/scripts/redrive_dlq.py` moves only messages less than a day old, and moves each one once. An older message has lost its raw photo to the 1-day rule, so it is deleted and counted. A message that fails again after its redrive is deleted, never redriven twice. Each message is an S3 event record holding the uploader's IP, so moving it once keeps its life at about 8 days at most (MS4-Q5, which MS3a's Task 17 also queues).
+  - `backend/scripts/redrive_dlq.py` moves only messages whose S3 event time (`eventTime`, the upload) is less than a day old, and moves each one once. An older message has lost its raw photo to the 1-day rule, so it is deleted and counted. A message that fails again after its redrive is deleted, never redriven twice (MS4-Q5, which MS3a's Task 17 also queues).
+  - **An uploader's IP address is gone within 7 days** (C525), as the consent notice and the privacy policy say. Each message is an S3 event record that holds it. The dead-letter queue keeps messages 6 days, and the upload queue 4 (SQS's default, now written in the template). A standard queue's message expires by its first enqueue time, which a move to the dead-letter queue keeps, while a redrive sends a new message. So a redriven message lives at most a day before its move and 6 days after it.
   - The script prints counts only, never a message body.
 - **`sqs:ChangeMessageVisibility`** stays, since MS3a uses it for `ReportNotFound` (its R92). Its template comment is corrected (section D, item 3).
+- **CORS** (MS5's N14 and N15): the bucket's rule allows `GET` beside `POST` for the app's origins, so the app can fetch `layersUrl`. The app's API allows the `X-Lusot-Device` header and exposes `Retry-After`. MS5 adds the web origin to `AppOrigins` (its C622).
 - **The roles** (least privilege, MS1's R19):
   - **The analysis role:** put and delete on `blurred/*`, `overlay/*` and `demo/*`.
   - **The API role:** get, for presigning, on `blurred/*`, `overlay/*` and `demo/*`, and get on `samples/*` with put on `raw/*` to copy a sample.
   - **The API role's database access:** `Query` on the table, `reportId-index` and `feed-index`; `UpdateItem` for flags; and read and write on `limits`.
 - **API tests** (section D, item 4): the handler's lazy setup, missing environment variables, the presigned URLs' host and region, and a sentinel test. The sentinel test shows that a sentinel IP (`requestContext.http.sourceIp`), a sentinel location (a `GET /reports` point, which is the viewer's own location) and a sentinel device id reach no log on any endpoint.
 - **Script guards:** every script that reads `lusot-data` refuses any path with a part named `sealed`, as C66 does, and prints counts and ids only. That covers `demo_pins.py`, `samples.py`, `redrive_dlq.py`, `hide_pin.py` and the recovery runs.
-- **Logs stay off** (section D, item 4): HTTP API access logs, S3 server access logs and CloudTrail data events, unless the privacy policy covers them and Rene agrees (MS4-Q6).
-- **Blur geometry:** a single-copy refactor, only if MS3a hasn't done it, with no change in behaviour, pinned by R94's test (section D, item 1). The JPEG quality sent to Meta belongs to Window 3.
+- **Logs stay off** (section D, item 4): HTTP API access logs on both APIs, S3 server access logs and CloudTrail data events, unless the privacy policy covers them and Rene agrees (MS4-Q6).
+- **Blur geometry:** a single-copy refactor with no change in behaviour (section D, item 1). MS3a hasn't done it: `annotate.py` keeps `_FACE_MARGIN` and `_blur_area`, and `probes/run_probe.py` keeps `FACE_MARGIN`. MS3b's C325 is changing `annotate.py` now. So this is a separate `refactor:` change after MS3b merges, pinned by R94's `test_face_blur_settings_are_pinned_to_their_version` and by `test_annotate.py`, unless the tracker gives it to Window 3. The JPEG quality sent to Meta belongs to Window 3.
 - **The Files API route is conditional** (section D, item 5). It is built only if MS3a's Task 16 or MS3b's logs show SAM 504s or 413s, and then with:
   - one live check that SAM accepts `input_image` by `file_id`
   - an `expires_after` of 3600 and an explicit DELETE
@@ -196,7 +201,7 @@ The Metro Manila test uses the final point, after the nudge.
   If `judge` 504s appear, stream the judge call or lower its effort.
 - **C74 is retired.** MS3a's C84 builds the deadline, and the `FACE_BLUR_VERSION` tie is MS3a's (section D, item 6).
 
-### 4.8 Recovery tests before the freeze (B2)
+### 4.8 Recovery tests before the freeze (design B2)
 
 The fault cases are unit tests on fakes. No fault injection goes into the code that freezes. The cloud runs only the cases that need no injected fault, in `eval` mode, on a clean development photo (C87's Commons set, or development Set A after the split).
 
@@ -210,6 +215,27 @@ The fault cases are unit tests on fakes. No fault injection goes into the code t
 | A run that hits its deadline or a Lambda timeout | `failed/model_error` at the deadline. After a timeout, the report stays `processing`, and the message returns after the visibility timeout. The lease has expired, so the next worker re-claims and pays again, for at most 5 receives, then the dead-letter alarm | unit |
 | A failed raw deletion after the final write | the result stands, and the deletion retries on its own with no second analysis | unit |
 
+### 4.9 What MS5 asked for (its N1 to N15, and MS5-M1)
+
+| MS5's | The answer here |
+|---|---|
+| N1 | `GET /reports/{id}` returns `published`, and `gpsAccuracyM` for a level result (§4.3) |
+| N2 | Pins carry `gpsAccuracyM` (§4.4), and demo pins `credit`, `place` and `event` (C523) |
+| N3 | `GET /map/pins` (C519) |
+| N4 | `POST /uploads` takes `nudgeM` (optional, 0 to 100, default 0) and `consentVersion`, and CORS allows `X-Lusot-Device` (§4.3, §4.7) |
+| N5 | The layers file's schema (C524) |
+| N6 | A pin's links from `GET /reports/{id}` while it is visible (C503, MS4-Q10) |
+| N7 | `device_limit` and `global_cap`, and a repeat flag answers 200 (C522) |
+| N8 | `levelFrom` on level results, as MS3b names it (§4.3, C518) |
+| N9 | `GET /samples` gives `place`, `date` and `event` (C512). The seed scripts take only the ids they are given, as MS5's C617 picks them, and only CC0, CC BY or consented photos marked `demo_use ok` (§4.5). |
+| N10 | A route throttle on `GET /reports/{id}`; MS7's probe answers whether routes share the stage's default (C508) |
+| N11 | Samples keep their blurred copy whatever the outcome, with a `photoUrl` (C512, MS4-Q14). A demo pin's links come from `GET /reports/{id}` (C503). |
+| N12 | Flags never hide any pin, and demo pins can't be flagged (C511) |
+| N13 | Dropped by MS5, since `GET /map/pins` serves demo pins |
+| N14 | The bucket allows `GET` from the app's origins (§4.7) |
+| N15 | The API exposes `Retry-After` (§4.7) |
+| MS5-M1 | MS6's, done on `w4-independent` at `9ca7464`: `summary.json` gives `exact` and `within_one` for each configuration |
+
 ## 5. Calls (Claude's, C500 onward)
 
 | # | Call | Why |
@@ -217,17 +243,17 @@ The fault cases are unit tests on fakes. No fault injection goes into the code t
 | C500 | **MS4's boundary.** MS4 owns the API (except Ask Lusot), publishing, photo storage by mode, the overlay and its layers, `readings`, demo pins, samples, limits, flags, the publish switch and the recovery tests. It doesn't touch the pipeline's measuring code. | Design §8 freezes measurement before the sealed run, and MS3a's §5 lists exactly these hand-offs. |
 | C501 | **Five modes, each with one creation path** (§4.1). | Table 14 lists `live`, `sample` and `eval`. G1 adds `demo` and C21 adds `private`. One table keeps every path accounted for, including how test reports avoid the map. |
 | C502 | **The Metro Manila test runs in the API at upload,** on the final point after the nudge. It's a point-in-polygon test on a bundled NCR boundary file, which sets the mode once. The demo script runs the same test on each demo spot. The polygon is simplified to keep the file small, and its source and licence sit beside it (MS4-Q1). | The API already has the coordinates and checks them (MS1). Deciding at creation keeps the analysis Lambda mode-blind until publish. C21 leaves the polygon's source to MS4. |
-| C503 | **Photo links** are presigned GETs that last 5 minutes, issued only by `GET /reports/{id}` and only for level results. For a `live` or `demo` report they're issued while the pin is visible. For other modes, they're issued for the report's 7 days (MS4-Q10, which carries PRIV-Q2). | Plan §13 asks for short-lived links. The pin detail must show its work (plan §4, Table 21), and how long anyone holding a pin's id can open its photo is a privacy choice for Rene. |
+| C503 | **Photo links** are presigned GETs that last 5 minutes. `GET /reports/{id}` issues them only for level results: for a `live` or `demo` report while the pin is visible, and for other modes until `expiresAt` (MS4-Q10, which carries PRIV-Q2). They are presigned from the keys the item stores (`photoKey`, `overlayKey` and `layersKey`), with no S3 call, so a link to an object already gone gets S3's error and the app shows the text alone. `GET /samples` also issues one for each sample's stored copy (C512). | Plan §13 asks for short-lived links. The pin detail must show its work (plan §4, Table 21), and how long anyone holding a pin's id can open its photo is a privacy choice for Rene. |
 | C504 | **Pins carry the report id,** as plan Table 15's routes do (`GET /reports/{id}`, `POST /reports/{id}/flag`). The unguessable id keeps a result private only until it is published: for `private`, `sample`, `eval`, refused and failed reports, only the uploader or the script knows it. | Draft 1 hid report ids behind a separate pin id. That left pins unable to show their work, which plan Table 21 makes a must. The plan's own flag route already shares pins' ids. |
-| C505 | **The overlay** draws, on the blurred photo, the masks, each waterline the record holds (MS3b's step 3), the fitted rim, and the numbered boxes with each reference's reading in words (the landmark category for a landmark reading). It draws no line where the record holds none, and shows no inches for a dropped wheel. This is drawn in fixed colours that stay legible on any photo (a JPEG has no app theme). **The layers file** keeps the same marks as vectors, so MS5 can draw them one after another. No face or plate outline goes into either. The overlay's words follow MS3a's C81 wording and R3's language, and Rene reviews them (M20). | Plan §4 and Table 21: each pin shows the masks, the fitted rim and the waterline it used. The should-have overlay that draws itself needs its layers apart. |
+| C505 | **The overlay** draws, on the stored photo (`publish_jpeg`, with SAM's faces and plates blurred), the masks, each waterline the record holds (MS3b's step 3), the fitted rim, and the numbered boxes with each reference's reading in words (the landmark category for a landmark reading). It is made only for a level result, and never on the image sent to Meta, whose plates aren't blurred (MS3a's `publish.py`). It draws no line where the record holds none, and shows no inches at all: the overlay and its layers are made at write time, while C515's switch acts on responses. This is drawn in fixed colours that stay legible on any photo (a JPEG has no app theme). **The layers file** keeps the same marks as vectors (C524), so MS5 can draw them one after another. No face or plate outline goes into either. The overlay's words follow MS3a's C81 wording and design R3's language, and Rene reviews them (M20). | Plan §4 and Table 21: each pin shows the masks, the fitted rim and the waterline it used. The should-have overlay that draws itself needs its layers apart. |
 | C506 | **"No flood seen" isn't published** (MS4-Q2's default). The uploader still sees it. | MS3a stores no photo or basis for it (its C61), so such a pin couldn't show its work (plan §13). C17 calls a false "no flood seen" the most dangerous miss. |
 | C507 | **`readings`** is stored on the item for level results and returned by `GET /reports/{id}`. It is a list of `{id, kind, landmark, level, inches, used, dropped}`, where `inches` is present only once the gate shows inches. | Table 14 keeps per-reference readings, and the pin detail lists its evidence. |
-| C508 | **Device limits** live in a separate `limits` table, provisioned at 2 read and 2 write units, with a TTL. The device id comes from `X-Lusot-Device`. A missing or malformed id counts in a shared `none` bucket. It's a soft limit, and the stage throttling stays the hard one. | Plan §12's per-device limits. A separate table keeps the reports table clean. The shared bucket keeps MS1's test screen, the APK under M14, and the smoke script working until MS5 sends ids. |
+| C508 | **Device limits** live in a separate `limits` table, provisioned at 2 read and 2 write units, with a TTL. The device id comes from `X-Lusot-Device`. A missing or malformed id counts in a shared `none` bucket. It's a soft limit, and the stage throttling stays the hard one. `GET /reports/{id}` has a route throttle of its own, 30 a second with a burst of 60, for W16's rush: 50 phones polling every 2 s make 25 a second (MS5's N10). AWS's throttling page doesn't say whether routes share the stage's default limits, so MS7's probe (its C806) measures it. The poll route's own setting holds either way. | Plan §12's per-device limits. A separate table keeps the reports table clean. The shared bucket keeps MS1's test screen, the APK under M14, and the smoke script working until MS5 sends ids. If routes shared one limit, polls could refuse uploads in a rush (MS7's L1). |
 | C509 | **Nearby reads 9 geohash cells,** with no sort-key range, filtered on `published` and `visibleUntil > now`. `radius` is capped at 300 m. | Plan §12's nine-cell rule covers any 300 m circle. Demo pins keep their old capture times, which a sort-key range would cut. |
 | C510 | **Demo pins use a `demo/` prefix** with only a 60-day backstop lifecycle rule. They carry `visibleUntil` from the script's `--until` date and `expiresAt` 7 days later, and they keep the photo's real capture time. Only `demo_pins.py` makes or removes them. | G1 exempts demo pins from the 3-hour hide and the 7-day delete. MS1's rules on `blurred/` and `overlay/` would delete them after 7 days. The backstops catch a missed `remove`. |
 | C511 | **Flags are counted, never acted on automatically** (MS4-Q3). One per device per pin is kept in `limits` until the pin's `expiresAt`. Demo pins can't be flagged. | The client makes its own device id, so "3 devices" can be one person. That could hide a real deep-water pin, or every demo pin. A count lets people judge, and the script lets Rene act. |
-| C512 | **Samples are stored only as blurred copies,** each made by one cloud run in `eval` mode. `POST /samples/{id}` runs the real pipeline on the stored copy. `GET /samples` serves the id, credit line, licence, place and capture date only. Sample runs are capped at 5 per device per hour and 30 in all per hour. | CLAUDE.md: blur faces and plates before anything is stored. The plan's sample button runs the live pipeline (§4). Source notes can name a donor. The place and date are what MS8's credits need (the tracker, Oct 29), and a demo pin already shows the same. Device ids are free to make, so the global cap bounds credit drain at about $1 an hour. |
-| C513 | **`eval` is for scripts only.** The recovery runs and the D-row checks write `eval` items directly, under the `EVAL` key, and smoke runs post a point outside Metro Manila. | No test may put a pin on the public map, and the smoke run should still exercise the real upload path. |
+| C512 | **Samples are stored only as blurred copies,** each made by one cloud run in `eval` mode and kept whatever the outcome (MS4-Q14). `POST /samples/{id}` runs the real pipeline on the stored copy. `GET /samples` serves `samples/manifest.json`'s `sampleId`, `credit`, `license`, `place`, `date` and `event`, plus a 5-minute `photoUrl`. Sample runs are capped at 5 per device per hour and 30 in all per hour. | CLAUDE.md: blur faces and plates before anything is stored. The plan's sample button runs the live pipeline (§4). A judge should see the photo that was read, refused or found dry (MS5's N11), and sample photos are open-licensed or consented. Source notes can name a donor. The place, date and event are what MS8's credits and MS5's date line need (the tracker, Oct 29), and a demo pin already shows the same. With the manifest in the bucket, one donor's sample comes out without a redeploy. Device ids are free to make, so the global cap bounds credit drain at about $1 an hour. |
+| C513 | **`eval` is for scripts only.** The recovery runs and the D-row checks write `eval` items directly, under the `EVAL` key, and smoke runs post a point outside Metro Manila. `smoke_upload.py`'s `SPOT` moves outside the NCR polygon in the change that turns publishing on (MS7's `OUTSIDE_POINT` can be shared), and the script checks that its report reads `mode: private` before it sends a photo, as MS7's C803 does. CLAUDE.md's smoke note follows at MS4's close. | No test may put a pin on the public map, and the smoke run should still exercise the real upload path. Otherwise a smoke photo that reads a level would become a public `live` pin for 3 hours. |
 | C514 | **Public coordinates are rounded to 4 decimal places,** about 11 m (MS4-Q4). | A pin marks a spot, not a phone. Rounding blunts device-precise tracking at no cost to the map. |
 | C515 | **Inches appear only after the gate.** A literal `INCHES_SHOWN: "false"` in the API function's environment in the template controls `depthInMin`, `depthInMax` and `readings[].inches` in responses. It is not a template parameter. MS6's post-gate step changes it to `"true"` in the commit that records the gate's decision, and the next deploy applies it. | MS3b's C308 makes the API change a step after the gate. SAM CLI reuses a parameter's previous value on an existing stack when the overrides don't name it (the builder check read SAM CLI 1.170.0's source), so a committed parameter default would never reach the stack. A literal always deploys, and stays in git. |
 | C516 | **The publish switch acts at write time and at read time** (§4.6). Demo pins stay visible (MS4-Q7). | At read time alone, results written while it was set would reappear when it's cleared. Demo pins are seeded by us from consented photos, and judges should never see an empty map. |
@@ -235,15 +261,19 @@ The fault cases are unit tests on fakes. No fault injection goes into the code t
 | C518 | **MS3b adds the evidence record** (§4.2) to the pipeline's result type, as part of its own edits to those modules. The overlay, its layers and `readings` read the record, and MS4's tasks for them wait for MS3b's merge. `levelFrom` is returned as MS3b names it. Window 3 receives the field list through the tracker. | Only the steps know which reference was used or dropped and why, and MS3b is editing them now. A second window changing the same frozen code would risk the depth output. |
 | C519 | **The app's map reads `GET /map/pins`:** every visible published pin, `live` and `demo`, from `feed-index`'s `live` and `demo` partitions. | Nearby covers 300 m, and the public feed carries `live` pins only, so without this the map would show demo pins only near the point asked about. That would defeat their purpose, an empty map for judges (C516). |
 | C520 | **No device id is stored with a report,** and `limits` keeps only a SHA-256 hash of each id. | Storing it would link one device's reports and exact locations for 7 days. A random id's hash can't be reversed, and the counters need only equality. The stop switches and `hide_pin.py` are the tools against abuse. |
-| C521 | **The public feed has its own read-only HTTP API,** with `AllowOrigins: *`, `GET` only and no credentials. The app's API keeps its own origins. | HTTP API CORS applies to a whole API, and API Gateway ignores the Lambda's CORS headers when CORS is set. Other flood maps, or a judge's web GeoJSON viewer, load the feed in a browser on another site. |
+| C521 | **The public feed has its own read-only HTTP API,** with `AllowOrigins: *`, `GET` only and no credentials. The app's API keeps its own origins. The feed's stage throttles at 5 requests a second with a burst of 10, and its access logs stay off. | HTTP API CORS applies to a whole API, and API Gateway ignores the Lambda's CORS headers when CORS is set. Other flood maps, or a judge's web GeoJSON viewer, load the feed in a browser on another site. Any site can call it, and it runs on the API function, which shares the account's 10 concurrent executions with analysis. |
+| C522 | **Refusals have codes.** A limit's refusal is `429` in MS1's error shape: `{"error": "device_limit"}` for one device's uploads or samples, and `{"error": "global_cap"}` for the hour's uploads or samples in all. Each carries a `Retry-After` of the seconds to the next clock hour (UTC). The app shows each one and retries neither. A flag repeated by the same device answers `200` with the pin's count unchanged. | API Gateway's own throttling 429 carries no such body, so the app can retry a throttle and never a limit (MS5's N7). A global cap retried by every phone would only deepen the rush. A repeated flag is the same request, so it gets the same answer. |
+| C523 | **Demo pins carry their credit, place and event.** `demo_pins.py` stores each photo's `credit` (with CC BY's change note), `place` and optional `event` on the item. Every pin read returns them for demo pins: `GET /map/pins`, nearby and `GET /reports/{id}`. | CC BY needs the credit wherever the photo is shown, and MS5 hides a demo pin without one (MS5's N2). The place and event tell a judge the pin isn't current (G1). |
+| C524 | **The layers file** is `overlay/{id}.json`: `{"version": 1, "width", "height", "water", "refs"}`.<ul><li>`width` and `height` are the stored photo's size. Coordinates are its pixels, as in MS3b's record (C328), rounded to whole pixels.</li><li>`water` is the water mask's outline, a list of polygons, each a list of `[x, y]`.</li><li>`refs` lists the numbered references in `id` order. Each has `id`; `kind` (C328's `wheel`, `body` or `person`); `box` (`[x0, y0, x1, y1]`); `outline` (polygons); `landmark` and `level` (each a category or null); `used`; `dropped` (its cause or null); `rechecked`; `rim` (`{"center", "axes", "angle"}` as `cv2.fitEllipse` gives them, rounded to 0.1, or null); and `waterline` (two points, or null).</li><li>**Draw order:** the photo, then `water`, then each reference in `refs` order: its outline, its box, its rim, its waterline and its label. A reference with `dropped` set is drawn dimmed.</li><li>It holds no inches, and no face or plate outline.</li></ul> | MS5 renames its types to match, at its Task 0 (the tracker, Oct 29), so one schema serves the app and MS8's GIF. It mirrors MS3b's record, whose coordinates are the stored photo's pixels, and it keeps everything the overlay JPEG draws. |
+| C525 | **The dead-letter queue keeps messages 6 days** (518,400 s), and the upload queue keeps its default 4 days (345,600 s). Both are written in the template. `redrive_dlq.py` dates a message by its S3 record's `eventTime`. | Each message holds the uploader's IP address, and the consent notice and privacy policy say a failed upload's record keeps it at most 7 days (MS7's P8 checks it). In AWS's words, a standard queue's message expires by its original enqueue time, which a move to the dead-letter queue leaves unchanged, and a dead-letter queue should keep messages longer than its source. A redrive sends a new message, so a day before the move plus 6 days after it stays within 7. The event time is the upload's wherever the message has been, while a redriven message's SQS timestamps start again. |
+| C526 | **`GET /reports/{id}` answers 404 past `expiresAt`,** whatever the item holds, so an expired report can't be read in the days before TTL deletes it. | W27, which MS7's P5 checks. DynamoDB's TTL deletes in the background, often days late, and S3's lifecycle runs on its own clock. |
 
 ## 6. Left to the builder
 
 - The module split inside `backend/api/src/` and `backend/analysis/src/lusot_analysis/`, and the scripts' flags beyond those named here.
 - The overlay's line widths, font and colours, within the `ui-ux-pro-max` and `frontend-design` skills' legibility rules. The colours must stay legible on light and dark photos.
-- The layers file's exact schema, as long as it carries kind, id, outline and draw order and no face or plate outline.
 - The polygon's simplification tolerance. Every test point in S2 must keep its side.
-- The exact shapes of the error responses, following MS1's existing ones.
+- The error responses beyond C522's codes and §4.3's 422s, in MS1's shape.
 
 ## 7. Done when
 
@@ -253,18 +283,19 @@ The fault cases are unit tests on fakes. No fault injection goes into the code t
 | S2 | **The Metro Manila test.** Points about 200 m inside and outside the NCR border land on their side: near Caloocan and Meycauayan, Valenzuela and Obando, Marikina and San Mateo, Pasig and Cainta, Taguig and Taytay, Muntinlupa and San Pedro, Las Piñas and Bacoor, and a point in Manila Bay. Their coordinates and sources are recorded in the test. | unit tests |
 | S3 | **The upload checks:** accuracy above 50 m and a nudge above 100 m are refused, and `gpsAccuracyM` reaches public pins | unit tests |
 | S4 | **Demo pins:** `mode: demo`, `visibleUntil` later than capture plus 3 hours, the real capture time, no flag accepted, and a clean `remove` | script run |
-| S5 | **Samples:** stored only blurred; `GET /samples` serves no source note; a run is `sample` and never pins; both caps hold | unit tests and a cloud run |
+| S5 | **Samples:** stored only blurred, whatever the seeding run's outcome; `GET /samples` serves the manifest's fields and a working `photoUrl`, and no source note; a run is `sample` and never pins; both caps hold, with C522's codes; `remove <sampleId>` takes out one sample | unit tests and a cloud run |
 | S6 | **The stop switches** work without a redeploy, and an unreadable switch fails closed. A result written while `publish` is set is never published. The 90 s delay is stated. | unit tests and a cloud check |
-| S7 | **Limits and flags:** the 11th upload and the 6th sample from one device in a clock hour are refused, and so are the 31st sample and the 301st upload of the hour in all. A flag is counted once per device, flags never hide a pin, and no stored item holds a raw device id. | unit tests |
+| S7 | **Limits and flags:** the 11th upload and the 6th sample from one device in a clock hour are refused with `device_limit`, and the 31st sample and the 301st upload of the hour in all with `global_cap`, each with a `Retry-After`. A flag is counted once per device, and a repeat answers 200. Flags never hide a pin, and no stored item, flag records included, holds a raw device id. | unit tests |
 | S8 | **G2 on MS4's handler:** MS3a's B5 cases pass (a race, an expired lease, a lease lost at the final write) | unit tests, plus B5's cloud evidence re-run |
 | S9 | **The recovery cases in §4.8** behave as stated | unit tests, and cloud runs for the first two rows |
 | S10 | **Section D's API tests:** lazy setup, missing environment variables, the presigned URLs' host and region, and the sentinel IP, location and device id reaching no log | unit tests |
-| S11 | **The feed:** a GeoJSON FeatureCollection of `live` pins only, carrying the `Cache-Control` header, with rounded coordinates, served by the read-only API with `Access-Control-Allow-Origin: *` | unit tests and a template test |
+| S11 | **The feed:** a GeoJSON FeatureCollection of `live` pins only, with its `notice`, carrying the `Cache-Control` header, with rounded coordinates, served by the read-only API with `Access-Control-Allow-Origin: *` and its own throttle | unit tests and a template test |
 | S15 | **The map endpoint:** `GET /map/pins` returns every visible published `live` and `demo` pin, and none while the publish switch hides `live` ones, apart from the demo pins | unit tests |
 | S16 | **The evidence record:** the overlay, the layers and `readings` are built from MS3b's record alone, and S13's copy rules hold on every word they draw | unit tests, after MS3b's merge |
-| S12 | **`InchesShown`** in both states: false hides every inches field, and true shows them | unit tests |
-| S13 | **Copy:** no "safe" in any form, no crossing advice and no whole-road wording, in the overlay's words and in every response string | unit tests and Rene's review (M20) |
-| S14 | **Operations:** the two spend alarms exist on the alarm topic. The dead-letter alarm has `OKActions`. A redrive dry run lists the counts it would move and delete. `npm run check` and CI pass, and the free-plan units stay at or under 25 and 25. | template tests, a dry run, CI |
+| S12 | **`INCHES_SHOWN`** in both states: `"false"` hides every inches field (`depthInMin`, `depthInMax` and `readings[].inches`), and `"true"` shows them. The overlay and its layers carry no inches in either. | unit tests |
+| S13 | **Copy:** no "safe" in any form, no crossing advice and no whole-road wording, in the overlay's words and in every route's response strings, the 404, 422 and 429 bodies included. The feed's `notice` is the exact screen line. | unit tests and Rene's review (M20) |
+| S14 | **Operations:** the two spend alarms exist on the alarm topic. The dead-letter alarm has `OKActions`. The dead-letter queue keeps 6 days and the upload queue 4 (C525). A redrive dry run lists the counts it would move and delete. `npm run check` and CI pass, and the free-plan units stay at or under 25 and 25. | template tests, a dry run, CI |
+| S17 | **Reads:** `GET /reports/{id}` returns `published`, answers 404 past `expiresAt` (C526), and gives a demo pin's `credit`, `place` and `event` (C523). The layers file follows C524. The bucket allows `GET` from the app's origins, and the API exposes `Retry-After`. | unit tests and template tests |
 
 ## 8. Questions for Rene
 
@@ -279,21 +310,22 @@ Each has a default that the draft plan follows (D7).
 | MS4-Q5 | Add "redrive only dead-letter messages under a day old, each once" to CLAUDE.md? This is section D, item 2, and MS3a's Task 17 also queues it. | (a) yes; (b) no, and the script only warns | (a) |
 | MS4-Q6 | Access logs (HTTP API, S3 server access, CloudTrail data events) | (a) stay off, as now; (b) on, with a privacy-policy line for each | (a) |
 | MS4-Q7 | What the publish switch hides | (a) `live` pins only, while demo pins stay; (b) every pin | (a) |
-| MS4-Q8 | **Samples: run the real pipeline each time, or once?** | (a) each time, about $0.03 a run, capped at 5 per device and 30 in all per hour; (b) once per sample, serving the stored result. That saves credits, but plan §4's sample button runs the live pipeline. | (a). If MS9-Q1 ends on a pause in analysis, (b) becomes the fallback during the pause: a sample shows its seeding run's result, marked as saved and dated (the tracker's N2, conditional). |
+| MS4-Q8 | **Samples: run the real pipeline each time, or once?** | (a) each time, about $0.03 a run, capped at 5 per device and 30 in all per hour; (b) once per sample, serving the stored result. That saves credits, but plan §4's sample button runs the live pipeline. | (a). If MS9-Q1 ends on a pause in analysis, (b) becomes the fallback during the pause: a sample shows its seeding run's result, marked as saved and dated (MS9's N2, conditional). |
 | MS4-Q9 | An open-licensed demo photo whose source gives no spot | (a) samples only, never a demo pin; (b) a pin at the described place's centre | (a) |
 | MS4-Q10 | **Who can open a pin's photo, and for how long** (this carries PRIV-Q2). The pin detail must show the photo and overlay. | (a) For a pin, links are issued while it is visible (3 hours), to anyone holding its id. For an unpublished result, they are issued for its 7 days to the holder of the id. (b) For every report, for its 7 days, to anyone holding the id. The privacy policy then states the chosen rule. | (a) |
 | MS4-Q11 | Samples are kept while the sample button exists, as blurred copies with credit lines. That exempts them from the 7-day rule, as G1 does for demo pins. | (a) yes, until the button is removed after the hackathon; (b) no, and the samples are re-seeded every 7 days | (a) |
 | MS4-Q12 | Public-domain-marked photos (such as 9 of C87's Commons set), which aren't CC0, as samples or demo pins | (a) yes, credited like CC0; (b) no, only CC0 and CC BY, as Rene's 8:26 PM decision names | (b), until Rene says otherwise |
 | MS4-Q13 | **A global hourly cap on uploads.** Device ids are free to make, so only `MaximumConcurrency` 5 bounds spending. That still allows a few hundred runs an hour, which could use up the $150 of credits in a day or two of sustained abuse. | (a) 300 uploads an hour in all, so abuse costs at most about $10 an hour, while a real rush beyond it is refused with a retry message; (b) no cap, with the model-calls switch as the only brake | (a) |
+| MS4-Q14 | **Sample photos whatever the outcome** (an exception to MS3a's C61, for sample photos only). C61 keeps a stored copy only for a level result, so a dry or refused sample would have no photo to show (§4.2). | (a) A sample's seeding run keeps its blurred copy whatever the outcome, since sample photos are open-licensed or consented, and you allowed them to be shown, credited and blurred. People's reports keep C61. (b) Samples keep a copy only for level results. MS5, MS8, MS9 and MS10 then drop the dry and refused samples' photos, and the refusal sample. | (a), the tracker's call on the cross-spec audit's row 2 |
 
 The design's open questions bear on this too:
-- **R6:** how many consented photos M9 secures sets how many demo pins there are. Its fallback (a), labelled synthetic Set B composites, can serve as samples (§4.5).
-- **R3:** sets the overlay's language.
-- **R7** doesn't change MS4.
+- **Design R6:** how many consented photos M9 secures sets how many demo pins there are. Its fallback (a), labelled synthetic Set B composites, can serve as samples (§4.5).
+- **Design R3:** sets the overlay's language.
+- **Design R7** doesn't change MS4.
 
 ## 9. Not in MS4
 
 - **Ask Lusot:** `POST /ask` and `POST /ask/voice`, the question limit and Nominatim. They get their own spec, which must honour the publish switch.
 - **The screens, the consent flow, the privacy page and the overlay's animation** (MS5). MS5 also makes the device id. It polls a report for at least C84's run deadline (about 150 s, since C88's margin), not the plan's 120 s.
 - **Clip mode,** unless it is finished before the freeze.
-- **CORS for Amplify Hosting's domain** arrives with M6 (Oct 31), as a template parameter.
+- **The web origin in CORS:** MS5 adds Amplify Hosting's domain to `AppOrigins` (its C622), with no template parameter.
