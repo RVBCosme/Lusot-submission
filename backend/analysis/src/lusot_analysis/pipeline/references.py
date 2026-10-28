@@ -3,6 +3,11 @@
 Before numbering (step 4.1; C69, C70), a wheel no rule could read loses its box, and
 the caps keep a crowded street's labels few. A box cut there gets no number, so Muse
 Spark never answers about it.
+
+After numbering, `layout` names the kept boxes' links by box id. Muse Spark's answer
+must pass the schema (step 4.3, C47). annotate's check_ids_per_item then drops the
+entries with bad ids (step 4.4), and the gate decides whether the answer's top level
+settles the outcome (step 4.5; C51, C52).
 """
 
 from __future__ import annotations
@@ -11,8 +16,12 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
+from lusot_analysis import rules
+from lusot_analysis.annotate import NumberedBox
 from lusot_analysis.meta_client import SamInstance, SamResult
 from lusot_analysis.pipeline.segment import box_xyxy, link_wheels
+from lusot_analysis.pipeline.types import ModelAnswerError, Outcome
+from lusot_analysis.prompts import validator_class
 
 MIN_WHEEL_SIDE_PX = 40  # on the longer side of a wheel's SAM box (C56, P2)
 MAX_VEHICLES = 6  # both caps are provisional (C70, P6)
@@ -92,6 +101,83 @@ def prepare_boxes(sam: Mapping[str, SamResult]) -> Prepared:
     )
 
 
+@dataclass(frozen=True)
+class Layout:
+    """The numbered boxes, and Prepared's links named by box id, not position.
+
+    - `wheel_vehicle`: each numbered wheel's vehicle.
+    - `small_wheel_vehicles`: the vehicles that lost a linked wheel to the 40 px rule.
+      Such a wheel still counts as visible (C53, C69).
+    """
+
+    boxes: tuple[NumberedBox, ...]
+    wheel_vehicle: Mapping[int, int]
+    small_wheel_vehicles: frozenset[int]
+
+
+def layout(prepared: Prepared, boxes: Sequence[NumberedBox]) -> Layout:
+    """Prepared's links by box id. `boxes` is number_boxes(prepared.sam).
+
+    number_boxes keeps each kind in SAM's order, so the k-th vehicle box is the k-th
+    kept vehicle, and likewise for wheels and people.
+    """
+    vehicles = [box.id for box in boxes if box.kind == "vehicle"]
+    wheels = [box.id for box in boxes if box.kind == "wheel"]
+    return Layout(
+        boxes=tuple(boxes),
+        wheel_vehicle={
+            wheel: vehicles[k]
+            for wheel, k in zip(wheels, prepared.wheel_vehicle, strict=True)
+        },
+        small_wheel_vehicles=frozenset(
+            vehicles[k] for k in prepared.small_wheel_vehicles
+        ),
+    )
+
+
+def validate_answer(data: object, schema: dict) -> None:
+    """Raise ModelAnswerError unless `data` is an object that passes `schema` (C47).
+
+    The validator is load_prompt's. The error never quotes the answer, whose text can
+    hold Muse Spark's reason (C62).
+    """
+    validator = validator_class(schema)(schema)
+    if not isinstance(data, dict) or not validator.is_valid(data):
+        raise ModelAnswerError("Muse Spark's answer fails the schema")
+
+
+def water_found(result: SamResult) -> bool:
+    """True when any instance's mask has a pixel. No instance means no water (C51)."""
+    return any(inst.mask.any() for inst in result.instances)
+
+
+def gate(answer: dict, *, has_water: bool) -> Outcome | None:
+    """The outcome the answer's top level settles, or None to go on (step 4.5).
+
+    `answer` has passed the schema and check_ids_per_item. In this order:
+    1. `photo_usable` no: refused, photo_unusable.
+    2. `standing_water` unsure: refused, water_unsure.
+    3. `standing_water` no: no flood seen, unless an answered item puts the water
+       above its lowest mark, which contradicts the no: refused, water_unsure (C52).
+       Every answered item counts, even one a later drop removes. Water in SAM's mask
+       never overrides a clear no (C51).
+    4. `standing_water` yes, with no water in SAM's mask: refused, no_water_found
+       (C51, Rene's Q1).
+    """
+    if answer["photo_usable"] == "no":
+        return Outcome.refused("photo_unusable")
+    standing = answer["standing_water"]
+    if standing == "unsure":
+        return Outcome.refused("water_unsure")
+    if standing == "no":
+        if _water_above_lowest_mark(answer):
+            return Outcome.refused("water_unsure")
+        return Outcome.no_flood()
+    if not has_water:  # standing_water is yes
+        return Outcome.refused("no_water_found")
+    return None
+
+
 def _instances(sam: Mapping[str, SamResult], phrase: str) -> list[SamInstance]:
     result = sam.get(phrase)
     return [] if result is None else result.instances
@@ -114,3 +200,17 @@ def _largest(instances: Sequence[SamInstance], limit: int) -> list[int]:
     """
     by_size = sorted(range(len(instances)), key=lambda i: (-_area(instances[i]), i))
     return sorted(by_size[:limit])
+
+
+def _water_above_lowest_mark(answer: dict) -> bool:
+    """True when an answered item puts the water above its lowest mark (C52).
+
+    That is a wheel above tire_only, a person above ankle, or a body above
+    below_bumper. not_visible marks nothing.
+    """
+    marks = rules.ABOVE_LOWEST_MARK
+    return (
+        any(item["waterline"] in marks["wheel"] for item in answer["wheels"])
+        or any(item["waterline"] in marks["person"] for item in answer["people"])
+        or any(item["body_waterline"] in marks["body"] for item in answer["vehicles"])
+    )

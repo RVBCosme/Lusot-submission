@@ -7,6 +7,7 @@ import json
 import math
 import threading
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import NoReturn
 
 import cv2
@@ -22,6 +23,7 @@ from lusot_analysis.meta_client import (
 )
 
 SIZE = (640, 480)  # width, height
+REPO_PROMPTS = Path(__file__).parents[1] / "prompts"  # the repo's prompt files
 
 
 def create_reports_table(ddb, name: str) -> None:
@@ -117,6 +119,63 @@ def sam_results(
             raw="",
         )
         for phrase in SAM_PHRASES
+    }
+
+
+def vehicle(
+    id: int,
+    type: str = "sedan_hatch",
+    moving: str = "no",
+    body: str = "not_visible",
+    wake: bool = False,
+) -> dict:
+    """One `vehicles` entry of Muse Spark's answer, in the schema's field names."""
+    return {
+        "id": id,
+        "type": type,
+        "moving": moving,
+        "wake_visible": wake,
+        "body_waterline": body,
+    }
+
+
+def wheel(id: int, waterline: str) -> dict:
+    """One `wheels` entry of Muse Spark's answer."""
+    return {"id": id, "waterline": waterline}
+
+
+def person(
+    id: int, waterline: str, adult: str = "yes", standing_still: str = "yes"
+) -> dict:
+    """One `people` entry of Muse Spark's answer."""
+    return {
+        "id": id,
+        "adult": adult,
+        "standing_still": standing_still,
+        "waterline": waterline,
+    }
+
+
+def answer(
+    *,
+    photo_usable: str = "yes",
+    standing_water: str = "yes",
+    vehicles: Sequence[dict] = (),
+    wheels: Sequence[dict] = (),
+    people: Sequence[dict] = (),
+    reason: str = "REASON-MARKER-31",
+) -> dict:
+    """Muse Spark's whole answer, with its lists as lists, as JSON parses them.
+
+    The reason is a marker, so a test can show it never reaches a log (C62).
+    """
+    return {
+        "photo_usable": photo_usable,
+        "standing_water": standing_water,
+        "vehicles": list(vehicles),
+        "wheels": list(wheels),
+        "people": list(people),
+        "reason": reason,
     }
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -126,6 +127,42 @@ def check_ids(answer: dict, boxes: list[NumberedBox]) -> list[str]:
                 problems.append(f"{kinds[box_id]} id {box_id} in {name}")
     problems += [f"id {i} answered {n} times" for i, n in counts.items() if n > 1]
     return problems
+
+
+def check_ids_per_item(
+    answer: dict, boxes: Sequence[NumberedBox]
+) -> tuple[dict, Counter[str]]:
+    """A schema-valid answer without its entries whose ids are bad, and the drops (C47).
+
+    Each bad entry counts under the first cause that applies:
+    1. `unknown_id`: its id isn't a box's.
+    2. `duplicate_id`: its id is a box's, but entries across vehicles, wheels and
+       people name it more than once, so every one of them goes (C77).
+    3. `wrong_list`: it sits in another list than its box's kind.
+
+    The answer comes back as a copy, with its other keys unchanged; `answer` itself
+    is never changed. The probe keeps check_ids, which only lists the problems.
+    """
+    kinds = {box.id: box.kind for box in boxes}
+    counts: Counter[int] = Counter(
+        item["id"] for name in _LISTS.values() for item in answer[name]
+    )
+    checked = dict(answer)
+    drops: Counter[str] = Counter()
+    for kind, name in _LISTS.items():
+        kept = []
+        for item in answer[name]:
+            box_id = item["id"]
+            if box_id not in kinds:
+                drops["unknown_id"] += 1
+            elif counts[box_id] > 1:
+                drops["duplicate_id"] += 1
+            elif kinds[box_id] != kind:
+                drops["wrong_list"] += 1
+            else:
+                kept.append(item)
+        checked[name] = kept
+    return checked, drops
 
 
 def _blur_area(face: FaceBox) -> tuple[int, int, int, int]:
