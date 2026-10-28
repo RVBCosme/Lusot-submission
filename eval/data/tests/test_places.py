@@ -32,6 +32,8 @@ def test_fold_strips_marks_and_case():
         ("Roxas Blvd. \N{EN DASH} Kalaw", {"roxas", "kalaw"}),
         ("Epifanio de los Santos Ave. cor. Kamuning Rd.", {"edsa", "kamuning"}),
         ("Ramon Magsaysay Blvd., Sta. Mesa", {"ramon magsaysay", "santa mesa"}),
+        # A single letter is dropped, as in A. Maceda, but a single digit stays.
+        ("Valle Verde 6 (SB)", {"valle verde 6"}),
         # Additions to the plan's lists (spec §10): "to" and "front of" split the alert
         # index's spans, and "of" is dropped.
         (

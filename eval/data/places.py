@@ -124,8 +124,9 @@ def spot_names(text: str) -> frozenset[str]:
        each side. Each piece is folded and splits again on the connector words.
     2. A segment that is a Metro Manila city is dropped whole, so Quezon City never
        leaves quezon.
-    3. The street, direction and area words and the one-letter words are dropped, and
-       sto, sta and Epifanio de los Santos are written as santo, santa and edsa.
+    3. The street, direction and area words are dropped, and so is a single letter,
+       such as the A of A. Maceda; a single digit stays. Then sto, sta and Epifanio
+       de los Santos are written as santo, santa and edsa.
     4. Each non-empty remainder is one name.
     """
     names = set()

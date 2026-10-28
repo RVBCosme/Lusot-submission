@@ -1,4 +1,4 @@
-"""Flood events and near-identical photos for Set A and A-neg (C203, §5.5).
+"""Flood events for Set A and A-neg (C203), and near-identical photos (§5.5).
 
 The split keeps each event whole on one side, so an event that is too big costs only
 balance, while one that is too small can leak a flood across the two sides (W18). So
