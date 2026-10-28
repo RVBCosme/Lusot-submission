@@ -237,8 +237,9 @@ class MetaClient:
         except MetaApiError as exc:
             if exc.status != 504:
                 raise
-            # A background body over 1 MiB gets 413, and a 1,600 px photo inlined as
-            # base64 can come close (R75). A 413 isn't retried: it raises from here.
+            # A background body over 1 MiB gets 413 (R75). Base64 makes the photo a
+            # third larger, so that is about 768 KiB of JPEG. A 413 isn't retried: it
+            # raises from here.
             raw, text = self._sam_background(request, phrase, deadline)
         elapsed = time.monotonic() - started
         return SamResult(phrase, _instances(text, image), elapsed, raw)

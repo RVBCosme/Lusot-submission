@@ -749,13 +749,14 @@ def test_segment_dropped_stream_raises_without_retry(photo):
         # A mask payload that doesn't decode
         "<0f>0<|box;x1=1;y1=1;x2=2;y2=2;w=320;h=334|><|mask;x=0;y=0;data=2,2,~bad|>\n",
         # The 5 x 5 mask on https://github.com/meta-models/meta-sam (protocol/sam3.md),
-        # on a 4 x 4 box, then on a box past the 320 px wide photo
+        # on a 4 x 4 box, then on a 5 x 5 box one pixel past the 320 px wide photo, in
+        # the photo's frame: meta-sam-parser refuses that box (invalid_box)
         (
             "<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|>"
             "<|mask;x=0;y=0;data=5,5,!!!!!(QO(0lu8?|>\n"
         ),
         (
-            "<0f>0<|box;x1=316;y1=20;x2=320;y2=24;w=400;h=334|>"
+            "<0f>0<|box;x1=316;y1=20;x2=320;y2=24;w=320;h=334|>"
             "<|mask;x=0;y=0;data=5,5,!!!!!(QO(0lu8?|>\n"
         ),
     ],
