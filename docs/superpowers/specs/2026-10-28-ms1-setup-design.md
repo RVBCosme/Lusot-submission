@@ -155,3 +155,18 @@ A fresh reviewer read this spec with the design, `CLAUDE.md`, the plan and the r
 | X4 | Parking CI loses C9's container-build fallback | Added to the risks |
 | X5 | Nobody owned the Taglish voice test | C41 |
 | X6 | The plan's ECR lifecycle rule was missing | C38 |
+
+## 8. Closing notes (Oct 28, at the MS1 close)
+
+What changed from this spec while MS1 was built. The rulings (R numbers) are in the [Oct 28 log](../../log/2026-10-28.md), under "Decided".
+
+| Spec | What changed | Why |
+|---|---|---|
+| C23 | The app lints with **Oxlint**, not ESLint (R33). | The current Vite react-ts template ships Oxlint, and ESLint's TypeScript plugin doesn't support the template's TypeScript 7. |
+| C26 | **CI is live** in `.github/workflows/ci.yml`, not parked in `ci/` (R38). It runs the same three checks as `npm run check`. | T7 (the `workflow` scope) was granted on Oct 28, 10:32 AM. Pushes still happen at the end of each milestone (D16). |
+| §3.1 Guards | `npm run check` adds a **scan for 12-digit numbers** (the shape of an AWS account ID). It skips lockfiles and hex hashes of 32 or more characters (R39, R45). Claude's deny rules also cover the raw Set A and A-neg photos until the MS2 split (R8). | A7's "no account ID in the repo" becomes a repeatable check that CI also runs, unlike the plan-leak check, which needs the plan. |
+| §3.2 Backend skeleton | Each function has its own least-privilege role (R19). The stack outputs queue names, not queue URLs, which contain the account ID (R20). The API is bundled from the lockfile before `sam build` (R21). | Review findings in Task 6. |
+| C28 stub | The stub downscales before face detection (R16), caps decoding at 50 MP (R25), and marks a report whose raw photo is missing `failed/photo_missing` (R22). | Memory limits, and a missing photo can't be retried. |
+| C38, design §13 | **No `sam init` or `aws-samples/serverless-patterns` starter was used.** Task 6 wrote the template and both functions for Lusot, so the README credits the SAM CLI only (R47). | D3 limits where starting code may come from; it doesn't require any. |
+| §3.6 APK | Gradle needs **JDK 21**: a portable Microsoft Build of OpenJDK 21 runs the build, and the user `JAVA_HOME` stays JDK 17 (the risk in §6 came true). Capacitor's logging is off (`loggingBehavior: 'none'`), because debug builds wrote the exact GPS fix to the phone's log (R43). | "Never log exact locations." |
+| A6 | Still open: it waits for Rene's phone test (M14). The emulator run passed. | A6 needs a real phone on mobile data. |
