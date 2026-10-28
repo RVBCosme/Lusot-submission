@@ -1,11 +1,13 @@
 # MS3a Landmark core: spec
 
 - **Date:** Oct 28, 2026 (Manila)
-- **Status:** Final, builder-checked on Oct 28. The check's three questions are settled:
-  - C54 and C57 follow `eval/rules.md` as written, and their alternatives become Rene's Q3 and Q4.
-  - Calls C69 to C71 are added.
+- **Status:** Final, builder-checked on Oct 28.
+  - **The builder check:** its three questions are settled. C57 follows `eval/rules.md` as written, and calls C69 to C71 are added.
+  - **Rene's answers to §7** (Oct 28, 7:58 AM):
+    - Q1 to Q3 keep the defaults.
+    - Q4 changes C54: a floor means "this level or deeper". `eval/rules.md` §6 was updated with his OK (v0.6).
 
-  Claude proceeds on the calls in §4 (D7, D15), and Rene approves in the morning.
+  Claude proceeds on the calls in §4 (D7, D15). Rene approves the whole spec.
 - **Needs first:** MS1 Task 4 (the Meta client, with R27) and Task 5 (the probes, prompt v1, schema v1 and `annotate`). Neither is in the repo yet. Task 5's probe note settles §6.
 - **Implements:**
   - plan §7 steps 1, 2 and 4 to 8 (step 3 and geometry are MS3b), §8 Table 8, §9 (classes and the three messages), Tables 5, 6 and 14, and §13 (stop switches, blur before storage, deletion)
@@ -156,7 +158,12 @@ People get no size floor, because the plan sets none.
 
 **Combining (C43, C54, C57)**
 - **References.** Each kept vehicle is one reference. It is read from its deepest wheel or, when its wheels are hidden, from its body. Each counted adult is one reference.
-- **Disagreement.** `eval/rules.md` §6, as written, counts a floor at its own level, like an exact reading. The photo is refused (`references_disagree`) when any two readings differ by more than one level (C54, Rene Q4).
+- **Disagreement.** A floor means "this level or deeper", so a floor is never too shallow (Rene's Q4 answer, `eval/rules.md` §6 v0.6). Let D be the deepest level among all readings, with a floor counted at its own level. The photo is refused (`references_disagree`) when any exact reading sits more than one level below D (C54).
+  - **Examples:**
+    - a tire floor beside an exact chest reading gives chest
+    - a tire floor beside an exact knee reading gives tire, as a floor
+    - a tire floor beside an exact half_tire reading refuses
+    - exact knee beside exact chest refuses
 - **The gutter gap.** Landmarks never give `gutter`. So `tire_only` and `rim_quarter` are two levels apart and refuse together, and so do `ankle` and `mid_shin` (Rene Q2).
 - **The result** is the deepest level. `levelIsFloor` is true when a floor reading sits at that level.
 - **Ties.** On a tie, the deciding reference is:
@@ -275,7 +282,7 @@ C42 to C49 come from the draft. C44 to C48 are revised where marked. C50 onward 
 | C51 | An empty water mask still goes to Muse Spark (D14). A clear no then gives no flood seen, and a yes gives `refused/no_water_found`. | D14 changes plan §7 step 2 only so that a dry street can read no flood seen. W9 asks for water touching a reference, and an empty mask has none. (Rene Q1, P4) |
 | C52 | The gate checks `photo_usable` first. A no on standing water counts only when no answered item puts water above its lowest mark: no wheel above `tire_only`, no person above `ankle`, and no body above `below_bumper`. Otherwise the photo is refused as `water_unsure`. | Plan §7 step 4 gives no flood seen only for a clear no. A false no flood seen on a flooded photo scores as an underestimate (`eval/rules.md` §7). (P1) |
 | C53 | The body waterline gives tire as a floor at `mid_door` or `window`. This applies only to a `sedan_hatch` or `suv_mpv` whose wheels are all hidden. A `wheel_covered` wheel with a body waterline at `door_sill` or lower drops the vehicle. | On these cars the door sill sits below the top of the wheel, so water at the sill can't hide the wheels. Table 8's whole-wheel row says to check the body. C17 sets how a floor is scored and shown, not where it starts. |
-| C54 *(revised after the builder check)* | In the disagreement check, a floor counts at its own level, as `eval/rules.md` §6 is written. A photo is refused when any two readings differ by more than one level. `levelIsFloor` is true when a floor sits at the result level. Ties go to a floor, then to a wheel, a body and a person, in that order, then to the lowest box id. | §6 sets the one-level rule without exempting floors, and it changes only with Rene's written OK. Reading a floor as "this level or deeper" would answer more photos (such as "at least tire" beside a chest-deep adult), and that is Rene's Q4. The tie order keeps results repeatable (B3) and prefers the cautious wording. |
+| C54 *(set by Rene's Q4 answer)* | A floor is never too shallow. With D as the deepest level among all readings (a floor counted at its own level), a photo is refused only when an exact reading sits more than one level below D. `levelIsFloor` is true when a floor sits at the result level. Ties go to a floor, then to a wheel, a body and a person, in that order, then to the lowest box id. | A floor means "this level or deeper", so it can't disagree with a deeper reading. Rene chose this on Oct 28 (Q4), and `eval/rules.md` §6 v0.6 records his OK. The tie order keeps results repeatable (B3) and prefers the cautious wording. |
 | C55 | A wheel joins the vehicle whose box holds the centre of the wheel's box. A wheel inside no vehicle box, or inside more than one, is dropped. Rims are linked in 3b. | A wheel's reading needs its vehicle's type and motion, and choosing between two cars would be a guess. No 3a step reads a rim. |
 | C56 | The 40 px rule measures the longer side of the wheel's SAM box, on the image sent to Meta. | Water hides the bottom of a wheel, so its visible height shrinks as the water rises. Measuring height alone would drop the deepest readings first and push results shallow. (P2) |
 | C57 *(revised after the builder check)* | `standing_still = unsure` counts as wading. Wading adults count only when no adult in the photo is standing still, even one whose waterline is hidden. Each counted adult is one reference. | Plan §7 step 4 counts unsure as moving. D13 and `eval/rules.md` §6 use exactly this wording, and both are Rene's. Letting wading adults count when the standing adult gives no reading is Rene's Q3. |
@@ -323,11 +330,11 @@ The markers P1 to P5 above show each spot where a probe result may change a numb
 
 ## 7. Questions for Rene
 
-Most important first. 3a builds on the defaults until Rene answers.
+Rene answered all four on Oct 28 at 7:58 AM, in chat. Q1 to Q3 keep the defaults. Q4 takes the alternative: a floor means "this level or deeper" (C54).
 
 | # | Question | Default if unanswered |
 |---|---|---|
 | Q1 | **Scope of D14.** SAM can find no water while Muse Spark says there is standing water. Should the plan §7 step 2 refusal stand, since D14 only added no flood seen for dry streets? Or may the landmarks give a level anyway? | Refuse, as `no_water_found` (C51). P4 shows how often this happens. |
 | Q2 | **The gutter gap.** Landmarks never give `gutter`, so `tire_only` beside `rim_quarter` (or `ankle` beside `mid_shin`) is two levels apart. Under `eval/rules.md` §6, that refuses. Should the gap count landmark steps instead? Both readings are PATV, so only coverage on shallow scenes changes. A change needs Rene's written OK in that file's change log. | Keep the rule as written (refuse) |
 | Q3 | **A standing adult with a hidden waterline.** D13 and `eval/rules.md` §6 count wading adults only when no adult in the photo is standing still. Should a standing adult whose legs are hidden (behind a car, say), and who gives no reading, still block the wading adults? This happens often on busy streets. | Yes, as written (C57). More photos refuse. |
-| Q4 | **Floors in the one-level rule.** "At least tire" (wheels covered) beside a chest-deep adult agree physically, but §6 as written refuses them, because tire and chest are two levels apart. Should a floor count as "this level or deeper" when references are compared? A change needs Rene's written OK in that file's change log. | Refuse, as written (C54) |
+| Q4 | **Floors in the one-level rule.** "At least tire" (wheels covered) beside a chest-deep adult agree physically, but §6 as written refuses them, because tire and chest are two levels apart. Should a floor count as "this level or deeper" when references are compared? A change needs Rene's written OK in that file's change log. | Refuse, as written. **Rene's answer:** this level or deeper. C54 and `eval/rules.md` §6 v0.6 are updated. |
