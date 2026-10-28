@@ -18,8 +18,8 @@ STATUS_WORDS = frozenset({"subsided"})
 # What the export writes instead of a label that holds any other word (C420).
 OTHER_WORDS = "(other words)"
 
-# Rules §2's level phrases. Each may carry "deep", and only "above gutter" and
-# "above knee" may carry "level", as §2 writes them (C404).
+# Rules §2's level phrases. Each may end with "deep" or "level", or neither, since
+# §2 treats the two words alike (C404; MS6E-Q1, item 12).
 _PHRASE_LEVELS = {
     "gutter": "gutter",
     "half knee": "half_knee",
@@ -34,12 +34,9 @@ _PHRASE_LEVELS = {
     "lagpas tao": "above_chest",
 }
 _WORDS_LEVELS = {
-    **_PHRASE_LEVELS,
-    **{f"{phrase} deep": level for phrase, level in _PHRASE_LEVELS.items()},
-    **{
-        f"{phrase} level": _PHRASE_LEVELS[phrase]
-        for phrase in ("above gutter", "above knee")
-    },
+    f"{phrase}{suffix}": level
+    for phrase, level in _PHRASE_LEVELS.items()
+    for suffix in ("", " deep", " level")
 }
 
 # Rules §2's passability codes and phrases, a parenthetical's brackets dropped.
@@ -68,11 +65,13 @@ LABEL_WORDS: frozenset[str] = frozenset(
     | STATUS_WORDS
 )
 
-# A number and its unit, or a range (two numbers joined by -, – or "to") and its unit.
+# A number and its unit, or a range: two numbers joined by -, – or "to", where the
+# first may carry its own unit or else takes the second's (MS6E-Q1, item 13).
 _NUMBER = "[0-9]+(?:[.][0-9]+)?"
 _UNIT = '["”″]|(?:' + "|".join(_INCH_WORDS + _CM_WORDS) + ")(?![a-z])"
 _MEASURE = re.compile(
-    f"(?<![0-9.])(?P<low>{_NUMBER})(?: *(?:-|–|to) *(?P<high>{_NUMBER}))?"
+    f"(?<![0-9.])(?P<low>{_NUMBER})"
+    f"(?:(?: *(?P<low_unit>{_UNIT}))? *(?:-|–|to) *(?P<high>{_NUMBER}))?"
     f" *(?P<unit>{_UNIT})"
 )
 # A label's last parenthetical, as in "phrase (code)" or "code (phrase)".
@@ -104,8 +103,10 @@ class ClassLabel:
 
 
 def map_level_label(raw: str) -> LevelLabel:
-    """Map an alert's level label by rules §2 (C404). Words win when they map; with
-    no words, a single number and its unit decide by rules §1."""
+    """Map an alert's level label by rules §2 (C404). Words win when they map. With
+    no words, the numbers decide by rules §1, and measures not joined as a range
+    are one depth in two units, which maps only when they agree (MS6E-Q1, item 13).
+    """
     if raw.strip() == "":
         return LevelLabel("blank", None)
     if raw == OTHER_WORDS:
@@ -118,10 +119,9 @@ def map_level_label(raw: str) -> LevelLabel:
         return LevelLabel("status", None)
     if words:
         level = _WORDS_LEVELS.get(words)
-    elif len(depths) == 1:
-        level = level_for_inches(depths[0])
     else:
-        level = None
+        levels = {level_for_inches(depth) for depth in depths}
+        level = levels.pop() if len(levels) == 1 else None
     if level is None:
         return LevelLabel("unmapped", None)
     return LevelLabel("level", level)
@@ -158,9 +158,17 @@ def label_words_ok(raw: str) -> bool:
 
 
 def _inches(measure: re.Match[str]) -> Decimal:
-    """A measure in inches: a range at its upper value, centimetres converted."""
-    value = max(Decimal(measure["low"]), Decimal(measure["high"] or measure["low"]))
-    return value / CM_PER_INCH if measure["unit"] in _CM_WORDS else value
+    """A measure in inches: a range at its upper value, each number in its own unit
+    or the range's, with centimetres converted."""
+    unit = measure["unit"]
+    low = _to_inches(measure["low"], measure["low_unit"] or unit)
+    if measure["high"] is None:
+        return low
+    return max(low, _to_inches(measure["high"], unit))
+
+
+def _to_inches(number: str, unit: str) -> Decimal:
+    return Decimal(number) / CM_PER_INCH if unit in _CM_WORDS else Decimal(number)
 
 
 def _words(text: str) -> str:

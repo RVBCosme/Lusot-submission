@@ -129,11 +129,27 @@ def test_bare_number_and_suffixes():
     assert_levels(
         {
             "25": UNMAPPED,  # a number with no unit maps to nothing (MS6E-Q1, item 11)
-            "knee level": UNMAPPED,  # §2 writes "level" only after two phrases
-            "waist level": UNMAPPED,
+            "knee level": level("knee"),  # "level" and "deep" are alike (item 12)
+            "waist level": level("waist"),
+            # A real Valenzuela form: the words map, and words beat the range.
+            '13-18 inches ("half tire level")': level("half_tire"),
             "above knee level": level("tire"),
             "above knee deep": level("tire"),
-            "knee": level("knee"),  # "deep" may be left off
+            "knee": level("knee"),  # the suffix may be left off
+        }
+    )
+
+
+def test_ranges_and_two_units():
+    assert_levels(
+        {
+            '13"-18"': level("knee"),  # a range with a unit on each number
+            "13 in - 18 in": level("knee"),
+            "24 in (61 cm)": level("tire"),  # one depth in two units, both tire
+            "61 cm / 24 in": level("tire"),
+            "8 in (25 cm)": UNMAPPED,  # 8 in gives gutter, 25 cm half_knee
+            # A status counts only as the whole label.
+            "knee deep, subsided": UNMAPPED,
         }
     )
 
