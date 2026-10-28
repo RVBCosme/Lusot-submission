@@ -33,13 +33,13 @@ def publish_boxes(sam: Mapping[str, SamResult]) -> list[FaceBox]:
     - An empty mask falls back to SAM's box, which is half-open (R61). It is rounded
       outward first, floor the start and ceil the end, so its width is
       ceil(x1) - floor(x0), with no + 1.
-    - A phrase missing from `sam` has no matches.
     - The score is SAM's, or 0.0 when SAM sent none. blur_faces doesn't read it.
+    - Both phrases' results must be in `sam`. A missing one raises KeyError, so a photo
+      is never stored with its faces or plates unchecked (CLAUDE.md, §13).
     """
     boxes = []
     for phrase in PUBLISH_PHRASES:
-        result = sam.get(phrase)
-        for inst in result.instances if result is not None else ():
+        for inst in sam[phrase].instances:
             score = 0.0 if inst.score is None else inst.score
             columns = np.flatnonzero(inst.mask.any(axis=0))
             rows = np.flatnonzero(inst.mask.any(axis=1))

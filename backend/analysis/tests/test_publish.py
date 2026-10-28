@@ -99,6 +99,18 @@ def test_empty_mask_falls_back_to_the_sam_box(xyxy, box, grown):
     assert_blurred_inside_only(img, publish_pixels(img, sam), [grown])
 
 
+@pytest.mark.parametrize("phrase", ["face", "license plate"])
+def test_a_missing_face_or_plate_result_fails_closed(phrase):
+    # A missing result must not read as no match, or the photo would be stored with
+    # those faces or plates unblurred (CLAUDE.md, §13), as MS1's client rules too.
+    sam = sam_results({"face": [(100, 80, 160, 140)]}, size=SIZE)
+    del sam[phrase]
+    with pytest.raises(KeyError, match=phrase):
+        publish_boxes(sam)
+    with pytest.raises(KeyError, match=phrase):
+        publish_jpeg(blur_for_meta(noise_jpeg(*SIZE)), sam)
+
+
 def test_a_match_with_no_score_gets_0():
     # A SAM record can lack its confidence, but a FaceBox's score is a float.
     face = instance(0, (100, 100, 140, 140), size=SIZE, score=None)
