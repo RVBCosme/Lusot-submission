@@ -28,6 +28,9 @@ UNIT_WORDS = {
     "centimetre",
     "centimetres",
 }
+# Words real alerts write that v0.6's §2 doesn't list: "ankle" beside inches, and
+# "head" as "lagpas tao" (MS6E-Q1, items 15 and 16).
+ALERT_WORDS = {"ankle", "head"}
 UNMAPPED = LevelLabel("unmapped", None)
 
 
@@ -164,8 +167,42 @@ def test_status_blank_and_unmapped():
             "ankle deep": UNMAPPED,
             "deep": UNMAPPED,
             OTHER_WORDS: UNMAPPED,
-            # Words that don't map decide, and the number never stands in for them.
-            'Ankle deep, 4"': UNMAPPED,
+        }
+    )
+
+
+def test_measures_decide_unmapped_words():
+    # Words that aren't a phrase leave the measures to decide (MS6E-Q1, item 15).
+    assert_levels(
+        {
+            "ANKLE DEEP (9 inches)": level("half_knee"),  # as Quezon City writes it
+            'Ankle deep, 4"': level("below_gutter"),
+            "ankle deep (61 cm)": level("tire"),  # 24.02 in
+            "Ankle Deep": UNMAPPED,  # words alone, as Manila's DRRMO writes them
+            "knee deep (25 inches)": level("knee"),  # words that map still win
+        }
+    )
+
+
+def test_head_plus():
+    # "Head" maps as "lagpas tao" does, and "N+" is at least N, which maps only
+    # when that is over 45 in (MS6E-Q1, item 16).
+    assert_levels(
+        {
+            "Head+ (60+ inches)": level("above_chest"),
+            "Head+": level("above_chest"),
+            "head deep": level("above_chest"),
+            "head level": level("above_chest"),
+            "60+ inches": level("above_chest"),
+            "60+ in": level("above_chest"),
+            '60+"': level("above_chest"),
+            "120+ cm": level("above_chest"),  # 47.24 in
+            "13+ in": UNMAPPED,  # at least 13 in could be deeper than half tire
+            "45+ in": UNMAPPED,  # 45 in itself is chest
+            "100+ cm": UNMAPPED,  # 39.37 in
+            "13+ in (35 cm)": UNMAPPED,  # a floor never lets the other unit decide
+            # Words win over a floor too, so the "+" must leave them just "head".
+            "Head+ (13+ in)": level("above_chest"),
         }
     )
 
@@ -213,5 +250,14 @@ def test_label_words():
         assert not label_words_ok(raw), raw
     first_column = " ".join([*labels, *passability_cells])
     rules_words = set(re.findall(r"[a-z]+", first_column.lower()))
-    # Every word of §2's labels, and nothing but those, the units, "to" and statuses.
-    assert LABEL_WORDS == rules_words | UNIT_WORDS | {"to"} | STATUS_WORDS
+    # Every word of §2's labels, and nothing but those, the units, "to", the statuses
+    # and the alerts' own words.
+    assert LABEL_WORDS == rules_words | UNIT_WORDS | {"to"} | STATUS_WORDS | ALERT_WORDS
+
+
+def test_label_words_take_ankle_head_and_plus():
+    for raw in ("ANKLE DEEP (9 inches)", "Head+ (60+ inches)"):
+        assert label_words_ok(raw), raw
+    for raw in ("Espana Maceda", "knee deep 8:00 AM"):
+        assert not label_words_ok(raw), raw
+    assert {"ankle", "head"} <= LABEL_WORDS

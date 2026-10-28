@@ -1,7 +1,8 @@
 """Rules §2: an alert's level and passability labels, mapped to the scale (C404, C420).
 
-A label maps only when its words are exactly one of §2's phrases. Any other label is
-an "unmapped label", never guessed (rules §2).
+A level label maps by its words when they are one of §2's phrases, and otherwise by
+its measures when they give one level (MS6E-Q1, item 15). Any other label is an
+"unmapped label", never guessed (rules §2).
 """
 
 from __future__ import annotations
@@ -18,8 +19,9 @@ STATUS_WORDS = frozenset({"subsided"})
 # What the export writes instead of a label that holds any other word (C420).
 OTHER_WORDS = "(other words)"
 
-# Rules §2's level phrases. Each may end with "deep" or "level", or neither, since
-# §2 treats the two words alike (C404; MS6E-Q1, item 12).
+# Rules §2's level phrases, and "head" as "lagpas tao" (MS6E-Q1, item 16). Each may
+# end with "deep" or "level", or neither, since §2 treats the two words alike (C404;
+# MS6E-Q1, item 12).
 _PHRASE_LEVELS = {
     "gutter": "gutter",
     "half knee": "half_knee",
@@ -32,6 +34,7 @@ _PHRASE_LEVELS = {
     "above gutter": "half_knee",
     "above knee": "tire",
     "lagpas tao": "above_chest",
+    "head": "above_chest",
 }
 _WORDS_LEVELS = {
     f"{phrase}{suffix}": level
@@ -57,30 +60,34 @@ _PASSABILITY = {**_CODES, **_PHRASE_CLASSES}
 _INCH_WORDS = ("inches", "inch", "in")
 _CM_WORDS = ("centimeters", "centimetres", "centimeter", "centimetre", "cm")
 
-# The words a committed label may hold (C420): §2's words, the units, "to" for a
-# range, and the statuses.
+# The words a committed label may hold (C420): the phrases' words, the units, "to"
+# for a range, the statuses, and "ankle", which real alerts write beside inches
+# though it is no phrase (MS6E-Q1, item 15).
 LABEL_WORDS: frozenset[str] = frozenset(
     {word for text in (*_WORDS_LEVELS, *_PASSABILITY) for word in text.split()}
-    | {*_INCH_WORDS, *_CM_WORDS, "to"}
+    | {*_INCH_WORDS, *_CM_WORDS, "to", "ankle"}
     | STATUS_WORDS
 )
 
 # A number and its unit, or a range: two numbers joined by -, – or "to", where the
-# first may carry its own unit or else takes the second's (MS6E-Q1, item 13).
+# first may carry its own unit or else takes the second's (MS6E-Q1, item 13). A
+# number followed by + and then its unit, as in "60+ inches", is at least that
+# depth (item 16).
 _NUMBER = "[0-9]+(?:[.][0-9]+)?"
 _UNIT = '["”″]|(?:' + "|".join(_INCH_WORDS + _CM_WORDS) + ")(?![a-z])"
 _MEASURE = re.compile(
     f"(?<![0-9.])(?P<low>{_NUMBER})"
-    f"(?:(?: *(?P<low_unit>{_UNIT}))? *(?:-|–|to) *(?P<high>{_NUMBER}))?"
+    "(?:(?P<plus>[+])"
+    f"|(?: *(?P<low_unit>{_UNIT}))? *(?:-|–|to) *(?P<high>{_NUMBER}))?"
     f" *(?P<unit>{_UNIT})"
 )
 # A label's last parenthetical, as in "phrase (code)" or "code (phrase)".
 _PARENTHETICAL = re.compile(r"(?P<outer>.*)\((?P<inner>[^()]*)\)(?P<tail>[^()]*)")
 _OUTER_MARKS = string.punctuation + "–“”″ "
 
-# The marks a committed label may hold between its words (C420). A "." inside a
-# number stays part of it.
-_MARKS = "-–,()\"'”“″/"
+# The marks a committed label may hold between its words (C420), with + as in
+# "Head+ (60+ inches)" (MS6E-Q1, item 16). A "." inside a number stays part of it.
+_MARKS = "-–,()\"'”“″/+"
 _LABEL_CHARS = re.compile(f"[A-Za-z0-9 .{re.escape(_MARKS)}]*")
 _SEPARATOR = re.compile(f"[ {re.escape(_MARKS)}]+|(?<![0-9])[.]|[.](?![0-9])")
 _NUMBER_TOKEN = re.compile("[0-9]{1,3}(?:[.][0-9]{1,2})?(?:in|cm)?")
@@ -103,9 +110,11 @@ class ClassLabel:
 
 
 def map_level_label(raw: str) -> LevelLabel:
-    """Map an alert's level label by rules §2 (C404). Words win when they map. With
-    no words, the numbers decide by rules §1, and measures not joined as a range
-    are one depth in two units, which maps only when they agree (MS6E-Q1, item 13).
+    """Map an alert's level label by rules §2 (C404). Words win when they map, and
+    otherwise the measures decide by rules §1, as when there are no words (MS6E-Q1,
+    item 15). Measures not joined as a range are one depth in two units, which maps
+    only when they agree (item 13). "N+" is at least that depth, which maps only
+    when it is over 45 in (item 16). Words with no measure stay unmapped.
     """
     if raw.strip() == "":
         return LevelLabel("blank", None)
@@ -113,14 +122,13 @@ def map_level_label(raw: str) -> LevelLabel:
         return LevelLabel("unmapped", None)
     # The numbers come out before the words are normalised, so no mark is lost.
     text = raw.lower()
-    depths = [_inches(measure) for measure in _MEASURE.finditer(text)]
+    measures = list(_MEASURE.finditer(text))
     words = _words(_MEASURE.sub(" ", text))
     if words in STATUS_WORDS:
         return LevelLabel("status", None)
-    if words:
-        level = _WORDS_LEVELS.get(words)
-    else:
-        levels = {level_for_inches(depth) for depth in depths}
+    level = _WORDS_LEVELS.get(words)
+    if level is None:
+        levels = {_measure_level(measure) for measure in measures}
         level = levels.pop() if len(levels) == 1 else None
     if level is None:
         return LevelLabel("unmapped", None)
@@ -155,6 +163,17 @@ def label_words_ok(raw: str) -> bool:
     return all(
         token in LABEL_WORDS or _NUMBER_TOKEN.fullmatch(token) for token in tokens
     )
+
+
+def _measure_level(measure: re.Match[str]) -> str | None:
+    """A measure's level by rules §1. "N+" is at least N, so it gives a level only
+    when every depth from N up is above_chest. Otherwise it gives none, and a label
+    whose measures decide is then unmapped: a label never sets a floor (MS6E-Q1,
+    item 16)."""
+    level = level_for_inches(_inches(measure))
+    if measure["plus"] and level != "above_chest":
+        return None
+    return level
 
 
 def _inches(measure: re.Match[str]) -> Decimal:
