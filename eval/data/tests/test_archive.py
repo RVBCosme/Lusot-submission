@@ -7,6 +7,7 @@ Only these tests open one.
 import ast
 import hashlib
 import json
+import random
 import subprocess
 import sys
 from pathlib import Path
@@ -86,6 +87,19 @@ def test_names_are_encrypted(tmp_path):
     for name, _ in members:
         assert name.encode("utf-8") not in data
         assert name.encode("utf-16-le") not in data
+
+
+def test_contents_are_encrypted(tmp_path):
+    """C205: the contents are LZMA2 then AES-256, not only the header. Without AES,
+    LZMA2 would store these incompressible bytes as they are."""
+    photo = random.Random(5).randbytes(4096)
+    path = tmp_path / "lusot-sealed.7z"
+    archive.write_sealed_archive(
+        path, synth.TEST_PHRASE, [("set_a/photos/A001.jpg", photo)]
+    )
+    assert photo not in path.read_bytes()
+    with py7zr.SevenZipFile(path, "r", password=synth.TEST_PHRASE) as sealed:
+        assert sealed.archiveinfo().method_names == ["LZMA2", "7zAES"]
 
 
 def test_never_overwrites(tmp_path):
