@@ -144,8 +144,10 @@ def test_intake_prints_counts_problems_warnings_and_events(
     """The exact lines for a small data set, in order: the counts, each problem, then
     each warning, the events and the totals. A ref that names no id starts with its
     log's name (Task 7's M7). Set A's events join by date and spot, and by Rene's link
-    (C203): A001 and A002, then A003 and A004, then A006 alone."""
+    (C203): A001 and A002, then A003 and A004, then A006 alone. The approved versions
+    are set here, so the lines don't change when Rene approves a text (C218)."""
     monkeypatch.setitem(formats.APPROVED_CONSENT, "m9", frozenset({"M9-v3"}))
+    monkeypatch.setitem(formats.APPROVED_CONSENT, "m11", frozenset({"M11-v2"}))
     set_a = [
         synth.set_a_row(passability_raw="NPLV"),
         # The same corner written another way, on the same date: one event with A001.
