@@ -1,6 +1,6 @@
 # Lusot progress board
 
-- **Last updated:** Oct 28, 2026, 10:15 AM Manila, by Claude (morning double-check; three windows start, D20)
+- **Last updated:** Oct 28, 2026, 10:58 AM Manila, by Claude (Window 1: first checks, T7 done)
 - **Rule:** tick a box only after its check passes, and write the evidence next to it.
 - **Status words:** Not started, In progress, Done, Blocked, Dropped (with a reason).
 - **Key dates (Manila time):** kickoff Oct 27, 12:00 AM. Core working by Oct 29. Build ends Nov 3. **Submit Nov 4, 10:00 PM.** Hard cutoff Nov 5, 10:00 AM. Closing ceremony and finals Nov 10, 1:00 AM.
@@ -61,7 +61,7 @@ From Table 27 of the plan (M1 to M33, as of the 10:31 PM update on Oct 27), plus
 | T6 | Setup | Free disk space so C: has about 60 GB free (the build adds about 30 to 40 GB) | Oct 27, before T3 | Done. Evidence: C: had 105.6 GB free at 9:57 PM, Oct 27 (it was 41.4 GB at 9 PM; Claude deleted nothing). |
 | T4 | Setup | Install Android Studio Otter (2025.2.1) or newer, which bundles the JDK, plus the Android SDK 36 platform (Capacitor 8 minimum) | Oct 27 to 28 | Done. Evidence: Android Studio 2026.2 in `C:\Program Files\Android\Android Studio` (`studio64.exe`, bundled JBR 25). `sdkmanager --list_installed` shows `platforms;android-36` (rev 2), `build-tools;36.0.0` and `platform-tools` 37.0.1. Command-line tools 22.0 match Google's SHA-256. `ANDROID_HOME` and `JAVA_HOME` (JDK 17.0.20.1) were already set and left unchanged; Capacitor 8's JDK need is confirmed at MS1. |
 | T5 | Setup | Optional: fix the GitHub connector token in Claude Code (the GitHub CLI already works) | Any time | Not started |
-| T7 | Setup | Give the GitHub CLI the `workflow` scope so CI can be pushed: `gh auth refresh -h github.com -s workflow`, then approve in the browser (D16) | When convenient; CI stays parked until then | Not started (Oct 28: the token has `gist`, `read:org` and `repo` only) |
+| T7 | Setup | Give the GitHub CLI the `workflow` scope so CI can be pushed: `gh auth refresh -h github.com -s workflow`, then approve in the browser (D16) | When convenient; CI stays parked until then | Done. Evidence: `gh auth status` lists the token scopes `'gist', 'read:org', 'repo', 'workflow'` (Rene granted it at 10:32 AM; Claude checked at 10:55 AM, Oct 28). |
 | T8 | Setup | Restart Claude Code from a new terminal so it picks up the fixed `MODEL_API_KEY` (F5) | Next time Claude Code is restarted | Done. Evidence: in the new session, `MODEL_API_KEY` is 48 characters and equals the user variable (Claude, 9:55 AM, Oct 28; never printed). |
 | M1 | Accounts | Create the AWS account with a card that allows online and international charges, a billing address and a phone code; turn on MFA for the root user | Oct 27 | Done (plan §24) |
 | M2 | Accounts | Check the Lambda concurrency quota in Service Quotas and request an increase if it is too low | Oct 27 | Done (plan §24, 10:31 PM): AWS declined 1,000 on Oct 27 for lack of usage history. Lusot works within 10 and asks again after some real use (plan Table 18). |
