@@ -220,6 +220,13 @@ def background(status: str) -> httpx.Response:
     return httpx.Response(200, json=body)
 
 
+def deleted() -> httpx.Response:
+    """A delete's answer, as on https://dev.meta.ai/docs/features/responses
+    ("DELETE /v1/responses/{response_id}"), for the background response's id."""
+    body = {"id": "resp_abc123", "object": "response", "deleted": True}
+    return httpx.Response(200, json=body)
+
+
 def data_url(image: BlurredImage) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(image.jpeg).decode()
 
@@ -569,7 +576,7 @@ def test_segment_parses_masks_and_empty_result(photo):
     assert body["model"] == "sam-3.1"
     assert body["stream"] is True
     assert body["metadata"] == {"include_confidence": "true"}  # R77
-    assert "store" not in body  # Meta's SAM pages never show `store` (R76)
+    assert body["store"] is False  # C85 found that the stream accepts it (C88)
     assert body["input"][0]["content"] == [
         {"type": "input_text", "text": "wheel"},
         {"type": "input_image", "image_url": data_url(photo)},
@@ -579,23 +586,28 @@ def test_segment_parses_masks_and_empty_result(photo):
     assert empty.raw == LIVE_NO_MATCH.decode()
 
 
-def test_sam_store_false_is_sent_only_when_set(photo):
-    # C85: Task 7a's Step 4 checks that Meta accepts it before it becomes the default.
+def test_sam_store_goes_on_the_stream_only(photo):
+    # C88: SAM's stream accepts store: false, so it is the default. Meta's background
+    # mode refuses it with a 400, so the 504 fallback sends no store at all.
     meta = FakeMeta(
-        sam_stream(DOC_TEXT), error(504), background("queued"), background("completed")
+        sam_stream(DOC_TEXT),
+        error(504),
+        background("queued"),
+        background("completed"),
+        deleted(),
     )
-    c, _ = client(meta, sam_store=False)
+    c, _ = client(meta)
     c.segment(photo, "wheel")
     c.segment(photo, "wheel")  # a 504, then the background path
     streamed, gateway, submitted = (request_json(r) for r in meta.requests[:3])
     assert streamed["store"] is False
     assert gateway["store"] is False
-    assert submitted["store"] is False
+    assert "store" not in submitted
     assert submitted["background"] is True
     meta = FakeMeta(sam_stream(DOC_TEXT))
-    c, _ = client(meta)
+    c, _ = client(meta, sam_store=None)
     c.segment(photo, "wheel")
-    assert "store" not in request_json(meta.requests[0])  # as MS1 sends it
+    assert "store" not in request_json(meta.requests[0])  # as MS1 sent it
 
 
 def test_segment_box_is_half_open_in_sent_pixels(photo):
@@ -794,6 +806,7 @@ def test_segment_504_falls_back_to_background_polling(photo):
         background("queued"),
         background("in_progress"),
         background("completed"),
+        deleted(),
     )
     c, sleeps = client(meta)
     result = c.segment(photo, "wheel")
@@ -802,6 +815,7 @@ def test_segment_504_falls_back_to_background_polling(photo):
         ("POST", BASE_URL + "/responses"),
         ("GET", BASE_URL + "/responses/resp_abc123"),
         ("GET", BASE_URL + "/responses/resp_abc123"),
+        ("DELETE", BASE_URL + "/responses/resp_abc123"),  # once read (C88)
     ]
     streamed, submitted = (request_json(r) for r in meta.requests[:2])
     assert streamed["stream"] is True
@@ -850,7 +864,7 @@ def test_background_response_that_does_not_complete_raises(photo, status):
 )
 def test_background_reads_only_a_finished_output_text_part(photo, output, matches):
     done = httpx.Response(200, json={**COMPLETED, "background": True, "output": output})
-    meta = FakeMeta(error(504), background("queued"), done)
+    meta = FakeMeta(error(504), background("queued"), done, deleted())
     c, _ = client(meta)
     if matches is None:
         with pytest.raises(MetaApiError) as exc:
@@ -858,7 +872,40 @@ def test_background_reads_only_a_finished_output_text_part(photo, output, matche
         assert exc.value.status is None
     else:
         assert len(c.segment(photo, "wheel").instances) == matches
-    assert len(meta.requests) == 3
+    assert len(meta.requests) == 4  # the last deletes the response it read (C88)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "status"),
+    [(deleted(), 200), (error(404), 404), (httpx.ConnectError("refused"), None)],
+    ids=["deleted", "not-found", "no-connection"],
+)
+def test_background_response_is_deleted_once_read(photo, caplog, outcome, status):
+    # C88: background jobs must be stored to be polled, so the client deletes one
+    # once it has read it. The delete is best effort: a failure is logged by its
+    # status alone and never changes the result.
+    caplog.set_level(logging.INFO)
+    script = FakeMeta(error(504), background("queued"), background("completed"))
+    deletes = []
+
+    def meta(request):
+        if request.method != "DELETE":
+            return script(request)
+        deletes.append(request)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    c, _ = client(meta)
+    assert len(c.segment(photo, "wheel").instances) == 2
+    [delete] = deletes
+    assert str(delete.url) == BASE_URL + "/responses/resp_abc123"
+    lines = [
+        json.loads(r.getMessage()) for r in caplog.records if r.name == "lusot.meta"
+    ]
+    [line] = [line for line in lines if line.get("delete")]
+    assert line.keys() == {"model", "phrase", "delete", "status", "ms"}
+    assert line["status"] == status
 
 
 def test_background_polling_is_bounded(photo):

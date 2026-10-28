@@ -11,6 +11,7 @@ left, but a read already under way can end after it (MetaClient._send says by ho
 from __future__ import annotations
 
 import base64
+import contextlib
 import email.utils
 import json
 import logging
@@ -183,7 +184,7 @@ class MetaClient:
         base_url: str = BASE_URL,
         timeout_s: float = 90.0,
         max_attempts: int = 4,
-        sam_store: bool | None = None,
+        sam_store: bool | None = False,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -194,8 +195,9 @@ class MetaClient:
         A missing key, or one shorter than 20 characters, raises MissingApiKey. The
         OpenAI SDK makes no retries of its own (max_retries=0), and it shares this
         client's one httpx client. `sam_store` is the `store` value sent with every
-        SAM request, or None to send none, as MS1 did (C85). `clock` is the
-        monotonic clock that deadlines are read on; tests pass a fake with `sleep`.
+        streamed SAM request: False by default, which C85 found Meta accepts (C88), or
+        None to send none, as MS1 did. `clock` is the monotonic clock that deadlines
+        are read on; tests pass a fake with `sleep`.
         """
         key = os.environ.get("MODEL_API_KEY") if api_key is None else api_key
         if not key or len(key) < _MIN_KEY_LENGTH:
@@ -222,10 +224,11 @@ class MetaClient:
         """Find every match of `phrase` in `image` with SAM 3.1 (plan §7 step 2).
 
         The request is streamed. On a 504 it is sent again in the background and
-        polled (C10). A result comes only from a completed response: any other end
-        raises MetaApiError, so a failure never reads as "no matches" (R63).
-        `deadline` is a time.monotonic() value that bounds the call as `_send`
-        describes (C84, C88); None sets no deadline.
+        polled (C10), with no `store`, and the stored response is deleted once read
+        (C88). A result comes only from a completed response: any other end raises
+        MetaApiError, so a failure never reads as "no matches" (R63). `deadline` is a
+        time.monotonic() value that bounds the call as `_send` describes (C84, C88);
+        None sets no deadline.
         """
         _check_image(image)
         request = {
@@ -234,11 +237,14 @@ class MetaClient:
             # SAM adds its confidence `c` to each box and mask only when asked (R77).
             "metadata": {"include_confidence": "true"},
         }
+        # Meta's background mode refuses store: false, and a background job must be
+        # stored to be polled, so only the stream sends it (C85, C88).
+        streamed = request
         if self._sam_store is not None:
-            request["store"] = self._sam_store  # C85
+            streamed = request | {"store": self._sam_store}
         started = time.monotonic()
         try:
-            raw, text = self._sam_streamed(request, phrase, deadline)
+            raw, text = self._sam_streamed(streamed, phrase, deadline)
         except MetaApiError as exc:
             if exc.status != 504:
                 raise
@@ -406,8 +412,9 @@ class MetaClient:
 
         It gives up once those waits add up to timeout_s. The polls' own time and any
         retry waits inside them aren't counted, so the fallback can run longer than
-        timeout_s, unless the deadline stops a wait first (C84). Return the final
-        response JSON and SAM's output text.
+        timeout_s, unless the deadline stops a wait first (C84). Meta stores a
+        background job so it can be polled, so a completed one is deleted once read
+        (C88). Return the final response JSON and SAM's output text.
         """
         submitted = self._send(
             lambda timeout: self._openai.responses.with_raw_response.create(
@@ -431,6 +438,7 @@ class MetaClient:
             )
             response = raw.parse()
             if response.status == "completed":
+                self._delete(submitted.id, phrase, deadline)
                 return raw.text, _output_text(response)
             if response.status not in ("queued", "in_progress"):
                 raise MetaApiError(f"SAM's background response ended {response.status}")
@@ -438,6 +446,23 @@ class MetaClient:
                 raise MetaApiError(
                     f"SAM's background response timed out after {waited:g} s"
                 )
+
+    def _delete(self, response_id: str, phrase: str, deadline: float | None) -> None:
+        """Delete a stored background response that has been read (C88).
+
+        Best effort: a failure never fails the call. Each try's log line carries
+        `delete` and the status alone.
+        """
+        with contextlib.suppress(MetaApiError):
+            self._send(
+                lambda timeout: self._openai.responses.with_raw_response.delete(
+                    response_id, timeout=timeout
+                ),
+                SAM_MODEL,
+                deadline,
+                phrase=phrase,
+                delete=True,
+            )
 
     def _send(
         self,
