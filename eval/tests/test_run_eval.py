@@ -14,13 +14,16 @@ import shutil
 import socket
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import run_eval
 from builders import a_neg_row, level, run_json, set_a_row, set_b_row, write_run
 from run_eval import main
 from scoring import rows
 from scoring.labels import LABEL_WORDS
+from scoring.metrics import fmt_inches
 
 EVAL = Path(__file__).resolve().parents[1]
 RUN_EVAL = EVAL / "run_eval.py"
@@ -383,6 +386,45 @@ def test_invalid_rerun_writes_nothing(tmp_path, capsys, fault, error):
         assert not (rerun / "report").exists(), flags
         assert not [line for line in lines if line.startswith("report: ")], flags
         assert lines[-1].startswith(error), flags
+
+
+def test_file_errors_give_exit_2(tmp_path, capsys):
+    # A file that can't be read or written is invalid input, not "differs": exit 2,
+    # with the file's name alone, since the error's own text holds its path.
+    folder = copy_fixture(tmp_path / "run1", report=False)
+    (folder / "report").write_bytes(b"a file where the report folder goes\n")
+    code, lines = rebuild(capsys, folder, "--write")
+    assert code == 2
+    assert lines[-1] == "invalid: report can't be read or written"
+    assert lines[1:-1] == FIXTURE_FIGURES
+
+
+def test_arithmetic_errors_give_exit_2(capsys, monkeypatch):
+    # An estimate of 1E+26 in once loaded, then broke fmt_inches with
+    # decimal.InvalidOperation, which exited 1 with a traceback. Such an error exits
+    # 2, and its line holds no value.
+    def build_report(run, *, first_run=None):
+        return {"report.md": fmt_inches(Decimal("1E+26")).encode("utf-8")}
+
+    monkeypatch.setattr(run_eval, "build_report", build_report)
+    code, lines = rebuild(capsys, FIXTURE)
+    assert code == 2
+    assert lines[-1] == "invalid: a figure can't be computed from these results"
+
+
+def test_rerun_folder_without_run_json(tmp_path, capsys):
+    # C421 rebuilds both reports, so a rerun/ folder without its run.json is refused,
+    # and nothing is written.
+    folder = copy_fixture(tmp_path / "run1")
+    (folder / "rerun").mkdir()
+    committed = contents(folder / "report")
+    for flags in (("--write",), ()):
+        code, lines = rebuild(capsys, folder, *flags)
+        assert code == 2, flags
+        assert lines[-1] == "invalid: rerun/run.json:0: the folder has no run.json"
+        assert contents(folder / "report") == committed, flags
+        assert not [line for line in lines if line.startswith("report: ")], flags
+    assert sorted(contents(folder / "rerun")) == []
 
 
 def test_runs_isolated_from_another_folder(tmp_path):

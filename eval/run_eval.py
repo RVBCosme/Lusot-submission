@@ -58,12 +58,27 @@ class _Parser(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the command on `argv` (sys.argv's when None) and return its exit code."""
+    """Run the command on `argv` (sys.argv's when None) and return its exit code. A
+    file that can't be read or written, or a figure that can't be computed, is
+    invalid input too. Its line names the file alone, and never repeats the error's
+    text, which could hold a path or a value from the rows."""
     try:
         return _run(argv)
     except _Stop as stop:
         _say(str(stop))
-        return 2
+    except OSError as error:
+        _say(f"invalid: {_file_name(error)} can't be read or written")
+    except ArithmeticError:  # decimal.InvalidOperation among them
+        _say("invalid: a figure can't be computed from these results")
+    return 2
+
+
+def _file_name(error: OSError) -> str:
+    """The name of the file an OSError names, without its folder."""
+    try:
+        return Path(error.filename).name or "a file"
+    except TypeError:  # it names no file, or one by number
+        return "a file"
 
 
 def _run(argv: list[str] | None) -> int:
@@ -91,7 +106,8 @@ def _run(argv: list[str] | None) -> int:
     # can't be built leaves the first run's report as it was.
     first = _build(results, None, write=args.write)
     rerun = None
-    if (results / "rerun" / "run.json").is_file():
+    # A rerun/ folder is always loaded, so one without its run.json is refused (C421).
+    if (results / "rerun").is_dir():
         rerun = _build(results / "rerun", first.run, write=args.write, where="rerun/")
     code = _finish(first, write=args.write)
     if rerun is not None:

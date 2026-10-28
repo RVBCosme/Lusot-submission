@@ -433,6 +433,87 @@ def test_undefined_rate_drops_geometry(tmp_path):
     assert alone.reasons == (neither_rate,)
 
 
+def test_undefined_landmark_side(tmp_path):
+    # Landmark alone answers no Set A photo, so its underestimation and passability
+    # agreement are undefined: neither check is shown or passed (C406), while
+    # coverage still compares.
+    decision = gate(tmp_path, groups=((5, REFUSED, KNEE),))
+    rise = (
+        "a rise of 100.0 points: 5 of 5 (100.0%) with geometry, 0 of 5 (0.0%) without"
+    )
+    assert [
+        (check.name, check.found, check.shown, check.passed)
+        for check in decision.checks[:3]
+    ] == [
+        ("no_rise", "undefined", False, False),
+        ("coverage_drop", rise, True, True),
+        ("passability_drop", "undefined", False, False),
+    ]
+    no_rate = (
+        "Set A underestimation can't be compared:"
+        " 0 of 5 (0.0%) with geometry, 0 of 0 (undefined) without."
+    )
+    no_agreement = (
+        "Set A passability agreement can't be compared:"
+        " 5 of 5 (100.0%) with geometry, 0 of 0 (undefined) without."
+    )
+    assert decision.reasons == (no_rate, no_agreement)
+    assert (decision.geometry_stays, decision.shipped) == (False, "landmark")
+
+
+def test_set_a_reasons_come_first(tmp_path):
+    # A failing Set A check and a given Set B that fails: Set A's sentence first.
+    wheels, measured_reason = SET_B_MISSES["measured"]
+    decision = gate(tmp_path, groups=HIGHER_RATE, wheels=wheels)
+    assert decision.reasons == (RATE_RISES, measured_reason)
+
+
+def test_rounding_never_hides_a_value(tmp_path):
+    # A value that fails its check but rounds to its limit keeps two more decimals,
+    # and so does a value that isn't 0 but rounds to 0. 10 of 19 to 10 of 21 is a
+    # fall of 5.0125 points.
+    fall = gate(
+        tmp_path / "fall",
+        groups=((10, KNEE, KNEE), (9, OVER, OVER), (2, REFUSED, OVER)),
+    )
+    rates = "10 of 21 (47.6%) with geometry, 10 of 19 (52.6%) without"
+    assert by_name(fall)["passability_drop"] == Check(
+        "passability_drop",
+        f"a fall of 5.013 points: {rates}",
+        "a fall of at most 5 points",
+        True,
+        False,
+    )
+    falls = (
+        "Set A passability agreement falls 5.013 points with geometry, more than the"
+        f" 5 points allowed: {rates}."
+    )
+    assert fall.reasons == (falls,)
+    median = gate(
+        tmp_path / "median", wheels=Wheels(("3.004",) * 20, not_measured=5, outside=2)
+    )
+    assert by_name(median)["median_error"] == Check(
+        "median_error", "3.0040 in (n = 20)", "at most 3 in", True, False
+    )
+    above = (
+        "Set B's median depth error is 3.0040 in (n = 20), more than the 3 in allowed."
+    )
+    assert median.reasons == (above,)
+    # 1 of 45 to 1 of 46 is a fall of 0.0483 points, and the median error 0.004 in:
+    # both pass, and neither reads as 0.
+    small = gate(
+        tmp_path / "small",
+        groups=((1, KNEE, KNEE), (44, OVER, OVER), (1, REFUSED, OVER)),
+        wheels=Wheels(("0.004",) * 20, not_measured=5, outside=2),
+    )
+    assert by_name(small)["passability_drop"].found == (
+        "a fall of 0.048 points: 1 of 46 (2.2%) with geometry, 1 of 45 (2.2%) without"
+    )
+    assert by_name(small)["median_error"].found == "0.0040 in (n = 20)"
+    assert all(check.passed for check in small.checks)
+    assert small.reasons == ()
+
+
 def test_no_set_b_means_no_inches(tmp_path):
     decision = gate(tmp_path / "easy", wheels=None)
     assert (decision.geometry_stays, decision.shipped) == (True, "geometry")

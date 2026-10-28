@@ -39,6 +39,7 @@
   "geometry_stays": true,
   "inches_shown": false,
   "kind": "sealed",
+  "rerun": false,
   "rules_version": "0.6",
   "set_b": {
     "envelope": {
@@ -53,5 +54,6 @@
     "wheels": 8,
     "worst_error_in": "2.75"
   },
-  "shipped": "geometry"
+  "shipped": "geometry",
+  "synthetic": true
 }

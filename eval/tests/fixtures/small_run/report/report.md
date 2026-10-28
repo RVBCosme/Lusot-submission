@@ -122,7 +122,7 @@ One matrix for each configuration, over the answered photos whose alert gave a l
 
 ## Landmark agreement
 
-Muse Spark's landmark against our M8 label for the same box (C415), over the answered Set A photos kept. Every configuration shares Muse Spark's answer, so this is counted once.
+Muse Spark's landmark against our M8 label for the same box (C415), over the Set A photos kept that Muse Spark answered, Lusot's refusals included. Every configuration shares Muse Spark's answer, so this is counted once.
 
 | Reference | Agreement with M8 |
 |---|---|
@@ -230,17 +230,30 @@ Rules §9's reasons, read from each photo's facts and labels before scoring, nev
 | Reason | Photos | Ids |
 |---|---|---|
 | not posted by MMDA or a city government | 1 | A11 |
+| depth or passability label visible in the image | 0 | none |
 | no matching alert | 1 | A12 |
+| unmapped label | 0 | none |
 | conflicting alerts | 1 | A09 |
 | duplicate or repost | 1 | A10 |
+| outside Metro Manila | 0 | none |
+| the file can't be decoded | 0 | none |
 
 **A-neg:** 0 of 4 (0.0%) photos excluded.
+
+| Reason | Photos | Ids |
+|---|---|---|
+| duplicate or repost | 0 | none |
+| the file can't be decoded | 0 | none |
 
 Left out of passability agreement only, because the passability label didn't map: A06 (n = 1).
 
 ## Frozen versions and data
 
 Scored by eval/rules.md v0.6.
+
+Freeze commit: `abcdef0123456789abcdef0123456789abcdef01`.
+
+Geometry's live default before the run (C309): on.
 
 | Frozen | Version |
 |---|---|

@@ -709,6 +709,204 @@ def test_set_b_estimates(tmp_path):
     assert run.set_d[0].estimates["geometry"] == run.set_b[0].estimates["geometry"]
 
 
+# Set B's and Set D's estimates and Set A's wheel_inches keep a result's bounds: each
+# depth from 0 to under 100 in, and depthInMin not above depthInMax. Every box id is a
+# whole number from 0 to 9999, and comes once in each of the answer's lists.
+DEPTH = "must be from 0 to under 100 inches"
+ORDER = "must not be above depthInMax"
+BOX = "must be a whole number from 0 to 9999"
+
+
+def inches(box: object = 1, low: object = 10, high: object = 12) -> list[dict]:
+    """wheel_inches for one box."""
+    return [{"box_id": box, "depthInMin": low, "depthInMax": high}]
+
+
+def estimate(**numbers: str) -> dict:
+    """A Set B row whose geometry estimate is measured(**numbers)."""
+    return set_b_row("B01", estimates={"geometry": measured(**numbers)})
+
+
+BOUNDS = {
+    "negative point": (
+        "set_b",
+        estimate(point="-0.25"),
+        f"estimates.geometry.depthInPoint {DEPTH}",
+    ),
+    "point of 100": (
+        "set_b",
+        estimate(point="100"),
+        f"estimates.geometry.depthInPoint {DEPTH}",
+    ),
+    # It once loaded, then broke fmt_inches with decimal.InvalidOperation.
+    "point of 1E+26": (
+        "set_b",
+        estimate(point="1E+26"),
+        f"estimates.geometry.depthInPoint {DEPTH}",
+    ),
+    "negative depthInMin": (
+        "set_b",
+        estimate(low="-1"),
+        f"estimates.geometry.depthInMin {DEPTH}",
+    ),
+    "depthInMax of 100": (
+        "set_b",
+        estimate(high="100"),
+        f"estimates.geometry.depthInMax {DEPTH}",
+    ),
+    "estimate out of order": (
+        "set_b",
+        estimate(low="12", high="10"),
+        f"estimates.geometry.depthInMin {ORDER}",
+    ),
+    "another variant's depth": (
+        "set_b",
+        set_b_row(
+            "B01",
+            estimates={"geometry": measured(), "known_waterline": measured(high="100")},
+        ),
+        f"estimates.known_waterline.depthInMax {DEPTH}",
+    ),
+    "Set D out of order": (
+        "set_d",
+        set_b_row("D01", estimates={"geometry": measured(low="12", high="10")}),
+        f"estimates.geometry.depthInMin {ORDER}",
+    ),
+    "negative wheel_inches": (
+        "set_a",
+        set_a_row("A001", wheel_inches=inches(low=Decimal("-0.5"))),
+        f"wheel_inches[0].depthInMin {DEPTH}",
+    ),
+    "wheel_inches of 100": (
+        "set_a",
+        set_a_row("A001", wheel_inches=inches(high=100)),
+        f"wheel_inches[0].depthInMax {DEPTH}",
+    ),
+    "wheel_inches out of order": (
+        "set_a",
+        set_a_row("A001", wheel_inches=inches(low=12, high=10)),
+        f"wheel_inches[0].depthInMin {ORDER}",
+    ),
+    "wheel_inches box of 10000": (
+        "set_a",
+        set_a_row("A001", wheel_inches=inches(box=10000)),
+        f"wheel_inches[0].box_id {BOX}",
+    ),
+    "negative wheel_inches box": (
+        "set_a",
+        set_a_row("A001", wheel_inches=inches(box=-1)),
+        f"wheel_inches[0].box_id {BOX}",
+    ),
+    "M8 box of 10000": (
+        "set_a",
+        set_a_row("A001", m8=[m8(10000, "wheel", "hub")]),
+        f"m8[0].box_id {BOX}",
+    ),
+    # Built, since no fixture holds a run of 12 digits.
+    "M8 box of 12 digits": (
+        "set_a",
+        set_a_row("A001", m8=[m8(10**11, "wheel", "hub")]),
+        f"m8[0].box_id {BOX}",
+    ),
+    "negative M8 box": (
+        "set_a",
+        set_a_row("A001", m8=[m8(-1, "wheel", "hub")]),
+        f"m8[0].box_id {BOX}",
+    ),
+    "vehicle id of 10000": (
+        "set_a",
+        set_a_row("A001", answer=answer(vehicles=[vehicle(10000, "van", "bumper")])),
+        f"answer.vehicles[0].id {BOX}",
+    ),
+    "negative wheel id": (
+        "set_a",
+        set_a_row("A001", answer=answer(wheels=[wheel(-1, "hub")])),
+        f"answer.wheels[0].id {BOX}",
+    ),
+    "person id of 10000": (
+        "set_a",
+        set_a_row("A001", answer=answer(people=[person(10000, "knee")])),
+        f"answer.people[0].id {BOX}",
+    ),
+    "A-neg wheel id of 10000": (
+        "a_neg",
+        a_neg_row("N001", answer=answer(wheels=[wheel(10000, "hub")])),
+        f"answer.wheels[0].id {BOX}",
+    ),
+    "repeated vehicle id": (
+        "set_a",
+        set_a_row(
+            "A001",
+            answer=answer(
+                vehicles=[vehicle(1, "van", "bumper"), vehicle(1, "pickup", "bumper")]
+            ),
+        ),
+        "answer.vehicles[1].id repeats an earlier item's",
+    ),
+    "repeated wheel id": (
+        "set_a",
+        set_a_row(
+            "A001",
+            answer=answer(
+                wheels=[wheel(2, "hub"), wheel(3, "hub"), wheel(2, "rim_top")]
+            ),
+        ),
+        "answer.wheels[2].id repeats an earlier item's",
+    ),
+    "repeated person id": (
+        "set_a",
+        set_a_row(
+            "A001", answer=answer(people=[person(1, "knee"), person(1, "waist")])
+        ),
+        "answer.people[1].id repeats an earlier item's",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("name", "row", "rule"), list(BOUNDS.values()), ids=list(BOUNDS)
+)
+def test_estimates_inches_and_box_ids_are_bounded(tmp_path, name, row, rule):
+    message = refusal(tmp_path, f"{name}.jsonl", **{name: [row]})
+    assert message == f"{name}.jsonl:1: {rule}"
+
+
+def test_bounds_keep_their_edges(tmp_path):
+    # Depths of 0 and just under 100 load, and so does a point outside its own
+    # envelope, a depth pair of one value, ids of 0 and 9999, and one id in two of
+    # the answer's lists.
+    edges = measured(point="99.9999", low="0", high="0")
+    spark = answer(
+        vehicles=[vehicle(9999, "van", "bumper")],
+        wheels=[wheel(0, "hub"), wheel(9999, "rim_top")],
+        people=[person(0, "knee")],
+    )
+    run = load(
+        tmp_path,
+        set_a=[
+            set_a_row(
+                "A001",
+                answer=spark,
+                m8=[m8(0, "wheel", "hub"), m8(9999, "vehicle", "bumper", "van")],
+                wheel_inches=[
+                    *inches(box=0, low=0, high=Decimal("99.9999")),
+                    *inches(box=9999, low=5, high=5),
+                ],
+            )
+        ],
+        set_b=[set_b_row("B01", estimates={"geometry": edges})],
+        set_d=[set_b_row("D01", estimates={"geometry": edges})],
+    )
+    assert run.set_b[0].estimates["geometry"] == Estimate(
+        True, Decimal("99.9999"), Decimal(0), Decimal(0), None
+    )
+    assert run.set_d[0].estimates == run.set_b[0].estimates
+    assert run.set_a[0].references == (
+        Reference(0, "wheel", "hub", None, "hub", None),
+        Reference(9999, "body", "bumper", "van", "bumper", "van"),
+    )
+
+
 def test_load_run_refuses_sealed_first(tmp_path):
     # C411: refused by its name, before anything is read, listed or created.
     with pytest.raises(SealedPath):
@@ -787,6 +985,20 @@ def test_short_strings_and_the_rerun_reason(tmp_path):
     assert "rerun_reason" in refusal(tmp_path / "first", "run.json", 0, first, **sets)
     unexplained = tmp_path / "again" / "rerun"
     assert "rerun_reason" in refusal(unexplained, "run.json", 0, sealed(), **sets)
+
+
+@pytest.mark.parametrize("blank", ["", "   "], ids=["empty", "spaces"])
+def test_reasons_are_never_blank(tmp_path, blank):
+    # The report quotes both reasons, so neither may be blank.
+    rule = "must hold at least one character that isn't a space"
+    dropped = run_json(geometry_default="dropped", geometry_dropped_reason=blank)
+    assert refusal(tmp_path / "dropped", "run.json", 0, dropped) == (
+        f"run.json:0: geometry_dropped_reason {rule}"
+    )
+    rerun = tmp_path / "first" / "rerun"
+    assert refusal(rerun, "run.json", 0, run_json(rerun_reason=blank)) == (
+        f"run.json:0: rerun_reason {rule}"
+    )
 
 
 OWN_FIELDS = {

@@ -18,7 +18,6 @@ from scoring.metrics import (
     Rate,
     SetAScores,
     WheelScores,
-    fmt_inches,
     fmt_rate,
     score_wheels,
 )
@@ -147,17 +146,20 @@ def _fall(
     if landmark.value is None or geometry.value is None:
         return _undefined(name, target), f"{subject} can't be compared: {rates}."
     fall = landmark.value - geometry.value
+    passed = fall <= limit
+    # In points, as fmt_rate rounds a rate.
+    points = _shown(_percent(abs(fall)), 1, failed=not passed, limit=_percent(limit))
     if fall > 0:
-        change = f"a fall of {_tenths(fall)} points"
+        change = f"a fall of {points} points"
     elif fall < 0:
-        change = f"a rise of {_tenths(-fall)} points"
+        change = f"a rise of {points} points"
     else:
         change = "no change"
-    check = Check(name, f"{change}: {rates}", target, True, fall <= limit)
+    check = Check(name, f"{change}: {rates}", target, True, passed)
     if check.passed:
         return check, None
     return check, (
-        f"{subject} falls {_tenths(fall)} points with geometry, more than the"
+        f"{subject} falls {points} points with geometry, more than the"
         f" {_percent(limit)} points allowed: {rates}."
     )
 
@@ -171,10 +173,13 @@ def _median_error(wheels: WheelScores) -> tuple[Check, str | None]:
             "Set B's median depth error can't be shown:"
             f" {fmt_rate(wheels.measured)} wheels measured."
         )
-    found = f"{fmt_inches(wheels.median_error)} (n = {wheels.measured.k})"
-    check = Check(
-        "median_error", found, target, True, wheels.median_error <= MEDIAN_ERROR_MAX_IN
+    passed = wheels.median_error <= MEDIAN_ERROR_MAX_IN
+    # In inches, as fmt_inches rounds them.
+    inches = _shown(
+        wheels.median_error, 2, failed=not passed, limit=MEDIAN_ERROR_MAX_IN
     )
+    found = f"{inches} in (n = {wheels.measured.k})"
+    check = Check("median_error", found, target, True, passed)
     if check.passed:
         return check, None
     return check, (
@@ -210,11 +215,17 @@ def _both(landmark: Rate, geometry: Rate) -> str:
 
 def _percent(share: Fraction) -> Decimal:
     """A share in percent, or a fall in points. It is exact for every target, and
-    otherwise keeps 28 digits, so _tenths rounds a fall correctly while its
+    otherwise keeps 28 digits, so _shown rounds a fall correctly while its
     denominator stays below 10**24."""
     return Decimal(100 * share.numerator) / share.denominator
 
 
-def _tenths(fall: Fraction) -> Decimal:
-    """A fall in points, rounded half up to 0.1 point as fmt_rate rounds a rate."""
-    return _percent(fall).quantize(Decimal("0.1"), ROUND_HALF_UP)
+def _shown(exact: Decimal, places: int, *, failed: bool, limit: Decimal) -> Decimal:
+    """`exact` rounded half up to `places` decimals. A value that fails its check
+    but would then read as its limit, or one that isn't 0 but would read as 0, keeps
+    two more decimals, so the gate never shows a failing value as its own limit."""
+    step = Decimal(1).scaleb(-places)
+    shown = exact.quantize(step, ROUND_HALF_UP)
+    if (failed and shown == limit) or (exact != 0 and shown == 0):
+        return exact.quantize(step / 100, ROUND_HALF_UP)
+    return shown

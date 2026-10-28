@@ -23,6 +23,7 @@ from builders import (
     set_b_row,
     write_run,
 )
+from scoring.exclusions import REASONS
 from scoring.metrics import (
     Rate,
     excluded_a_neg,
@@ -761,13 +762,14 @@ def test_never_says_safe(tmp_path):
 
 def banned(word: str) -> str:
     return (
-        f"report.md would contain a banned word ({word}); check run.json's free-text"
-        " fields"
+        f"report.md would contain a banned word ({word}); check the run's text and"
+        " reason fields"
     )
 
 
 def test_report_refuses_its_banned_words(tmp_path):
-    # Only free text copied from run.json can bring one in, such as a rerun's reason.
+    # Only free text copied from run.json can bring one in, such as a rerun's reason,
+    # or a token from the rows, such as a refusal's reason.
     first = load(tmp_path / "first", run_json(), set_a=HAND_SET)
     rerun = load(
         tmp_path / "first" / "rerun",
@@ -791,6 +793,16 @@ def test_report_refuses_its_banned_words(tmp_path):
             ),
             landmark_only(list(HAND_SET)),
             "underfit",
+        ),
+        (
+            run_json(),
+            [
+                set_a_row(
+                    "A01",
+                    landmark={"status": "refused", "refusalReason": "overfit_glare"},
+                )
+            ],
+            "overfit",
         ),
     ]
     for number, (manifest, rows, word) in enumerate(cases):
@@ -1053,6 +1065,8 @@ def test_summary_json(tmp_path):
     assert text == json.dumps(summary, indent=2, sort_keys=True) + "\n"
     assert set(summary) == {
         "kind",
+        "synthetic",
+        "rerun",
         "date",
         "rules_version",
         "shipped",
@@ -1068,6 +1082,7 @@ def test_summary_json(tmp_path):
         "2026-10-30",
         "0.6",
     ]
+    assert (summary["synthetic"], summary["rerun"]) == (False, False)
     assert (summary["shipped"], summary["geometry_stays"], summary["inches_shown"]) == (
         "geometry",
         True,
@@ -1104,6 +1119,18 @@ def test_summary_json(tmp_path):
     }
 
 
+def test_summary_marks_synthetic_data_and_the_rerun(tmp_path):
+    # The accuracy page reads summary.json (C409), so a fixture's figures can't pass
+    # for a sealed run's (C422), nor a rerun's for a first run's (C421).
+    def marks(run: Run, first_run: Run | None = None) -> tuple[object, object]:
+        summary = json.loads(build_report(run, first_run=first_run)["summary.json"])
+        return summary["synthetic"], summary["rerun"]
+
+    assert marks(full_run(tmp_path / "final")) == (False, False)
+    assert marks(full_run(tmp_path / "synthetic", synthetic=True)) == (True, False)
+    assert marks(*rerun_pair(tmp_path / "rerun")) == (False, True)
+
+
 def test_exclusions_listed(tmp_path):
     run = full_run(tmp_path)
     text = section_text(report_of(run), "Exclusions")
@@ -1114,14 +1141,40 @@ def test_exclusions_listed(tmp_path):
             for line in lines
             if line.startswith("|")
         ), photo
+    # Each rules §9 reason in its order, with its count and its ids, zeros included
+    # (spec §4.4, item 7). A-neg has only its own two (MS6E-Q1, item 6).
     tables = [block for block in paragraphs(text) if block[0].startswith("|")]
-    assert len(tables) == 2
-    for table, excluded in zip(
-        tables, (excluded_set_a(run.set_a), excluded_a_neg(run.a_neg))
-    ):
-        counts = [int(cells(row)[1]) for row in table[2:]]
-        assert sum(counts) == len(excluded)
-        assert [len(cells(row)[2].split(", ")) for row in table[2:]] == counts
+    header = ["| Reason | Photos | Ids |", "|---|---|---|"]
+    assert tables == [
+        [
+            *header,
+            "| not posted by MMDA or a city government | 1 | A12 |",
+            "| depth or passability label visible in the image | 1 | A10 |",
+            "| no matching alert | 0 | none |",
+            "| unmapped label | 0 | none |",
+            "| conflicting alerts | 1 | A13 |",
+            "| duplicate or repost | 1 | A14 |",
+            "| outside Metro Manila | 1 | A16 |",
+            "| the file can't be decoded | 0 | none |",
+        ],
+        [
+            *header,
+            "| duplicate or repost | 1 | N04 |",
+            "| the file can't be decoded | 1 | N05 |",
+        ],
+    ]
+    assert [cells(row)[0] for row in tables[0][2:]] == list(REASONS)
+    # With nothing excluded, each reason still shows, at 0.
+    clean = load(tmp_path / "clean", run_json(), a_neg=[a_neg_row("N01")])
+    assert paragraphs(section_text(report_of(clean), "Exclusions"))[1:] == [
+        [f"**Set A:** {NOT_RUN}"],
+        ["**A-neg:** 0 of 1 (0.0%) photos excluded."],
+        [
+            *header,
+            "| duplicate or repost | 0 | none |",
+            "| the file can't be decoded | 0 | none |",
+        ],
+    ]
     assert "**Set A:** 5 of 16 (31.3%) photos excluded." in lines
     assert "**A-neg:** 2 of 5 (40.0%) photos excluded." in lines
     assert [line for line in lines if line.startswith("Left out")] == [
@@ -1130,6 +1183,30 @@ def test_exclusions_listed(tmp_path):
             " didn't map: A11 (n = 1)."
         )
     ]
+
+
+def test_landmark_agreement_counts_refusals(tmp_path):
+    # Muse Spark answered, then Lusot refused: no coverage, but the photo's labels
+    # count in landmark agreement, and its lead says so, since coverage's "answered"
+    # leaves refusals out.
+    row = set_a_row(
+        "A01",
+        landmark=REFUSED,
+        geometry=REFUSED,
+        answer=answer(wheels=[wheel(1, "hub")]),
+        m8=[m8(1, "wheel", "hub")],
+    )
+    report = report_of(load(tmp_path, run_json(), set_a=[row]))
+    lines = section(report, "Landmark agreement")
+    assert lines[0] == (
+        "Muse Spark's landmark against our M8 label for the same box (C415), over the"
+        " Set A photos kept that Muse Spark answered, Lusot's refusals included. Every"
+        " configuration shares Muse Spark's answer, so this is counted once."
+    )
+    assert "| All | 1 of 1 (100.0%) |" in lines
+    assert "| Coverage | 0 of 1 (0.0%) | 0 of 1 (0.0%) |" in section(
+        report, "Set A: every metric"
+    )
 
 
 def test_sections_show_their_scores(tmp_path):
@@ -1187,6 +1264,26 @@ def test_sections_show_their_scores(tmp_path):
 
 def test_frozen_versions_and_data(tmp_path):
     lines = section(report_of(full_run(tmp_path)), "Frozen versions and data")
+    # The freeze commit and geometry's live default come before the lists.
+    assert lines[:4] == [
+        "Scored by eval/rules.md v0.6.",
+        f"Freeze commit: `{'ab' * 20}`.",
+        "Geometry's live default before the run (C309): on.",
+        "| Frozen | Version |",
+    ]
+    dropped, _ = RUNS["geometry dropped"](tmp_path / "dropped")
+    assert (
+        "Geometry's live default before the run (C309): dropped before the freeze"
+        " (C418)."
+    ) in section(report_of(dropped), "Frozen versions and data")
+    unrecorded = without(run_json(), "freeze_commit", "geometry_default")
+    assert section(
+        report_of(load(tmp_path / "unrecorded", unrecorded, set_a=HAND_SET)),
+        "Frozen versions and data",
+    )[1:3] == [
+        "Freeze commit: not recorded.",
+        "Geometry's live default before the run (C309): not recorded.",
+    ]
     assert "| model | muse-spark-1.3 |" in lines
     assert "| Set A | v1 | 7 | 16 photos from 2 events |" in lines
     assert "| A-neg | v1 | 7 | 5 photos from 1 event |" in lines

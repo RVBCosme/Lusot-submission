@@ -355,6 +355,14 @@ def _short(value: object, where: str) -> str:
     return value
 
 
+def _reason(value: object, where: str) -> str:
+    """A reason run.json records, which the report quotes: a short string that
+    isn't blank."""
+    if not _short(value, where).strip():
+        raise _Bad(f"{where} must hold at least one character that isn't a space")
+    return value
+
+
 def _date(value: object, where: str) -> str:
     if isinstance(value, str) and _DATE.fullmatch(value):
         try:
@@ -412,6 +420,13 @@ def _wheel_number(value: object, where: str) -> int:
     return value
 
 
+def _box_id(value: object, where: str) -> int:
+    """A box's id, in Muse Spark's answer, an M8 label or wheel_inches."""
+    if not 0 <= _int(value, where) <= 9999:
+        raise _Bad(f"{where} must be a whole number from 0 to 9999")
+    return value
+
+
 def _decimal(value: object, where: str) -> Decimal:
     """A number with at most 4 decimal places. A JSON integer becomes a Decimal."""
     if isinstance(value, bool) or not isinstance(value, (int, Decimal)):
@@ -457,9 +472,9 @@ _RUN_FIELDS: dict[str, _Check] = {
     "self_check": _among(("on", "off"), "on or off"),
     "self_check_decided": _short,
     "geometry_default": _among(("on", "off", "dropped"), "on, off or dropped"),
-    "geometry_dropped_reason": _short,
+    "geometry_dropped_reason": _reason,
     "stops": _list_of(_object_of({"at": _short, "cause": _short, "resumed": _short})),
-    "rerun_reason": _short,
+    "rerun_reason": _reason,
     "synthetic": _bool,
     "baseline_level": _among(LEVELS, "one of the 9 levels"),
     "baseline_class": _among(CLASS_NAMES, "PATV, NPLV or NPATV"),
@@ -609,40 +624,61 @@ def _outcomes(
 
 _YES_NO_UNSURE = _among(YES_NO_UNSURE, "yes, no or unsure")
 _VEHICLE_TYPE = _among(VEHICLE_TYPES, "a schema v1 vehicle type")
+
+
+def _items(fields: Mapping[str, _Check]) -> _Check:
+    """One of the answer's lists, whose items each carry an id found once in it."""
+    items = _list_of(_object_of(fields))
+
+    def checked(value: object, where: str) -> tuple[object, ...]:
+        found = items(value, where)
+        seen = set()
+        for index, item in enumerate(found):
+            if item["id"] in seen:
+                raise _Bad(f"{where}[{index}].id repeats an earlier item's")
+            seen.add(item["id"])
+        return found
+
+    return checked
+
+
 _ANSWER_FIELDS = {
     "photo_usable": _among(YES_NO, "yes or no"),
     "standing_water": _YES_NO_UNSURE,
-    "vehicles": _list_of(
-        _object_of(
-            {
-                "id": _int,
-                "type": _VEHICLE_TYPE,
-                "moving": _YES_NO_UNSURE,
-                "wake_visible": _bool,
-                "body_waterline": _among(BODY_WATERLINES, "a schema v1 body waterline"),
-            }
-        )
+    "vehicles": _items(
+        {
+            "id": _box_id,
+            "type": _VEHICLE_TYPE,
+            "moving": _YES_NO_UNSURE,
+            "wake_visible": _bool,
+            "body_waterline": _among(BODY_WATERLINES, "a schema v1 body waterline"),
+        }
     ),
-    "wheels": _list_of(
-        _object_of(
-            {
-                "id": _int,
-                "waterline": _among(WHEEL_WATERLINES, "a schema v1 wheel waterline"),
-            }
-        )
+    "wheels": _items(
+        {
+            "id": _box_id,
+            "waterline": _among(WHEEL_WATERLINES, "a schema v1 wheel waterline"),
+        }
     ),
-    "people": _list_of(
-        _object_of(
-            {
-                "id": _int,
-                "adult": _YES_NO_UNSURE,
-                "standing_still": _YES_NO_UNSURE,
-                "waterline": _among(PERSON_WATERLINES, "a schema v1 person waterline"),
-            }
-        )
+    "people": _items(
+        {
+            "id": _box_id,
+            "adult": _YES_NO_UNSURE,
+            "standing_still": _YES_NO_UNSURE,
+            "waterline": _among(PERSON_WATERLINES, "a schema v1 person waterline"),
+        }
     ),
 }
-_WHEEL_INCHES_FIELDS = {"box_id": _int, "depthInMin": _decimal, "depthInMax": _decimal}
+_WHEEL_INCHES_FIELDS = {"box_id": _box_id, "depthInMin": _depth, "depthInMax": _depth}
+
+
+def _wheel_inches(value: object, where: str) -> dict[str, object]:
+    """One wheel's depthInMin and depthInMax, by its box id, in order."""
+    pair = _object(value, where, _WHEEL_INCHES_FIELDS)
+    if pair["depthInMin"] > pair["depthInMax"]:
+        raise _Bad(f"{_at(where, 'depthInMin')} must not be above depthInMax")
+    return pair
+
 
 # Each M8 kind: the reference it gives, the waterlines M8 may mark on it, and where
 # Muse Spark's answer reads the same box (its list, and the field there).
@@ -652,7 +688,7 @@ _M8_KINDS = {
     "person": ("person", PERSON_WATERLINES, "people", "waterline"),
 }
 _M8_FIELDS = {
-    "box_id": _nullable(_int),
+    "box_id": _nullable(_box_id),
     "kind": _among(_M8_KINDS, "wheel, vehicle or person"),
     "landmark": _any,
     "vehicle_type": _any,
@@ -693,7 +729,7 @@ def _photo_fields(
         "subsets": _list_of(_token),
         "outcomes": lambda value, where: _outcomes(value, where, configs, replays),
         "answer": _nullable(_object_of(_ANSWER_FIELDS)),
-        "wheel_inches": _list_of(_object_of(_WHEEL_INCHES_FIELDS)),
+        "wheel_inches": _list_of(_wheel_inches),
     }
     if a_neg:
         fields["match"] = _null
@@ -742,7 +778,7 @@ def _references(labels: Sequence[dict], answer: dict | None) -> tuple[Reference,
         kind, _, items, field = _M8_KINDS[label["kind"]]
         item = None
         if answer is not None and label["box_id"] is not None:
-            # Should an id repeat in the answer, its first item reads.
+            # An id comes once in each of the answer's lists, so one item at most.
             item = next(
                 (found for found in answer[items] if found["id"] == label["box_id"]),
                 None,
@@ -765,9 +801,9 @@ def _references(labels: Sequence[dict], answer: dict | None) -> tuple[Reference,
 
 _ESTIMATE_FIELDS = {
     "measured": _bool,
-    "depthInPoint": _nullable(_decimal),
-    "depthInMin": _nullable(_decimal),
-    "depthInMax": _nullable(_decimal),
+    "depthInPoint": _nullable(_depth),
+    "depthInMin": _nullable(_depth),
+    "depthInMax": _nullable(_depth),
     "fail": _nullable(_token),
 }
 
@@ -780,6 +816,9 @@ def _estimate(value: object, where: str) -> Estimate:
             raise _Bad(
                 f"{where} is measured, so it needs its three numbers and a null fail"
             )
+        # The envelope is in order; the point may lie outside it.
+        if found["depthInMin"] > found["depthInMax"]:
+            raise _Bad(f"{_at(where, 'depthInMin')} must not be above depthInMax")
         return Estimate(True, *numbers, None)
     if any(number is not None for number in numbers) or found["fail"] is None:
         raise _Bad(

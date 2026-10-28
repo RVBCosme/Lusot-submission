@@ -150,14 +150,15 @@ def build_report(run: Run, *, first_run: Run | None = None) -> dict[str, bytes]:
 
 def _refuse_banned(name: str, text: str) -> None:
     """Raise ValueError when a file would hold one of _BANNED in any case. The
-    report's own copy holds none, so only free text copied from run.json can bring
-    one in. The message names the file and the word, never the text around it."""
+    report's own copy holds none, so only free text copied from run.json, or a token
+    from the rows such as a refusal's reason, can bring one in. The message names the
+    file and the word, never the text around it."""
     folded = text.casefold()
     for word in _BANNED:
         if word in folded:
             raise ValueError(
-                f"{name} would contain a banned word ({word}); check run.json's"
-                " free-text fields"
+                f"{name} would contain a banned word ({word}); check the run's text"
+                " and reason fields"
             )
 
 
@@ -817,8 +818,8 @@ def _landmarks(run: Run) -> list[str]:
     return _section(
         heading,
         "Muse Spark's landmark against our M8 label for the same box (C415), over the"
-        " answered Set A photos kept. Every configuration shares Muse Spark's answer,"
-        " so this is counted once.",
+        " Set A photos kept that Muse Spark answered, Lusot's refusals included. Every"
+        " configuration shares Muse Spark's answer, so this is counted once.",
         _table(
             ["Reference", "Agreement with M8"],
             [
@@ -1109,8 +1110,8 @@ def _exclusions(run: Run) -> list[str]:
         " never from Lusot's output."
     )
     blocks: list[object] = [lead]
-    blocks += _excluded("Set A", run.set_a, excluded_set_a)
-    blocks += _excluded("A-neg", run.a_neg, excluded_a_neg)
+    blocks += _excluded("Set A", run.set_a, excluded_set_a, REASONS)
+    blocks += _excluded("A-neg", run.a_neg, excluded_a_neg, _A_NEG_REASONS)
     if run.set_a is not None:
         ids = left_out_of_passability(run.set_a)
         blocks.append(
@@ -1120,32 +1121,35 @@ def _exclusions(run: Run) -> list[str]:
     return _section(heading, *blocks)
 
 
+# Only a duplicate or a file that can't be decoded excludes an A-neg photo (MS6E-Q1,
+# item 6): rules §9's sixth and eighth reasons.
+_A_NEG_REASONS = (REASONS[5], REASONS[7])
+
+
 def _excluded(
     name: str,
     rows: Sequence[PhotoRow] | None,
     excluded_of: Callable[[Sequence[PhotoRow]], tuple[tuple[str, str], ...]],
+    reasons: Sequence[str],
 ) -> list[object]:
+    """A set's count of photos excluded, and each of its `reasons` in rules §9's
+    order with its count and ids, zeros included (spec §4.4, item 7)."""
     if rows is None:
         return [f"**{name}:** {_NOT_RUN}"]
     excluded = excluded_of(rows)
-    blocks: list[object] = [
-        f"**{name}:** {fmt_rate(Rate(len(excluded), len(rows)))} photos excluded."
-    ]
-    by_reason: dict[str, list[str]] = {}
+    by_reason: dict[str, list[str]] = {reason: [] for reason in reasons}
     for photo, reason in excluded:
-        by_reason.setdefault(reason, []).append(photo)
-    if by_reason:
-        blocks.append(
-            _table(
-                ["Reason", "Photos", "Ids"],
-                [
-                    [reason, str(len(by_reason[reason])), ", ".join(by_reason[reason])]
-                    for reason in REASONS
-                    if reason in by_reason
-                ],
-            )
-        )
-    return blocks
+        by_reason[reason].append(photo)
+    return [
+        f"**{name}:** {fmt_rate(Rate(len(excluded), len(rows)))} photos excluded.",
+        _table(
+            ["Reason", "Photos", "Ids"],
+            [
+                [reason, str(len(photos)), ", ".join(photos) or "none"]
+                for reason, photos in by_reason.items()
+            ],
+        ),
+    ]
 
 
 _DATASETS = (
@@ -1157,10 +1161,16 @@ _DATASETS = (
 
 
 def _frozen(run: Run) -> list[str]:
-    """What run.json froze, the datasets with their counts, each stop, and the face
-    blur's known limits (C419; W25)."""
+    """The freeze commit, geometry's live default before the run (C309), what
+    run.json froze, the datasets with their counts, each stop, and the face blur's
+    known limits (C419; W25)."""
     frozen = run.meta["frozen"]
-    blocks: list[object] = [f"Scored by eval/rules.md v{RULES_VERSION}."]
+    commit = run.meta.get("freeze_commit")
+    blocks: list[object] = [
+        f"Scored by eval/rules.md v{RULES_VERSION}.",
+        "Freeze commit: " + ("not recorded." if commit is None else f"`{commit}`."),
+        f"Geometry's live default before the run (C309): {_geometry_default(run)}.",
+    ]
     if frozen:
         blocks.append(
             _table(
@@ -1198,6 +1208,15 @@ def _frozen(run: Run) -> list[str]:
     return _section("## Frozen versions and data", *blocks)
 
 
+def _geometry_default(run: Run) -> str:
+    """Geometry's live default before the run, as run.json records it: on, off, or
+    dropped (C418). A development run may leave it out."""
+    default = run.meta.get("geometry_default")
+    if default == "dropped":
+        return "dropped before the freeze (C418)"
+    return "not recorded" if default is None else default
+
+
 def _contents(
     rows: Sequence[PhotoRow] | Sequence[WheelRow] | None, *, photos: bool
 ) -> str:
@@ -1231,7 +1250,9 @@ def _rebuild() -> list[str]:
 
 def _summary(run: Run, outcome: _Outcome | None) -> str:
     """summary.json for the app's accuracy page (MS5), with nulls for Set A and the
-    gate when Set A wasn't run."""
+    gate when Set A wasn't run. It always says whether the run is synthetic test data
+    (C422) and whether it is the disclosed rerun (C421), so a fixture's figures can't
+    pass for a sealed run's, nor a rerun's for a first run's."""
     level, cls, _ = _baseline_answers(run)
     configurations = None
     if outcome is not None:
@@ -1257,6 +1278,8 @@ def _summary(run: Run, outcome: _Outcome | None) -> str:
         }
     summary = {
         "kind": run.kind,
+        "synthetic": run.synthetic,
+        "rerun": run.rerun_reason is not None,
         "date": run.meta["date"],
         "rules_version": RULES_VERSION,
         "shipped": None if outcome is None else outcome.shipped,
