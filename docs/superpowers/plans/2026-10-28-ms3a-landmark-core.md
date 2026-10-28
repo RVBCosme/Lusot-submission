@@ -1,6 +1,6 @@
 # MS3a Landmark Core Implementation Plan
 
-> **Status (Oct 28, 8:20 AM): draft, not yet reviewed.** The plan writer finished just before the pause, and the plan is committed so it isn't lost. Before any task runs, the controller self-reviews it and rules on the 5 spec gaps in its notes (kept at `.superpowers/ms3a-plan-notes.md`, which git ignores).
+> **Status (Oct 28, 8:30 AM): draft, not yet reviewed.** The plan writer finished just before the pause, and the plan is committed so it isn't lost. Before any task runs, the controller self-reviews it and rules on the 5 spec gaps in its notes (kept at `.superpowers/ms3a-plan-notes.md`, which git ignores).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
