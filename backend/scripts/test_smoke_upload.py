@@ -2,12 +2,14 @@
 
 Fakes only: httpx.MockTransport stands in for the API and S3's form posts, tmp_path
 folders for the photos, and FakeCloud for the AWS clients, each of whose calls must
-first pass botocore's own check of that operation. Nothing reaches AWS or Meta.
+first pass botocore's own check of that operation. The main() tests run on FakeTime,
+a clock that moves only when the run sleeps or the fake cloud takes time. Nothing
+reaches AWS or Meta.
 
-Run from the repo root with the script's own dependencies (R5's pattern):
+check:py runs this file with the script's own dependencies (R115). Alone, from the
+repo root (R5's pattern):
     uv run --with pytest --with "boto3[crt]" --with httpx --with numpy
         --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py
-check:py's scripts run installs only pytest and boto3, so it skips this file.
 """
 
 import csv
@@ -16,21 +18,18 @@ import random
 import re
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
+import cv2
+import httpx
+import numpy as np
 import pytest
+import smoke_upload
 from botocore import xform_name
 from botocore.exceptions import ClientError, ParamValidationError
 from botocore.session import get_session
 from botocore.validate import validate_parameters
-
-# smoke_upload.py imports these at its top, and check:py's scripts run has none.
-WHY = "needs smoke_upload.py's own dependencies"
-cv2 = pytest.importorskip("cv2", reason=WHY)
-httpx = pytest.importorskip("httpx", reason=WHY)
-np = pytest.importorskip("numpy", reason=WHY)
-
-import smoke_upload
 from smoke_upload import CheckFailed
 
 SEED = 20261028
@@ -116,6 +115,8 @@ NO_REFERENCE = (
     {"status": "refused", "refusalReason": "no_usable_reference"},
     paid("refused/no_usable_reference", drops={"vehicle_moving": 2}),
 )
+TOO_DARK = (result(REFUSED_BODY), {"outcome": "refused/too_dark", "meta_calls": 0})
+HAPPY = [LEVEL, NO_REFERENCE, NO_FLOOD, FLOOR, NO_REFERENCE]  # B1's five outcomes
 
 
 def event(report_id, n=1, **fields):
@@ -169,6 +170,31 @@ class FakeSession:
         return FakeAws(self._cloud, service)
 
 
+class FakeTime:
+    """The time module as main() sees it in these tests.
+
+    Its monotonic clock moves only when the run sleeps or the fake cloud takes time,
+    so every wait ends at once. The wall clock stays real. A run that sleeps an hour
+    has a wait with no bound, so sleeping fails then instead of hanging the test.
+    """
+
+    def __init__(self):
+        self.now = 1000.0
+        self.slept = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+        if sum(self.slept) > 3600:
+            raise AssertionError("the run sleeps without a bound")
+
+    def time(self):
+        return time.time()
+
+
 class FakeCloud:
     """The deployed stack in memory, as the smoke run meets it.
 
@@ -176,19 +202,24 @@ class FakeCloud:
     Each photo is analysed as soon as it lands: a dark one is refused too_dark with no
     Meta call, as the quality gate would, and any other takes the next of `outcomes`.
     Each logs its line, stores a blurred photo for a level and deletes its raw photo.
-    A form posted again after the result logs already_finished, and with `reuse_pays`
-    a second paid line too. `trail` records what happened, in order.
+    A form posted again after the result logs already_finished. A photo takes
+    `upload_s` to reach S3, and its report shows processing for `processing_s` more.
+    Each name in `faults` breaks one step, as its method says. `trail` records what
+    happened, in order.
     """
 
-    def __init__(self, outcomes=(), *, reuse_pays=False):
+    def __init__(self, outcomes=(), *, faults=(), upload_s=0.0, processing_s=0.0):
         self.outcomes = list(outcomes)
-        self.reuse_pays = reuse_pays
+        self.faults = set(faults)
+        self.upload_s, self.processing_s = upload_s, processing_s
+        self.time = FakeTime()
         self.reports = {}  # report id -> its item's result fields
+        self.ready_at = {}  # report id -> when GET first shows its result
         self.objects = set()  # the bucket's keys
         self.events = [KEY_LOADED_EVENT]
         self.searches = []  # each log search's parameters
+        self.lookups = []  # each describe_stack_resource's logical id
         self.trail = []
-        self.sleeps = []  # the run's own time.sleep calls
         self.transports = []  # each HTTPTransport's arguments
         self.stopped = False
 
@@ -197,6 +228,9 @@ class FakeCloud:
         return httpx.MockTransport(self.handle)
 
     def handle(self, request):
+        """The API and S3's form posts. Faults: no_cors_link and no_cors_form drop
+        the allow-origin header, and repost_403 refuses a form posted after its
+        report is final."""
         origin = request.headers.get("origin")
         cors = {"access-control-allow-origin": origin} if origin else {}
         url = str(request.url)
@@ -220,11 +254,15 @@ class FakeCloud:
                 },
             }
             body = {"reportId": report_id, "upload": form, "expiresInS": 300}
-            return httpx.Response(201, json=body, headers=cors)
+            headers = {} if "no_cors_link" in self.faults else cors
+            return httpx.Response(201, json=body, headers=headers)
         if request.method == "POST" and url.startswith(FORMS):
             report_id = url.removeprefix(FORMS)
-            if b"image/png" in request.content:
-                self.trail.append(("png", report_id))
+            final = self.reports[report_id]["status"] != "pending"
+            if b"image/png" in request.content or (
+                final and "repost_403" in self.faults
+            ):
+                self.trail.append(("refused", report_id))
                 text = "<Error><Code>AccessDenied</Code></Error>"
                 return httpx.Response(403, text=text)
             content = request.content
@@ -233,43 +271,75 @@ class FakeCloud:
             ]
             grey = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
             self.trail.append(("photo", report_id, grey.shape[1], origin))
+            self.time.now += self.upload_s
             self.objects.add(f"raw/{report_id}.jpg")
             self.deliver(f"raw/{report_id}.jpg", grey)
-            return httpx.Response(204, headers=cors)
+            headers = {} if "no_cors_form" in self.faults else cors
+            return httpx.Response(204, headers=headers)
         if request.method == "GET" and url.startswith(f"{API}/reports/"):
             report_id = url.removeprefix(f"{API}/reports/")
             if report_id not in self.reports:
                 return httpx.Response(404, json={"error": "not_found"})
+            report = self.reports[report_id]
+            if self.time.now < self.ready_at.get(report_id, 0.0):
+                report = {"status": "processing"}
             body = {"reportId": report_id, "capturedAt": CAPTURED}
-            return httpx.Response(200, json=body | self.reports[report_id])
+            return httpx.Response(200, json=body | report)
         raise AssertionError(f"unexpected {request.method} {url}")
 
     def deliver(self, key, grey=None):
-        """The analysis function on one notification for a raw photo."""
+        """The analysis function on one notification for a raw photo.
+
+        Faults: reuse_pays, no_already_finished and repost_keeps_raw change a
+        delivery after the result; missing_bad_file the missing photo's end;
+        keep_raw, blurred_always, no_blurred and silent a photo's first delivery.
+        """
         report_id = key.removeprefix("raw/").removesuffix(".jpg")
         report = self.reports[report_id]
         if report["status"] != "pending":  # already final: a reused link (B5)
-            if self.reuse_pays:
+            if "reuse_pays" in self.faults:
                 self.log(report_id, **paid("done/level"))
-            self.log(report_id, outcome="already_finished")
-        elif key not in self.objects:
-            report.update(status="failed", refusalReason="photo_missing")
-            self.log(
-                report_id,
-                outcome="failed/photo_missing",
-                error="NoSuchKey",
-                http_status=404,
-            )
-        elif grey.mean() < 40:
-            report.update(status="refused", refusalReason="too_dark")
-            self.log(report_id, outcome="refused/too_dark", meta_calls=0)
-        else:
-            fields, line = self.outcomes.pop(0)
-            report.update(fields)
-            if "level" in fields:
-                self.objects.add(f"blurred/{report_id}.jpg")
+            if "no_already_finished" not in self.faults:
+                self.log(report_id, outcome="already_finished")
+            if "repost_keeps_raw" not in self.faults:
+                self.objects.discard(key)
+            return
+        if key not in self.objects:  # the missing photo's notification
+            if "missing_bad_file" in self.faults:
+                report.update(status="failed", refusalReason="bad_file")
+                self.log(report_id, outcome="failed/bad_file")
+            else:
+                report.update(status="failed", refusalReason="photo_missing")
+                self.log(
+                    report_id,
+                    outcome="failed/photo_missing",
+                    error="NoSuchKey",
+                    http_status=404,
+                )
+            return
+        self.ready_at[report_id] = self.time.now + self.processing_s
+        fields, line = self.dark() if grey.mean() < 40 else self.outcomes.pop(0)
+        report.update(fields)
+        level = "level" in fields and "no_blurred" not in self.faults
+        if level or "blurred_always" in self.faults:
+            self.objects.add(f"blurred/{report_id}.jpg")
+        if "silent" not in self.faults:
             self.log(report_id, **line)
-        self.objects.discard(key)
+        if "keep_raw" not in self.faults:
+            self.objects.discard(key)
+
+    def dark(self):
+        """The dark photo's end: refused too_dark with meta_calls 0. Faults:
+        dark_too_blurry, dark_pays and dark_line_without_meta_calls."""
+        if "dark_too_blurry" in self.faults:
+            fields = {"status": "refused", "refusalReason": "too_blurry"}
+            return fields, {"outcome": "refused/too_blurry", "meta_calls": 0}
+        fields, line = TOO_DARK[0], dict(TOO_DARK[1])
+        if "dark_pays" in self.faults:
+            line["meta_calls"] = 8
+        if "dark_line_without_meta_calls" in self.faults:
+            del line["meta_calls"]
+        return fields, line
 
     def log(self, report_id, **fields):
         self.events.append(event(report_id, len(self.events), **fields, ms=1200))
@@ -281,6 +351,7 @@ class FakeCloud:
 
     def cloudformation_describe_stack_resource(self, StackName, LogicalResourceId):
         assert StackName == "lusot"
+        self.lookups.append(LogicalResourceId)
         ids = {"AnalysisFunction": FUNCTION, "AnalysisLogGroup": LOG_GROUP}
         return {"StackResourceDetail": {"PhysicalResourceId": ids[LogicalResourceId]}}
 
@@ -314,6 +385,7 @@ class FakeCloud:
         return {"QueueUrl": QUEUE_URL}
 
     def sqs_send_message(self, QueueUrl, MessageBody):
+        """One S3-shaped notification. Fault: queue_ignored never delivers it."""
         assert QueueUrl == QUEUE_URL
         # As S3 shapes it, and as the handler reads it: each record's object key.
         [record] = json.loads(MessageBody)["Records"]
@@ -324,7 +396,8 @@ class FakeCloud:
         assert record["s3"]["bucket"]["name"] == OUTPUTS["BucketName"]
         key = record["s3"]["object"]["key"]
         self.trail.append(("queue", key.removeprefix("raw/").removesuffix(".jpg")))
-        self.deliver(key)
+        if "queue_ignored" not in self.faults:
+            self.deliver(key)
         return {"MessageId": "message-1"}
 
     def logs_filter_log_events(self, logGroupName, startTime, filterPattern):
@@ -339,21 +412,33 @@ class FakeCloud:
         return {"events": [{"message": m} for m in self.events if phrase in m]}
 
 
+def a_stack(cloud, since_ms=1_000):
+    """A Stack on FakeCloud's clients, as main() builds it from the stack."""
+    return smoke_upload.Stack(
+        FakeSession(cloud),
+        API,
+        OUTPUTS["BucketName"],
+        OUTPUTS["QueueName"],
+        LOG_GROUP,
+        since_ms,
+    )
+
+
 def listed_folder(folder, names, photos=None):
-    """C87's folder: metro_manila_41.txt lists `names`, and each listed file exists.
+    """C87's folder: metro_manila_41.txt lists `names`, which sit in images (R116).
 
     The list is written as Windows tools write it: a BOM, CRLF line ends, full Windows
-    paths, and a comment line first. A file holds its `photos` bytes, or nothing.
+    paths, and a comment line first. A photo holds its `photos` bytes, or nothing.
     """
-    folder.mkdir(parents=True, exist_ok=True)
-    root = r"C:\Systems\Lusot\lusot-data\set_c\commons-ph-floods"
+    (folder / "images").mkdir(parents=True, exist_ok=True)
+    root = r"C:\Systems\Lusot\lusot-data\set_c\commons-ph-floods\images"
     lines = ["# file<TAB>licence: the Metro Manila photos, checked by hand"]
     lines += [f"{root}\\{name}\tCC BY 2.0" for name in names]
     (folder / "metro_manila_41.txt").write_bytes(
         ("\r\n".join(lines) + "\r\n").encode("utf-8-sig")
     )
     for n, name in enumerate(names):
-        (folder / name).write_bytes(photos[n] if photos else b"")
+        (folder / "images" / name).write_bytes(photos[n] if photos else b"")
     return folder
 
 
@@ -393,11 +478,17 @@ def test_seeded_order_follows_c87(tmp_path):
     folder = listed_folder(tmp_path / "commons", names[::-1])
     order = smoke_upload.seeded_photo_order(folder)
     draw = random.Random(SEED).sample(sorted(names), 30)
-    assert order == [folder / name for name in draw]
+    # Each photo is opened in images by its listed name (R116).
+    assert order == [folder / "images" / name for name in draw]
     # The prefix property R102 relies on: a shorter draw is the full order's start.
     assert [p.name for p in order[:20]] == random.Random(SEED).sample(sorted(names), 20)
-    (folder / names[7]).unlink()
-    with pytest.raises(CheckFailed, match="1 of the 30 listed photos are missing"):
+    (folder / "images" / names[7]).unlink()
+    missing = "1 of the 30 listed photos are missing from images"
+    with pytest.raises(CheckFailed, match=missing):
+        smoke_upload.seeded_photo_order(folder)
+    # A photo directly in the folder, not in images, is missing too.
+    (folder / names[7]).write_bytes(b"")
+    with pytest.raises(CheckFailed, match=missing):
         smoke_upload.seeded_photo_order(folder)
 
 
@@ -545,15 +636,13 @@ def test_reused_link_needs_a_fresh_form():
         smoke_upload.check_form_fresh(1000.0, 1280.1)
     # The B5 check tests the form's age before it posts the form again.
     cloud = FakeCloud()
-    bucket, queue = OUTPUTS["BucketName"], OUTPUTS["QueueName"]
-    stack = smoke_upload.Stack(FakeSession(cloud), API, bucket, queue, since_ms=0)
     form = {"url": FORMS + RID, "fields": {"key": f"raw/{RID}.jpg"}}
     now = time.monotonic()
     # The form came 281 s ago; the photo went 81 s after it.
     item = smoke_upload.Sent("photo 1/5", RID, form, photo(0), now - 281, now - 200)
     http = httpx.Client(transport=httpx.MockTransport(cloud.handle))
     with pytest.raises(CheckFailed, match="^reused link: form too old$"):
-        smoke_upload.check_reused_link(http, stack, item)
+        smoke_upload.check_reused_link(http, a_stack(cloud), item)
     assert cloud.trail == []  # nothing was posted
 
 
@@ -572,7 +661,7 @@ def test_log_lines_parse_the_lambda_text_format(capsys):
         # A line with nested objects, as the pipeline's fields are, parses whole.
         event(RID, 4, outcome="done/level", sam_ms={"wheel": 900}, drops={}),
     ]
-    lines = smoke_upload.log_lines(FakeSession(cloud), RID, 1_000)
+    lines = smoke_upload.log_lines(a_stack(cloud), RID)
     assert lines == [
         {"reportId": RID, "meta_calls": 0},
         {
@@ -582,9 +671,11 @@ def test_log_lines_parse_the_lambda_text_format(capsys):
             "drops": {},
         },
     ]
+    # The search is the stack's log group from the run's start, found once by main().
     assert cloud.searches == [
         {"logGroupName": LOG_GROUP, "startTime": 1_000, "filterPattern": f'"{RID}"'}
     ]
+    assert cloud.lookups == []
     assert capsys.readouterr().out == ""  # log lines are never printed
 
 
@@ -598,9 +689,8 @@ def test_log_lines_wait_for_the_line_they_need():
         cloud.events.append(event(RID, 2, outcome="already_finished"))
 
     lines = smoke_upload.log_lines(
-        FakeSession(cloud),
+        a_stack(cloud),
         RID,
-        0,
         until="already_finished",
         clock=lambda: now[0],
         sleep=sleep,
@@ -616,9 +706,8 @@ def test_log_lines_wait_for_the_line_they_need():
         slept.append(seconds)
 
     lines = smoke_upload.log_lines(
-        FakeSession(cloud),
+        a_stack(cloud),
         RID,
-        0,
         until="failed/photo_missing",
         clock=lambda: now[0],
         sleep=wait,
@@ -719,19 +808,22 @@ NAMES = [f"Flood_in_Manila_{n:02d}.jpg" for n in range(20)]
 ORDER = random.Random(SEED).sample(sorted(NAMES), 20)
 
 
-def run_smoke(tmp_path, monkeypatch, cloud, *argv):
-    """main() against `cloud`, with 20 credited photos in a tmp_path C87 folder."""
+def run_smoke(tmp_path, monkeypatch, cloud, *argv, credited=True):
+    """main() against `cloud`, with 20 photos in a tmp_path C87 folder.
+
+    Every photo has a credit line unless `credited` is False. The run's time module is
+    the cloud's FakeTime.
+    """
     folder = tmp_path / "data" / "set_c" / "commons-ph-floods"
     listed_folder(folder, NAMES, [photo(n) for n in range(20)])
-    write_credits(
-        folder, {name: f"{name} by A. Photographer, CC BY 2.0" for name in NAMES}
-    )
+    credit = "{} by A. Photographer, CC BY 2.0" if credited else ""
+    write_credits(folder, {name: credit.format(name) for name in NAMES})
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(
         smoke_upload.boto3, "Session", lambda **kw: FakeSession(cloud, **kw)
     )
     monkeypatch.setattr(smoke_upload.httpx, "HTTPTransport", cloud.transport)
-    monkeypatch.setattr(smoke_upload.time, "sleep", cloud.sleeps.append)
+    monkeypatch.setattr(smoke_upload, "time", cloud.time)
     return smoke_upload.main(list(argv))
 
 
@@ -744,8 +836,8 @@ def sent_names(cloud):
     ]
 
 
-def printed(capsys, tmp_path, cloud):
-    """The run's printed lines, with each timing as N.
+def printed(capsys, tmp_path, cloud, *, timings=False):
+    """The run's printed lines, with each timing as N unless `timings` is True.
 
     It never prints a photo's name, a path, a report id, or a URL of the API, the
     forms or the queue.
@@ -753,7 +845,7 @@ def printed(capsys, tmp_path, cloud):
     out = capsys.readouterr().out
     for private in (str(tmp_path), "Flood_in_Manila", "test.invalid", *cloud.reports):
         assert private not in out
-    return re.sub(r"\b\d+\.\d s\b", "N s", out).splitlines()
+    return (out if timings else re.sub(r"\b\d+\.\d s\b", "N s", out)).splitlines()
 
 
 def rid(n):
@@ -761,7 +853,7 @@ def rid(n):
 
 
 def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
-    cloud = FakeCloud([LEVEL, NO_REFERENCE, NO_FLOOD, FLOOR, NO_REFERENCE])
+    cloud = FakeCloud(HAPPY)
     before = time.time()
     assert run_smoke(tmp_path, monkeypatch, cloud) == 0
     after = time.time()
@@ -792,10 +884,10 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
         ("link", rid(6), None),
         ("queue", rid(6)),
         ("link", rid(7), None),
-        ("png", rid(7)),
+        ("refused", rid(7)),  # the PNG
         ("paused",),
     ]
-    assert cloud.sleeps == [35]  # only the stop switch waits here
+    assert cloud.time.slept == [35]  # only the stop switch waits here
     assert printed(capsys, tmp_path, cloud) == [
         "photos: 5 of positions 0 to 4 in C87's order, 0 skipped without a credit line",
         (
@@ -833,13 +925,30 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
         "stop switch: 503 uploads_paused while on, then set back to off",
         "SMOKE OK in N s",
     ]
-    # Every report's log search starts 5 minutes before the run did, for clock skew.
+    # Every report's log search starts 5 minutes before the run did, for clock skew,
+    # in the log group main() looked up once.
     starts = {
         s["startTime"] for s in cloud.searches if s["filterPattern"] != KEY_LOADED
     }
     [start] = starts
     assert (before - 300) * 1000 - 1 <= start <= (after - 300) * 1000
     assert {search["logGroupName"] for search in cloud.searches} == {LOG_GROUP}
+    assert cloud.lookups.count("AnalysisLogGroup") == 1
+
+
+def test_b1_bound_counts_from_the_photos_204(tmp_path, monkeypatch, capsys):
+    # Each photo takes 50 s to reach S3 and its report 100 s more: 150 s after
+    # POST /uploads but 100 s after the 204, inside C68's 120 s.
+    cloud = FakeCloud(HAPPY, upload_s=50.0, processing_s=100.0)
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 0
+    lines = printed(capsys, tmp_path, cloud, timings=True)
+    assert lines[2] == (
+        "photo 1/5: done/level knee (NPLV) 100.0 s after its upload, 8 Meta calls"
+    )
+    assert (
+        "the dark photo: refused/too_dark 100.0 s after its upload, 0 Meta calls"
+        in (lines)
+    )
 
 
 def test_b1_run_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
@@ -873,26 +982,176 @@ def test_b1_run_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
     ]
 
 
-def test_a_reused_link_that_pays_again_fails(tmp_path, monkeypatch, capsys):
-    cloud = FakeCloud([LEVEL] * 5, reuse_pays=True)
-    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
-    lines = printed(capsys, tmp_path, cloud)
-    failed = "SMOKE FAILED: reused link: 2 log lines with Meta calls, expected 1"
-    assert lines[-1] == failed
-    # It stopped before the next upload.
-    assert ("link", rid(1), None) not in cloud.trail
+# How each failing check ends the run: the fake cloud's set-up, then the reason
+# after "SMOKE FAILED: ", then the run's sleeps when a bound or a wait decides.
+FAILURES = {
+    "raw photo kept": (
+        {"faults": {"keep_raw"}},
+        "photo 2/5: its raw photo is still in the bucket",
+        None,
+    ),
+    "blurred photo without a level": (
+        {"faults": {"blurred_always"}},
+        "photo 2/5: a blurred photo but no level (B4)",
+        None,
+    ),
+    "level without a blurred photo": (
+        {"faults": {"no_blurred"}},
+        "photo 1/5: a level but no blurred photo (B4)",
+        None,
+    ),
+    "dark photo too blurry": (
+        {"faults": {"dark_too_blurry"}},
+        "the dark photo ended refused/too_blurry, expected refused/too_dark",
+        None,
+    ),
+    "dark photo pays": (
+        {"faults": {"dark_pays"}},
+        "the dark photo's log shows 8 Meta calls, expected 0",
+        None,
+    ),
+    "dark line without meta_calls": (
+        {"faults": {"dark_line_without_meta_calls"}},
+        "the dark photo's refused/too_dark line has meta_calls None, expected 0",
+        None,
+    ),
+    "missing photo ends bad_file": (
+        {"faults": {"missing_bad_file"}},
+        "the missing photo ended failed/bad_file, expected failed/photo_missing",
+        None,
+    ),
+    "missing photo never ends": (
+        {"faults": {"queue_ignored"}},
+        "the missing photo: still pending after 60 s",
+        [2] * 30,
+    ),
+    "re-post refused": (
+        {"faults": {"repost_403"}},
+        "reused link: HTTP 403 AccessDenied, expected 204",
+        None,
+    ),
+    "re-post's raw photo kept": (
+        {"faults": {"repost_keeps_raw"}},
+        "reused link: the raw photo is still there after 60 s",
+        [2] * 30,
+    ),
+    "no already_finished line": (
+        {"faults": {"no_already_finished"}},
+        "reused link: no already_finished line in the analysis log",
+        [5] * 6,
+    ),
+    "re-post pays": (
+        {"faults": {"reuse_pays"}},
+        "reused link: 2 log lines with Meta calls, expected 1",
+        None,
+    ),
+    "no photo paid": (
+        {"outcomes": [TOO_DARK] * 5},
+        "reused link: no photo's log shows a Meta call, so B5 can't run",
+        None,
+    ),
+    "no allow-origin on the link": (
+        {"faults": {"no_cors_link"}},
+        "POST /uploads: allow-origin None, expected 'https://localhost'",
+        None,
+    ),
+    "no allow-origin on the form post": (
+        {"faults": {"no_cors_form"}},
+        "the S3 form post: allow-origin None, expected 'https://localhost'",
+        None,
+    ),
+    "no credited photo": (
+        {"credited": False},
+        "no credited photo to send",
+        None,
+    ),
+    "no outcome line": (
+        {"faults": {"silent"}},
+        "photo 1/5: no done/level line in the analysis log",
+        [5] * 6,
+    ),
+    "report past 120 s": (
+        {"processing_s": 121.0},
+        "photo 1/5: still processing after 120 s",
+        [2] * 60,
+    ),
+}
+
+
+@pytest.mark.parametrize(("setup", "reason", "slept"), FAILURES.values(), ids=FAILURES)
+def test_failed_checks_end_the_run_with_their_reason(
+    tmp_path, monkeypatch, capsys, setup, reason, slept
+):
+    setup = dict(setup)
+    credited = setup.pop("credited", True)
+    cloud = FakeCloud(setup.pop("outcomes", HAPPY), **setup)
+    assert run_smoke(tmp_path, monkeypatch, cloud, credited=credited) == 1
+    assert printed(capsys, tmp_path, cloud)[-1] == f"SMOKE FAILED: {reason}"
+    if slept is not None:
+        assert cloud.time.slept == slept
 
 
 @pytest.mark.parametrize(
-    ("outcomes", "sent", "code", "end"),
+    ("argv", "calls", "reason"),
     [
-        ([NO_REFERENCE, NO_FLOOD, LEVEL], 3, 0, "up to the first level"),
-        ([NO_REFERENCE] * 15, 15, 3, "and none gave a level"),
+        ((), 40, "photo 2/5: its raw photo is still in the bucket"),
+        (
+            ("--fallback",),
+            16,
+            "fallback photo 1/15: its raw photo is still in the bucket",
+        ),
+    ],
+    ids=["b1", "fallback"],
+)
+def test_a_run_that_fails_after_paying_still_prints_the_spend(
+    tmp_path, monkeypatch, capsys, argv, calls, reason
+):
+    # B4 fails once the photos are paid for, and the spend is printed before the end.
+    cloud = FakeCloud([NO_REFERENCE, LEVEL, *HAPPY], faults={"keep_raw"})
+    assert run_smoke(tmp_path, monkeypatch, cloud, *argv) == 1
+    lines = printed(capsys, tmp_path, cloud)
+    assert lines[-2].startswith(f"spend: {calls} Meta calls")
+    assert lines[-1] == f"SMOKE FAILED: {reason}"
+
+
+def test_an_unreadable_photo_stops_the_run_before_any_upload(
+    tmp_path, monkeypatch, capsys
+):
+    # B1's third photo can't be read, and the error's text holds its path.
+    read_bytes = Path.read_bytes
+
+    def refuse_one(path):
+        if path.name == ORDER[2]:
+            raise PermissionError(13, "Permission denied", str(path))
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", refuse_one)
+    cloud = FakeCloud(HAPPY)
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+    # Only the error's class: printed() checks that no path or photo name is shown.
+    assert printed(capsys, tmp_path, cloud)[-1] == "SMOKE FAILED: PermissionError"
+    assert cloud.trail == []  # every photo is read before the first upload
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "sent", "code", "last"),
+    [
+        ([NO_REFERENCE, NO_FLOOD, LEVEL], 3, 0, "SMOKE OK in N s"),
+        (
+            [NO_REFERENCE] * 15,
+            15,
+            3,
+            (
+                "SMOKE NO LEVEL in N s: no fallback photo gave a level either, so B1"
+                " is partly met, with the drop causes above as its reason (C71,"
+                " exit 3)"
+            ),
+        ),
     ],
     ids=["level", "none"],
 )
 def test_fallback_stops_at_the_first_level(
-    tmp_path, monkeypatch, capsys, outcomes, sent, code, end
+    tmp_path, monkeypatch, capsys, outcomes, sent, code, last
 ):
     cloud = FakeCloud(outcomes)
     assert run_smoke(tmp_path, monkeypatch, cloud, "--fallback") == code
@@ -908,9 +1167,10 @@ def test_fallback_stops_at_the_first_level(
     assert (
         lines[1] == f"fallback photo 1/15: {first} N s after its upload, 8 Meta calls"
     )
+    end = "up to the first level" if code == 0 else "and none gave a level"
     assert f"fallback: sent {sent} of 15 photos, {end}" in lines
     assert any(
         line.startswith("stored photos: no raw photo left for") for line in lines
     )
     assert any(line.startswith(f"spend: {8 * sent} Meta calls") for line in lines)
-    assert lines[-1].startswith("SMOKE OK" if code == 0 else "SMOKE NO LEVEL")
+    assert lines[-1] == last

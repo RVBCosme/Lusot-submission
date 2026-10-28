@@ -11,11 +11,11 @@
 
 In order, it checks that:
 1. the API's CORS preflight for POST /uploads allows the app's origins
-2. B1's photos go through end to end: the first 5 of C87's order that have a credit
-   line (R102), then one synthetic dark JPEG, each through POST /uploads and its
-   presigned form, as the app sends it. Each report is final (done, refused or
-   failed) within 120 s of its photo's 204 (C68). The dark photo goes from the
-   Capacitor origin, and both its calls answer with that allow-origin header.
+2. B1's photos go through end to end: positions 0 to 4 of C87's order, less any
+   without a credit line (R102), then one synthetic dark JPEG, each through POST
+   /uploads and its presigned form, as the app sends it. Each report is final (done,
+   refused or failed) within 120 s of its photo's 204 (C68). The dark photo goes from
+   the Capacitor origin, and both its calls answer with that allow-origin header.
 3. a reused upload link pays nothing (B5). As soon as a photo's report is final and
    its log shows Meta calls, before the next upload, its form is posted again with
    the same bytes, at most 280 s after POST /uploads returned it: the form lasts
@@ -26,9 +26,11 @@ In order, it checks that:
 5. every report body has C67's shape. If no photo gave a level, it prints their
    outcomes and drop causes (C75) and carries on, and the run ends with exit 3 (C71).
 6. no raw photo is left for any report, and blurred/{id}.jpg exists for each level
-   report and for no other (B4). It then prints the spend: the Meta calls in the log
-   lines, how many ended on a 504 or a 413 from SAM or judge, and the estimated cost,
-   from SAM's calls and Muse Spark's billed usage, never from a token count.
+   report and for no other (B4). It then prints the spend of the photos sent, and
+   prints it too if a check from 2 to 6 fails once a photo was sent: the Meta calls
+   in their log lines, how many ended on a 504 or a 413 from SAM or judge, and the
+   estimated cost, from SAM's calls and Muse Spark's billed usage, never from a
+   token count.
 7. a report whose photo never came ends failed/photo_missing within 60 s (spec §3.6):
    the queue gets one S3-shaped notification for it, and the run prints the log
    line's S3 error code and HTTP status (R93)
@@ -45,8 +47,11 @@ With --fallback (C71), it sends the credited photos at positions 5 to 19 of C87'
 order instead, one at a time up to the first level, runs checks 2, 5 and 6 on them,
 and prints how many it sent.
 
-The photos stay in C87's folder, LUSOT_DATA_DIR\\set_c\\commons-ph-floods, outside
-every repo. A path inside a folder named sealed is refused before anything is read.
+C87's folder, LUSOT_DATA_DIR\\set_c\\commons-ph-floods, is outside every repo. It holds
+the photo list and attribution.csv, and the photos sit in its images folder (R116).
+Every photo is read before the first upload, so an unreadable one stops the run
+before anything is paid. A path inside a folder named sealed is refused before
+anything is read.
 
 It prints results, counts and timings only. It never prints a photo's name, a path,
 a report id, the API's, a form's or the queue's URL, the account ID, an ARN or an
@@ -61,7 +66,7 @@ needs the CRT. HTTP goes over IPv4 only, since IPv6 doesn't connect on the home 
 
 Usage: uv run backend/scripts/smoke_upload.py [--fallback]
 Exit codes: 0 every check passed, 1 a check failed, 3 every other check passed but no
-photo gave a level, so C71 applies.
+photo gave a level. After B1, C71 then applies; after --fallback, B1 is partly met.
 """
 
 from __future__ import annotations
@@ -95,6 +100,7 @@ KEY_PARAM = "/lusot/meta/model-api-key"
 DATA_DIR = r"C:\Systems\Lusot\lusot-data"  # when LUSOT_DATA_DIR is unset
 PHOTO_LIST = "metro_manila_41.txt"  # C87's eligible photos: full path<TAB>licence
 CREDITS = "attribution.csv"  # each photo's credit line (R102)
+PHOTO_DIR = "images"  # the photos themselves, inside C87's folder (R116)
 SEED = 20261028  # C87's draw, fixed in advance as R7's was
 B1_POSITIONS = slice(0, 5)  # of C87's order
 FALLBACK_POSITIONS = slice(5, 20)  # C71
@@ -129,6 +135,7 @@ class Stack:
     api_url: str
     bucket: str
     queue: str  # the upload queue's name: its URL holds the account ID (R20)
+    log_group: str  # the analysis function's, looked up once
     since_ms: int  # where log searches start: the run's start, less LOG_SKEW_S
 
 
@@ -170,23 +177,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if not photos:
             raise CheckFailed("no credited photo to send")
+        # Every photo is read before the first upload, so an unreadable one stops the
+        # run before anything is paid.
+        jpegs = [as_app_jpeg(photo) for photo in photos]
         session = boto3.Session(profile_name="lusot", region_name=REGION)
         cloudformation = session.client("cloudformation")
         [stack] = cloudformation.describe_stacks(StackName=STACK)["Stacks"]
         outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
+        log_group = cloudformation.describe_stack_resource(
+            StackName=STACK, LogicalResourceId="AnalysisLogGroup"
+        )["StackResourceDetail"]["PhysicalResourceId"]
         deployed = Stack(
             session=session,
             # Paths are joined as f"{api_url}/uploads", so no trailing slash may remain.
             api_url=outputs["ApiUrl"].rstrip("/"),
             bucket=outputs["BucketName"],
             queue=outputs["QueueName"],
+            log_group=log_group,
             since_ms=int((time.time() - LOG_SKEW_S) * 1000),
         )
         # IPv4 only: IPv6 doesn't connect on the home Wi-Fi (Oct 28 log).
         transport = httpx.HTTPTransport(local_address="0.0.0.0")
         with httpx.Client(timeout=30, transport=transport) as http:
             run = run_fallback if args.fallback else run_b1
-            level = run(http, deployed, photos)
+            level = run(http, deployed, jpegs)
     except CheckFailed as exc:
         say(f"SMOKE FAILED: {exc}")
         return 1
@@ -201,42 +215,53 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     took = time.monotonic() - started
     if not level:
-        say(
-            f"SMOKE NO LEVEL in {took:.1f} s: every other check passed, so C71 applies"
-            " (exit 3)"
+        why = (
+            # C71's third step: the fallback was the last try.
+            "no fallback photo gave a level either, so B1 is partly met, with the drop"
+            " causes above as its reason (C71, exit 3)"
+            if args.fallback
+            else "every other check passed, so C71 applies (exit 3)"
         )
+        say(f"SMOKE NO LEVEL in {took:.1f} s: {why}")
         return 3
     say(f"SMOKE OK in {took:.1f} s")
     return 0
 
 
-def run_b1(http: httpx.Client, stack: Stack, photos: Sequence[Path]) -> bool:
-    """The B1 run's checks, in the module docstring's order.
+def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
+    """The B1 run's checks on the photos' JPEGs, in the module docstring's order.
 
     Returns whether a photo gave a level.
     """
     check_preflight(http, stack.api_url)
-    sent = []
-    reused = False
-    for n, photo in enumerate(photos, 1):
-        item = upload_photo(http, stack, f"photo {n}/{len(photos)}", as_app_jpeg(photo))
-        sent.append(item)
-        # B5 runs on the first report that paid Meta, before the next upload, while
-        # its form is still good.
-        if not reused and meta_calls(item.lines):
-            check_reused_link(http, stack, item)
-            reused = True
-    if not reused:
-        raise CheckFailed(
-            "reused link: no photo's log shows a Meta call, so B5 can't run"
+    sent: list[Sent] = []
+    try:
+        reused = False
+        for n, data in enumerate(jpegs, 1):
+            sent.append(upload_photo(http, stack, f"photo {n}/{len(jpegs)}", data))
+            # B5 runs on the first report that paid Meta, before the next upload,
+            # while its form is still good.
+            if not reused and meta_calls(sent[-1].lines):
+                check_reused_link(http, stack, sent[-1])
+                reused = True
+        if not reused:
+            raise CheckFailed(
+                "reused link: no photo's log shows a Meta call, so B5 can't run"
+            )
+        b1 = list(sent)
+        dark = dark_jpeg()
+        sent.append(
+            upload_photo(http, stack, "the dark photo", dark, origin=APP_ORIGIN)
         )
-    dark = upload_photo(http, stack, "the dark photo", dark_jpeg(), origin=APP_ORIGIN)
-    check_dark(dark)
-    level = any("level" in item.body for item in sent)
-    if not level:
-        say_no_level(sent)
-    check_stored_photos(stack, [*sent, dark])
-    say_spend([*sent, dark])
+        check_dark(sent[-1])
+        level = any("level" in item.body for item in b1)
+        if not level:
+            say_no_level(b1)
+        check_stored_photos(stack, sent)
+    finally:
+        # Even when a check fails: whatever was sent is paid for.
+        if sent:
+            say_spend(sent)
     check_missing_photo(http, stack)
     check_png_refused(http, stack.api_url)
     check_key_loaded(stack.session)
@@ -244,26 +269,34 @@ def run_b1(http: httpx.Client, stack: Stack, photos: Sequence[Path]) -> bool:
     return level
 
 
-def run_fallback(http: httpx.Client, stack: Stack, photos: Sequence[Path]) -> bool:
+def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     """C71's fallback: checks 2, 5 and 6 on the photos, sent up to the first level."""
-    sent = []
-    for n, photo in enumerate(photos, 1):
-        label = f"fallback photo {n}/{len(photos)}"
-        sent.append(upload_photo(http, stack, label, as_app_jpeg(photo)))
-        if "level" in sent[-1].body:
-            break
-    level = "level" in sent[-1].body
-    end = "up to the first level" if level else "and none gave a level"
-    say(f"fallback: sent {len(sent)} of {len(photos)} photos, {end}")
-    if not level:
-        say_no_level(sent)
-    check_stored_photos(stack, sent)
-    say_spend(sent)
+    sent: list[Sent] = []
+    try:
+        for n, data in enumerate(jpegs, 1):
+            label = f"fallback photo {n}/{len(jpegs)}"
+            sent.append(upload_photo(http, stack, label, data))
+            if "level" in sent[-1].body:
+                break
+        level = "level" in sent[-1].body
+        end = "up to the first level" if level else "and none gave a level"
+        say(f"fallback: sent {len(sent)} of {len(jpegs)} photos, {end}")
+        if not level:
+            say_no_level(sent)
+        check_stored_photos(stack, sent)
+    finally:
+        # Even when a check fails: whatever was sent is paid for.
+        if sent:
+            say_spend(sent)
     return level
 
 
 def photo_folder() -> Path:
-    """C87's photo folder, LUSOT_DATA_DIR\\set_c\\commons-ph-floods."""
+    """C87's folder, LUSOT_DATA_DIR\\set_c\\commons-ph-floods.
+
+    It holds the photo list and attribution.csv; the photos are in its images folder
+    (R116).
+    """
     data = Path(os.environ.get("LUSOT_DATA_DIR") or DATA_DIR)
     return data / "set_c" / "commons-ph-floods"
 
@@ -286,10 +319,12 @@ def refuse_sealed(path: Path) -> None:
 def seeded_photo_order(folder: Path) -> list[Path]:
     """C87's full order: the listed photos' base names, sorted, then one seeded draw.
 
-    The list has a `full path<TAB>licence` line per photo, and `#` lines are
-    comments. The order is fixed in advance, whatever attribution.csv holds (R102):
-    positions 0 to 4 are B1's, and 5 to 19 are C71's fallback. A listed photo
-    missing from the folder raises CheckFailed.
+    The list in `folder` has a `full path<TAB>licence` line per photo, and `#` lines
+    are comments. Only each path's base name is used: every photo is opened at
+    images/<name> inside `folder` (R116), so no path from a data file is trusted.
+    The order is fixed in advance, whatever attribution.csv holds (R102): positions
+    0 to 4 are B1's, and 5 to 19 are C71's fallback. A listed photo missing from
+    images raises CheckFailed.
     """
     refuse_sealed(folder)
     # utf-8-sig: Windows PowerShell 5.1 writes UTF-8 with a BOM.
@@ -299,12 +334,13 @@ def seeded_photo_order(folder: Path) -> list[Path]:
         for line in text.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     )
-    missing = sum(not (folder / name).is_file() for name in names)
+    photos = folder / PHOTO_DIR
+    missing = sum(not (photos / name).is_file() for name in names)
     if missing:
         raise CheckFailed(
-            f"{missing} of the {len(names)} listed photos are missing from the folder"
+            f"{missing} of the {len(names)} listed photos are missing from {PHOTO_DIR}"
         )
-    return [folder / name for name in random.Random(SEED).sample(names, len(names))]
+    return [photos / name for name in random.Random(SEED).sample(names, len(names))]
 
 
 def credited(folder: Path, photos: Sequence[Path]) -> tuple[list[Path], int]:
@@ -433,7 +469,7 @@ def await_report(
         final_s = time.monotonic() - since
         check_report_body(body)
         outcome = outcome_of(body)
-        lines = log_lines(stack.session, report_id, stack.since_ms, until=outcome)
+        lines = log_lines(stack, report_id, until=outcome)
         if not any(line.get("outcome") == outcome for line in lines):
             raise CheckFailed(f"no {outcome} line in the analysis log")
     except CheckFailed as exc:
@@ -448,16 +484,18 @@ def wait_final(
     *,
     since: float,
     bound_s: float = POLL_FOR_S,
-    clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> dict:
     """Poll GET /reports/{id} every 2 s until the report is final, and return its body.
 
     pending, processing and 404 poll on: processing isn't final (spec §3.5), and a
     404 can mean the report index hasn't caught up with a new report yet. Once
     `bound_s` has passed since `since`, a clock() value, it raises CheckFailed: B1's
-    bound is 120 s from the photo's 204 (C68).
+    bound is 120 s from the photo's 204 (C68). `clock` and `sleep` default to
+    time.monotonic and time.sleep, looked up at each call.
     """
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
     while True:
         response = http.get(f"{api_url}/reports/{report_id}")
         if response.status_code not in (200, 404):
@@ -545,31 +583,32 @@ def meta_calls(lines: Iterable[dict]) -> int:
 
 
 def log_lines(
-    session: boto3.Session,
+    stack: Stack,
     report_id: str,
-    since_ms: int,
     *,
     until: str | None = None,
-    clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> list[dict]:
     """The analysis log's JSON lines for one report. They are never printed.
 
-    A line is an event's text from its first `{`, so Lambda's text format (level,
-    time and request id, tab-separated) is dropped, and an event without JSON there
-    is skipped. Events take a few seconds to become searchable, so it waits up to
-    30 s for a line whose outcome is `until`, or for any line when `until` is None,
-    and then returns what it found.
+    It searches the stack's log group from the stack's since_ms. A line is an event's
+    text from its first `{`, so Lambda's text format (level, time and request id,
+    tab-separated) is dropped, and an event without JSON there is skipped. Events
+    take a few seconds to become searchable, so it waits up to 30 s for a line whose
+    outcome is `until`, or for any line when `until` is None, and then returns what
+    it found. `clock` and `sleep` default to time.monotonic and time.sleep, looked up
+    at each call.
     """
-    group = session.client("cloudformation").describe_stack_resource(
-        StackName=STACK, LogicalResourceId="AnalysisLogGroup"
-    )["StackResourceDetail"]["PhysicalResourceId"]
-    paginator = session.client("logs").get_paginator("filter_log_events")
+    clock, sleep = clock or time.monotonic, sleep or time.sleep
+    paginator = stack.session.client("logs").get_paginator("filter_log_events")
     began = clock()
     while True:
         lines = []
         pages = paginator.paginate(
-            logGroupName=group, startTime=since_ms, filterPattern=f'"{report_id}"'
+            logGroupName=stack.log_group,
+            startTime=stack.since_ms,
+            filterPattern=f'"{report_id}"',
         )
         for page in pages:
             for event in page["events"]:
@@ -627,9 +666,7 @@ def check_reused_link(http: httpx.Client, stack: Stack, item: Sent) -> None:
             )
         time.sleep(POLL_EVERY_S)
     gone_s = time.monotonic() - reposted
-    item.lines = log_lines(
-        stack.session, item.report_id, stack.since_ms, until="already_finished"
-    )
+    item.lines = log_lines(stack, item.report_id, until="already_finished")
     if not any(line.get("outcome") == "already_finished" for line in item.lines):
         raise CheckFailed("reused link: no already_finished line in the analysis log")
     paid = sum(line.get("meta_calls", 0) > 0 for line in item.lines)
@@ -650,6 +687,13 @@ def check_dark(item: Sent) -> None:
     calls = meta_calls(item.lines)
     if calls:
         raise CheckFailed(f"the dark photo's log shows {calls} Meta calls, expected 0")
+    # Its own line must say 0: a line without meta_calls proves nothing.
+    for line in item.lines:
+        if line.get("outcome") == outcome and line.get("meta_calls") != 0:
+            raise CheckFailed(
+                f"the dark photo's {outcome} line has meta_calls"
+                f" {line.get('meta_calls')!r}, expected 0"
+            )
 
 
 def say_no_level(items: Sequence[Sent]) -> None:
@@ -677,7 +721,11 @@ def check_stored_photos(stack: Stack, items: Sequence[Sent]) -> None:
             raise CheckFailed(f"{item.label}: its raw photo is still in the bucket")
         level = "level" in item.body
         if object_exists(s3, stack.bucket, f"blurred/{item.report_id}.jpg") != level:
-            wrong = "a level but no blurred photo" if level else "a blurred photo"
+            wrong = (
+                "a level but no blurred photo"
+                if level
+                else "a blurred photo but no level"
+            )
             raise CheckFailed(f"{item.label}: {wrong} (B4)")
     levels = sum("level" in item.body for item in items)
     say(
