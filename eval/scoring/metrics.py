@@ -1,5 +1,6 @@
-"""Rules §7's metrics, every rate an exact fraction (C405, C406), with the baseline,
-the table by the alert's level and the event replay (C424, C425).
+"""Rules §7's metrics, every rate an exact fraction and every inch or second an exact
+decimal (C405, C406), with the baseline, the table by the alert's level and the
+event replay (C424, C425).
 
 Excluded photos are scored nowhere (rules §9). The formatters are the one rounding
 path that the gate and the report share.
@@ -15,7 +16,7 @@ from fractions import Fraction
 
 from scoring.exclusions import a_neg_exclusion, set_a_exclusion
 from scoring.labels import map_level_label, map_passability
-from scoring.rows import REPLAY_SUFFIX, PhotoRow, Result
+from scoring.rows import REPLAY_SUFFIX, Estimate, PhotoRow, Result, WheelRow
 from scoring.scale import CLASS_NAMES, CLASSES, LEVELS, NO_FLOOD_INDEX, level_index
 
 
@@ -484,6 +485,89 @@ def replay_comparison(rows: Sequence[PhotoRow], config: str) -> ReplayComparison
     )
 
 
+# Set B, Set D and latency (rules §7; C407, C416). The errors and medians are exact:
+# Decimal's 28 digits hold them for every estimate between -10**22 and 10**22 in.
+
+
+@dataclass(frozen=True)
+class WheelScores:
+    """One variant's scores over Set B's or Set D's wheels (rules §7; C407). The
+    errors are |depthInPoint - true_depth_in| over the measured wheels, and the
+    envelope counts the measured wheels whose true depth lies from depthInMin to
+    depthInMax, both bounds included (MS6E-Q1, item 4). sam_water_found is over
+    every wheel."""
+
+    variant: str
+    wheels: int
+    measured: Rate
+    median_error: Decimal | None
+    worst_error: Decimal | None
+    envelope: Rate
+    sam_water_found: Rate
+
+
+def score_wheels(rows: Sequence[WheelRow], variant: str) -> WheelScores:
+    """One variant's scores over the wheels given: a set's, or one of its
+    wheel_groups. The median of an even count is the mean of the middle two."""
+    measured = _measured(rows, variant)
+    errors = measured_errors(rows, variant)
+    inside = sum(estimate.low <= truth <= estimate.high for truth, estimate in measured)
+    return WheelScores(
+        variant=variant,
+        wheels=len(rows),
+        measured=Rate(len(measured), len(rows)),
+        median_error=_median(errors),
+        worst_error=errors[-1] if errors else None,
+        envelope=Rate(inside, len(measured)),
+        sam_water_found=Rate(sum(row.sam_water_found for row in rows), len(rows)),
+    )
+
+
+def wheel_groups(
+    rows: Sequence[WheelRow], by: str
+) -> tuple[tuple[str, tuple[WheelRow, ...]], ...]:
+    """The wheels by vehicle type when `by` is vehicle_type, or else by the value of
+    the bin named `by` (W7; C423), sorted by value. A row without that bin is left
+    out, and each group keeps the rows' order."""
+    groups: dict[str, list[WheelRow]] = {}
+    for row in rows:
+        value = row.vehicle_type if by == "vehicle_type" else row.bins.get(by)
+        if value is not None:
+            groups.setdefault(value, []).append(row)
+    return tuple((value, tuple(groups[value])) for value in sorted(groups))
+
+
+def measured_errors(rows: Sequence[WheelRow], variant: str) -> tuple[Decimal, ...]:
+    """Each measured wheel's error for one variant, sorted, for the error chart."""
+    return tuple(
+        sorted(
+            abs(estimate.point - truth) for truth, estimate in _measured(rows, variant)
+        )
+    )
+
+
+@dataclass(frozen=True)
+class LatencyScores:
+    """Live tests' seconds from upload to pin (C416): their median, and their 95th
+    percentile by nearest rank, the ceil(0.95 n)-th smallest of the n samples. Both
+    are None without samples."""
+
+    n: int
+    median: Decimal | None
+    p95: Decimal | None
+
+
+def score_latency(samples: Sequence[tuple[str, Decimal]]) -> LatencyScores:
+    """Latency over every (test id, seconds) sample, as Run.latency gives them."""
+    seconds = sorted(value for _, value in samples)
+    rank = (95 * len(seconds) + 99) // 100  # ceil(0.95 n), in whole numbers
+    return LatencyScores(
+        n=len(seconds),
+        median=_median(seconds),
+        p95=seconds[rank - 1] if seconds else None,
+    )
+
+
 def fmt_rate(rate: Rate) -> str:
     """k of n and its share rounded half up to 0.1%, such as 3 of 17 (17.6%), or
     0 of 0 (undefined) (C406)."""
@@ -586,3 +670,24 @@ def _reasons(results: Sequence[Result], status: str) -> tuple[tuple[str, int], .
     reason."""
     counts = Counter(result.reason for result in results if result.status == status)
     return tuple(sorted(counts.items()))
+
+
+def _measured(rows: Sequence[WheelRow], variant: str) -> list[tuple[Decimal, Estimate]]:
+    """The wheels that `variant` measured, each as its true depth and its estimate,
+    in the rows' order."""
+    return [
+        (row.true_depth_in, row.estimates[variant])
+        for row in rows
+        if row.estimates[variant].measured
+    ]
+
+
+def _median(ordered: Sequence[Decimal]) -> Decimal | None:
+    """The middle of sorted values, or the mean of the middle two for an even count;
+    None for no values."""
+    if not ordered:
+        return None
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
