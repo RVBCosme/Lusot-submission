@@ -97,9 +97,25 @@ def test_finished_report_with_old_claim_is_never_reclaimed(ddb):
 
 def test_missing_report_is_never_created(ddb):
     # With no item there is no status, so the claim reads as leased. It mustn't create
-    # the item, or the handler would pay for a report that doesn't exist.
+    # the item, or the handler would pay for a report that doesn't exist. Nor may a
+    # result write create one.
     assert claim(ddb, TABLE, KEY, "a", NOW_S) == "leased"
+    fields = Outcome.no_flood().item_fields()
+    assert write_result(ddb, TABLE, KEY, "a", fields) is False
     assert "Item" not in ddb.get_item(TableName=TABLE, Key=KEY)
+
+
+def test_a_repeated_claim_is_its_own(ddb):
+    # C82: the SDK repeats a claim whose answer was lost, and the repeat fails against
+    # the first try's own result. Tokens are new for every delivery, so it's this one.
+    seed(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    first = stored(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    assert stored(ddb) == first
+    # The same state under another token is a live lease.
+    assert claim(ddb, TABLE, KEY, "b", NOW_S) == "leased"
+    assert stored(ddb) == first
 
 
 def test_writes_a_level_result_under_the_claim(ddb):
@@ -157,6 +173,22 @@ def test_write_requires_processing(ddb):
     fields = Outcome.failed("model_error").item_fields()
     assert write_result(ddb, TABLE, KEY, "a", fields) is False
     assert stored(ddb) == before
+
+
+def test_a_repeated_write_is_its_own(ddb):
+    # C82: a repeated write finds this worker's token and the status it writes.
+    seed(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    fields = Outcome.no_flood().item_fields()
+    assert write_result(ddb, TABLE, KEY, "a", fields) is True
+    written = stored(ddb)
+    assert write_result(ddb, TABLE, KEY, "a", fields) is True
+    assert stored(ddb) == written
+    # Another token never counts, and neither does another status under this one.
+    assert write_result(ddb, TABLE, KEY, "b", fields) is False
+    failed = Outcome.failed("model_error").item_fields()
+    assert write_result(ddb, TABLE, KEY, "a", failed) is False
+    assert stored(ddb) == written
 
 
 def test_other_aws_errors_propagate(ddb, monkeypatch):

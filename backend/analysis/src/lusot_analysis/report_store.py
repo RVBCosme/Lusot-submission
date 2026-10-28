@@ -6,6 +6,11 @@ lasts 15 minutes. It outlasts the 180 s Lambda timeout, so a live worker never l
 it. It expires before the 1,080 s visibility timeout, so a message redelivered after
 a crash can claim the report again. Every write after the claim needs the report
 still `processing` under this worker's token (spec §3.1).
+
+The SDK retries a call whose answer was lost, such as after a timeout or a 5xx, and
+the repeat then fails its check against the first try's own result. So a failed check
+that finds this worker's own claim or result already stored counts as a success.
+Tokens are new for every delivery, so a match can't be another worker's (C82).
 """
 
 from __future__ import annotations
@@ -29,9 +34,11 @@ def claim(
 
     One conditional write moves the report to `processing` and stamps the token and
     `now_s`. A lease expires only once it is more than LEASE_S old. If the check
-    fails, the old item's status says why: a final status gives "finished", and
-    anything else, such as another worker's live lease, gives "leased". Other AWS
-    errors propagate.
+    fails, the old item says why. A final status gives "finished". `processing` under
+    this token gives "claimed": the SDK repeated a claim whose first try succeeded
+    (C82). Anything else, such as another worker's live lease, gives "leased".
+    `token` must be new for every delivery, so a match is never another worker's.
+    Other AWS errors propagate.
     """
     try:
         ddb.update_item(
@@ -59,8 +66,13 @@ def claim(
             raise
         # A missing item has no status, so it reads as leased. The failed check also
         # means a claim never creates a report.
-        status = exc.response.get("Item", {}).get("status", {}).get("S")
-        return "finished" if status in FINAL_STATUSES else "leased"
+        old = exc.response.get("Item", {})
+        status = old.get("status", {}).get("S")
+        if status in FINAL_STATUSES:
+            return "finished"
+        if status == "processing" and old.get("claimToken") == {"S": token}:
+            return "claimed"  # this claim's own first try (C82)
+        return "leased"
     return "claimed"
 
 
@@ -73,9 +85,10 @@ def write_result(
 ) -> bool:
     """Set every field in one conditional write, under this worker's claim.
 
-    The write needs the report `processing` under `token`. If that check fails, the
-    lease was lost: nothing is written, and it returns False. Other AWS errors
-    propagate.
+    The write needs the report `processing` under `token`. If that check fails but
+    the item holds this token and the status being written, the SDK repeated a write
+    whose first try succeeded, so it returns True (C82). Otherwise the lease was
+    lost: nothing is written, and it returns False. Other AWS errors propagate.
     """
     # Every name goes through a placeholder: `status` and `level` are reserved words.
     names = {"#status": "status"}
@@ -93,11 +106,15 @@ def write_result(
             ConditionExpression="#status = :processing AND claimToken = :token",
             ExpressionAttributeNames=names,
             ExpressionAttributeValues=values,
+            ReturnValuesOnConditionCheckFailure="ALL_OLD",
         )
     except ClientError as exc:
         if exc.response["Error"]["Code"] != _CHECK_FAILED:
             raise
-        return False
+        old = exc.response.get("Item", {})
+        own_token = old.get("claimToken") == {"S": token}
+        own_status = old.get("status") == {"S": fields.get("status")}
+        return own_token and own_status  # this write's own first try (C82)
     return True
 
 
