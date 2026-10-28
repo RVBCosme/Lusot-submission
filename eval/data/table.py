@@ -1,8 +1,9 @@
 """CSV, hash and finding helpers for MS2's data tools (the plan's file rules, C221).
 
 A CSV is read with or without a BOM and with either line ending, and written as UTF-8
-without a BOM, with LF line endings. A blank cell means none. An output file is created
-exclusively and never rewritten.
+without a BOM, with LF line endings. A blank cell means none. A CSV whose header or
+rows don't line up is refused, never repaired. An output file is created exclusively
+and never rewritten.
 """
 
 import csv
@@ -26,26 +27,49 @@ class Table:
     """A CSV's columns and its rows that aren't all blank.
 
     Each row maps every column to its stripped cell, plus "#", the row's 1-based number
-    among the file's data rows. A dropped blank row keeps its number, so `row <n>` names
-    the row Rene sees.
+    among the file's data rows. A dropped blank row keeps its number, so data row n is
+    spreadsheet row n + 1, the header being row 1.
     """
 
     columns: tuple[str, ...]
     rows: list[dict[str, str]]
 
 
+class MalformedCsv(ValueError):
+    """A CSV that can't be read as a table without shifting or losing a value.
+
+    Its one argument is a Finding that names the row or the header column by number,
+    never by its text.
+    """
+
+
 def read_table(path: Path) -> Table:
-    """Read a CSV whose first row names the columns. A missing cell reads as blank."""
+    """Read a CSV whose first row names the columns.
+
+    A column name that is blank, repeated or "#", or a row whose cell count differs
+    from the header's, raises MalformedCsv. No value is shifted or dropped in silence.
+    """
     with path.open(encoding="utf-8-sig", newline="") as file:
         reader = csv.reader(file)
         columns = tuple(cell.strip() for cell in next(reader, []))
+        for number, name in enumerate(columns, start=1):
+            if not name:
+                raise MalformedCsv(Finding("header", f"column {number}", "blank"))
+            if name == "#":
+                raise MalformedCsv(Finding("header", f"column {number}", "reserved"))
+            if name in columns[: number - 1]:
+                raise MalformedCsv(Finding("header", f"column {number}", "duplicate"))
         rows = []
         for number, cells in enumerate(reader, start=1):
             cells = [cell.strip() for cell in cells]
-            if any(cells):
-                row = dict(zip(columns, cells + [""] * (len(columns) - len(cells))))
-                row["#"] = str(number)
-                rows.append(row)
+            if not any(cells):
+                continue
+            if len(cells) != len(columns):
+                kind = "too_many" if len(cells) > len(columns) else "too_few"
+                raise MalformedCsv(Finding(f"row {number}", "cells", kind))
+            row = dict(zip(columns, cells, strict=True))
+            row["#"] = str(number)
+            rows.append(row)
     return Table(columns, rows)
 
 

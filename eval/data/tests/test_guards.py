@@ -38,6 +38,16 @@ def test_refuse_sealed_paths(tmp_path, capsys, parts):
     assert capsys.readouterr().err == "refused: path inside a folder named sealed\n"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="a drive-relative path")
+def test_refuse_sealed_resolves_a_drive_relative_path(capsys):
+    # As given, C:sealed\x.csv splits into "C:sealed", whose name before ":" is C. Only
+    # its absolute form, under the current folder, names sealed. Nothing is created.
+    with pytest.raises(SystemExit) as stop:
+        guards.refuse_sealed(os.path.splitdrive(os.getcwd())[0] + "sealed\\x.csv")
+    assert stop.value.code == 2
+    assert capsys.readouterr().err == "refused: path inside a folder named sealed\n"
+
+
 def test_refuse_sealed_lets_other_names_pass(tmp_path):
     guards.refuse_sealed(
         tmp_path / "unsealed" / "x.csv",
@@ -96,6 +106,7 @@ def test_nul_stdin_and_piped_stdout_fail_the_console_check():
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
+        timeout=synth.TIMEOUT,
         check=False,
     )
     assert piped.returncode == 3
@@ -109,6 +120,7 @@ def test_nul_stdin_and_piped_stdout_fail_the_console_check():
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
+            timeout=synth.TIMEOUT,
             check=False,
         )
         assert trap.returncode == 0
@@ -118,6 +130,7 @@ def test_nul_stdin_and_piped_stdout_fail_the_console_check():
             env=env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
+            timeout=synth.TIMEOUT,
             check=False,
         )
         assert both_nul.returncode == 3
@@ -247,3 +260,13 @@ def test_opened_paths_sees_every_open(tmp_path):
         ("os.listdir", str(folder)),
         ("os.scandir", str(folder)),
     } <= set(events)
+
+
+def test_opened_paths_times_out(tmp_path, monkeypatch):
+    # A tool that waits for input fails instead of hanging the suite. On Windows,
+    # getpass reads the console itself, which NUL can't feed.
+    script = tmp_path / "waits.py"
+    script.write_text("import time\n\ntime.sleep(30)\n", encoding="utf-8")
+    monkeypatch.setattr(synth, "TIMEOUT", 1)
+    with pytest.raises(subprocess.TimeoutExpired):
+        synth.opened_paths(script, [])

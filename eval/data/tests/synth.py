@@ -21,6 +21,10 @@ import table
 # generic rule from matching.
 TEST_PHRASE = "test phrase for synthetic archives"
 
+# Seconds a test's subprocess may run, so a tool that waits for input fails instead of
+# hanging the suite. On Windows, getpass reads the console itself, which NUL can't feed.
+TIMEOUT = 60
+
 
 def jpeg(seed: int, size: tuple[int, int] = (240, 320)) -> bytes:
     """A JPEG of seeded random colour blocks. size is (height, width), numpy's order.
@@ -118,13 +122,17 @@ def opened_paths(
     It returns the exit code and each (event, path) of the open, os.scandir and
     os.listdir events, in order. open covers builtins.open, io.open, os.open and
     pathlib's reads, and also the interpreter's own reads, such as each module it
-    imports.
+    imports. An open inside a C extension, such as cv2.imread's, raises no event.
+
+    A run longer than TIMEOUT seconds is killed, and subprocess.TimeoutExpired
+    propagates.
     """
     with tempfile.TemporaryDirectory() as folder:
         out = Path(folder, "events.json")
         done = subprocess.run(
             [sys.executable, "-c", _AUDIT, str(out), str(script), *argv],
             stdin=subprocess.DEVNULL,
+            timeout=TIMEOUT,
             check=False,
         )
         events = json.loads(out.read_text(encoding="utf-8"))
