@@ -232,8 +232,8 @@ Most likely first. Each line names its test.
   - `@dataclass(frozen=True) class Finding: ref: str; column: str; kind: str`, whose `str()` is `"<ref> <column>: <kind>"`
   - `@dataclass(frozen=True) class Fact: ref: str; fact: str; value: str`, whose `str()` is `"<ref> <fact>=<value>"`
 
-- [ ] **Step 1:** Write `run_tests.py`, both conftests and `synth.TEST_PHRASE`, then run `uv lock --script eval/data/tests/run_tests.py`. Expected: `Resolved` and the new `run_tests.py.lock`.
-- [ ] **Step 2: Write the failing tests.**
+- [x] **Step 1:** Write `run_tests.py`, both conftests and `synth.TEST_PHRASE`, then run `uv lock --script eval/data/tests/run_tests.py`. Expected: `Resolved` and the new `run_tests.py.lock`.
+- [x] **Step 2: Write the failing tests.**
   - `test_refuse_sealed_paths`, parametrized over `tmp_path/"sealed"/"x.csv"`, `tmp_path/"a"/"Sealed"/"x.csv"`, `tmp_path/"SEALED"`, `tmp_path/"sealed"/"sub"/".."/"x.csv"`, `tmp_path/"x"/"sealed"/".."/"y.csv"` (refused as given), `tmp_path/"sealed."/"x.csv"` and, on Windows, `tmp_path/"sealed::$INDEX_ALLOCATION"/"x.csv"`. Each gives `SystemExit` 2 and the message. None of these exists, and the test creates none.
   - `test_refuse_sealed_lets_other_names_pass`: `tmp_path/"unsealed"/"x.csv"`, `tmp_path/"sealed.csv"` and `tmp_path/"sealed_notes"/"x"` pass.
   - `test_is_sealed_name`: `sealed`, `Sealed`, `SEALED`, `sealed.`, `"sealed "` (a trailing space) and `sealed::$INDEX_ALLOCATION` are sealed names; `unsealed`, `sealed.csv`, `sealed_notes` and `""` aren't.
@@ -255,10 +255,12 @@ Most likely first. Each line names its test.
     - `test_sources_read_no_environment`: none contains `getenv`, `environ.get(` or `LUSOT_DATA_DIR`, and the only `environ[` is `photos.py`'s cap line
     - `test_sources_never_import_lusot_analysis_or_scoring`
     - `test_no_password_option`: none contains `--password` or `--pass`
-- [ ] **Step 3:** Run `uv run --locked --script eval/data/tests/run_tests.py`. Expected: FAIL, with `ModuleNotFoundError: No module named 'guards'`.
-- [ ] **Step 4:** Implement `guards.py` and `table.py` with the names above, and the rest of `synth.py`. `refuse_sealed` and `require_sealed` touch no disk.
-- [ ] **Step 5:** Run it again. Expected: all pass.
-- [ ] **Step 6:** Commit `feat(data): add the guards, CSV helpers and the locked test runner`.
+- [x] **Step 3:** Run `uv run --locked --script eval/data/tests/run_tests.py`. Expected: FAIL, with `ModuleNotFoundError: No module named 'guards'`.
+- [x] **Step 4:** Implement `guards.py` and `table.py` with the names above, and the rest of `synth.py`. `refuse_sealed` and `require_sealed` touch no disk.
+- [x] **Step 5:** Run it again. Expected: all pass.
+- [x] **Step 6:** Commit `feat(data): add the guards, CSV helpers and the locked test runner`.
+
+*Evidence (Task 2, Oct 28): commits f754182 and 2f3ab17. `uv run --locked --script eval/data/tests/run_tests.py`: 44 passed, also with `-W error`; ruff, the plan-leak check, the account-ID scan and gitleaks clean. The task review held the guards against every string-level route probed (case, `..`, trailing dots and spaces, `:` streams, UNC, extended-length, relative and drive-relative paths) and confirmed `console_ok()` False in both of Claude's shells; one fix round added the 60 s subprocess timeout (S-R2), a drive-relative test pinning the absolute half of C222, and `MalformedCsv` for over-long or short rows and bad header names; the re-review was clean.*
 
 ### Task 3: Formats, templates and the collection guide (C209, C218, §5.9, §8)
 
