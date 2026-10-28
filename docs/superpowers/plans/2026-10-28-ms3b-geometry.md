@@ -46,6 +46,7 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
 - **Logs:** one JSON line per report, with C316's fields. Never masks, image data, a location, the key, an AWS error message, Muse Spark's `reason` or the evidence record (C328). Inches may be logged.
 - **Printed output:** counts and timings only, with runs of 12 digits masked. No photo names or paths.
 - **What never enters the repo:** account IDs, the Meta Team ID, console links, emails, plan text (cite "plan §N"), photos of any set, manifests, run folders and results rows. Tests build synthetic images and masks only.
+  - The one exception is the sealed run's export. Task 19 writes it to the repo's `eval/results/`, and a disclosed rerun's to `eval/results/rerun/` (MS6's C421), only in Rene's run, holding only MS6's §4.3 fields.
 - **Sealed data:** nothing under a folder named `sealed` is opened, listed or searched. Every new script calls the runner's `refuse_sealed` on every path it is given before opening anything. Set B's final cars and Set D are never touched. No Set A or A-neg photo is opened before MS2's split.
   - Task 19's entry point is the one tool that reads inside a folder named `sealed`, and only when Rene runs it (C329).
   - Its tests make their own `tmp_path` folder named `sealed`. That folder is synthetic, not sealed data. No test reads `lusot-data` or any real sealed folder, and no one opens the test folders by hand.
@@ -113,6 +114,10 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
   - Python `>=3.13,<3.14` through uv. No dependency changes.
   - Conventional Commits ending with the session's attribution lines, written with `git commit -F <file>`. Never `--no-verify`.
   - Run `node scripts/check_account_ids.mjs` from the repo root before every commit: the pre-commit hook doesn't run it (MS3a's `baa69a0`).
+  - **Tests pin start values.** A test whose expected numbers come from the start values passes `START`, or `replace(START, ...)`, never the live `TUNING`. Then Task 17's tuning never breaks it, as P9 did for the sweep grid. Only these read `TUNING`:
+    - `test_start_values_are_the_specs` and `test_untuned_values_are_still_their_start_values`
+    - Task 3's check that a bad rim still fails under the live tuning
+    - tests that compare two runs of the same code, with no number of their own
   - No Docker build while a Gradle build runs. Refresh PATH first, and commit from PowerShell.
   - Run the analysis package's commands from `backend/analysis` with `uv run`.
 
@@ -276,7 +281,7 @@ Most likely first. Each line names its tests.
     - In column x, the water starts at row `y_true + seam + round(ripple × sin(x ÷ 7))`. For `"none"` and `"hole"`, the wheel's pixels are removed from it. For `"overlap"`, it keeps them.
   - `instance(...)` gains `mask: np.ndarray | None = None`, which overrides `mask_xyxy` when given.
 
-- [ ] **Step 1: Write the failing tests.** The values come from a scratch run of the algorithm above on these scenes.
+- [ ] **Step 1: Write the failing tests.** The values come from a scratch run of the algorithm above on these scenes. Each passes `START`, so tuning T, the touch share or the IQR share in Task 17 never breaks it.
   - `test_seam_within_tolerance_touches` (C301, D3's seam), with `wheel_scene(y_true=250, seam=s)`:
     - s = 0 → `y_w == 250.0`, cause `None`
     - s = 3 → `253.0`; s = 4 → `254.0` (the distance is 5)
@@ -341,7 +346,7 @@ Most likely first. Each line names its tests.
     - otherwise the deeper, and an equal level counts as geometry
 
 - [ ] **Step 1:** Write `test_fit_ellipse_facts_on_this_opencv`, then run it before writing any code: a disk mask of radius 35 at (320, 240) fits a centre within 0.5 px and r within 1.0 of 35; a filled ellipse with semi-axes 40 and 20 gives `max(w, h) / 2` within 1 of 40, a ratio within 0.02 of 0.5, and `width_x` within 1 of 80; turned 30°, `width_x` is within 1 of 72.1; 4 points raise `cv2.error`. Expected: PASS. If it fails, stop: the OpenCV facts above are wrong for this version, and the controller rules on them before anything else.
-- [ ] **Step 2: Write the failing tests:**
+- [ ] **Step 2: Write the failing tests.** Each passes `START` where it takes a tuning, so its check 9 bounds, daylight cutoff, rim score and step 3 values stay put when Task 17 tunes them (minor 5 of the second review). Only the hubcap test's last check reads the live `TUNING`.
   - `test_link_rims_by_centre` (C300): wheels A `(100, 100, 200, 200)` and B `(180, 100, 280, 200)`. Rims centred at:
     - (140, 150) → A, and (240, 150) → B
     - (190, 150) → neither (it is inside both); (400, 150) → neither
@@ -354,7 +359,7 @@ Most likely first. Each line names its tests.
     - 195/55R16, `r=42, k=1.05, centre_y=100, y_w=110`: s = 5.0, depth 10.2224 (10.2 in) → `half_tire`
   - `test_envelope_over_the_sedan_codes`: `r=35, k=1.0, centre_y=200, y_w=215` over `tire_codes("sedan_hatch")` gives 8.4783, 8.2916, 8.6558 and 8.7939. `geometry_reading` gives min 8.2916, max 8.7939 and `half_knee`, which `round_out` stores as 8.2 and 8.8.
   - `test_depth_not_positive_boundary` (C306): `geometry_reading([0.0, 3.0]) == "depth_not_positive"`; `[0.01, 3.0]` gives `GeometryReading(0.01, 3.0, "below_gutter")`.
-  - `test_rim_size_bounds_from_the_codes` (R88, R91), hand-computed as `rim × c ÷ (D × c + W × s)`, with `TUNING`. All values to 1e-4.
+  - `test_rim_size_bounds_from_the_codes` (R88, R91), hand-computed as `rim × c ÷ (D × c + W × s)`, with `START`. All values to 1e-4.
     - **`sedan_hatch` at axis ratio 1.0** (s = 0, so the ratio is rim ÷ D): 175/65R14 gives 14 ÷ 22.9567 = 0.6098; 185/55R15, 15 ÷ 23.0118 = 0.6518; 185/60R15, 15 ÷ 23.7402 = 0.6318; 195/55R16, 16 ÷ 24.4449 = 0.6545. Bounds: 0.85 × 0.6098 = 0.5184 and 1.15 × 0.6545 = 0.7527.
     - **`sedan_hatch` at axis ratio 0.6** (s = 0.8; W = 6.8898, 7.2835, 7.2835 and 7.6772 in):
       - 175/65R14: 8.4 ÷ (13.7740 + 5.5118) = 0.4356
@@ -363,12 +368,12 @@ Most likely first. Each line names its tests.
       - 195/55R16: 9.6 ÷ (14.6669 + 6.1417) = 0.4613
       - Bounds: 0.85 × 0.4356 = 0.3702 and 1.15 × 0.4613 = 0.5306.
     - **The other types at 1.0:** `suv_mpv` (0.5134, 0.7555), `van` (0.4883, 0.6607), `unknown` (0.4883, 0.7555).
-  - `test_check_fit_boundaries`: the base is `RimFit(centre_x=320.0, centre_y=240.0, r=35.0, axis_ratio=0.9, width_x=70.0, axes=(70.0, 63.0), angle_deg=0.0, points=50)` with wheel box `(263, 183, 378, 257)`, `y_w = 257`, the sedan codes and `TUNING` → `None`. Its rim size, 70 ÷ 115 = 0.6087, lies inside the bounds at 0.9, which are 0.4526 to 0.6533. Then:
+  - `test_check_fit_boundaries`: the base is `RimFit(centre_x=320.0, centre_y=240.0, r=35.0, axis_ratio=0.9, width_x=70.0, axes=(70.0, 63.0), angle_deg=0.0, points=50)` with wheel box `(263, 183, 378, 257)`, `y_w = 257`, the sedan codes and `START` → `None`. Its rim size, 70 ÷ 115 = 0.6087, lies inside the bounds at 0.9, which are 0.4526 to 0.6533. Then:
     - `axis_ratio` 0.5, with `width_x` 48.0 → `None`: 48 ÷ 115 = 0.4174 lies inside that ratio's bounds of 0.3411 to 0.4875 (finding 3; 70.0 would fail check 9 there). `axis_ratio` 0.4999 → `rim_axis_ratio`.
     - `y_w` 240.0 → `None` (at the hub); 239.99 → `water_above_hub`
     - `centre_x` 263.0 → `None` (on the edge); 262.99 → `rim_fit_off_wheel`
     - check 9 (R88, R89, R91), with `axis_ratio=1.0` (bounds 0.51837 and 0.75271) and wheel box `(300, 183, 400, 257)` (width 100, so the rim size is `width_x ÷ 100`): `width_x` 51.86 → `None`; 51.82 → `rim_size`; 75.26 → `None`; 75.28 → `rim_size`
-  - `test_check_9_factors_come_from_the_tuning` (finding 1): with axis ratio 1.0, wheel box `(300, 183, 400, 257)` and `width_x` 50.0 (a rim size of 0.50), `check_fit` gives `rim_size` under `TUNING` (lower bound 0.51837), and `None` under `replace(TUNING, rim_size_low=0.80)` (lower bound 0.80 × 0.60984 = 0.48787).
+  - `test_check_9_factors_come_from_the_tuning` (finding 1): with axis ratio 1.0, wheel box `(300, 183, 400, 257)` and `width_x` 50.0 (a rim size of 0.50), `check_fit` gives `rim_size` under `START` (lower bound 0.51837), and `None` under `replace(START, rim_size_low=0.80)` (lower bound 0.80 × 0.60984 = 0.48787).
   - `test_an_angled_rim_passes_checks_7_and_9` (R89, R91): a 175/65R14 wheel at 5 px per inch, seen at axis ratio 0.6.
     - **The box.** It takes in the tread: the face is D × cos φ = 114.78 × 0.6 = 68.87 px, plus W × sin φ = 34.45 × 0.8 = 27.56 px of tread on one side. So the box is `(258.01, 183, 354.44, 257)`, 96.43 px wide.
     - **The fit.** The rim of `wheel_scene(y_true=257, squash=0.6)` with `y_w = 257` fits `w` 40.77 and `h` 68.15 at angle 0. So `axis_ratio` is 0.598 (check 7 passes), and `width_x` 40.77 gives a rim size of 0.4228.
@@ -553,7 +558,11 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
   - `test_a_dry_reference_refuses_rather_than_reads_shallow` (C317): `level_case()` plus person 3, box `(450, 50, 480, 200)`, answered at `waist`. No water reaches the person, so the result is `references_disagree`, with `drops["no_water_contact"] == 1`.
   - `test_a_dry_standing_adult_still_blocks_wading_adults` (C317, C57; finding 8): `level_case()` plus person 3 (box `(450, 50, 480, 200)`, an adult standing still, at `knee`, with no water near) and person 4 (box `(520, 150, 560, 280)`, an adult not standing still, at `knee`). Person 4 drops as `person_wading`, before step 3 runs, and step 3 then drops person 3 as `no_water_contact`. The result is `knee` from wheel 2, with `drops["person_wading"] == 1` and `drops["no_water_contact"] == 1`.
   - Review Focus 3, `test_not_visible_wheel_gets_no_geometry`: `geometry_case(waterline="not_visible")` with geometry on → `geometry_checks == {"waterline_not_visible": 1}`, `wheels_measured == 0`, `no_usable_reference`, and no step 3 cause in `drops`.
-  - `test_a_rim_in_a_cut_wheel_never_joins_a_kept_one` (P14): `geometry_case()` plus a 30 px `wheel` at `(300, 228, 330, 257)`, which the 40 px rule cuts, and a second `wheel rim` centred at (315, 245), inside both wheel boxes. That rim links to no single wheel, so wheel 2 keeps its own rim and still measures: `wheels_measured == 1` and `geometry_checks == {}`. Linking among the kept wheels only would give wheel 2 two rims (`rim_several`).
+  - `test_a_rim_in_a_cut_wheel_never_joins_a_kept_one` (P14), with `geometry_case()` and two extra SAM instances:
+    - a 30 px `wheel` at `(340, 228, 370, 257)`, inside wheel 2's box and the vehicle's. The 40 px rule cuts it, so `drops["wheel_small"] == 1`.
+    - a second `wheel rim` centred at (355, 245), inside both wheel boxes
+    - The real rim's box centre (320.5, 231) and its fit centre (320, 239.6) both lie outside the cut wheel's box. So the real rim joins wheel 2 alone, and the extra rim, in two wheel boxes, joins neither.
+    - So wheel 2 keeps its own rim and still measures: `wheels_measured == 1` and `geometry_checks == {}`. Linking among the kept wheels only would give wheel 2 both rims (`rim_several`).
   - `test_log_keys_are_the_known_set` (C316): `set(run.log)` sits inside MS3a's keys plus the new ones above, so a mask can't reach the log.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_pipeline.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement.
@@ -714,7 +723,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - [ ] **Step 1: Write the failing tests:**
   - `test_writes_inches_as_numbers` (C308): `depthInMin` 8.2, `depthInMax` 8.8 and `levelFrom` `"geometry"` are stored as `{"N": "8.2"}`, `{"N": "8.8"}` and `{"S": "geometry"}`.
   - `test_geometry_setting_is_read_before_the_claim`, parametrized over unset and `"maybe"` → `RETRY`, the report stays `pending`, and the fake made no call.
-  - `test_geometry_result_is_stored_with_its_source_and_inches` (C308): `geometry_case()` gives an item with `level` `half_knee`, `levelFrom` `geometry`, `depthInMin` 7.7 and `depthInMax` 8.2, stored as numbers.
+  - `test_geometry_result_is_stored_with_its_source_and_inches` (C308): `geometry_case()` gives an item with `levelFrom` `geometry`, and its `level`, `depthInMin` and `depthInMax` equal `run_pipeline`'s own `item_fields()` for the same case under the live tuning (`half_knee`, 7.7 and 8.2 at the start values), stored as numbers. The handler reads the live tuning, so the test compares the two rather than pinning numbers.
   - `test_landmark_result_stores_level_from_only` (C320): `level_case()` gives `levelFrom` `landmark` and no `depthIn*`.
   - `test_b3_geometry_replay_matches` (D1, B3): the runner's `live()` records `geometry_case()` with geometry on. `replay(...).outcome == analyse(data, SavedOutputsClient(run_dir, data)).outcome`, both carry the inches, and their evidence records are equal (C328).
   - MS3a's `test_b3_on_a_real_saved_run` compares `rebuild_outcome(saved["outcome"])` with the handler's outcome, so a folder isn't failed by the keys it lacks. It is meant for a folder MS3b's runner saved (Task 11 Step 7). An MS3a folder can still fail it on a real change, since the handler now runs step 3, and geometry by `GEOMETRY_IN_LEVEL` (P12).
@@ -738,14 +747,14 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - Produces:
   - `check_geometry_line(line: dict) -> None` raises `CheckFailed("no wheel measured")` unless `wheels_measured >= 1`
   - No new body check: `check_report_body` already fails a body with any key beyond C67's, so `levelFrom`, `depthInMin` and `depthInMax` fail it (C320). A test pins that.
-  - `smoke_upload.py --bound S` (R119): the wait for each report's final status, passed through `upload_photo` to `await_report`'s `bound_s`. It defaults to 120 s, B1's bound (C68). MS3b's runs pass `--bound 180`, since MS3a's runs stop as late as about 150 s (C84, C88) and geometry adds time.
+  - `smoke_upload.py --bound S` (R119): the wait for each uploaded photo's final status, passed through `upload_photo` to `await_report`'s `bound_s`. It defaults to 120 s, B1's bound (C68). MS3b's runs pass `--bound 180`, since MS3a's runs stop as late as about 150 s (C84, C88) and geometry adds time. The missing-photo check keeps its own 60 s bound (`MISSING_PHOTO_S`; MS3a spec §3.6).
   - `smoke_upload.py --geometry N`: sends the photo at position N of C87's order (`seeded_photo_order(folder)[N]`), as the app sends it, and only that photo. It stops with `CheckFailed`, before any upload, if `credited` skips that photo. Through `upload_photo` it waits for the final status within `--bound` and checks the body. It then runs `check_geometry_line` on the report's final log line, and prints the outcome, `level_from`, `wheels_measured`, `geometry_checks` and the spend. It exits 0 when every check passes and 1 otherwise. No path or name is typed or printed.
 
 - [ ] **Step 1:** Write the failing tests:
   - `test_geometry_check_needs_a_measured_wheel`: `wheels_measured` 1 passes; 0 or missing → `CheckFailed`.
   - `test_report_body_refuses_levelfrom_and_the_inches` (C320): a level body plus any one of the three keys → `CheckFailed` naming that key.
   - `test_geometry_mode_sends_one_credited_photo` (on fakes): position N's credited photo is the one sent; an uncredited one stops with `CheckFailed` before any upload.
-  - `test_bound_reaches_every_wait` (R119): with `--bound 180`, every report's wait gets 180 s; without it, 120 s.
+  - `test_bound_reaches_every_wait` (R119): with `--bound 180`, every uploaded photo's wait for its final status gets 180 s; without it, 120 s. The missing-photo check's wait stays 60 s either way (`MISSING_PHOTO_S`; MS3a spec §3.6).
 
   Run them with MS3a's command (its Task 15, Step 2): `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root. Expected: FAIL. Implement them, re-run, expect PASS, and commit `test(backend): add the smoke run's geometry check`.
 - [ ] **Step 2 (Claude; about $0.03 a photo):** find a photo with a geometry reading, offline, on the photo the cloud will get (P7).
@@ -783,7 +792,9 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - Set A's `m8.csv`: one row per labelled item, with `photo_id`, `ref_id` (`P1` is the photo row), `kind` (`photo`, `vehicle`, `wheel` or `person`), `x` and `y` (fractions of the photo's width and height, from the top left), `vehicle_type`, `body_waterline`, `waterline`, `quality` and `subsets`
   - The tools need `photo_id` (unique), `set` and `photo_file`. Set A rows also need `event_id`, which the replay groups by; other manifests, such as Task 16's for Set C, may leave it out (P10). The export bridges the rest into §4.3's fields: `yes` and `no` into booleans, `;`-separated lists into lists, `quality` and `subsets` from M8's photo row, M8's points into box ids, and `duplicate_of` into `duplicate`. Only §4.3's fields reach a row: cities, spots, notes, file names, hashes, sizes and times stay out.
   - If MS2's format changes, MS2's wins: adapt the reader in Step 1 and record how.
-- Produces, in `lusot_analysis.export` (MS6's sealed-run entry point reuses it, C412; MS3b doesn't build that entry point):
+- Produces, in `lusot_analysis.export`, which Task 19's sealed-run entry point reuses unchanged (MS6's C412). Everything here is path-free: text and objects in, rows out. Each tool opens its own files after its own path guard: `refuse_sealed` in the development tools, `require_sealed` in Task 19.
+  - `parse_manifest(text: str) -> list[dict]` and `parse_m8(text: str) -> dict[str, list[dict]]`: MS2's `manifest.csv` and `m8.csv`, parsed from their text. M8's rows come grouped by `photo_id`. `photo_id` must be unique, and `event_id` is required on Set A rows only (P10).
+  - `bridge_base(row: Mapping, m8_rows: Sequence[Mapping], *, words: frozenset[str]) -> dict`: one manifest row as §4.3's base fields, as the input notes above list. `yes` and `no` become booleans, `;`-separated lists become lists, and `quality` and `subsets` come from M8's photo row. `duplicate_of` becomes `duplicate`, and every label goes through `label_or_marker`. It lives here, not in `dev_eval.py export`, so Task 19 bridges the sealed rows with the same code.
   - `CONFIGURATIONS = {"landmark": False, "geometry": True}`: each outcome key and its `geometry_in_level`
   - `answer_without_reason(data: Mapping | None, schema: dict) -> dict | None`: the answer without its `reason`. It is `None` when there was no answer, or when the answer fails the schema (`validate_answer`), since MS6's allow-list would refuse such a row (P13).
   - `replay_configurations(photo_data: bytes, run_dir: Path, prompt: PromptSpec, *, tuning: Tuning = TUNING, configurations=CONFIGURATIONS) -> dict[str, PipelineRun]`: one replay per configuration, with no Meta call
@@ -807,18 +818,19 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - `answer`
     - `wheel_inches`: `{"<box id>": {"depthInMin", "depthInMax"}}` from the `geometry` run's evidence record, unrounded, to 4 decimal places (C327; finding 2)
     - `m8`, on Set A rows
-  - `results_manifest(*, date: str, rules_version: str, tuning: Tuning, saved_run: Mapping, geometry_default: str, dropped_reason: str | None, datasets: Mapping) -> dict`:
-    - `kind` `"development"`, `date` and `rules_version`
+  - `results_manifest(*, kind: Literal["development", "sealed"] = "development", date: str, rules_version: str, tuning: Tuning, saved_run: Mapping, geometry_default: str, dropped_reason: str | None, datasets: Mapping, freeze_commit: str | None = None, baseline: Mapping | None = None, stops: Sequence[Mapping] = (), rerun_reason: str | None = None) -> dict`:
+    - `kind`, `date` and `rules_version`
+    - for a sealed run (Task 19): the freeze commit, `baseline_level` and `baseline_class` (MS6's C424), each stop and resume (C419), and a rerun's reason (C421). A development run carries none of these.
     - `versions`: the models, the prompt, the drawing, the blur, `store` (false), `max_side` (1,600), the SAM phrases sent, the tuning, `rim_edge_k`, the tire codes and the reasoning effort (v0.7 item 10.1)
     - `datasets`, and `self_check` (`{"state": "off", "decided": null}` until C311 says otherwise)
     - `geometry_default`: `on`, `off` or `dropped`, with its reason when dropped (MS6's C418)
 - Produces, in `probes/dev_eval.py`:
-  - `read_manifest(path: Path, data_dir: Path, *, photos: str = "photos") -> list[dict]`. `photos` is the photo folder, relative to the manifest's folder: MS2's `photos\` by default, and `commons-ph-floods\images` for Task 16's Set C manifest. `refuse_sealed` runs on every path before it is opened.
+  - `read_manifest(path: Path, data_dir: Path, *, photos: str = "photos") -> list[dict]`. `refuse_sealed` runs on every path before it is opened, then `parse_manifest` reads the text and each row gains its photo's path. `photos` is the photo folder, relative to the manifest's folder: MS2's `photos\` by default, and `commons-ph-floods\images` for Task 16's Set C manifest.
   - `settings_name(tuning: Tuning) -> str`: `"<effort or default>_<drawing>"`, such as `default_boxes-v1`
   - `run_dir_for(data_dir: Path, row: Mapping, settings: str, *, repeat: int = 1) -> Path`: `<data_dir>/runs/dev/<row's set>/<settings>[_r<repeat>]/<photo_id>`. Runs at different efforts or drawings never share a folder (finding 5).
   - `run --manifest F [--photos DIR] [--limit N] [--effort E] [--drawing D] [--repeat 2] [--sam-from SETTINGS] [--yes]`: a live run for each row without a saved run in its folder. The settings are the tuning's, changed by the flags. `--sam-from` reuses SAM's saved outputs from that sibling folder and pays for `judge` only; a row without them runs in full. It prints the photo count and the estimated cost first: $0.03 a full photo, $0.015 for Muse Spark alone. After the runs it prints counts only, never an outcome, so no Set A result shows before v0.7 (C322).
   - `export --set-a F --m8 F --a-neg F --out DIR --rules-version V [--set NAME=VALUE ...] [--runs SETTINGS] [--datasets JSON] [--geometry-default on|off|dropped] [--dropped-reason TOKEN] [--replay FILE]`:
-    - It writes `run.json`, `set_a.jsonl` and `a_neg.jsonl`.
+    - It writes `run.json`, `set_a.jsonl` and `a_neg.jsonl`, bridging each row with `bridge_base`.
     - `--runs` defaults to the tuning's own settings. A row whose saved run used another effort or drawing than the tuning's → exit 2, so efforts never mix (finding 5).
     - `--out` must lie under `LUSOT_DATA_DIR` and outside the repo, and no part of it may be named `sealed`.
     - A row without a saved run → exit 2 ("run `dev_eval.py run` first").
@@ -842,6 +854,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - The same table runs through the harness's own `label_words_ok`, in a subprocess that loads `scoring.labels` from `eval/`, so `backend/analysis` never imports it (C321). The test checks that both give the same verdict on every row, so the export can't drift from the harness.
     - It is skipped, with its reason, only while `eval/scoring/labels.py` isn't in the tree. A second check, with a patched `--label-words` list, needs no harness: it runs the table through `label_or_marker` alone, and an `other_alerts_raw` entry is handled the same way.
   - `test_export_writes_the_results_folder`: two Set A rows and one A-neg row give 2 and 1 lines. `run.json` has `kind` `development`, the given `rules_version`, tuning `tuning-v1`, `rim_edge_k` 1.0, the tire codes version, `reasoning_effort` null, the drawing `boxes-v1`, `store` false, `max_side` 1600, the SAM phrases sent, and `geometry_default` `on`. The fake makes no call during the export.
+  - `test_parsers_take_text_not_paths` (for Task 19's reuse): `parse_manifest`, `parse_m8` and `bridge_base` work on CSV text alone, with no path and no guard. `results_manifest(kind="sealed", ...)` carries the freeze commit, the baseline pair, the stops and a rerun's reason, and a development one carries none of them.
   - `test_dropped_geometry_writes_only_landmark` (MS6's C418): `--geometry-default dropped --dropped-reason manila_check` → `run.json` records both, every row's `outcomes` has only `landmark`, and `wheel_inches` is empty.
   - `test_replay_outcomes_join_every_set_a_row` (MS6's C425): with a `replay.jsonl`, each Set A row gains `landmark_replay` and `geometry_replay`; a Set A row missing from it → exit 2.
   - Review Focus 7, `test_export_refuses_mixed_settings` (finding 5): a row whose saved run used `low` while the tuning's effort is the default → exit 2, with nothing written.
@@ -966,6 +979,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 
 **Files:**
 - Create: `backend/analysis/probes/set_b.py`
+- Modify: `backend/analysis/src/lusot_analysis/export.py` (Set B's path-free functions, below)
 - Test: `backend/analysis/tests/test_set_b.py`
 
 **Interfaces:**
@@ -976,10 +990,15 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `true_depth_in`, `view`, `size_bin` and `rim_edge_ratio`
 
   If MS2's format changes, MS2's wins: adapt the reader and record it.
-- Produces, in `probes/set_b.py`:
+- Produces, in `lusot_analysis.export`, path-free like Task 12's functions, so Task 19 reuses them on Set B's final crops:
+  - `WheelRow`, and `parse_truth(text: str) -> list[WheelRow]`, with every field checked
+  - `scale_row(row: WheelRow, factor: float) -> WheelRow`: its pixel values times `factor`, the scale `blur_for_meta` applies (sent width over the crop's width)
+  - `wheel_estimates`, `k_estimate` and `set_b_row`, below
+- Produces, in `probes/set_b.py`, the commands and their path guard:
   - `SET_B_PHRASES = ("floodwater", "wheel", "wheel rim")`
-  - `read_wheels(path: Path, data_dir: Path) -> list[WheelRow]`, with every field checked. Pixel values are scaled by the factor `blur_for_meta` applies, sent width over the crop's width.
+  - `read_wheels(path: Path, data_dir: Path) -> list[WheelRow]`: `refuse_sealed` on every path before it is opened, then `parse_truth`, then `scale_row` with each crop's own factor.
   - `segment --truth F [--yes]` (paid): for each crop, once whatever its wheels, `blur_for_meta`, then `segment_all` with the 3 phrases, saved with `save_sam_results` under `<data_dir>/set_b_runs/<crop_id>/`. It skips crops already saved, and prints "N SAM calls, about $X" first, at $0.0025 a call.
+- The path-free functions, in `lusot_analysis.export`:
   - `wheel_estimates(row: WheelRow, sam: Mapping[str, SamResult], brightness: float, *, tuning: Tuning) -> dict[str, dict]`, keyed by the four variants of C314:
     - **MS2's true box only picks the SAM wheel** (finding 6): the one SAM wheel whose box holds the true box's centre. None or several such wheels → every variant `wheel_not_found`.
     - Rims link to the crop's SAM wheels by C300 (`link_rims`), and the fit and checks 6 and 9 use the SAM wheel's box, as the pipeline does. None or several linked rims → `rim_missing` or `rim_several`. So the variants differ only in `y_w` and k.
@@ -991,7 +1010,9 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
       - the min and max are the reading's envelope
     - An unmeasured variant is `{"measured": false, "cause": <token>}`: a step 3 cause, `wheel_not_found`, or a `GEOMETRY_CAUSES` value, `rim_size` included.
   - `k_estimate(ratios_by_car: Mapping[str, Sequence[float]]) -> float | None`: the median of each car's median of `(2 r ÷ px_per_in) ÷ rim_in`, taken from the `fit` of each `known_waterline_uncalibrated` variant that measured. Check 9 thereby keeps hubcap and whole-wheel masks out of k (G3, C310).
-  - `export --truth F --out DIR --rules-version V` (free): it writes `run.json` and `set_b.jsonl`, one row per wheel: `crop_id`, `wheel`, `car_id`, `vehicle_type`, `tire_code`, `true_depth_in`, `sam_water_found`, `bins` (MS2's `view` and `size_bin`, passed under those names, MS6's C423) and `estimates`. It prints the wheels, the measured count per variant, the wheels that fail check 9 by axis ratio, and `k_estimate` with its number of cars, beside the median of MS2's `rim_edge_ratio`, a cross-check from the dry rim mask (MS2's C212; C310).
+  - `set_b_row(row: WheelRow, estimates: Mapping, sam_water_found: bool) -> dict`: one `set_b.jsonl` row, with `crop_id`, `wheel`, `car_id`, `vehicle_type`, `tire_code`, `true_depth_in`, `sam_water_found`, `bins` (MS2's `view` and `size_bin`, passed under those names, MS6's C423) and `estimates`
+- The rest of `probes/set_b.py`'s commands:
+  - `export --truth F --out DIR --rules-version V` (free): it writes `run.json` and `set_b.jsonl`, one `set_b_row` per wheel. It prints the wheels, the measured count per variant, the wheels that fail check 9 by axis ratio, and `k_estimate` with its number of cars, beside the median of MS2's `rim_edge_ratio`, a cross-check from the dry rim mask (MS2's C212; C310).
   - `overlay --truth F --crop ID --wheel N` (free; P4): the crop with that wheel's SAM wheel and rim masks and its rim fit drawn, written under `<data_dir>/set_b_overlays/`, never in the repo. Task 17 uses it to check by eye whether a rim that fails check 9 is the true rim. It prints only the count of files written, never a path.
   - `rims --folder DIR [--yes]` (C323; paid, about $0.005 a photo): the early rim check on the Commons car photos, before Set B exists.
     - **The join (P2):** each `cars_meta.csv` row joins `attribution.csv` by `title`, and that row's `file_name` names the photo in `DIR\images\`. All 6 titles match. `cars_meta.csv` has no `file_name`, and its `sha1` is the Commons original's, while the files are 1920 px thumbnails. So `sha1` is only a key for the saved folder, never compared with a file's hash.
@@ -1144,19 +1165,30 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
 
 **Files:**
 - Create: `backend/analysis/probes/run_sealed.py`
+- Modify: `backend/analysis/src/lusot_analysis/export.py` (`parse_set_d`, `set_d_estimates`)
 - Test: `backend/analysis/tests/test_run_sealed.py`
 
 **Interfaces:**
 - **Consumes:**
   - MS3a's pipeline: `run_pipeline` with `READING_PHRASES` (C66)
   - Task 9's saved runs: `RecordingClient`, `SavedOutputsClient`, `rebuild_outcome`, `save_sam_results` and `load_sam_results` (R108, R109); and the runner's conventions, R110's exit codes and `say()`'s masking
-  - Task 12's export: `replay_configurations`, `photo_row`, `m8_boxes`, `label_or_marker` and `results_manifest` (C315, C327)
-  - Task 15's Set B tools: `read_wheels`, `wheel_estimates` and its export, for Set B's final crops and, only if it rained, Set D's photos
+  - Task 12's path-free export: `parse_manifest`, `parse_m8`, `bridge_base`, `label_or_marker`, `replay_configurations`, `photo_row`, `m8_boxes` and `results_manifest(kind="sealed", ...)` (C315, C327)
+  - Task 15's path-free Set B functions: `parse_truth`, `scale_row`, `wheel_estimates` and `set_b_row`, for Set B's final crops
+  - Not the development tools' readers: `read_manifest` and `read_wheels` refuse every `sealed` path, by design. Task 19 opens the sealed files itself, after its own guard, and hands their text to the path-free functions.
   - the label words, from `python eval/run_eval.py --label-words`, run as a subprocess (MS6's C420)
-  - MS2's guard copies in `probes/set_b_masks.py`: `require_sealed`, `console_ok`, `require_console`, `confirm` and `quiet` (MS2's C202). If MS2 hasn't merged by then, copy the seven guards verbatim from `eval/data/guards.py`, and extend MS2's parity test to the new copy.
+  - MS2's guard copies in `probes/set_b_masks.py`: `require_sealed`, `console_ok`, `require_console`, `confirm` and `quiet` (MS2's C202). If MS2 hasn't merged by then, copy `set_b_masks.py`'s seven verbatim from `eval/data/guards.py`: `is_sealed_name`, `refuse_sealed`, `require_sealed`, `console_ok`, `require_console`, `confirm` and `quiet`, but not `ask_password`. Then extend MS2's parity test to the new copy.
   - MS6's row contract (its §4.3) and freeze (its §4.6)
-- **Produces:** `python probes/run_sealed.py <sealed folder> [--resume RUN]`, as MS6's §4.5 step 6 and C412 describe:
-  - **The folder.** It reads only inside a folder named `sealed`, by MS2's `require_sealed`: in any case, with a trailing dot or space, or as an NTFS stream name. Both the path as written and its resolved form must name it. This mirrors C66's runner, which refuses sealed paths, so each tool refuses the other's inputs.
+- **Produces:**
+  - `python probes/run_sealed.py <sealed folder> [--resume RUN] [--rerun REASON] [--results DIR]`, as MS6's §4.5 step 6 and C412 describe.
+  - `--results` is where the export goes. It defaults to the repo's `eval/results/`, or `eval/results/rerun/` with `--rerun` (MS6's C421). A folder under `sealed` is refused. The tests always pass a `tmp_path` folder, so no test writes into the repo.
+  - In `lusot_analysis.export`, path-free: `parse_set_d(text)` and `set_d_estimates(row, sam, brightness, *, tuning)`, only for the case where it rained.
+    - A Set D row's wheel is the leftmost or rightmost SAM wheel, as its `wheel` says.
+    - Its estimates are only the `geometry` and `geometry_uncalibrated` variants, since Set D has no known waterline.
+
+  What it does:
+  - **The folder.** It reads only inside a folder named `sealed`, by MS2's `require_sealed`: in any case, with a trailing dot or space, or as an NTFS stream name.
+    - `require_sealed` checks only the absolute, normalised path. So Task 19 calls it twice, on the path as written and on `Path(path).resolve()`, and both must name `sealed`. MS2's copy stays verbatim.
+    - This mirrors C66's runner, which refuses sealed paths, so each tool refuses the other's inputs.
   - **The console.** It starts only from an interactive console (`console_ok`: `GetConsoleMode` on stdin and stdout, MS2's C202), after Rene types a confirmation (`confirm`). `isatty()` isn't enough, because it passes on NUL, where an agent's shell sends stdin.
   - **The freeze.** It refuses a tree with changes, and any commit but the tagged freeze, or the second freeze for the one disclosed rerun (MS6's C413, C421). It records the freeze commit. It writes the last development report's `baseline_level` and `baseline_class`, from that report's `summary.json`, into `run.json` (MS6's C424).
   - **The labels (C420, C329).** Before any paid call, it checks every label with Task 12's `label_or_marker`. If any would become `(other words)`, it prints how many and stops with exit 2, unless Rene confirms that too. On his go-ahead, the export writes the marker, and those photos are excluded as unmapped. A label it can't read stops it.
@@ -1164,20 +1196,25 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
     - It runs the frozen pipeline once per photo, with the self-check if it is on. It sends the same face-blurred photo the live system would (rules §10), with the 5 phrases the reading uses, skipping the face and plate phrases.
     - It saves the raw SAM masks and Muse Spark answers under the `sealed` folder (rules §10).
     - It replays the saved outputs for every configuration (C309, C315).
-    - Set B's final crops, and any Set D photos, go through SAM's phrases and the geometry. Set D's `set_d_log.csv` rows (`photo_id`, `wheel` left or right, `ruler_depth_in`, `vehicle_type`, `tire_code`) are bridged to MS6's Set D rows.
+    - Set B's final crops, and any Set D photos, go through SAM's phrases and the geometry. Set D's `set_d_log.csv` rows (`photo_id`, `wheel` left or right, `ruler_depth_in`, `vehicle_type`, `tire_code`) are bridged to MS6's Set D rows by `parse_set_d` and `set_d_estimates`.
   - **Paying once.** It pays for each photo once.
     - **Resume (MS6's C419):** a stop for a rejected key, a crash or a lost connection resumes as the same run. Photos with saved outputs are never sent again. `run.json` records each stop and its cause, and only a completed run is exported. A resume isn't the disclosed rerun.
     - **MS6E-Q6,** a photo that failed because Meta's service failed: under default (a), it is retried once before the export, and the count of retries is disclosed. A photo whose answer was invalid is never retried. Follow Rene's answer if it differs.
-  - **The export.** Through MS3b's export, it writes only §4.3's fields to the repo's `eval/results/`. That is the one place any MS3b tool writes into the repo, and only in Rene's run (MS6 §4.5 step 6). Its `run.json` has `kind` `sealed`, the freeze commit, the frozen versions and each stop. The raw outputs stay under `sealed`.
+  - **The export.** Through MS3b's export, it writes only §4.3's fields to `--results`. That is the repo's `eval/results/`, or `eval/results/rerun/` for the one disclosed rerun, at the second freeze with its reason (MS6's C421). It is the one place any MS3b tool writes into the repo, and only in Rene's run (MS6 §4.5 step 6). Its `run.json` has `kind` `sealed`, the freeze commit, the frozen versions, the baseline pair and each stop. The raw outputs stay under `sealed`.
   - **Output:** counts and timings only. It never prints a photo's name, a path, a label, an answer, a reason or a key, and every line masks 12-digit runs.
 
 - [ ] **Step 1: Write the failing tests.** They use synthetic data only: `tmp_path` trees, flat test images and `FakeClient`.
   - A `tmp_path/"sealed"` folder made by a test is synthetic, not sealed data.
-  - No test reads `lusot-data` or any real sealed folder, and none writes into the repo's `eval/results/`. No test makes a Meta call.
-  - No one opens these test folders by hand: the deny rules on `**/sealed/**` block that anyway.
+  - No test reads `lusot-data` or any real sealed folder. Every test passes `--results` under `tmp_path`, so none writes into the repo's `eval/results/`. No test makes a Meta call.
+  - No one opens these test folders by hand.
 
   The tests:
-  - `test_refuses_a_folder_not_named_sealed`: a folder not named `sealed` exits 2 before anything is read. So does a path that reaches a `sealed` folder only through a link.
+  - `test_refuses_a_folder_not_named_sealed`, in both directions, each exiting 2 before anything is read:
+    - a folder not named `sealed`, and a path that reaches a `sealed` folder only through a link
+    - a link named `sealed` that points at a folder not named `sealed`
+    - On Windows the links are directory junctions (`mklink /J`, which needs no admin rights, unlike a symbolic link). Elsewhere they are symbolic links. Where neither can be made, a stand-in for `Path.resolve` does the job.
+  - `test_results_go_where_told`: the export lands in the `--results` folder. A `--results` folder under `sealed` exits 2, and so does `--rerun` at any commit but the second freeze.
+  - `test_set_d_rows`: a synthetic Set D log's `left` and `right` rows pick the leftmost and rightmost SAM wheels, and each row has only the `geometry` and `geometry_uncalibrated` variants.
   - `test_refuses_a_non_console_stdin`: NUL, a pipe and a file all exit 2 before anything is read.
   - `test_refuses_a_dirty_tree_or_another_commit`, using a fake git reader.
   - `test_checks_every_label_before_paying`: a label with another word is counted before any client call. Declining the second confirmation exits 2, with no client call. Confirming goes on, and the export writes `(other words)` for it.
@@ -1186,7 +1223,7 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
   - `test_export_holds_only_the_row_contract`: the rows hold only §4.3's fields, the raw outputs stay under the synthetic `sealed` folder, and `run.json` has `kind` `sealed`, the freeze commit and the baseline pair from a synthetic `summary.json`.
   - `test_prints_counts_only`: no name, path, label, reason or 12-digit run.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_run_sealed.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `run_sealed.py`, reusing the runner's helpers, Task 12's export and Task 15's Set B tools. It never imports `eval/` code (C321).
+- [ ] **Step 3:** Implement `run_sealed.py`, and `parse_set_d` and `set_d_estimates` in `lusot_analysis.export`. It reuses the runner's conventions and Tasks 12 and 15's path-free functions, never the development tools' readers. It never imports `eval/` code (C321).
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`, then `node scripts/check_account_ids.mjs` from the repo root. Expected: PASS, clean and clean.
 - [ ] **Step 5:** Commit `feat(analysis): add the sealed-run entry point (MS6 C412)`.
 - [ ] **Step 6:** Run `security-review`, since the entry point reads sealed paths and builds a Meta client from the key, then `superpowers:requesting-code-review`. Fix anything confirmed, and re-run Step 4.
