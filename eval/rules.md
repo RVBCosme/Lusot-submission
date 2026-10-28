@@ -1,6 +1,6 @@
 # Evaluation rules
 
-- **Status:** DRAFT v0.5 (Oct 27, 2026), written from plan §9 and §11 (as updated Oct 27), real alert wording and two builder checks. Rene approves it before any Set A result is seen.
+- **Status:** DRAFT v0.6 (Oct 28, 2026), written from plan §9 and §11 (as updated Oct 27), real alert wording and two builder checks. v0.6 adds Rene's answers to the MS3a questions. Rene approves the whole file before any Set A result is seen.
 - **Freeze rule:** every rule here is set **before** testing (plan §9, §11). Once Rene approves this file, any change needs his written OK in the change log at the bottom. After the sealed run, the scoring rules don't change at all; §10 covers fixes and the one disclosed rerun.
 
 Items marked **[Rene]** are judgment calls that only Rene can make. Every other rule is copied from the plan.
@@ -96,10 +96,15 @@ Classes: PATV is passable to all vehicles, NPLV is not passable to light vehicle
 - Geometry inches follow the level rule in §1.
 - When one wheel has both a landmark and a geometry reading, the deeper one is kept. A wheel whose two readings are more than one level apart is dropped.
 - Across references, Lusot keeps the deepest believable reading and refuses when references disagree by more than one level.
+  - **Floors (Rene, Oct 28):**
+    - A floor ("at least" a level, such as covered wheels) means that level or deeper, so it never disagrees with a deeper reading.
+    - The photo is refused when an exact reading sits more than one level below the deepest reading, with a floor counted at its own level there.
+    - So "at least tire" beside a chest-deep adult gives chest, while "at least tire" beside an exact half_tire refuses.
+  - **The gutter gap (Rene, Oct 28: kept):** landmarks never read `gutter`, so `tire_only` beside `rim_quarter` (and `ankle` beside `mid_shin`) is two levels apart, and the photo is refused.
 - **People count fully (Rene, Oct 27, D13):**
   - A standing adult can set the level alone, through Table 8's body rows.
   - With wheels in the photo too, the rules above apply: deepest believable reading, and refusal when readings differ by more than one level.
-  - Wading adults count only when no adult in the photo is standing still.
+  - Wading adults count only when no adult in the photo is standing still. That includes a standing adult whose waterline is hidden (Rene, Oct 28).
 - **"At least tire deep"** (wheels covered, with the body waterline as a floor) is scored as `tire`. When MMDA's label is deeper, it counts as an underestimate. Passability isn't affected, because tire and deeper are all NPATV. The report gives the number of these readings. **[Claude's call]**
 
 ## 7. Metrics (plan Table 13)
@@ -184,3 +189,4 @@ A photo is **never** excluded because of Lusot's output.
 | Oct 26, 2026 | 0.3 | From the builder check: Set B final sealed; vehicle-type diagnostic; outcome rule fixed in advance; recovery tests before the freeze; post-freeze fix rule | Pending (Rene) |
 | Oct 27, 2026 | 0.4 | From the Oct 27 plan update: government-posted Set A photos only (and a matching exclusion reason); Set D reported apart from Set B; the self-check ablation row and when it is decided; no human baseline; the one-command check | Pending (Rene) |
 | Oct 27, 2026 | 0.5 | From the second builder check:<ul><li>labels printed on images are cropped or excluded</li><li>people count fully (D13, Rene)</li><li>"no flood seen" scores as an underestimate</li><li>"at least tire deep" scores as tire</li><li>proposed guards on the outcome rule (M18)</li><li>the face-blur setting is frozen (D12)</li></ul> | Pending (Rene) |
+| Oct 28, 2026 | 0.6 | Rene's answers to the MS3a spec's questions, before any result exists (§6):<ul><li>a floor means "this level or deeper" in the one-level rule (Q4, changed)</li><li>the gutter gap still refuses (Q2, kept)</li><li>a standing adult with a hidden waterline still blocks wading adults (Q3, kept)</li></ul>A photo where SAM finds no water but Muse Spark sees some is refused (Q1, an MS3a pipeline rule). | These items: Rene, Oct 28, 7:58 AM, in chat. The whole file is still pending. |

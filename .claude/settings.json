@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./eval/sealed/**)",
+      "Edit(./eval/sealed/**)",
+      "Read(//c/Systems/Lusot/lusot/eval/sealed/**)",
+      "Edit(//c/Systems/Lusot/lusot/eval/sealed/**)",
+      "Read(//c/Systems/Lusot/lusot-data/**/sealed/**)",
+      "Edit(//c/Systems/Lusot/lusot-data/**/sealed/**)",
+      "Read(//c/Systems/Lusot/lusot-data/set_a/raw/**)",
+      "Edit(//c/Systems/Lusot/lusot-data/set_a/raw/**)",
+      "Read(//c/Systems/Lusot/lusot-data/a_neg/raw/**)",
+      "Edit(//c/Systems/Lusot/lusot-data/a_neg/raw/**)"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # Lusot progress board
 
-- **Last updated:** Oct 28, 2026, 12:15 AM Manila, by Claude (design approved; MS1 started)
+- **Last updated:** Oct 28, 2026, 2:53 PM Manila, by Claude (Window 1: MS1 closed; acceptance checks A1 to A8 recorded, with A6 waiting for M14)
 - **Rule:** tick a box only after its check passes, and write the evidence next to it.
 - **Status words:** Not started, In progress, Done, Blocked, Dropped (with a reason).
 - **Key dates (Manila time):** kickoff Oct 27, 12:00 AM. Core working by Oct 29. Build ends Nov 3. **Submit Nov 4, 10:00 PM.** Hard cutoff Nov 5, 10:00 AM. Closing ceremony and finals Nov 10, 1:00 AM.
@@ -10,9 +10,10 @@
 | MS | Name | Dates (Manila) | Status | Spec | Plan | Evidence |
 |---|---|---|---|---|---|---|
 | MS0 | Prepare | Oct 26 to kickoff (+ Oct 27) | In progress: all done except M7's 20 candidates (moved to MS2) and R3, R6, R7 (needed later) | [build design](superpowers/specs/2026-10-26-lusot-build-design.md) (approved Oct 28) | checklist below | see the MS0 checklist |
-| MS1 | Set up | Oct 27 to 28 | In progress (started Oct 28, 12:10 AM) | to come | to come | none yet |
+| MS1 | Set up | Oct 27 to 28 | **Done, Oct 28.** All 12 tasks are reviewed, and the stack was re-deployed (2:44 PM) and smoke-tested (2:45 PM). It is merged into `main` at the close and pushed to the private `RVBCosme/lusot`, where CI passed. A6 waits for Rene's phone test (M14). | [MS1 spec](superpowers/specs/2026-10-28-ms1-setup-design.md) (Claude's; Rene to approve; closing notes in §8) | [MS1 plan](superpowers/plans/2026-10-28-ms1-setup.md) (12 tasks, all ticked) | the acceptance checks below; ticked steps in the plan; [Oct 28 log](log/2026-10-28.md) |
 | MS2 | Data | Oct 27 to 30 | Not started | none | none | none |
-| MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | Not started | none | none | none |
+| MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | In progress, by Window 3 on `ms3a-landmark-core` (D20):
+<ul><li>The MS3a plan review is done (8ec1769, 11:23 AM). The spec gained calls C72 to C86, and Rene's answers are in (7:58 AM and 1:30 PM).</li><li>Tasks 1, 6, 10, 11 and 12 are built and reviewed (37c55f7, 1:16 PM). The rest starts once MS1 closes.</li><li>The MS3b spec is drafted (e4f1c33, calls C300 to C320).</li></ul> | [MS3a spec](superpowers/specs/2026-10-28-ms3a-landmark-core-design.md) (Claude's; Rene approves after today's amendments) | [MS3a plan](superpowers/plans/2026-10-28-ms3a-landmark-core.md) (17 tasks; the reviewed version is on Window 3's branch) | Window 3's task reviews, in its note and the Oct 28 log |
 | MS4 | Backend | Oct 31 to Nov 1 | Not started | none | none | none |
 | MS5 | App | Nov 1 to 3 | Not started | none | none | none |
 | MS6 | Ask Lusot and evaluation | Nov 2 to 3 | Not started | none | none | none |
@@ -49,6 +50,24 @@
 - [x] Bring the Set A collection guide, the alert index and `eval/rules.md` (draft v0.4) in line with the Oct 27 plan: government-posted Set A photos only, the self-check ablation row, Set D apart from Set B, the one-command check. Evidence: those files and the `eval/rules.md` change log.
 - [x] Update `CLAUDE.md`, the build design and this board's milestone contents to the Oct 27 plan, after Rene answers the Oct 27 questions. Evidence: build design §5, §6, §8, §18 and §19 and the rewritten `CLAUDE.md` (Oct 27, 11 PM to midnight); the stale lines left over were fixed on Oct 28 (design §20, F4).
 
+### MS1 acceptance checks (spec §2)
+
+- [x] **A1, the probe returns masks and schema-valid JSON.** Evidence: Window 2's probe (12:47 PM, Oct 28) ran 5 STURM photos through SAM 3.1's 7 phrases, decoded with `meta-sam-parser`. Muse Spark's answers were valid against schema v1 in strict mode 5 of 5, and every returned id exists. `check_ids` caught one id in the wrong list. See the [MS1 probe results](research/2026-10-28-ms1-probe-results.md).
+- [x] **A2, the water test ran on 10 photos.** Evidence: overlays reviewed by Window 2 and its task reviewer. The probe note says SAM never put water on a wheel (overlap 0.0), but found no water in 5 of 10 photos. 3 of 10 pass C40, an early signal only.
+- [x] **A3, every photo sent to Meta was face-blurred first.** Evidence: the client accepts only the exact `BlurredImage` type, and `test_rejects_unblurred_input` and `test_rejects_blurred_image_subclass` prove it. The probe log records the blur version.
+- [x] **A4, one-command deploy.** Evidence: `npm run deploy` exited 0 (2:40 to 2:44 PM). `sam deploy` succeeded, then "lifecycle: keep 3" (C38). A no-change rerun passes through `--no-fail-on-empty-changeset` (855147f).
+- [x] **A5, upload end to end in the cloud.** Evidence:
+  - the script: SMOKE OK at 2:45 PM, covering the link, the JPEG, `failed/pipeline_not_built` and the raw photo gone (404)
+  - the web build: Task 9b showed "Upload worked…" with Playwright
+  - the bucket held 0 objects afterwards (2:46 PM)
+- [ ] **A6, a bare APK uploads one photo from a real phone.** Waits for Rene (M14). The emulator run passed (Task 10).
+- [x] **A7, repo hygiene.** Evidence:
+  - `npm run check` exited 0 after the merge (2:00 PM) and after the fix wave.
+  - The pre-commit scan blocked a planted fake key, and the deny rules blocked a sealed read at the harness level (Task 2).
+  - gitleaks, the plan-leak check and the account-ID scan are clean.
+  - CI runs the same checks, and its first run passed (2:52 PM).
+- [x] **A8, the Meta key is in SSM.** Evidence: a `SecureString`, "length 48, read-back matches: True" (Task 8). The cloud function logs `model_key_loaded=true` (smoke, 2:45 PM).
+
 ## 2. Manual actions (Rene)
 
 From Table 27 of the plan (M1 to M33, as of the 10:31 PM update on Oct 27), plus T1 to T6 from the build design (§14). Statuses for M1 to M3 and M31 are as Rene recorded them in plan §24 on the evening of Oct 27. T statuses and data counts were checked on this PC at about 9 PM, Oct 27.
@@ -61,8 +80,8 @@ From Table 27 of the plan (M1 to M33, as of the 10:31 PM update on Oct 27), plus
 | T6 | Setup | Free disk space so C: has about 60 GB free (the build adds about 30 to 40 GB) | Oct 27, before T3 | Done. Evidence: C: had 105.6 GB free at 9:57 PM, Oct 27 (it was 41.4 GB at 9 PM; Claude deleted nothing). |
 | T4 | Setup | Install Android Studio Otter (2025.2.1) or newer, which bundles the JDK, plus the Android SDK 36 platform (Capacitor 8 minimum) | Oct 27 to 28 | Done. Evidence: Android Studio 2026.2 in `C:\Program Files\Android\Android Studio` (`studio64.exe`, bundled JBR 25). `sdkmanager --list_installed` shows `platforms;android-36` (rev 2), `build-tools;36.0.0` and `platform-tools` 37.0.1. Command-line tools 22.0 match Google's SHA-256. `ANDROID_HOME` and `JAVA_HOME` (JDK 17.0.20.1) were already set and left unchanged; Capacitor 8's JDK need is confirmed at MS1. |
 | T5 | Setup | Optional: fix the GitHub connector token in Claude Code (the GitHub CLI already works) | Any time | Not started |
-| T7 | Setup | Give the GitHub CLI the `workflow` scope so CI can be pushed: `gh auth refresh -h github.com -s workflow`, then approve in the browser (D16) | When convenient; CI stays parked until then | Not started (Oct 28: the token has `gist`, `read:org` and `repo` only) |
-| T8 | Setup | Restart Claude Code from a new terminal so it picks up the fixed `MODEL_API_KEY` (F5) | Next time Claude Code is restarted | Not started. Until then, scripts read the key from the Windows user variable. |
+| T7 | Setup | Give the GitHub CLI the `workflow` scope so CI can be pushed: `gh auth refresh -h github.com -s workflow`, then approve in the browser (D16) | When convenient; CI stays parked until then | Done. Evidence: `gh auth status` lists the token scopes `'gist', 'read:org', 'repo', 'workflow'` (Rene granted it at 10:32 AM; Claude checked at 10:55 AM, Oct 28). |
+| T8 | Setup | Restart Claude Code from a new terminal so it picks up the fixed `MODEL_API_KEY` (F5) | Next time Claude Code is restarted | Done. Evidence: in the new session, `MODEL_API_KEY` is 48 characters and equals the user variable (Claude, 9:55 AM, Oct 28; never printed). |
 | M1 | Accounts | Create the AWS account with a card that allows online and international charges, a billing address and a phone code; turn on MFA for the root user | Oct 27 | Done (plan §24) |
 | M2 | Accounts | Check the Lambda concurrency quota in Service Quotas and request an increase if it is too low | Oct 27 | Done (plan §24, 10:31 PM): AWS declined 1,000 on Oct 27 for lack of usage history. Lusot works within 10 and asks again after some real use (plan Table 18). |
 | M3 | Accounts | Claim the $150 credits with Meta's claim form (application email and Team ID); add a card that passes Meta's check; set a Spend Limit alert; then create the API key | Oct 27; claim by Nov 4, 9:00 PM ET | Done. Evidence: Billing page read by Claude in Chrome, Oct 27, about 9:35 PM: $150 free credits in use, a card on file, an email alert at $100 monthly spend. One API key exists (plan §24). |
@@ -76,7 +95,7 @@ From Table 27 of the plan (M1 to M33, as of the 10:31 PM update on Oct 27), plus
 | M11 | Table 7 | Photograph the tire sidewalls of a jeepney, a tricycle and a bus (and, per G5, a Hilux and a Tamaraw if possible) | Oct 27 to 28 | Not started |
 | M12 | Voice | Record at least 10 Taglish questions from different people, with street noise | Oct 27 | Not started |
 | M13 | Set D | Only if it rains: measure a puddle beside a parked car from the dry curb, aiming for at least 5 ruler-checked photos | If it rains | Not started |
-| M14 | Android | Install the APK on a real phone; test the camera, GPS and upload on mobile data | Oct 28 | Not started |
+| M14 | Android | Install the APK on a real phone; test the camera, GPS and upload on mobile data | Oct 28 | Ready for Rene: the APK is `C:\Systems\Lusot\lusot-data\builds\lusot-ms1-debug.apk` (SHA-256 `3792f06d…c82431b`), and the steps are in the [Oct 28 log](log/2026-10-28.md) under "Waiting on Rene". The emulator run passed (MS1 Task 10). |
 | M15 | Android | Keep the web URL as the main judge path; optionally register Google's free limited-distribution account (up to 20 devices, no government ID) | Nov 1 | Not started |
 | M16 | GPS | Test pin accuracy on two real streets | Nov 1 to 2 | Not started |
 | M17 | Users | Five-person user test with adults (18+), with consent, at least two of them drivers or commuters who deal with floods; watch without helping, take notes, make one change | Nov 1 to 3 | Not started |
@@ -94,7 +113,7 @@ From Table 27 of the plan (M1 to M33, as of the 10:31 PM update on Oct 27), plus
 | M29 | Rain | Keep a rain kit ready (a phone with Lusot, a tape measure, printed consent forms, boots) and follow PAGASA's thunderstorm advisories for Metro Manila; when a nearby street floods and the lightning has passed, take the Set D ruler checks (M13), ask people there to post real pins, and film the one-person story with a consenting adult. Dry curb only. | Whenever it rains, Oct 27 to Nov 3 | Not started |
 | M30 | Video | Write English captions for the whole video, including every Taglish line and the voice-over, and check their timing | Nov 4 | Not started |
 | M31 | Accounts | Create the IAM user `rene-dev` (console access, AdministratorAccess, its own MFA); connect the terminal with `aws login --profile lusot` (AWS CLI 2.32 or newer, region ap-southeast-1); check it with `aws sts get-caller-identity --profile lusot`; never deploy as root | Oct 27 to 28, before the first deploy | Done. Evidence: `aws sts get-caller-identity --profile lusot` returns `user/rene-dev`, and the profile region is ap-southeast-1 (Claude, 11:17 PM, Oct 27). MFA is a passkey (plan §24). |
-| M32 | Rules | Decided Oct 27: every call runs on the $150 credits (D10). Ask in office hours whether credit-paid calls may carry people's photos; if Meta says no, blur faces on the phone before upload | Oct 27 to 30 | In progress. The question is open in #office-hours with no answer from Meta as of 10:30 PM, Oct 27 (plan Table 27). The Billing page confirms "may be used for product improvement". **The phone blur in this row is superseded:** D12 and C20 blur faces on the server before every Meta call, on from the start, whatever the answer. |
+| M32 | Rules | Decided Oct 27: every call runs on the $150 credits (D10). Ask in office hours whether credit-paid calls may carry people's photos; if Meta says no, blur faces on the phone before upload | Oct 27 to 30 | In progress. The question is open in #office-hours with no answer from Meta as of 10:30 PM, Oct 27 (plan Table 27). The Billing page confirms "may be used for product improvement". **The phone blur in this row is superseded:** D12 and C20 blur faces on the server before every Meta call, on from the start, whatever the answer. **New fact (MS1 probe, Oct 28):** SAM keeps each photo at Meta by default (`store: true`), once per phrase. MS3a tries `store: false` (C85). If Meta refuses it, the consent notice and privacy policy must say so. |
 | M33 | Bonus | In the submission form, also enter Lusot for the Best agentic use case prize ($5,000), pointing to Ask Lusot's tool calls and the self-check if it is built | Nov 4 | Not started |
 
 ## 3. Weakness register
@@ -116,20 +135,20 @@ From Table 11 of the plan. Update each row as its check passes.
 | W11 | Claims | Vehicle-specific passability overclaims | Only MMDA's three classes | Output schema has no vehicle verdict | Not started |
 | W12 | Claims | One photo is one spot, not a route | "At this spot"; deepest report within 300 m | Ask Lusot test questions | Not started |
 | W13 | Claims | Night, rain and blur | Quality check on the phone and the server, then refuse | Correct refusals on the dark and blurry subset | Not started |
-| W14 | AI | Muse Spark's visual judgment is unproven on these photos | Test on Set A development photos and Set C; fall back to "unknown" | Vehicle-type confusion matrix | Not started |
+| W14 | AI | Muse Spark's visual judgment is unproven on these photos | Test on Set A development photos and Set C; fall back to "unknown" | Vehicle-type confusion matrix | In progress: MS1's probe got schema-valid answers on 5 STURM photos of 5. The confusion matrix waits for Set A development photos. |
 | W15 | AI | Text in a photo could steer the model | Schema-only output; prompt says to ignore text; geometry decides | Test photos with misleading signs | Not started |
 | W16 | AI | Rate limits and outages | SQS buffer, concurrency 5, backoff with jitter | Load test: 50 uploads in a minute | Not started |
 | W17 | Evaluation | MMDA labels are eyeballed and use off-scale words | Call it agreement; fix the label mapping in advance | Evaluation report | Not started |
 | W18 | Evaluation | Leakage: one flood event in both sets | Split by event (same place and day) | Split audit script | Not started |
 | W19 | Evaluation | About 20 sealed photos is a small sample | Report sample sizes; call results indicative | Evaluation report | Not started |
-| W20 | Product | Old or reposted photos | In-app capture only; captured within 15 minutes | Try a gallery photo and an old photo | Not started |
+| W20 | Product | Old or reposted photos | In-app capture only; captured within 15 minutes | Try a gallery photo and an old photo | Not started. MS1's final review found that on desktop the browser's file picker stamps a fresh capture time on an old photo. MS5 reads the EXIF time before the canvas strips it, or refuses picker sources. |
 | W21 | Product | Fake or prank reports | Photo required, device rate limit, flag button, report counts | Manual abuse test | Not started |
 | W22 | Product | GPS error puts a pin on the wrong street | 50 m accuracy or better; 100 m nudge | Field test on two streets | Not started |
 | W23 | Safety | A pin treated as a safety guarantee | Never "safe"; show time and basis; link MMDA advisories | Copy review | Not started |
 | W24 | Product | Weak signal during storms | Compress to about 300 KB; retry uploads | Throttled-network test | Not started |
-| W25 | Privacy | Faces and plates in photos | Blur, delete originals, 7-day retention, consent | No raw photo left in S3 after analysis | Not started |
-| W26 | Security | API key exposure | SSM, server-only calls, CORS, 5-minute links | Secret scan of the repo and the APK | Not started |
-| W27 | Operations | DynamoDB TTL deletes in the background | Filter on `visibleUntil` for every map read | Query test with an expired item | Not started |
+| W25 | Privacy | Faces and plates in photos | Blur, delete originals, 7-day retention, consent | No raw photo left in S3 after analysis | In progress:<ul><li>MS1 blurs faces before any Meta call (C37) and stores no photo.</li><li>The bucket held 0 objects at 2:46 PM, Oct 28, after the web, emulator and smoke runs.</li><li>The dead-letter queue keeps 7 days (R49).</li><li>Plates wait for MS3.</li></ul> |
+| W26 | Security | API key exposure | SSM, server-only calls, CORS, 5-minute links | Secret scan of the repo and the APK | In progress:<ul><li>gitleaks and the account-ID scan run in `npm run check` and in CI, clean on Oct 28.</li><li>The MS1 APK's bundle holds no key and no Meta host.</li><li>A full `claude-security` scan comes before the submission.</li></ul> |
+| W27 | Operations | DynamoDB TTL deletes in the background | Filter on `visibleUntil` for every map read | Query test with an expired item | Not started. MS1's final review found that `GET /reports/{id}` doesn't filter expired items either. MS4 and MS5 extend the filter to that read and to the privacy wording. |
 | W28 | Operations | Free plan suspends after 6 months or when credits run out | Upgrade if needed; $5 budget alert | Calendar reminder | Not started |
 
 ## 4. Decision log
@@ -155,7 +174,12 @@ From Table 11 of the plan. Update each row as its check passes.
 | Oct 27 | C3, C4, C6 to C21 | Claude's calls from the Oct 27 plan updates, the fact check and the second builder check (build design §6, §19) | Claude (pending Rene's approval) |
 | Oct 28 | Approval | Build design approved with fixes F1 to F6 (design §20): the face blur moves into MS1, probes use STURM-FloodDepth only, and stale lines are corrected | Rene |
 | Oct 28 | D15 | Overnight, Claude keeps going on any work that doesn't need Rene, across milestones; the D7 gates still hold | Rene |
-| Oct 28 | D16 | Pushes and full checks at the end of each milestone; CI parked until the `workflow` scope is granted (T7). This is Claude's reading of "Run every only after milestones for now to maximize time", for Rene to confirm. | Rene (reading by Claude) |
+| Oct 28 | D16 | Pushes and full checks at the end of each milestone; CI parked until the `workflow` scope is granted (T7). This was Claude's reading of "Run every only after milestones for now to maximize time", and Rene confirmed it at about 10:05 AM. | Rene |
 | Oct 28 | D17 | AWS alarms email the address on Rene's Claude account, passed at deploy time and kept out of the repo | Rene |
 | Oct 28 | D18 | Model routing for this project only: Sonnet 5.5 at xhigh for easy tasks, Opus 5.5 at max for medium and up, Fable 5.1 at max only when Opus can't do it; workflows only when needed, at most 50 agents | Rene |
+| Oct 28 | D19 | Refusal copy: plan §9's line drops "safe" and reads "Retake it from a dry spot…". The English line is confirmed; the Taglish draft waits for M20 | Rene |
+| Oct 28 | D20 | Three Claude windows work at once, each in its own git worktree: Window 1 runs MS1 Tasks 10 to 12 and owns the log and this board until MS1 closes, Window 2 runs Tasks 4 and 5, and Window 3 reviews the MS3a plan and builds MS3a. Each window runs one implementer at a time | Rene |
+| Oct 28 | MS3a answers | At 1:30 PM Rene took the recommended option on the open MS3a questions (relayed by the tracker): C51 stays as written, and C76 and C81 are accepted | Rene |
+| Oct 28 | D20, extended | A fourth window (about 1:40 PM). Window 4, on `w4-independent`, writes the MS6 evaluation spec, plan and harness, plus the privacy and consent drafts. Window 2's second job, on `next-specs`, writes the MS2 and MS4 specs and plans. Both branches add new files only and merge into `main` after MS1 closes. | Rene |
+| Oct 28 | R44, R47, R49 | Claude's MS1-close rulings, confirmed under Rene's delegation to the recommended option (relayed by the tracker session, about 2:30 PM). He can overturn any of them:<ul><li>R44: the automation suggestions wait for MS5 and MS7.</li><li>R47: no `sam init` or serverless-patterns starter was used, which amends D3 and design §13.</li><li>R49: the dead-letter queue keeps 7 days, not 14.</li></ul> | Rene (delegated) |
 | Pending | R3, R6, R7 | UI language and visual direction; consented demo photos and fallbacks; how the submission repo gets its history | Rene |

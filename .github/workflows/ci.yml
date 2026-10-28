@@ -1,0 +1,71 @@
+# The same three checks as `npm run check`, one job each, on every push and pull request.
+# Actions are pinned to full commit SHAs (looked up Oct 28, 2026), with the release tag in a comment.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: check:node
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check:node
+
+  python:
+    name: check:py
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.6"
+      - run: npm run check:py
+
+  secrets:
+    name: check:secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks scans the whole history
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.6"
+          enable-cache: false # this job installs no packages, and the python job owns the cache key
+      - name: Install gitleaks 8.30.1
+        run: |
+          cd "$RUNNER_TEMP"
+          base=https://github.com/gitleaks/gitleaks/releases/download/v8.30.1
+          curl -fsSLO "$base/gitleaks_8.30.1_linux_x64.tar.gz"
+          curl -fsSLO "$base/gitleaks_8.30.1_checksums.txt"
+          # The archive must match the release's checksums file, and the hash that file listed on Oct 28, 2026.
+          sha256sum -c --ignore-missing gitleaks_8.30.1_checksums.txt
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks_8.30.1_linux_x64.tar.gz" | sha256sum -c -
+          mkdir bin
+          tar -xzf gitleaks_8.30.1_linux_x64.tar.gz -C bin gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: npm run check:secrets
