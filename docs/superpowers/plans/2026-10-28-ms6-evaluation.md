@@ -628,7 +628,7 @@ All new.
   - `build_review(run: Run) -> bytes | None` (spec C426): `review.csv` for a development run, and `None` for a sealed one. It is written with `csv.writer`, UTF-8, `\r\n` line endings, and one row per development Set A then A-neg photo, sorted by id. Its columns, in order:
     - `set`, `photo_id`, `event_id`, `excluded` (the reason, or empty)
     - `alert_level`, `alert_class` (mapped, or empty)
-    - for each configuration present, `<config>_result` (the level, `no_flood_seen`, `refused:<reason>` or `failed:<reason>`), `<config>_class` and `<config>_landmark` (from `Result.landmark`)
+    - for each configuration present, `<config>_result` (the level, `no_flood_seen`, `refused:<reason>` or `failed:<reason>`), `<config>_class` (as `lusot_class` gives it, so "no flood seen" shows `PATV`) and `<config>_landmark` (from `Result.landmark`)
     - `m8_agreement` (`k of n`, or empty), and `m8_detail`, such as `wheel 3: hub/rim_top; person 5: knee/knee`
     - `rene_verdict` and `rene_note`, both empty
 - **`report.md`'s sections,** in spec §4.4's order, with these exact headings:
@@ -670,6 +670,7 @@ All new.
 
     Not affiliated with MMDA.
     ```
+- **The copy guard** (Window 4's ruling, from Task 8's build): `build_report` raises `ValueError` when any text file it builds would hold a banned word, matched case-insensitively. The banned words are "safe" in any form, "overfit", "underfit", "accuracy", "MMDA's 9 levels" and "MMDA's level". The message is ASCII, names the file and the word, and never repeats the surrounding text. The guard catches free text copied from `run.json`.
 - **`summary.json`** is `json.dumps(..., indent=2, sort_keys=True)` plus a newline. It holds:
   - `kind`, `date`, `rules_version`, `shipped`, `geometry_stays`, `inches_shown`
   - per configuration: `underestimation`, `passability` and `coverage`, each `{"k", "n"}`, plus `refused` and `failed`
@@ -723,7 +724,7 @@ All new.
     - **Otherwise `--from-saved` is required.** The order is fixed: refuse a sealed path first, before any read; load; build; then write the files to `<results>/report/`, or compare them. If `<results>/rerun/run.json` exists, it does the same for the rerun, with `first_run` set to the main run (C421).
     - **Comparing** reads each committed file and turns `\r\n` into `\n` on both sides. It reports any built file that differs or is missing, and any extra `.md`, `.json` or `.svg` file in a `report/` folder. It never reads or reports `review.csv`.
     - **The review sheet (C426):** with `--write` on a development run, `build_review`'s bytes go to `<results>/report/review.csv` only when that file doesn't exist yet. Otherwise the run prints `review.csv kept (it may hold Rene's notes)` and leaves it alone.
-    - **Exit codes:** 0 when identical or written; 1 when different; 2 for a sealed path, a `RowError`, a missing results folder, or a run without `--from-saved` or `--label-words`.
+    - **Exit codes:** 0 when identical or written; 1 when different; 2 for a sealed path, a `RowError`, a `ValueError` from `build_report` (Task 8's copy guard, or C421's `first_run` without `rerun_reason`), a missing results folder, or a run without `--from-saved` or `--label-words`. A `ValueError` prints `invalid: <its ASCII message>`.
     - **Printed lines,** ASCII only, with 12-digit runs masked: the results folder, then from the `summary.json` just built, the run's kind and date, each configuration's three headline rates and the gate's decision (or `Set A: not run`). They end with `report: N files identical`, `report: differs: <names>`, `refused: path inside a folder named sealed`, or `invalid: <file>:<line>: <what>`.
 - **The fixture** is hand-written and synthetic:
   - a `sealed` run with `synthetic: true` (C422), `freeze_commit` `abcdef0123456789abcdef0123456789abcdef01`, `self_check: "off"`, `baseline_level: "knee"` and `baseline_class: "NPLV"`
