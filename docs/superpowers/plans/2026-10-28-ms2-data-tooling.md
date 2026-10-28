@@ -513,7 +513,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     Event ids are `E01`, `E02`… (at least two digits), numbered by each event's lowest photo id.
   - `event_number(event_id: str) -> int`
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_fold_strips_marks_and_case`: `"España Blvd."` folds to `"espana blvd"`.
   - `test_spot_names`, parametrized:
     - `"España Blvd. cor. Lacson Ave."` and `"Lacson Avenue corner Espana Boulevard"` both give `{espana, lacson}`
@@ -535,10 +535,12 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_event_ids_follow_the_lowest_photo_id`: `E01` holds `A001`, and every id passes `is_id`.
   - `test_event_numbers_sort_past_99`: `E100` sorts after `E99` by `event_number`.
   - `test_near`: hashes 6 bits apart are near, 7 bits apart aren't, and a blank is never near.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "places or events"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'places'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(data): add spot normalisation, the same-spot test and flood events`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "places or events"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'places'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(data): add spot normalisation, the same-spot test and flood events`.
+
+*Evidence (Task 6, Oct 29): commits 00b42d3, 51a9a80 and 514d1da. `uv run --locked --script eval/data/tests/run_tests.py`: 150 passed, also with `-W error`; ruff, the plan-leak check, the account-ID scan and gitleaks clean. The office words are tied to the guide's list by a test. The task review found that the plan's normalisation let C224 match two different corners through a barangay, district or lane name (a real QC pair) and let run-together corners split one flood into two events; ruling S-R9 (one fix round) marks barangay, zone and Manila district names so `same_spot` never counts them, requires at least two unmarked shared names (one plan-pinned case reversed), joins events whose names sit inside each other, normalises `C-5`/`C5`, and adds the guide's linking sentence. The re-review was clean.*
 
 ### Task 7: Set A and A-neg log checks, matching and facts (C209, C223)
 
