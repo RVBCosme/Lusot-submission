@@ -113,7 +113,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
   - Keep prompts and JSON schemas in versioned files.
   - Structured output needs `strict: true` set inside `text.format`; it is off by default.
   - File transcription accepts WAV only (mono, 16-bit, 16 or 24 kHz), so the app records WAV.
-- **Tests:** run them in GitHub Actions on every push (§19). Until the GitHub CLI has the `workflow` scope (T7), the CI file stays parked outside `.github/workflows/` and the same checks run locally. For now, pushes and full checks happen at the end of each milestone (D16).
+- **Tests:** run them in GitHub Actions on every push (§19). The workflow, `.github/workflows/ci.yml`, runs the same three checks as `npm run check`. For now, pushes and full checks still happen at the end of each milestone (D16).
 - **Alarms** email the address on Rene's Claude account (D17). It is passed at deploy time from a git-ignored config and never written into the repo.
 - **Not used in this project:** Vercel, Supabase, the Claude API, Amazon Bedrock. Ignore plugin suggestions to switch.
 
@@ -204,7 +204,29 @@ Rene set this for Lusot on Oct 28. His global settings stay as they are.
 
 ## Commands
 
-The full list is filled in at MS1, once the repo is scaffolded. Known now:
+Run these from the repo root in PowerShell, after the PATH refresh below, unless a line says otherwise.
+- **Setup,** once per clone: `npm ci`, then `npm run setup` (git then uses `.githooks`, whose pre-commit hook runs gitleaks), then `uv sync --directory backend/analysis`.
+- **Check:** `npm run check` runs three parts and stops at the first failure. Each part also runs alone, and CI runs the same three.
+  - `check:node`: both workspaces' `typecheck` and `test`, the app's `lint`, and `node --test "scripts/*.test.mjs"`
+  - `check:py`: ruff and pytest in `backend/analysis`, then the `backend/scripts` tests
+  - `check:secrets`: gitleaks over the whole history, the plan-leak check and the 12-digit account-ID scan
+- **Deploy:** `npm run deploy`. It needs:
+  - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced. Git ignores it, because it holds the alarm email.
+  - Docker Desktop running, and no Gradle build at the same time
+  - a current AWS login
+- **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
+- **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
+- **Probe** (spends Meta credits): `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis python probes/run_probe.py --photos 5 --water 10`.
+  - Add `--voice-dir DIR` to send every WAV in DIR (mono, 16-bit, 16 kHz).
+  - Outputs go to `%LUSOT_DATA_DIR%\probes\`, and stdout gets counts and timings only.
+- **APK build** (debug). Never run it at the same time as a Docker build.
+  1. `app/.env.local` holds `VITE_API_URL`, the stack's `ApiUrl` output (see `app/.env.example`). Then run `npm run build -w app`.
+  2. From `app/`: `npx cap sync android`
+  3. From `app/android/`: `$env:JAVA_HOME = "$env:LOCALAPPDATA\Programs\jdk-21"; .\gradlew.bat assembleDebug`. Gradle needs JDK 21, and the user `JAVA_HOME` stays JDK 17, so set it in this command only.
+  4. `.\gradlew.bat --stop` frees the memory.
+  5. Copy `app/android/app/build/outputs/apk/debug/app-debug.apk` to `%LUSOT_DATA_DIR%\builds\`, and record its SHA-256.
+
+Notes:
 - **AWS:**
   - Always pass `--profile lusot --no-cli-pager`. Without `--no-cli-pager`, the CLI's Windows pager hangs on captured output.
   - The login lasts up to 12 hours, and then Rene runs `aws login --profile lusot` again.
