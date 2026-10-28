@@ -1,6 +1,7 @@
 """Tests for the split's stratified draw (C204, as amended)."""
 
 import json
+import random
 import subprocess
 import sys
 from fractions import Fraction
@@ -181,6 +182,41 @@ def test_fewer_than_two_events_stops(set_name):
         assert str(stopped.value) == set_name
 
 
+def test_two_events_are_enough_to_draw():
+    """The bound of the stop above (S-R15's M2). A-neg's two events form one group, so
+    E01 moves to sealed. Set A's deep and other event stand one to a group, so each
+    stays dev, and nothing is raised."""
+    assert draw.draw_set("A-neg", {"E01": (1, False), "E02": (1, False)}) == {
+        "other": draw.GroupDraw(
+            group="other",
+            sealed=frozenset({"E01"}),
+            dev=frozenset({"E02"}),
+            rows=2,
+            sealed_rows=1,
+            moved="smallest_to_sealed",
+        )
+    }
+    # Nothing is sealed in this set; Task 12's set_one_sided (S-R14) stops the split.
+    assert draw.draw_set("A", {"E01": (1, True), "E02": (1, False)}) == {
+        "deep": draw.GroupDraw(
+            group="deep",
+            sealed=frozenset(),
+            dev=frozenset({"E01"}),
+            rows=1,
+            sealed_rows=0,
+            moved=None,
+        ),
+        "other": draw.GroupDraw(
+            group="other",
+            sealed=frozenset(),
+            dev=frozenset({"E02"}),
+            rows=1,
+            sealed_rows=0,
+            moved=None,
+        ),
+    }
+
+
 def test_golden_draw():
     """Pins random.Random(20261030)'s shuffle on Python 3.13, a fresh generator for each
     group. The events are Task 13's synthetic Set A: 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1 and
@@ -218,6 +254,33 @@ def test_golden_draw():
             moved=None,
         ),
     }
+
+
+def test_each_group_uses_its_own_fresh_shuffle():
+    """The golden deep group allows few outcomes, so a draw that reseeded it could pass
+    there (S-R15's M1). Here each group has ten 1-row events, and its walk seals the
+    first 4 of its own fresh random.Random(20261030) shuffle, 2/5 of its rows. The
+    expected 4 come from random alone, from each group's ids in number order."""
+    groups = {
+        "deep": [f"E{n:02d}" for n in range(1, 11)],
+        "other": [f"E{n:02d}" for n in range(11, 21)],
+    }
+    expected = {}
+    for group, ids in groups.items():
+        order = list(ids)
+        random.Random(20261030).shuffle(order)
+        expected[group] = draw.GroupDraw(
+            group=group,
+            sealed=frozenset(order[:4]),
+            dev=frozenset(order[4:]),
+            rows=10,
+            sealed_rows=4,
+            moved=None,
+        )
+    given = {
+        event: (1, group == "deep") for group, ids in groups.items() for event in ids
+    }
+    assert draw.draw_set("A", given) == expected
 
 
 def test_draw_loads_no_third_party_module_and_prints_nothing():
