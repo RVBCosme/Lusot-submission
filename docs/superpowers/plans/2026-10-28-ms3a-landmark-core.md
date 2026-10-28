@@ -552,6 +552,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - a SAM stream read: its read timeout becomes the smaller of `timeout_s` and the time left, and a read that times out at the deadline raises `DeadlineExceeded`
   - It subclasses `MetaApiError`, so Task 8 maps it to `failed/model_error` with no new branch.
   - `MetaClient(..., sam_store: bool | None = None)`: `False` sends `store: false` on every SAM request; `None` sends nothing, as MS1 does. Step 4 sets the default.
+  - `judge`'s request timeout is the smaller of `timeout_s` and the time left, and a timeout at the deadline raises `DeadlineExceeded`. Two 60 s waits could otherwise push `judge` past the Lambda's limit, and the report would pay again.
+  - `judge(..., reasoning_effort: str | None = None)` sends `reasoning: {"effort": ...}` when set (for MS3b's C312). `SparkResult` gains `reasoning_tokens: int | None`, from `usage.output_tokens_details.reasoning_tokens`, and the client's log line carries it.
+  - `class ModelRefused(Exception)` (C86): `judge` raises it, before any JSON parsing, when the answer's message content holds a refusal part (`{"type": "refusal", "refusal": ...}`, Meta's Responses `RefusalContent`). It never carries the refusal text into a log. A response whose status is `incomplete` still raises `MetaApiError`.
+  - **Cleanups from MS1's final review:** retitle or drop the dead test about a box past the 320 px photo, and correct R75's comment to about 768 KiB of JPEG.
 
 - [ ] **Step 1: Write the failing tests**, using the client's existing fakes for the transport and the clock:
   - `test_retry_after_past_the_deadline_stops`: a 503 with `Retry-After: 60` and a deadline 5 s away → `DeadlineExceeded` after 1 call, with no sleep.
@@ -559,13 +563,20 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_background_poll_stops_at_the_deadline`: a 504, then a background job that never finishes → `DeadlineExceeded`, with the fake clock never past the deadline.
   - `test_stream_read_timeout_shrinks_to_the_time_left`: with 3 s left, the stream's read timeout is at most 3 s.
   - `test_sam_store_false_is_sent_only_when_set`: `sam_store=False` puts `"store": false` in the SAM request body; the default sends no `store` key.
+  - `test_judge_timeout_shrinks_to_the_time_left`: with 3 s left, `judge`'s request timeout is at most 3 s, and a timeout raises `DeadlineExceeded`.
+  - `test_judge_sends_reasoning_effort_and_records_reasoning_tokens`: `reasoning_effort="low"` puts `reasoning: {"effort": "low"}` in the body; a fixture whose `usage.output_tokens_details.reasoning_tokens` is 1,234 gives `SparkResult.reasoning_tokens == 1234`; the default sends no `reasoning` key.
+  - `test_judge_raises_model_refused_on_a_refusal_part` (C86): a fixture shaped from Meta's Responses schema, with a `refusal` content part → `ModelRefused`, and the refusal text isn't in `caplog`. An `incomplete` response still raises `MetaApiError`.
   - MS1's tests pass unchanged, which shows `deadline=None` keeps its behaviour.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_meta_client.py`. Expected: the new tests FAIL.
 - [ ] **Step 3:** Implement the deadline and `sam_store`. Then run `uv run pytest -q` and `uv run ruff check .`. Expected: PASS; clean. Commit `feat(analysis): give every Meta call a total deadline`.
-- [ ] **Step 4 (Claude, about $0.0025; C85):** in one PowerShell command that sets the key from the user variable, make one `segment(image, "wheel")` call with `MetaClient(sam_store=False)` on a synthetic 1,600 × 1,200 noise JPEG made in the session scratchpad and passed through `blur_for_meta`. Record counts and booleans only: whether the client's frame check passed, the HTTP status, and whether the stream echoed `store: false`.
-  - **The frame check fails:** stop and use `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
-  - **Meta accepts `store: false`:** make `False` the default for `sam_store`, with a test, and commit `fix(analysis): ask Meta not to store SAM requests`.
-  - **Meta refuses it (a 400):** keep `None`, and add to the task report that the consent notice and privacy policy must say Meta stores each SAM request (M21).
+- [ ] **Step 4 (Claude, at most about $0.0075; C85), before Task 16 and before any Set A development photo goes to Meta.** In one PowerShell command that sets the key from the user variable. Record counts, booleans and statuses only, then put the result in `ms3a.md` for Window 4's privacy drafts.
+  - **The frame check:** MS1's probe photo `car-1335` (STURM), enlarged and padded to 1,600 × 1,200 in the session scratchpad and passed through `blur_for_meta`, goes to `segment(image, "vehicle")`. It passes only if a returned box's frame is 1,600 × 1,200. Zero matches is inconclusive: retry once with `"wheel"`. A failure stops everything: `superpowers:systematic-debugging` before any other task, because every real 1,600 px photo would fail.
+  - **`store: false` on the stream:** with `MetaClient(sam_store=False)`, judge it by the echoed `store` value, not by the HTTP status. A 400 → resend without it and record the refusal.
+  - **The background path:** one `background: true` call with `store: false`, polled to the end. If it fails, the background path keeps Meta's default and deletes the response after reading it.
+  - **Muse Spark:** record `judge`'s echoed `store` value once (it already sends `false`).
+  - **If `store: false` is accepted:** make it the default on every path, the offline runner included; flip `test_meta_client.py`'s default-store test; commit `fix(analysis): ask Meta not to store SAM requests`. **If refused:** keep `None`, and record that the privacy line about stored copies stays (C85).
+  - **Not here:** the request-body size of a real 1,600 px photo. Measure it with no Meta call on the first Set B development phone photo or the first Set A development photo after the split, before MS3b decides the JPEG quality sent to Meta (90 or 85).
+- [ ] **Step 5 (optional, only if MS3a is on schedule; Claude, about $0.10 to $0.15):** a `judge`-only latency pre-test on the 5 A1 photos' saved numbered images at default, `low` and `minimal` effort (15 calls), recorded as an estimate. MS3b's C312 decides the effort.
 
 ### Task 8: The pipeline function
 
@@ -614,7 +625,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `tests/test_meta_client.py` covers both §3.6 items: a `BlurredImage` subclass is refused (`type(img) is BlurredImage`), and a key under 20 characters is refused. If either test is missing, add it there (`test_rejects_blurred_image_subclass`, `test_short_key_refused`).
   - Read `meta_client.py` for the classes it raises on a timeout or a connection error that outlasts its retries. They are Meta errors, so they end `failed/model_error` (C59), never `pipeline_error`. Add each to the Errors mapping and to `test_model_errors_pay_once`.
   - Read the probe note's count of face boxes that overlap wheel boxes (P5). If it is above 0, stop and report it: the controller rules on P5 before this task goes on.
-  - Read how `meta_client.py` surfaces a Muse Spark refusal (C86). If it can be told apart from an answer that isn't JSON, map it to `refused/model_declined`: add the reason to `REFUSED_REASONS` and a case to `test_gate_outcomes_through_the_pipeline`. If it can't, record why, and the refusal stays `failed/model_error`.
+  - C86: map Task 7a's `ModelRefused` to `refused/model_declined`. Add `"model_declined"` to `REFUSED_REASONS` in `pipeline/types.py` (and update Task 1's reason-list test), and add a case to `test_gate_outcomes_through_the_pipeline`. Check `ModelRefused` before the broader exceptions.
 - [ ] **Step 2: Write the failing tests** (`FakeClient`, `noise_jpeg()`, `prompt = load_prompt(REPO_PROMPTS)`):
   - `test_level_result_end_to_end`, built from `level_case()`:
     - SAM: `vehicle (100, 100, 400, 300)`, `wheel (150, 250, 200, 300)`, `floodwater (0, 280, 640, 480)`, `face (300, 120, 330, 150)`, `license plate (220, 270, 280, 290)`
@@ -884,6 +895,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - **A rejected key (C73):**
     - `test_rejected_key_drops_the_client_and_retries`: the real `_meta_client`, with `handler.MetaClient` replaced by a recorder that returns a `FakeClient` whose `judge` raises `meta_error(401)`. The first delivery → `RETRY`, the status stays `processing`, `raw/` is kept, and one line reads `model_key_rejected` with `meta_status` 401. A second delivery at `now + 1080` re-claims and reads the key from SSM again, so the recorder built two clients.
   - **Before the claim (C60):**
+    - `test_ssm_read_failure_retries_before_any_work`: `get_parameter` raises for every SSM read → `RETRY`, no `blur_for_meta` call (patched to raise if called), no fake calls, and the report stays `pending`.
     - `test_unreadable_switch_leaves_the_report_pending`: `get_parameter` raises for the switch only → `RETRY`. The status stays `pending`, with no `claimToken`, `raw/` kept and no fake calls.
     - `test_key_load_failure_is_not_cached`: the real `_meta_client`, with `handler.MetaClient` replaced by a recorder that returns a `FakeClient` on the level case.
       - first delivery: the key read raises → `RETRY`, still `pending`
@@ -908,6 +920,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - `test_other_s3_errors_retry`, parametrized over `SignatureDoesNotMatch` 403, `RequestTimeTooSkewed` 403 and `InternalError` 500 → `RETRY`, status `processing`, no Meta call.
     - `test_aws_error_after_meta_calls_retries`: the `blurred/` put raises `InternalError` → `RETRY`, status `processing`, no `blurred/` object, `raw/` kept.
   - **Logs (§3.6, C62):**
+    - `test_sentinel_ip_never_reaches_a_log`: an S3 event carrying `sourceIPAddress: "203.0.113.7"` and a `principalId` goes through the level, refusal (`too_dark`), Meta-error and malformed-key paths. Neither value appears in `caplog.text`.
     - `test_one_log_line_per_report_with_its_fields`: the level case writes exactly one line with the `reportId`. Its keys include `outcome` (`done/level`), `ms`, `meta_calls`, `sam_ms`, `spark_ms`, `instances`, `models`, `prompt_version`, `blur_version`, `face_boxes`, `drops` and `deciding`.
     - `test_logs_never_carry_private_data`: in the level case, `caplog.text` contains none of `wdw515`, `14.6095`, `120.9894`, the fake key, `REASON-MARKER-31` or `arn:`.
     - `test_lambda_never_counts_tokens`: the level case passes, and the fake's `count_input_tokens` (which raises) was never called.
@@ -931,7 +944,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - an image that holds the prompts at `${LAMBDA_TASK_ROOT}/prompts`, with `PROMPTS_DIR` set, and every locked package hash-checked in the task root
   - a role with `s3:PutObject` and `s3:DeleteObject` on `blurred/*` (C72), and `s3:ListBucket` limited to `raw/`
 
-- [ ] **Step 1:** Add two statements to `AnalysisRole`:
+- [ ] **Step 1:** Change the dead-letter queue's comment (R49's wording, comment only) to "7 days, not the MS1 plan's first 14 days". Then add two statements to `AnalysisRole`:
   - `s3:PutObject` and `s3:DeleteObject` on `!Sub "${UploadBucket.Arn}/blurred/*"`
   - `s3:ListBucket` on `!GetAtt UploadBucket.Arn`, with `Condition: {StringLike: {"s3:prefix": "raw/*"}}`. Comment it: the grant makes a missing raw photo read as 404 `NoSuchKey`. AWS doesn't document whether a prefix-limited grant counts, so the handler keeps `AccessDenied` in the missing-photo rule, and Task 16 records which code comes back (§3.6).
 
@@ -941,7 +954,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `RUN pip install --no-cache-dir --require-hashes --target ${LAMBDA_TASK_ROOT} -r ${LAMBDA_TASK_ROOT}/requirements.lock.txt`. `--target` makes pip ignore the base image's copies, so it checks the hash of every locked package, `six`, `python-dateutil` and `urllib3` included. Lambda puts the task root first on `sys.path`. Comment it so.
   - `COPY prompts ${LAMBDA_TASK_ROOT}/prompts` and `ENV PROMPTS_DIR=${LAMBDA_TASK_ROOT}/prompts`
   - `.dockerignore` gains `!prompts`
-- [ ] **Step 4:** Make sure no Gradle build is running. Then run `docker build -t lusot-analysis:ms3a backend/analysis` from the repo root. Expected: success.
+- [ ] **Step 4:** Make sure no Gradle build is running, and post `DOCKER/DEPLOY RUNNING <time>` in `ms3a.md` first (the tracker then pauses Windows 2 and 4; `DOCKER/DEPLOY DONE <time>` after Step 5). Then run `docker build -t lusot-analysis:ms3a backend/analysis` from the repo root. Expected: success.
 - [ ] **Step 5:** Check the built image:
   - `docker run --rm --entrypoint python lusot-analysis:ms3a -c "import os, pathlib; from lusot_analysis.prompts import load_prompt; p = load_prompt(pathlib.Path(os.environ['PROMPTS_DIR'])); print(p.version, bool(p.text), p.schema['additionalProperties'])"` → `<PROMPT_VERSION> True False`
   - `docker run --rm --entrypoint python lusot-analysis:ms3a -c "import boto3, dateutil, six, urllib3, jsonschema, numpy, cv2; print(all(m.__file__.startswith('/var/task/') for m in (boto3, dateutil, six, urllib3, jsonschema, numpy, cv2)))"` → `True`
@@ -1001,6 +1014,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_reused_link_needs_a_fresh_form`: 280 s after issue passes; 280.1 s raises `CheckFailed` with `reused link: form too old`.
   - `test_log_lines_parse_the_lambda_text_format`: the event `"[INFO]\t2026-10-29T01:02:03.000Z\treq-1\t{\"reportId\": \"r_...\", \"meta_calls\": 0}\n"` parses, and a line that isn't JSON is skipped.
   - `test_sealed_paths_are_refused`.
+  - `test_seeded_order_matches_the_probe_selection`: `seeded_sturm_order`'s first 5 equal MS1's `probes/run_probe.py` `choose(5, 10)[0]` on the same tree, so B1's photos are the probe's A1.
+  - The run's summary counts `meta_status` 504 and 413 for SAM and `judge`, and takes cost from billed usage only (never from token counts).
 - [ ] **Step 2:** Run `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root (R5's pattern). Expected: FAIL.
 - [ ] **Step 3:** Implement the script changes as specified.
 - [ ] **Step 4:** Run the Step 2 command, and `uv run --with pytest --with boto3 pytest -q backend/scripts/test_put_model_key.py backend/scripts/test_apply_ecr_lifecycle.py`. Expected: PASS.
@@ -1014,7 +1029,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - Consumes: Tasks 10 to 15
 - Produces: the deployed MS3a stack, and the evidence for B1, B3 (real data), B4 and B5 in the task report, as counts and timings only
 
-- [ ] **Step 1:** Check the preconditions:
+- [ ] **Step 1:** Check the preconditions, then post two lines in `ms3a.md`:
+  - **A heads-up:** after this deploy, a photo from MS1's APK goes through SAM and Muse Spark, its final text changes, and the smoke run turns uploads off for about a minute. Check whether Rene has done the phone test (A6, M14); if not, note it under "Waiting on Rene".
+  - `DOCKER/DEPLOY RUNNING <time>` before Step 2, and `DOCKER/DEPLOY DONE <time>` after the last smoke run.
+  - Expect exit 3 and C71's fallback (C75). The worst case is about $0.67, plus about $0.16 per re-run of the 6 photos.
   - Docker is running, and no Gradle build is
   - `git status` is clean
   - `aws sts get-caller-identity --profile lusot --region ap-southeast-1 --no-cli-pager | sed -E 's/[0-9]{12}/<account>/g'` answers. Rene's `aws login` lasts 12 hours.
@@ -1064,5 +1082,7 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the 12-digit grep, skipping lockfiles (R15)
   - `python scripts/check_no_plan_leak.py`
   - `git diff --name-only main | xargs grep -n -i -w "safe"`: nothing about flood conditions
-- [ ] **Step 5:** Run the `security-review` skill on the branch, because it changes the role and the upload path. Then run `superpowers:requesting-code-review` on the whole branch. Fix anything confirmed, and re-run Step 4.
+  - once, the strict form: `git diff --name-only main | xargs grep -n -i "safe"` (any substring, such as "unsafe" or "safety"), with each hit judged and recorded
+- [ ] **Step 5:** Run the `security-review` skill on the branch, because it changes the role and the upload path. Then run `superpowers:requesting-code-review` on the whole branch, on Opus 5.5 at max (D18), and give the reviewer every held note: the ledger's deferred minors and parked findings. Fix anything confirmed, and re-run Step 4. Record what is left, each with its milestone, in the committed log.
+- [ ] **Step 5b:** Run `claude-md-management:revise-claude-md`, for Rene to approve. Propose, among this session's notes: (a) a deploy may set a stop switch that was flipped from the CLI back to `off`, so re-check every switch after a deploy during an incident; (b) in the dead-letter line, redrive only messages under a day old and purge older ones, since their photo is gone and a redrive restarts the IP address's 7-day clock.
 - [ ] **Step 6:** Commit `docs: record MS3a results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3a-landmark-core` into `main` and push to the private repo (D16).

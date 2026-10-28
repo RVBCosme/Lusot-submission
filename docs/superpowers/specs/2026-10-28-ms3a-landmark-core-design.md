@@ -1,7 +1,8 @@
 # MS3a Landmark core: spec
 
 - **Date:** Oct 28, 2026 (Manila)
-- **Status:** Final, builder-checked on Oct 28.
+- **Status:** Approved by Rene on Oct 28, 2026 (3:24 PM), relayed by the tracker session. The approval covers C42 to C86, with Rene's Q1 to Q4 answers and the delegated C51, C76 and C81. Calls added after it, from C87, are Claude's under D7 until Rene looks at them.
+- **Before the approval:** final and builder-checked on Oct 28.
   - **The builder check:** its three questions are settled. C57 follows `eval/rules.md` as written, and calls C69 to C71 are added.
   - **Rene's answers to §7** (Oct 28, 7:58 AM):
     - Q1 to Q3 keep the defaults.
@@ -188,7 +189,7 @@ One field, `refusalReason`, carries the reason on both `refused` and `failed` re
 | `refused` | `no_water_found` | Muse Spark sees water, but SAM's water mask is empty (C51) |
 | `refused` | `no_usable_reference` | Nothing is left after the drops |
 | `refused` | `references_disagree` | C54 |
-| `refused` | `model_declined` | Muse Spark refused to answer, only if the client can tell a refusal apart (C86) |
+| `refused` | `model_declined` | Muse Spark refused to answer: its answer held a refusal content part (C86) |
 | `failed` | `model_calls_paused` | The model-calls switch isn't `off` |
 | `failed` | `photo_missing` | `NoSuchKey` or `AccessDenied` on the raw photo (R22) |
 | `failed` | `bad_file` | The bytes aren't JPEG (C83), or `blur_for_meta` rejects the file |
@@ -273,6 +274,11 @@ Final wording waits for MS5 and Rene's review (M20).
 
 C42 to C49 come from the draft. C44 to C48 are revised where marked. C50 onward are new. C72 to C81 come from the plan review (Oct 28, D20), and C82 to C86 from Task 12's review and MS1's security and final reviews.
 
+**Accepted risks, restated for Rene (Oct 28):**
+- **Time:** C84 replaces C74, and `judge`'s own request timeout is part of the deadline, so no Meta call can outlast the Lambda.
+- **A rejected key or account (C73):** each report costs at most about $0.0875 over about 90 minutes (5 receives, 18 minutes apart) before the dead-letter alarm.
+- **Deep water:** Level 3 photos give no wheel mask, so they rely on body and people readings.
+
 | # | Call | Why |
 |---|---|---|
 | C42 | **Encoding the results.** `done` carries either a level or `noFloodSeen: true` with no level. `refused` and `failed` carry a `refusalReason` from §3.4. | CLAUDE.md keeps processing failed, no flood seen and can't tell apart. Plan §9 gives each its own message. |
@@ -318,8 +324,8 @@ C42 to C49 come from the draft. C44 to C48 are revised where marked. C50 onward 
 | C82 *(from Task 12's review)* | **A repeated claim or write is the worker's own.** When a claim's condition fails and the old item is `processing` with this worker's token, the claim succeeded on an earlier try, so it counts as claimed. When a result write's condition fails and the old item holds this worker's token and the status being written, the write succeeded on an earlier try, so it counts as written. | The AWS SDK retries a DynamoDB call whose answer was lost (a timeout, a 5xx), and the repeat then fails against the first try's own result. Read as a lease held or lost, that would leave the report `processing` until its 7-day expiry and keep the raw photo, against W25. Tokens are a new random value for every delivery, so a match can't be another worker's. |
 | C83 *(from MS1's security review)* | **JPEG bytes only.** The handler ends a photo whose bytes don't start with `FF D8 FF` as `failed/bad_file`, before any decoder sees it. The check lives in the handler, not in `face_blur.decode_image` or the pipeline, which the laptop tools also use on other formats. | The upload policy sets `Content-Type: image/jpeg` but can't check the bytes. OpenCV's decoder reads many formats, and it runs in a role that can read the Meta key, so only the one format the app sends should reach it. The app always sends JPEG, so nothing real is refused. |
 | C84 *(replaces C74; from MS1's final review)* | **A total deadline.** The handler gives each run a deadline: the Lambda's remaining time less 20 s, enough for the publish blur and the writes. Every Meta call honours it: a retry wait (`Retry-After` included), a 504 poll or a stream read that would pass it stops instead, and the run ends `failed/model_error`. The offline runner sets no deadline. | MS1's final review found that Meta's overload replies ask for a 60 s wait, which the client honours uncapped, so 4 attempts can sleep the whole 180 s. Its polling bound counts only its own sleeps, and a SAM stream kept open by keepalive events has no total bound. A Lambda killed by its timeout leaves the report `processing`, re-claims it 18 minutes later and pays again, up to 5 times. Stopping before the deadline gives "processing failed" in time and pays once. `Retry-After` is still honoured: the client never retries early, it just stops. |
-| C85 *(from MS1's final review)* | **One SAM check on a 1,600 px synthetic image, before the first deploy** (about $0.0025): <ul><li>It confirms that SAM's returned frame matches the sent size, which the client checks on every call. MS1 never sent a photo over 999 px on its long side, and the app sends 1,600 px.</li><li>It sends `store: false`. If Meta accepts it, every SAM call sends it. If Meta refuses it, the result is recorded, and the consent notice and privacy policy (M21) say that Meta stores each SAM request.</li></ul> | SAM's live stream echoes `store: true`, Meta's default, so Meta keeps each photo once per phrase. Storing less is the privacy rule. A frame mismatch would fail every real photo, so it must be found before the cloud run. A synthetic image keeps C12. |
-| C86 *(from MS1's final review)* | **A Muse Spark refusal.** If the client can tell a refusal from an answer that isn't JSON, the refusal ends `refused/model_declined`, which the app shows as "can't tell". If it can't, the refusal stays `failed/model_error` (C47), and the plan's Task 8 records why. | MS1's client turns a refusal, which arrives as empty text, into a JSON error. "Can't tell" with a retake tip fits a refusal better than "processing failed, try again", but only a signal the client can see may decide it. |
+| C85 *(from MS1's final review; reworked by the tracker's verified update, 3:30 PM)* | **One SAM check at the app's size, before Task 16 and before any Set A development photo goes to Meta** (at most about $0.0075):<ul><li>**The frame check:** MS1's probe photo `car-1335` (STURM, C12), enlarged and padded to 1,600 × 1,200 and passed through `blur_for_meta`, goes to SAM with the phrase `vehicle`. It passes only if a box's frame is 1,600 × 1,200. Zero matches is inconclusive, so it retries once with `wheel`.</li><li>**`store: false`:** judged by the value the stream echoes, not by the HTTP status. A 400 resends without it. One `background: true` call with `store: false` is polled to the end; if that fails, the background path keeps Meta's default and deletes the response after reading it. Muse Spark's echoed `store` is recorded once. If `store: false` is accepted, it becomes the default on every path, the offline runner included.</li><li>The result goes into `ms3a.md`, for Window 4's privacy drafts.</li></ul>Meta's retention, with no fixed period, is disclosed whatever `store` does (plan §13). C85 decides only the extra line that Meta stores a copy of each request. | SAM's live stream echoes `store: true`, Meta's default, so Meta keeps each photo once per phrase. Storing less is the privacy rule. A frame mismatch would fail every real photo, so it must be found before the cloud run. A real STURM photo gives SAM something to match; a blank synthetic image can return no box and prove nothing. |
+| C86 *(made firm by the tracker's verified update, 3:30 PM)* | **A Muse Spark refusal** ends `refused/model_declined`, which the app shows as "can't tell". The client tells it apart: `judge` raises a distinct refusal error when the answer holds a refusal content part, before it parses any JSON. An answer whose status is `incomplete` stays `failed/model_error`. | Meta's Responses schema has a refusal content part, so the client can see a refusal rather than guess from empty text. "Can't tell" with a retake tip fits a refusal better than "processing failed, try again". |
 
 ## 5. Not in 3a
 
