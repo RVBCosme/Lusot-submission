@@ -68,7 +68,7 @@ Write `poster` and `alert_poster` as `MMDA`, as the city's name (`Quezon City`),
 ## Set up your logs (once)
 
 1. Create `C:\Systems\Lusot\lusot-data\set_a\raw\` and `C:\Systems\Lusot\lusot-data\a_neg\raw\` if they don't exist.
-2. **Keep a working copy of each log in Excel.** Open its template in `eval/templates/` (`set_a_log.csv`, `a_neg_log.csv`), format the date and time columns as Text, and save it as an Excel file: `C:\Systems\Lusot\lusot-data\set_a\raw\set_a_log.xlsx` and `C:\Systems\Lusot\lusot-data\a_neg\raw\a_neg_log.xlsx`. They go in `raw\` because the deny rules already keep agents out of it, and you delete it after the split anyway. The other logs in this guide work the same way, with each working copy next to its CSV.
+2. **Keep a working copy of each log in Excel.** Open its template in `eval/templates/` (`set_a_log.csv`, `a_neg_log.csv`), format the date and time columns as Text, and save it as an Excel file: `C:\Systems\Lusot\lusot-data\set_a\raw\set_a_log.xlsx` and `C:\Systems\Lusot\lusot-data\a_neg\raw\a_neg_log.xlsx`. They go in `raw\` because the deny rules already keep agents out of it. Once 7-Zip has opened the split's archive, you delete `raw\` with the split's other inputs (C219). Close Excel first, because Windows can't delete a workbook that's still open. The other logs in this guide work the same way, with each working copy next to its CSV.
    - A log you already started as a CSV still works. To make it your working copy, open it through Data > From Text/CSV, with the date and time columns set to Text, and save it as `.xlsx`. If Excel already rewrote some dates or times, the intake flags them, and you fix them in the working copy.
    - Its columns can be the template's or the checklist's: a Set A log with the three new columns at the end, or an A-neg log made from the Set A template plus `surface`. A Set A log with only the 17 old columns works too, but a separate-post row needs `alert_poster` and `alert_spot_text`.
 3. **Give the intake a CSV copy.** Whenever the log should be checked, and before the split, which reads only the CSV, save the working copy, then save it again as "CSV UTF-8 (Comma delimited)" under the template's name: `set_a\set_a_log.csv` and `a_neg\a_neg_log.csv`. Close that CSV without changing it, and go on in the `.xlsx`. Excel's plain "CSV" writes ñ, as in `Las Piñas`, in an encoding the check can't read.
@@ -163,7 +163,7 @@ Before the split, and before Lusot ever runs on these photos, you label what eac
 3. **Mark the photo:** its `quality` (`ok`, `dark` or `blurry`) and any `subsets` that apply (`reflection`, `splash`, `moving`). A photo with nothing you can read gets its marks only.
 4. **Between two marks:** when the water sits between two marks, pick the higher one. This holds for wheels, people and car bodies alike, and prompt v1 tells Muse Spark the same. If your MS3b-Q5 answer changes it, the page states your final rule, and that rule counts.
 5. **Export.** The page keeps your work in the browser as you go, and can export it and import it back. When every photo is done, export `m8_labels.csv` and move it into `set_a\`. The split needs the marks of every Set A photo.
-6. **After the split,** once 7-Zip has opened the archive, click **Clear saved work** on the page, so that your browser no longer holds the labels. Then delete the page with the split's other inputs (C219).
+6. **After the split,** once 7-Zip has opened the archive, click **Clear saved work** on the page, so that your browser no longer holds the labels. Then close Excel, and delete the page with the split's other inputs, `raw\` included (C219).
 
 **The values you pick from** (plan Table 5, as photo schema v1 lists them):
 - `vehicle_type`: `sedan_hatch`, `suv_mpv`, `pickup`, `van`, `jeepney`, `tricycle`, `motorcycle`, `bus_truck`, `unknown`
@@ -252,7 +252,7 @@ Flood photos and clips that friends, relatives or community groups give you, for
 Set D is final only: it is sealed, and Claude never sees it. If it rains, find standing water next to a parked car, read its depth there with a ruler, and photograph it; aim for 5 or more such photos. Stay on a dry curb in boots the whole time: never wade into the water or walk onto the road.
 
 - **Files:** the photos in `C:\Systems\Lusot\lusot-data\set_d\sealed\photos\`, and `set_d_log.csv` in `set_d\sealed\`, made from `eval/templates/set_d_log.csv`.
-- **Then** you run `seal_set_d` yourself, test its archive in 7-Zip, and empty `set_d\sealed\` (C217, C219).
+- **Then** you run `seal_set_d` yourself, test its archive in 7-Zip, close Excel, and empty `set_d\sealed\` (C217, C219).
 
 | Column | What to put |
 |---|---|
