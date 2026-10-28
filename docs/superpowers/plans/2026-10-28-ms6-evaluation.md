@@ -86,7 +86,7 @@ All new.
 | `eval/scoring/__init__.py` | `RULES_VERSION` and the package docstring | 1 |
 | `eval/scoring/scale.py` | the 9 levels, their limits and classes (rules §1) | 1 |
 | `eval/scoring/labels.py` | rules §2's mapping and its word list (C404, C420) | 1 |
-| `eval/scoring/rows.py` | the results contract: loading, the allow-list and the row types (C402, C403) | 2 |
+| `eval/scoring/rows.py` | the results contract: loading, the allow-list and the row types (C402, C403) | 2, 4 |
 | `eval/scoring/paths.py` | the sealed-path guard (C411), shared by the loader and the one command | 2 |
 | `eval/tests/builders.py` | synthetic row builders shared by the tests | 2 |
 | `eval/scoring/exclusions.py` | rules §3 and §9, from the manifest's facts and labels (C404) | 3 |
@@ -432,8 +432,8 @@ All new.
 ### Task 4: Landmark agreement, A-neg, the quality subset, subsets, the baseline and replay
 
 **Files:**
-- Modify: `eval/scoring/metrics.py` (this branch's own file, from Task 3)
-- Test: `eval/tests/test_other_sets.py`
+- Modify: `eval/scoring/metrics.py` (this branch's own file, from Task 3), and `eval/scoring/rows.py` for the loader's replay rule below (Task 2's file)
+- Test: `eval/tests/test_other_sets.py`, plus one new test in `eval/tests/test_rows.py`
 
 **Interfaces:**
 - Consumes: `PhotoRow`, `Reference`, `Result` (Task 2); `Rate`, `excluded_set_a`, `a_neg_exclusion` (Task 3); `map_level_label` (Task 1).
@@ -456,6 +456,7 @@ All new.
     - `caught(rows, config: str) -> tuple[Rate, Rate]`: Lusot's NPLV and NPATV catches, over answered rows whose stated class is NPLV (then NPATV). A row counts as caught when Lusot's class is NPLV or NPATV.
   - **Per level:** `LevelRow(level: str, n: int, answered: int, exact: int, within_one: int, under: int)`, and `score_by_level(rows, config: str) -> tuple[LevelRow, ...]`, over scored rows with a mapped level, in level order. Only levels present get a row.
   - **Replay (spec C425):** `ReplayComparison(config: str, in_sample: SetAScores, replay: SetAScores, within_one_drop: int)`, and `replay_comparison(rows, config: str) -> ReplayComparison | None`. It returns `None` when no row carries `<config>_replay`. `within_one_drop` is `in_sample.within_one.k - replay.within_one.k`. `score_set_a` accepts a replay key as its `config`.
+  - **The loader's replay rule (spec C425):** every row of a results file carries the same replay keys. `load_run` refuses a file where they differ, at the first row whose replay keys differ from the file's first row, with the message `replay results must be the same on every row (C425)`, as Set B's same-variants rule does. So a replay is always compared over the same photos, and `score_set_a(rows, "<config>_replay")` never meets a row without the key.
 - [ ] **Step 1: Write the failing tests:**
   - `test_landmark_agreement`: wheels at `hub`/`hub` and `hub`/`rim_top`, a body at `door_sill`/`door_sill`, and a person at `knee`/`knee` give `wheel Rate(1, 2)`, `body Rate(1, 1)`, `person Rate(1, 1)` and `all Rate(3, 4)`.
   - `test_landmark_agreement_counts_unanswered_and_unmatched` (Review Focus 3):
@@ -477,6 +478,7 @@ All new.
     - `caught(rows, "landmark")` gives `(Rate(2, 2), Rate(1, 2))`: A03's "no flood seen" reads PATV.
   - `test_by_level`: on the same set, `knee` gives `LevelRow("knee", 2, 2, 1, 2, 1)`, and `waist` gives `LevelRow("waist", 1, 0, 0, 0, 0)` (A06 failed).
   - `test_replay_comparison`: rows whose `landmark` results put 5 of 6 within one level, and whose `landmark_replay` results put 2 of 6, give `within_one_drop == 3`; rows without replay results give `None`.
+  - `test_replays_are_the_same_on_every_row`, in `test_rows.py` (C425): a development `set_a.jsonl` with `landmark_replay` on rows 1 and 3 of 3 is refused at line 2, with a message naming the rule; with it on all three rows, or on none, the file loads.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement the functions in `metrics.py`.
 - [ ] **Step 4:** Run the tests. Expected: PASS.
