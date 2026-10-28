@@ -163,7 +163,7 @@ Most likely first. Each line names its test.
 
 ## Execution notes
 
-- **Routing (D18):** implementers and code-quality reviews run on Opus 5.5 at max, spec-compliance reviews on Sonnet 5.5 at xhigh, and the final whole-branch review on Opus 5.5 at max. Task 19's licence reading is a lookup and may run on Sonnet 5.5 at xhigh. Task 1, Task 4b's browser check and Task 20's handoff are the controller's own steps.
+- **Routing (D18):** implementers and every task review (spec compliance and code quality) run on Opus 5.5 at max, scoped re-reviews and easy edits on Sonnet 5.5 at xhigh, and the final whole-branch review on Opus 5.5 at max. This follows the tracker's later build rule, as the SDD ledger records it, in place of this plan's first routing, which put spec-compliance reviews on Sonnet. Task 19's licence reading is a lookup and may run on Sonnet 5.5 at xhigh. Task 1, Task 4b's browser check and Task 20's handoff are the controller's own steps.
 - **One subagent at a time** (the tracker's section A). None starts while Window 3's `DOCKER/DEPLOY RUNNING` line stands, until its `DONE` (the tracker relays both).
 - **Each implementer** gets this plan's task, the Global Constraints, the spec, and the controller's attribution lines.
 - **Order:** Tasks 1 to 20 in order, with 4a before 4b. Rene needs the guide and the M8 sheet first, `set_b_masks` lets the development-car masks run early, and the split (Task 13) is due Oct 30. No task uses a name a later task defines: the three record kinds live in Task 11, before the audit (Task 12) and the tools that write them (Tasks 13, 16 and 18).
@@ -172,7 +172,7 @@ Most likely first. Each line names its test.
 - **MS1 interfaces used (Task 5 only),** as on `main`:
   - `face_blur`: `blur_for_meta(data, *, max_side=1600) -> BlurredImage` (`jpeg`, `width`, `height`, `faces`, `blur_version`), `UndecodableImage`
   - `meta_client`: `MetaClient(api_key=None)` with `.segment(image, phrase) -> SamResult(phrase, instances, elapsed_s, raw)`, `SamInstance(id, box, mask, score)` with a half-open box and a full-size bool mask, `MissingApiKey`, `MetaApiError(message, *, status)`
-  - MS1's probe layout (`run_probe.save_sam`): `sam_<phrase>.txt` and `sam_<phrase>_masks.npz` with `ids`, `boxes`, `scores` and `masks`
+  - MS1's probe layout (`run_probe.save_sam`): `sam_<stem>.txt` and `sam_<stem>_masks.npz`, where the stem is the phrase with spaces as `_`, with `ids`, `boxes`, `scores` and `masks`
 
 ---
 
@@ -212,15 +212,16 @@ Most likely first. Each line names its test.
   - `write_csv(path: Path, columns: Sequence[str], rows: Sequence[Mapping[str, str]]) -> Path`
   - `console(monkeypatch) -> None`: patches `guards.console_ok` to return True
   - `typed(monkeypatch, *answers: str) -> None`: patches `getpass.getpass` and `builtins.input` to return the answers in order
-  - `opened_paths(script: Path, argv: Sequence[str]) -> tuple[int, list[tuple[str, str]]]`. It runs the script as `__main__` in a fresh interpreter, stdin on NUL, whose first act is `sys.addaudithook`. It returns the exit code and each `(event, path)` for the `open`, `os.scandir` and `os.listdir` audit events. `open` covers `builtins.open`, `io.open`, `os.open` and pathlib's reads (checked on Oct 28 with Python 3.13).
+  - `opened_paths(script: Path, argv: Sequence[str]) -> tuple[int, list[tuple[str, str]]]`. It runs the script as `__main__` in a fresh interpreter, with the script's folder first on `sys.path`, as `python <script>` sets it, and stdin on NUL; the interpreter's first act is `sys.addaudithook`. It returns the exit code and each `(event, path)` for the `open`, `os.scandir` and `os.listdir` audit events. `open` covers `builtins.open`, `io.open`, `os.open` and pathlib's reads (checked on Oct 28 with Python 3.13).
 - Produces, in `guards.py`:
+  - `is_sealed_name(name: str) -> bool`: the per-part rule in the Global Constraints. The name before any `:`, with trailing dots and spaces stripped, is `sealed` in any case. `refuse_sealed` and `require_sealed` apply it to each part, and `setc` prunes with it (Task 19).
   - `refuse_sealed(*paths: str | os.PathLike) -> None`, by the rule in the Global Constraints
   - `require_sealed(path: str | os.PathLike, *, flag: str) -> None`: prints `refused: <flag> must be inside a folder named sealed` and exits 2
   - `console_ok(*, is_console: Callable[[int], bool] | None = None) -> bool`: True when fd 0 and fd 1 are both consoles. The default check is `GetConsoleMode` on `msvcrt.get_osfhandle(fd)` on Windows, `os.isatty(fd)` elsewhere.
   - `require_console() -> None`: prints `refused: run this yourself, in a Windows PowerShell window` and exits 2
   - `ask_password(*, ask: Callable[[str], str] | None = None) -> str`: `None` means `getpass.getpass`, looked up at call time so `synth.typed` can patch it. It prompts `Archive password: ` and `Type it again: `. Empty: `refused: empty password`, exit 2. Different: `refused: the two entries differ; nothing was written`, exit 2.
   - `confirm(summary: str, *, ask: Callable[[str], str] | None = None) -> None`: `None` means `builtins.input`, looked up at call time. It prints the summary and asks `Type yes to continue: `. Anything but `yes` (after stripping) prints `stopped: nothing was done` and exits 2.
-  - `quiet(run: Callable[[], int]) -> int`: returns `run()`. On any `Exception` it prints `stopped: <class name>` to stderr and returns 1. `SystemExit` passes through.
+  - `quiet(run: Callable[[], int]) -> int`: returns `run()`. On any `Exception`, and on `KeyboardInterrupt` (Ctrl+C), it prints `stopped: <class name>` to stderr and returns 1. `SystemExit` passes through.
 - Produces, in `table.py`:
   - `ID_PATTERN = r"[A-Z]{1,3}[0-9]{1,4}(-[0-9]{1,3}){0,2}"` and `is_id(text: str) -> bool` (a full match)
   - `@dataclass class Table: columns: tuple[str, ...]; rows: list[dict[str, str]]`: cells stripped, plus `"#"`, the row's 1-based number among the data rows; all-blank rows dropped
@@ -235,14 +236,15 @@ Most likely first. Each line names its test.
 - [ ] **Step 2: Write the failing tests.**
   - `test_refuse_sealed_paths`, parametrized over `tmp_path/"sealed"/"x.csv"`, `tmp_path/"a"/"Sealed"/"x.csv"`, `tmp_path/"SEALED"`, `tmp_path/"sealed"/"sub"/".."/"x.csv"`, `tmp_path/"x"/"sealed"/".."/"y.csv"` (refused as given), `tmp_path/"sealed."/"x.csv"` and, on Windows, `tmp_path/"sealed::$INDEX_ALLOCATION"/"x.csv"`. Each gives `SystemExit` 2 and the message. None of these exists, and the test creates none.
   - `test_refuse_sealed_lets_other_names_pass`: `tmp_path/"unsealed"/"x.csv"`, `tmp_path/"sealed.csv"` and `tmp_path/"sealed_notes"/"x"` pass.
+  - `test_is_sealed_name`: `sealed`, `Sealed`, `SEALED`, `sealed.`, `"sealed "` (a trailing space) and `sealed::$INDEX_ALLOCATION` are sealed names; `unsealed`, `sealed.csv`, `sealed_notes` and `""` aren't.
   - `test_require_sealed`: `tmp_path/"sealed"/"a.7z"` passes; `tmp_path/"a.7z"` exits 2, and the message names the flag.
   - `test_console_needs_both_handles`: with a fake `is_console`, consoles on (0, 1) give True; a console on 0 only (stdout piped) gives False; on 1 only, False.
   - `test_nul_stdin_and_piped_stdout_fail_the_console_check`: a subprocess, `[sys.executable, "-c", "import guards, sys; sys.exit(0 if guards.console_ok() else 3)"]` with `PYTHONPATH` set to `eval/data`, `stdin=subprocess.DEVNULL` and `stdout=subprocess.PIPE`, returns 3. On Windows a second subprocess shows `os.isatty(0)` is True on NUL, the trap C412 names.
   - `test_require_console_message`: with `console_ok` patched to False, `SystemExit` 2, and stderr names Windows PowerShell.
   - `test_password_typed_twice`: answers `"p q r"` twice give `"p q r"`; `"a"` then `"b"` exits 2 with "differ"; two empty answers exit 2.
   - `test_confirm_needs_yes`: `"yes"` and `" yes "` pass; `"y"` and `""` exit 2.
-  - `test_quiet_prints_the_class_only`: a function raising `ValueError("A007.jpg")` gives 1, and stderr is `stopped: ValueError` without `A007`; a `SystemExit(2)` passes through.
-  - `test_opened_paths_sees_every_open`: a tiny script that reads one file with `open`, one with `os.open` and one with `Path.read_bytes`, and lists one folder, reports all four paths.
+  - `test_quiet_prints_the_class_only`: a function raising `ValueError("A007.jpg")` gives 1, and stderr is `stopped: ValueError` without `A007`; a `KeyboardInterrupt` gives 1 and `stopped: KeyboardInterrupt`; a `SystemExit(2)` passes through.
+  - `test_opened_paths_sees_every_open`: a tiny script that imports a sibling module from its own folder, reads one file with `open`, one with `os.open` and one with `Path.read_bytes`, and lists one folder, exits 0 and reports all four paths. The exit 0 shows the script's folder is on `sys.path`.
   - `test_ids`: `A001`, `N015`, `E01`, `E100`, `B01`, `B01-1`, `B01-1-2`, `D01`, `S001`, `P1` and `R12` pass; `a001`, `A001-`, `A00001`, `2026-10-30`, `Espana`, `B01-1-2-3` and `""` fail.
   - `test_read_table_tolerates_bom_crlf_and_blank_rows`: the bytes `b"\xef\xbb\xbfa , b\r\n 1 , x \r\n,\r\n\r\n"` give columns `("a", "b")` and the one row `{"a": "1", "b": "x", "#": "1"}`.
   - `test_csv_bytes_are_plain`: no BOM, `\n` endings, the header first, and a value holding a comma is quoted.
@@ -290,9 +292,9 @@ Most likely first. Each line names its test.
   - `test_templates_match_the_constants`: each file in `TEMPLATES` exists in `eval/templates/`, holds exactly its header line, and that header equals the constant.
   - `test_set_a_template_keeps_the_17_columns_first`: the first 17 names equal today's template, written out in the test, and the last three are `SET_A_OPTIONAL`.
   - `test_table5_lists_match_schema_v1`: reads `backend/analysis/prompts/muse_spark_photo_v1.schema.json` as JSON (no import) and compares the four enums, in order.
-  - `test_patterns_fit_c221`: an example of each id pattern passes `table.is_id`.
+  - `test_patterns_fit_c221`: an example of each id pattern `re.fullmatch`es its own pattern and passes `table.is_id`.
   - `test_dates_and_times`: `2026-08-09` passes; `2026-8-9`, `09/08/2026` and `2026-02-30` fail. `2026-08-09 08:20` passes; `2026-08-09 8:20`, `2026-08-09 08:20 AM` and `2026-08-09T08:20` fail.
-  - `test_no_consent_version_is_approved_yet`: all three sets are empty.
+  - `test_no_consent_version_is_approved_yet`: all three sets are empty. Its docstring says the test changes with C218's constant, when Rene approves a text.
   - `test_guide_names_every_column`: every column of every template appears in backticks in `docs/data/set-a-collection-guide.md`.
 - [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k formats`. Expected: FAIL, with `ModuleNotFoundError: No module named 'formats'`.
 - [ ] **Step 3:** Write `formats.py` and the templates: headers only, a `\n` ending, no BOM.
@@ -336,10 +338,11 @@ Most likely first. Each line names its test.
     - `addRef(state, photoId, kind, x, y)`: returns `R1`, `R2`… per photo; a number is never reused
     - `setValue(state, photoId, refId, column, value)`, `removeRef(state, photoId, refId)`
     - `setMarks(state, photoId, quality, subsets)`: the photo row, `P1`
-    - `toCsv(state)`: the header is `M8_COLUMNS`. Rows run by photo id, `P1` first, then the `R` numbers ascending, with `\n` endings and `subsets` joined by `;`.
+    - `toCsv(state)`: the header is `M8.COLUMNS`, the M8 columns the script holds itself. Rows run by photo id, `P1` first, then the `R` numbers ascending, with `\n` endings and `subsets` joined by `;`.
     - `fromCsv(text, photoIds)`: tolerates a BOM and CRLF; rows of unknown photos are dropped and counted
     - `problems(state)`: a photo without marks, and a reference missing a value
-  - **The page:** `start(doc, win, data)` wires the photos, clicks, values, marks, `localStorage` autosave, export, import and "Clear saved work". It runs only when `document` exists.
+  - **The page:** `start(doc, win, data)` wires the photos, clicks, values, marks, `localStorage` autosave, export, import and "Clear saved work". It runs only when `document` exists. `data` has exactly these keys: `photos` (a list of `{id, file}`), `vehicleTypes`, `bodyWaterlines`, `wheelWaterlines` and `personWaterlines` (Table 5's lists), and `storageKey`. The M8 columns aren't in it.
+  - **No `</`:** the script's text contains no `</`, so Task 4b embeds it verbatim.
 
 - [ ] **Step 1: Write the failing tests.**
   - In `m8_sheet.test.mjs` (`node:test`, `node:assert/strict`, and `node:vm` loading `m8_sheet.js` into a context without `document`):
@@ -369,7 +372,7 @@ Most likely first. Each line names its test.
   - `build_page(photos: Sequence[tuple[str, str]]) -> str`
   - `main(argv: Sequence[str] | None = None) -> int`, with `--set-a-log` and `--out`
 - **The page itself:**
-  - one self-contained HTML file, with an inline `<style>` and one classic inline `<script>`. The script holds `m8_sheet.js` and a JSON block of the ids, file names, Table 5's lists, the M8 columns and `STORAGE_KEY`, with `</` escaped.
+  - one self-contained HTML file, with an inline `<style>` and one classic inline `<script>`. The script holds `m8_sheet.js`, verbatim, and a JSON block of `start`'s `data`, under Task 4a's keys: the ids, file names, Table 5's lists and `STORAGE_KEY`. The JSON has `</` escaped, and the M8 columns stay in the script.
   - images by the relative path `raw/<photo_file>`, beside the page; no network
   - `IN_BETWEEN_RULE` above the photos, and nothing else from the log
 - **The command:** it reads only `candidate_id` and `photo_file`, and stats each `<out folder>/raw/<photo_file>`. Problems print as `row <n> candidate_id: bad_id` or `<id> photo_file: missing`, exit 1 and write nothing. Otherwise it writes the page (a rerun overwrites it, as rows are added) and prints `photos=<n>`.
@@ -379,7 +382,7 @@ Most likely first. Each line names its test.
   - `test_page_holds_no_log_text`: every other column holds a sentinel (`SENTINEL-SPOT`, `SENTINEL-LINK`, `SENTINEL knee deep`, `SENTINEL-NOTE`…), and none reaches the page.
   - `test_page_needs_no_network`: no `http:`, `https:`, `<link` or `@import`, and every `src=` starts with `raw/`.
   - `test_page_states_the_convention`: `IN_BETWEEN_RULE` is in the page.
-  - `test_page_embeds_the_script`: the page holds `m8_sheet.js`'s text.
+  - `test_page_embeds_the_script`: `m8_sheet.js`'s text contains no `</`, and the page holds that text verbatim.
   - `test_sheet_reads_no_photo_bytes`: `synth.opened_paths` on `m8_sheet.py` shows no `open` under `raw/`.
   - `test_missing_photo_and_bad_ids`: a missing `raw/A003.jpg` gives exit 1 and `A003 photo_file: missing`; a bad id gives `row 2 candidate_id: bad_id`; no page is written.
   - `test_refuses_sealed_paths`: `--set-a-log` or `--out` under a `sealed` folder exits 2.
@@ -401,21 +404,21 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 
 **Files:**
 - Create: `backend/analysis/probes/set_b_masks.py`
-- Test: `backend/analysis/tests/test_set_b_masks.py`
+- Test: `backend/analysis/tests/test_set_b_masks.py`; on the eval side, `eval/data/tests/test_guard_copies.py` (the parity test)
 
 **Interfaces:**
 - Consumes: MS1's `blur_for_meta`, `UndecodableImage`, `MetaClient`, `MissingApiKey`, `MetaApiError`, `SamResult` and `SamInstance` (Execution notes).
 - Produces, in `set_b_masks.py`:
   - `PHRASES = ("vehicle", "wheel", "wheel rim")` and `WATER_PHRASE = "floodwater"`
-  - **The copied guards:** `refuse_sealed`, `require_sealed`, `console_ok(*, is_console=None)`, `require_console`, `confirm(summary, *, ask=None)` and `quiet(run)`, with `eval/data/guards.py`'s rules, signatures and messages (Task 2). This package can't import `eval/`, and MS3a's runner, whose `refuse_sealed` C222 names, isn't on `main` yet, so they are copied here.
-  - `check_cars(cars: Path, *, final: bool) -> tuple[list[str], dict[str, str]]` (§5.6, C210, C218): reads only `car_id`, `photo_file` and `consent_file`. It returns the photo files to send, in order, and each skipped car with its cause:
+  - **The copied guards:** `refuse_sealed`, `require_sealed`, `console_ok(*, is_console=None)`, `require_console`, `confirm(summary, *, ask=None)` and `quiet(run)`, plus `is_sealed_name`, which the first two call, with `eval/data/guards.py`'s rules, signatures and messages (Task 2). They are copied verbatim and call no helper outside these seven. This package can't import `eval/`, and MS3a's runner, whose `refuse_sealed` C222 names, isn't on `main` yet, so they are copied here. This departs from C222, which has `set_b_masks` use the runner's `refuse_sealed`: the departure is a D7 default, forced by the import boundary, and the copies give way to MS3a's helper when MS3a merges (Waiting on others).
+  - `check_cars(cars: Path, *, final: bool) -> tuple[list[str], dict[str, str]]` (§5.6, C210, C218): reads only `car_id`, `photo_file` and `consent_file`. It returns the photo files to send, in order, and each skipped car with its cause, keyed by car id, or under `final` by `row <n>` for each of the car's rows, so no final car id is kept. The causes:
     - `no_consent`: a blank `consent_file`, or no such file beside `cars.csv`, by a stat
     - `wrong_side`: an even car number without `--final`, or an odd one with it
 
     A photo name must match `B[0-9]{2}-[0-9]{1,2}\.(jpg|jpeg|png)` in any case, else exit 1 naming the row. The consent version isn't checked here: `generate` warns on an unapproved one (C218).
-  - `save_result(folder: Path, result: SamResult, shape: tuple[int, int]) -> list[Path]`: writes `sam_<phrase, spaces as _>.txt` (the raw text, R11) and `sam_<phrase>_masks.npz` (`ids`; `boxes`, N×4 floats; `scores`, NaN for None; `masks`, N×H×W bool), as `run_probe.save_sam` does
+  - `save_result(folder: Path, result: SamResult, shape: tuple[int, int]) -> list[Path]`: writes `sam_<stem>.txt` (the raw text, R11) and `sam_<stem>_masks.npz` (`ids`; `boxes`, N×4 floats; `scores`, NaN for None; `masks`, N×H×W bool), where the stem is the phrase with spaces as `_` (`sam_wheel_rim_masks.npz`), as `run_probe.save_sam` does. *Note for reviewers:* `save_result` re-implements `run_probe.save_sam`, because importing `run_probe` would read `LUSOT_DATA_DIR` at import (`run_probe.py` line 68).
   - `mask_photo(client, data: bytes, folder: Path) -> int`: runs `blur_for_meta(data)` (1,600 px at most) and writes `blurred.jpg` (the BlurredImage's JPEG bytes). Then one `segment` call per phrase, each saved with `save_result`. `meta.json` comes last: `width`, `height`, `faces`, `blur_version`, the instances per phrase, the seconds and the files written. Returns the calls made.
-  - `water_crop(client, data: bytes, folder: Path, *, generator_version: str) -> int`: `blur_for_meta` on the crop, then one `floodwater` call, saved the same way. Its `meta.json`, written last, holds the crop's SHA-256 and `generator_version`.
+  - `water_crop(client, data: bytes, folder: Path, *, generator_version: str) -> int`: `blur_for_meta` on the crop, then one `floodwater` call, saved the same way. Its `meta.json`, written last, holds the crop's SHA-256 under the key `crop_sha256`, and `generator_version`.
   - `write_files_txt(out: Path, written: Iterable[Path]) -> None`: merges the entries already in `out/files.txt` (a file named on purpose, not a listing) with the newly written files, hashed, and rewrites it in the `files.txt` format. A `--water` run thereby keeps the photo entries an earlier run wrote.
   - `main(argv: Sequence[str] | None = None, *, make_client: Callable[[], MetaClient] = MetaClient) -> int`, its body run through `quiet`. Every mode runs, in order:
     1. the path checks on the strings
@@ -426,7 +429,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     6. the client is made, then the calls run
 
     The modes:
-    - `--cars CARS --photos DIR --out DIR`: sends each photo `check_cars` returns. A photo whose `<out>/<stem>/meta.json` exists is skipped. A skipped car prints as `<car> skipped: <cause>`, or `row <n> skipped: <cause>` under `--final`, so no final car id prints.
+    - `--cars CARS --photos DIR --out DIR`: sends each photo `check_cars` returns. A photo whose `<out>/<stem>/meta.json` exists is skipped. A skipped car prints as `<car> skipped: <cause>`, or `row <n> skipped: <cause>` under `--final`, so no final car id prints. A photo that `blur_for_meta` refuses with `UndecodableImage` (it doesn't decode, or a side is 32 px or less) is skipped as `undecodable`, counted and printed like any other skip: `<photo stem> skipped: undecodable`, or `row <n> skipped: undecodable` under `--final`.
     - `--water TRUTH --out DIR`: one call per distinct `crop_file` in `truth.csv`, read from `<TRUTH folder>/crops/`, saved in `<out>/water/<crop_id>/`. A crop is skipped only when its `meta.json` holds the crop file's current SHA-256 and the truth file's `generator_version`, so a new look is always segmented again (C213). `--water` with `--final` is refused.
     - `--final`: `require_sealed` on `--cars`, `--photos` and `--out`. Without `--final`, `refuse_sealed` covers every path.
 
@@ -438,6 +441,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - `test_copied_console_needs_both_handles`: with a fake `is_console`, each handle alone fails
     - `test_copied_console_check_on_nul`: a subprocess with stdin on NUL and stdout piped gives False, while on Windows `os.isatty(0)` is True there
     - `test_copied_confirm_needs_yes`; `test_copied_quiet_prints_the_class_only`
+  - **The parity test,** on the eval side, which already reads backend files as data (Task 3): `test_set_b_masks_guards_match_eval_guards` in `eval/data/tests/test_guard_copies.py`. It reads `backend/analysis/probes/set_b_masks.py` and `eval/data/guards.py` as text and parses both with `ast`, never importing either. For each of the seven copied functions, the `ast.dump` of its definition is the same in both files, so the copies can't drift.
   - `test_masks_every_photo_with_three_phrases`: 2 photos make 6 calls. Each folder holds `blurred.jpg`, the three `.txt` and `_masks.npz` files and `meta.json`, and the masks round-trip with `np.load` (ids, boxes, scores and mask shapes).
   - `test_every_image_sent_is_blurred_first`: each image the fake receives satisfies `type(img) is BlurredImage` and is at most 1,600 px on its longer side (from a 2,400 px photo).
   - `test_cars_without_consent_are_never_sent`: a car with a blank `consent_file` and a car whose file is missing. The fake receives no image of either, and each prints `<car> skipped: no_consent`.
@@ -452,9 +456,9 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_meta_error_keeps_finished_photos`: the fake raises `MetaApiError("x", status=503)` on the fourth call. Exit 1, the first photo's folder is complete, and the output holds only the class name and 503.
   - `test_missing_key_exits_2`: `make_client` raises `MissingApiKey`.
   - `test_source_lists_no_folder_and_reads_no_environment`: the probe's source has no listing call, `environ` or `getenv`.
-- [ ] **Step 2:** From the root, run `uv run --locked --directory backend/analysis pytest -q tests/test_set_b_masks.py`. Expected: FAIL, with `FileNotFoundError` for `probes/set_b_masks.py`.
+- [ ] **Step 2:** From the root, run `uv run --locked --directory backend/analysis pytest -q tests/test_set_b_masks.py`, then `uv run --locked --script eval/data/tests/run_tests.py -k guard_copies`. Expected: both FAIL, with `FileNotFoundError` for `probes/set_b_masks.py`.
 - [ ] **Step 3:** Implement. Calls run one at a time on one client.
-- [ ] **Step 4:** Run the test file, then `uv run --locked --directory backend/analysis pytest -q` and `uv run --locked --directory backend/analysis ruff check .`. Expected: all pass, MS1's tests unchanged, and ruff clean.
+- [ ] **Step 4:** Run the test file and the parity test, then `uv run --locked --directory backend/analysis pytest -q` and `uv run --locked --directory backend/analysis ruff check .`. Expected: all pass, MS1's tests unchanged, and ruff clean.
 - [ ] **Step 5:** Commit `feat(analysis): add set_b_masks, the face-blurred SAM masks for Set B`.
 
 ### Task 6: Places and events (C203, C224, MS2-Q4)
@@ -631,13 +635,13 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     It exits 1 on any problem, 0 otherwise, and 2 when refused. It writes no file.
 
 - [ ] **Step 1: Write the failing tests.**
-  - `test_rules_md_passability_table`: parse `eval/rules.md` §2's passability table (from the `## 2.` heading). Expand each row's comma-separated variants, with and without `(types of)` and `(sedan)`; `class_of` gives each row's class.
+  - `test_rules_md_passability_table`: parse `eval/rules.md` §2's passability table, found by its header row, `Passability as written` (the level table comes first under the `## 2.` heading). Expand each row's comma-separated variants, with and without `(types of)` and `(sedan)`; `class_of` gives each row's class.
   - `test_deep_rows`, parametrized:
     - True: `"NPLV"`, `"NPATV"`, `"Not passable to light vehicles"`, `"not passable to all types of vehicles"`
     - False: `"PATV"`, `"passable to light vehicles"`, `""`, `"closed to traffic"`, and `"knee deep"`, since a level label in the class column states no class
   - One test per M8 problem kind; `test_m8_photo_row_only_is_fine`; `test_allow_missing_turns_off_no_photo_row`
   - `test_m9_version_must_be_approved`: with `APPROVED_CONSENT["m9"]` patched to `{"M9-v2"}`, `M9-v2` passes and `M9-v1` is a problem.
-  - `test_set_b_and_m11_versions_only_warn`; `test_sidewall_code_mismatch_warns`
+  - `test_m11_version_only_warns`; `test_sidewall_code_mismatch_warns`
   - `test_intake_prints_counts_problems_warnings_and_events`: the exact lines for a small synthetic data set
   - `test_intake_counts_photos_without_a_class`: 3 photos whose nearest alerts give `NPLV`, blank and `12"` print `no_class=2`.
   - `test_intake_exit_codes`: 0, 1 and 2
@@ -702,7 +706,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - The order: `sorted(sizes, key=event_number)`, shuffled with a fresh `random.Random(seed)`.
     - The walk: an event goes to sealed only when the sealed rows plus its size stay at or under `cap × rows`, and the walk stops once the sealed rows reach `target × rows`.
     - Both sides: with 2 or more events and nothing sealed, the group's smallest event (fewest rows, then lowest number) moves to sealed, and `moved` says so.
-  - `draw_set(set_name: str, events: Mapping[str, tuple[int, bool]]) -> dict[str, GroupDraw]`: takes each event's `(rows, deep)`, draws groups `deep` and `other` separately, each with that seed and the set's shares, and leaves out empty groups. A-neg has `other` only, since it states no class. Raises `TooFewEvents` when the set has fewer than 2 events.
+  - `draw_set(set_name: str, events: Mapping[str, tuple[int, bool]], *, seed: int = SPLIT_SEED) -> dict[str, GroupDraw]`: takes each event's `(rows, deep)`, draws groups `deep` and `other` separately, each with `seed` and the set's shares, and leaves out empty groups. A-neg has `other` only, since it states no class. Raises `TooFewEvents` when the set has fewer than 2 events. The tests pass other seeds; the split passes none, so it always draws with `SPLIT_SEED`.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_deep_events_land_on_both_sides`: a Set A of 5 deep events (1 or 2 rows) and 15 others (1 to 3 rows). Each group has an event on each side, under `SPLIT_SEED` and seven other seeds.
@@ -713,7 +717,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_a_neg_shares`: 15 one-row events seal 5.
   - `test_single_event_group_stays_dev`: a deep group of one event stays dev, with no move.
   - `test_fewer_than_two_events_stops`: a set with one event raises `TooFewEvents("A-neg")`.
-  - `test_golden_draw`: a fixed 12-event input seals exactly the events written in the test. This pins `random.Random(20261030)` on Python 3.13; the value is taken from the first green run and checked by hand against the walk.
+  - `test_golden_draw`: a fixed 12-event input seals exactly the events written in the test. This pins `random.Random(20261030)` on Python 3.13. The expected set is worked out before `draw.py` exists: in a REPL, shuffle each group's events, sorted by number, with a fresh `random.Random(20261030)`, as `draw_group` will, then walk that order by hand against the cap and target. The test therefore fails first (RED), and its value never comes from a green run.
 - [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k draw`. Expected: FAIL, with `ModuleNotFoundError: No module named 'draw'`.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run the tests again. Expected: all pass.
@@ -727,6 +731,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 
 **Interfaces:**
 - Consumes: `setlogs.Photo`, `photos.PhotoFacts`, `archive.ArchiveFacts`, `draw.GroupDraw`, `formats.MANIFEST_COLUMNS`, `M8_COLUMNS`, `table.*`.
+- **Standard library only:** `record_io.py` and `manifest.py` load only the standard library. They import `photos`, `archive` and `setlogs` names only under `typing.TYPE_CHECKING`, because the audit, `seal_set_d`, `water_check` and `freeze_record` import `record_io`, and a load-time import would bring in cv2 or py7zr, which those tools' tests and `--help` runs can't load.
 - Produces, in `manifest.py`:
   - `manifest_row(photo: Photo, facts: PhotoFacts, *, event_id: str, split: str, duplicate_of: str) -> dict[str, str]`:
     - the cells in `MANIFEST_COLUMNS`
@@ -741,7 +746,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `manila_now() -> str`: ISO 8601 with `+08:00`, to the second
   - `base_record(tool: str, repo: Path) -> dict`: `tool`, `git`, `date` and `python` (`platform.python_version()`)
   - `archive_block(facts: ArchiveFacts) -> dict`: `{"file", "size", "sha256"}`
-  - `record_bytes(record: Mapping) -> bytes` and `write_record(path: Path, record: Mapping) -> str`, which creates the parent folder, creates the file exclusively and returns its SHA-256
+  - `record_bytes(record: Mapping) -> bytes` and `write_record(path: Path, record: Mapping) -> str`, which returns `table.write_new(path, record_bytes(record))`: the parent folder is created, the file is created exclusively, and its SHA-256 is returned
   - `split_record(*, repo: Path, inputs: Mapping[str, str], draws: Mapping[str, Mapping[str, GroupDraw]], sides: Mapping[str, Mapping[str, Sequence[Mapping[str, str]]]], missing_m8: int, dev_files: Mapping[str, str]) -> dict`. This is the core, also written into the archive:
     - `base_record("eval/data/split.py", repo)`, and `seed`
     - `inputs`: the SHA-256 of `set_a_log`, `a_neg_log` and `m8`
@@ -752,7 +757,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `set_b_final_record(*, repo: Path, counts: Mapping, generator_version: str, generator_seed: int, inputs: Mapping[str, str]) -> dict`: `base_record("eval/set_b/generate.py", repo)`, plus:
     - `generator_version` and `generator_seed`
     - `inputs`: the SHA-256 of the final `cars.csv`, the final masks' `files.txt` and the development `cars.csv`
-    - `counts`: `cars`, `photos`, `crops`, `wheels`, `wheels_without_rim`, `drops` by cause, `warnings`, and crops by `band`, `size_bin`, `vehicle_type` and `view`
+    - `counts`: `cars`, `photos`, `crops`, `wheels`, `wheels_without_rim`, `drops` by cause, `warnings`, and crops by `band`, `size_bin`, `vehicle_type` and `view`. `cars` and `crops` count only what reaches `truth.csv`, and a dropped car counts under `drops` only.
     - `overlap_check: "PASS"`
 
     No car, crop or photo id.
@@ -769,6 +774,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_record_holds_no_ids_labels_links_or_spots`: each builder, given rows full of sentinels, writes bytes with no sentinel, no match for `\b[AN][0-9]{3}\b`, and none for `\bE[0-9]{2,}\b`, `\bB[0-9]{2}\b` or `\bD[0-9]{2}\b`.
   - `test_record_bytes_are_stable`: the same dict in another key order gives the same bytes, ASCII with a final newline.
   - `test_write_record_never_overwrites`
+  - `test_record_io_imports_only_the_standard_library`: a fresh interpreter imports `record_io`, and `numpy`, `cv2` and `py7zr` aren't in `sys.modules`.
 - [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "manifest or record_io"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'manifest'`.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run the tests again. Expected: all pass.
@@ -784,7 +790,8 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - Consumes: `events.group_events`, `EventInput`, `near`; `strata.deep_row`; `places.names_of`; `record_io.record_kind`, `record_io` builders (for the tests); `table.*`; `guards.*`.
 - Produces, in `audit.py`:
   - `rebuild_events(rows: Sequence[Mapping[str, str]]) -> dict[str, str]`: `group_events` over each row's `event_date`, `spot_key` and `same_spot_as`, with joined pairs from `duplicate_of`, equal `photo_sha256` and near `photo_dhash`, within one set
-  - `check_split(sides: Mapping[str, Sequence[Mapping[str, str]]], groups: Mapping[str, Mapping] | None) -> list[str]`: the violations, naming dev ids only. Events and event ids are compared within each set, since ids are numbered per set (§5.9). SHA-256 and near-identical pairs are compared across both sets, as `copy_check` does.
+  - `copy_check(dev: Sequence[Mapping[str, str]], sealed: Sequence[Mapping[str, str]]) -> list[tuple[str, str]]` (C219): the one cross-side photo check, which `check_split` and the split's copy check (Task 13) both call. Across both sets, a dev row whose `photo_sha256` equals any sealed row's gives `(<dev id>, "sha256")`; otherwise, one whose `photo_dhash` is near any sealed row's (`near`) gives `(<dev id>, "near_identical")`.
+  - `check_split(sides: Mapping[str, Sequence[Mapping[str, str]]], groups: Mapping[str, Mapping] | None) -> list[str]`: the violations, naming dev ids only. `sides` is `{"dev": rows, "sealed": rows}`, each side holding both sets' manifest rows, which the `set` column tells apart. `groups` is `{set: record["sets"][set]["groups"]}`, or None before the record exists. Events and event ids are compared within each set, since ids are numbered per set (§5.9). SHA-256 and near-identical pairs are compared across both sets, by `copy_check`.
     - `event_on_both_sides <dev id>`, `event_id_on_both_sides <dev id>`, `sha256_on_both_sides <dev id>` and `near_identical_on_both_sides <dev id>`
     - `group_one_sided <set> <group>`: a group of 2 or more rebuilt events, `deep` when `deep_row` holds on any row's `passability_raw`, with no event on one side
     - `count_mismatch <set> <group> <side>`, against the record's `groups`
@@ -811,6 +818,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - `test_event_id_on_both_sides`; `test_identical_photo_on_both_sides`
     - `test_same_event_id_in_two_sets_is_not_a_violation`: Set A's `E01` on the dev side and A-neg's `E01` on the sealed side
     - `test_near_identical_photo_on_both_sides`: hashes 6 bits apart are found; 7 bits apart aren't
+    - `test_copy_check_catches_identical_and_near_photos`: a dev row whose SHA-256 equals a sealed row's in the other set gives `sha256`, and one whose dHash is 6 bits from a sealed row's gives `near_identical`; a dHash 7 bits away gives nothing.
     - `test_group_one_sided`: a deep group of 2 events, both dev
     - `test_group_counts_must_match_the_record`
     - `test_only_dev_ids_print`: every violation names a dev id, and no sealed id reaches stdout
@@ -843,10 +851,9 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - Test: `eval/data/tests/test_split.py`
 
 **Interfaces:**
-- Consumes: `intake.run_intake`; `photos.photo_facts`; `events.group_events`, `near`; `strata.deep_row`; `draw.draw_set`, `TooFewEvents`; `manifest.*`; `record_io.*`; `audit.check_split`, `audit.audit_sealed`; `archive.write_sealed_archive`; `guards.*`; `table.*`.
-- Produces, in `split.py`:
-  - `copy_check(dev: Sequence[Mapping[str, str]], sealed: Sequence[Mapping[str, str]]) -> list[str]` (C219): the dev ids whose `photo_sha256` equals, or whose `photo_dhash` is near, any sealed row's, across both sets
-  - `main(argv=None) -> int`, with `--set-a-log --set-a-photos --a-neg-log --a-neg-photos --m8 --set-a-dev --a-neg-dev --archive --record [--allow-missing-m8]`, its body run through `guards.quiet`
+- Consumes: `intake.run_intake`; `photos.photo_facts`; `events.group_events`, `near`; `strata.deep_row`; `draw.draw_set`, `TooFewEvents`; `manifest.*`; `record_io.*`; `audit.copy_check`, `audit.check_split`, `audit.audit_sealed`; `archive.write_sealed_archive`; `guards.*`; `table.*`.
+- Produces, in `split.py` (PEP 723 `dependencies = ["numpy==2.5.4", "opencv-python-headless==4.14.0.94", "py7zr==1.1.4"]`):
+  - `main(argv=None) -> int`, with `--set-a-log --set-a-photos --a-neg-log --a-neg-photos --m8 --set-a-dev --a-neg-dev --archive --record [--allow-missing-m8]`, its body run through `guards.quiet`. Its copy check (C219) calls `audit.copy_check`, the helper `check_split` uses, so the two never drift apart.
 
   The run, in order. Each failure exits before the next step, and nothing is written before step 10:
   1. On the strings alone: `require_sealed(--archive)`, then `refuse_sealed` on every other path.
@@ -857,7 +864,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   6. Read each photo once, by name, keep its bytes, and take `photo_facts`.
   7. Within each set, group duplicates: identical SHA-256, or near dHashes. `duplicate_of` is the group's lowest id.
   8. Events: `group_events`, with the duplicate pairs joined. An event is deep when `deep_row` holds for the `passability_raw` of any of its photos. Then `draw_set` per set. `TooFewEvents` prints `split stopped: set <name> has fewer than 2 events` and exits 1.
-  9. Build the manifest and M8 rows per side, and run `check_split(sides, None)`; the record doesn't exist yet, and it is built from the same draw. Any violation prints `FAIL` and the violations, and exits 1. Then `copy_check`, before copying (C219): each id it returns prints as `copy check: <dev id> matches a sealed photo`, and the split exits 1.
+  9. Build the manifest and M8 rows per side. First the copy check, before copying (C219): `audit.copy_check(<dev rows>, <sealed rows>)`, over both sets. Each dev id it returns prints as `copy check: <dev id> matches a sealed photo`, and the split exits 1. Then `check_split({"dev": <dev rows>, "sealed": <sealed rows>}, None)`; the record doesn't exist yet, and it is built from the same draw. Any violation prints `FAIL` and the violations, and exits 1.
   10. `write_sealed_archive(--archive, password, members)`. Every photo is written from the bytes kept in step 6 (`writestr`), so the archived bytes are the hashed ones. The members, in order:
       - `records/split.json`: the core record
       - Set A: `set_a/manifest.csv`, `set_a/m8.csv`, `set_a/photos/<file>` (each sealed photo), `set_a/source/set_a_log.csv` and `set_a/source/m8_labels.csv`
@@ -866,7 +873,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
       - Create `--set-a-dev` and `--a-neg-dev` (failing if either exists).
       - Write `manifest.csv` and, for Set A, `m8.csv`, and write each dev photo from its kept bytes into `photos/`.
       - Re-hash each copy from disk against its manifest row (C219). A mismatch prints `copy check: <dev id> changed on disk` and exits 1.
-  12. Write the committed record: the core plus `archive` (`record_io.archive_block`) and `copy_check`.
+  12. Write the committed record: the core plus `archive` (`record_io.archive_block`) and `copy_check`. Its `rehash_ok` comes from step 11, and its `matched_sealed` is the number of dev ids step 9's `audit.copy_check` returned, which is 0 on any run that gets this far.
   13. Print:
       - the rows and events per set, side and group
       - the counts per fact value
@@ -882,7 +889,6 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - each dev copy's bytes equal its raw file, and no sealed photo's bytes are in a dev folder
     - the record's archive hash equals the file's; its `copy_check` shows every copy's re-hash matching, and `matched_sealed` is 0
     - every `photo_id`, `event_id` and `duplicate_of` in every manifest passes `is_id` (C221)
-  - `test_copy_check_catches_identical_and_near_photos`: a dev row whose SHA-256 equals a sealed row's in the other set, and one whose dHash is 6 bits from a sealed row's, are both returned; a dHash 7 bits away isn't.
   - `test_split_is_deterministic`: two runs on copies of the same inputs give identical dev manifests, identical archive manifests (extracted in the test) and identical records, apart from `archive`, `date` and `git`.
   - `test_deep_events_reach_both_sides`: the layout's deep group has rows on both sides.
   - `test_every_group_of_two_or_more_has_both_sides`: in every set, each C204 group of 2 or more events has rows on both sides of the written manifests.
@@ -910,7 +916,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 
 **Files:**
 - Create: `eval/set_b/tires.py`, `eval/set_b/wheels.py`, `eval/set_b/truth.py`
-- Modify: `eval/data/tests/synth.py`: add `ellipse_mask(shape, centre, half_h, half_w) -> np.ndarray` and `masks_folder(path, photo, vehicles, wheels, rims) -> Path`, which writes `blurred.jpg` and the three `_masks.npz` files as `set_b_masks.save_result` does
+- Modify: `eval/data/tests/synth.py`: add `ellipse_mask(shape, centre, half_h, half_w) -> np.ndarray` and `masks_folder(root, stem, photo, vehicles, wheels, rims) -> Path`. It takes the masks root, writes `<root>/<stem>/blurred.jpg` and the three `_masks.npz` files as `set_b_masks.save_result` does, merges those files into `<root>/files.txt` in the Global Constraints' `files.txt` format, and returns `<root>/<stem>`.
 - Test: `eval/set_b/tests/test_setb_tires.py`, `test_setb_wheels.py`, `test_setb_truth.py`
 
 **Interfaces:**
@@ -920,7 +926,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `diameter_in(size: TireSize) -> float`: `rim + 2 × width × aspect ÷ 100 ÷ 25.4` (plan Table 7)
 - Produces, in `wheels.py`:
   - `@dataclass(frozen=True) class Instance: box: tuple[int, int, int, int]; mask: np.ndarray; score: float | None`, with a half-open box taken from the mask's own extent
-  - `load_instances(npz: Path) -> list[Instance]`: `np.load` inside `with`, keeping its default `allow_pickle=False`. An instance with an empty mask has no extent and is skipped.
+  - `load_instances(npz: Path) -> list[Instance]`: `np.load` inside `with`, keeping its default `allow_pickle=False`. An instance with an empty mask has no extent and is skipped, and a NaN score loads as None.
   - `pick_wheels(vehicles: Sequence[Instance], wheels: Sequence[Instance], shape: tuple[int, int]) -> list[Instance] | str` (C212): at most the two largest wheel masks by area that meet every rule below. Returned left to right. The causes are `no_vehicle` and `no_wheel`.
     - the box centre lies inside the largest vehicle box (by box area)
     - the mask touches no edge row or column
@@ -1006,7 +1012,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - Produces, in `cars.py`:
   - `@dataclass class CarsCheck: rows: list[dict[str, str]]; problems: list[Finding]; warnings: list[Fact]; drops: dict[str, str]`, where `drops` maps a car to its cause
   - `check_cars(path: Path, *, side: str) -> CarsCheck`, where `side` is `dev` or `final`:
-    - **Problems:** the columns; the `car_id` pattern and C210's parity (`<car> car_id: wrong_side`: odd numbers are `dev`, even ones `final`); `photo_file` as `<car>-<n>.<ext>`; a car's rows must agree on `model`, `vehicle_type` and `tire_code`; `vehicle_type` in `SET_B_TYPES`; `view` in `VIEWS`; `taken_on` a date.
+    - **Problems:** the columns; the `car_id` pattern and C210's parity (`<car> car_id: wrong_side`: odd numbers are `dev`, even ones `final`); `photo_file` as `<car>-<n>.<ext>`, matching Task 5's pattern `B[0-9]{2}-[0-9]{1,2}\.(jpg|jpeg|png)` in any case; a car's rows must agree on `model`, `vehicle_type` and `tire_code`; `vehicle_type` in `SET_B_TYPES`; `view` in `VIEWS`; `taken_on` a date.
     - **Drops,** per car: `no_aspect_ratio`, `bad_tire_code`, and `no_consent` (a blank `consent_file`, or no such file beside `cars.csv`).
     - **Warnings:** `consent_version=unapproved` (C218).
     - **Refs:** under `final`, findings and facts name `row <n>`, never a final car id.
@@ -1022,13 +1028,13 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
       1. On the strings: `--cars`, `--masks` and `--archive` must be inside `sealed`; `--dev-cars`, `--dev-masks` and `--record` must not.
       2. `require_console()`.
       3. An existing archive or record is refused.
-      4. The overlap check (C214). It stops on any of these: a final car id in the dev `cars.csv`; an odd final car number; or a final blurred photo whose SHA-256 equals, or whose dHash is near, a development blurred photo's. Both blurred photos are read by name, as `<masks>/<stem>/blurred.jpg`. A stop prints `overlap: <dev car id>` and exits 1.
+      4. `check_cars(<--cars>, side="final")`, beside the overlap check (C214). Any problem it finds exits 1, before the password. The overlap check stops on any of these: a final car id in the dev `cars.csv`; an odd final car number; or a final blurred photo whose SHA-256 equals, or whose dHash is near, a development blurred photo's. Both blurred photos are read by name, as `<masks>/<stem>/blurred.jpg`. A stop prints `overlap: <dev car id>` and exits 1.
       5. `ask_password()`, then generation in memory.
       6. The archive, in one pass, holds:
          - `records/set_b_final.json`, `set_b/truth.csv` and `set_b/crops/<crop_file>`
          - `set_b/source/cars.csv`
          - `set_b/source/photos/<photo_file>`, the raw photos read by name from `<--cars folder>/photos/` (inside `sealed`)
-         - each consent file under `set_b/source/`, at its path relative to `cars.csv`
+         - each distinct consent file, once, under `set_b/source/`, at its path relative to `cars.csv`
          - `set_b/source/masks/<path>` for each file in the final masks' `files.txt`
       7. The committed record: `record_io.set_b_final_record`, plus `archive`.
 
@@ -1043,8 +1049,8 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_unapproved_consent_only_warns`
   - `test_dev_refuses_sealed_paths_and_existing_out`
   - `test_final_path_rules`, parametrized: `--cars`, `--masks` or `--archive` outside `sealed`, or `--dev-cars`, `--dev-masks` or `--record` inside it, exits 2 before anything is read.
-  - `test_final_writes_no_plaintext`: with the console patched and the test phrase, `--final` adds exactly two files, the archive and the record, to the tree under `tmp_path`. The archive holds the members above, and its `set_b/truth.csv` equals a dev run's on the same inputs, apart from `split`.
-  - `test_audit_sealed_passes_on_the_final_cars_it_wrote` (C220): the test extracts the archive with the test phrase into `tmp_path/"data"/"sealed"/"run-1"`, beside a development run in `tmp_path/"data"/"set_b"/"dev"/"generated"`. Then `audit.audit_sealed` gives no violation. After one archive byte changes, it gives `archive_hash`.
+  - `test_final_writes_no_plaintext`: one final car has two photos, so its consent file is named twice. With the console patched and the test phrase, `--final` adds exactly two files, the archive and the record, to the tree under `tmp_path`. The archive holds the members above, with that consent file once. Its `set_b/truth.csv` equals, apart from `split`, the rows of `generate.generate(check, masks, split="dev")`, called directly on the same `check_cars(..., side="final")` result and masks.
+  - `test_audit_sealed_passes_on_the_final_cars_it_wrote` (C220): one final car is dropped (its tire code is `195R14C`), so `counts.cars` must leave it out. The test extracts the archive with the test phrase into `tmp_path/"data"/"sealed"/"run-1"`, beside a development run in `tmp_path/"data"/"set_b"/"dev"/"generated"`. Then `audit.audit_sealed` gives no violation. After one archive byte changes, it gives `archive_hash`.
   - `test_final_overlap_stops_before_the_password`: each case exits 1 without `getpass` being called. The cases: a final photo with a dev photo's blurred bytes; a near-identical re-encode; the final car id `B03`, which is odd.
   - `test_final_refuses_without_a_console`: a subprocess with stdin on NUL and stdout piped exits 2.
   - `test_final_prints_no_final_car_id`: stdout and stderr of a `--final` run with a drop and a warning hold no `B02` or `B04`.
@@ -1061,7 +1067,8 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - Test: `eval/set_b/tests/test_setb_water_check.py`, `eval/data/tests/test_freeze_record.py`
 
 **Interfaces:**
-- Produces, in `water_check.py`, with the dependencies numpy and opencv-python-headless at the pins:
+- Consumes: `record_io.base_record` and `write_record` (Task 11); `guards.refuse_sealed` and `table` (Task 2).
+- Produces, in `water_check.py`, which puts `eval/data` on `sys.path` before importing from it, with the dependencies numpy and opencv-python-headless at the pins:
   - `CROP_PASS = Fraction(1, 4)`, `LOOK_PASS = Fraction(3, 4)` and `MAX_LOOKS = 3`
   - `coverage(sam: np.ndarray, drawn: np.ndarray) -> Fraction`: the shared pixels over the drawn pixels
   - `main(argv=None) -> int`, with `--truth <generated/truth.csv> --sam <masks/water> --looks-dir <eval/data/records>`. It runs `refuse_sealed` on all three before reading anything. Then, for each crop in `truth.csv`:
@@ -1069,10 +1076,10 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - Its `crop_sha256` differs from the SHA-256 of `<truth folder>/crops/<crop_file>`, or its `generator_version` from the rows': the crop fails as `stale_result`, so a new look is never scored against old masks (C213).
     - Otherwise SAM's mask is the union of the masks in `sam_floodwater_masks.npz` beside it, the drawn mask is `<truth folder>/water/<crop_id>.png`, and the crop passes at `coverage ≥ CROP_PASS`.
 
-    The rows must share one `generator_version`, else exit 1. It writes the look as its own record, exclusively: `<looks-dir>/set-b-look-<n>.json`, where n is the first of 1 to 3 whose file doesn't exist (checked by name). The record holds `{"look", "generator_version", "date", "crops", "passed", "failed_by_cause", "share": "k/n", "result": "pass" | "fail"}`. When all three exist it exits 2: "three looks are used: the generator freezes as it is (C213)". It prints the counts and the result.
+    The rows must share one `generator_version`, else exit 1. It writes the look as its own record, exclusively, with `write_record`: `<looks-dir>/set-b-look-<n>.json`, where n is the first of 1 to 3 whose file doesn't exist (checked by name). The record starts from `base_record(...)` for the tool `eval/set_b/water_check.py` (`tool`, `git`, `date` and `python`) and adds `{"look", "generator_version", "crops", "passed", "failed_by_cause", "share": "k/n", "result": "pass" | "fail"}`. When all three exist it exits 2: "three looks are used: the generator freezes as it is (C213)". It prints the counts and the result.
 - Produces, in `freeze_record.py` (standard library): `main(argv=None) -> int`, with `--data DIR`, `--file REL` (repeatable, relative to `--data`), `--record PATH` (repeatable: the split, Set B final and Set D records), `--look PATH` (repeatable) and `--out PATH`.
   - It refuses sealed paths, checking each `--file` joined to `--data`.
-  - It writes, exclusively: `{"tool", "git", "date", "files": {rel: sha256}, "records": {name: {"sha256", "archive"}}, "generator_version", "looks"}`. `generator_version` is read from `set_b/dev/generated/truth.csv` when that file is listed, and `looks` holds each look record's content.
+  - It writes, exclusively, with `write_record`: a record that starts from `base_record(...)` for the tool `eval/data/freeze_record.py` (`tool`, `git`, `date` and `python`) and adds `{"files": {rel: sha256}, "records": {name: {"sha256", "archive"}}, "generator_version", "looks"}`. `generator_version` is read from `set_b/dev/generated/truth.csv` when that file is listed, and `looks` holds each look record's content.
   - It prints the file count and the record's SHA-256.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -1129,16 +1136,19 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - Test: `eval/data/tests/test_setc.py`
 
 **Interfaces:**
+- Consumes: `guards.refuse_sealed`, `guards.is_sealed_name` and `table.write_new` (Task 2).
 - Produces, in `setc.py` (standard library): `main(argv=None) -> int`, with the subcommand `sturm --root DIR --out FILE`.
-  - It walks `--root` with `os.walk`, the one walk §5.2 allows, pruning any folder named `sealed` (any case) before descending.
+  - It walks `--root` with `os.walk`, the one walk §5.2 allows, pruning before descending any folder whose name `guards.is_sealed_name` matches, so the walk and the guard share one rule.
   - An image (`.jpg`, `.jpeg` or `.png`, any case) whose nearest folder named `Level0` to `Level4` (any case) is an ancestor gets one row: `path` (relative to the root, with `/`), `level` (0 to 4) and `sha256`. Other files count as skipped.
   - Rows are sorted by path. It prints `files=<n>`, the count per level and `skipped=<k>`. Neither `--root` nor `--out` may be inside a `sealed` folder.
+  - `--out` is created exclusively, with `table.write_new`, and never overwritten: an existing `--out` is refused (exit 2) before the walk, so a rerun needs a new path.
 - Only if Step 5's note finds a source that qualifies: `flooddet --root DIR --sources FILE --out FILE`, where `--sources` is a CSV (`prefix`, `source`, `meta_ok`) that Claude writes from the note. Each image takes the `source` and `meta_ok` of its longest matching prefix, and `meta_ok = no` when none matches.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_sturm_manifest`: a synthetic tree with `extracted/upscaled_images/Level1/x.jpg`, `Level3/y.png` and `readme.txt` gives two rows, at levels 1 and 3, and `skipped=1`.
   - `test_walk_skips_sealed_folders`: `Level2/Sealed/z.jpg` isn't listed, and `synth.opened_paths` shows no `open` or `os.scandir` event under `Sealed`.
   - `test_paths_use_slashes_and_sort`; `test_refuses_sealed_root_or_out`
+  - `test_existing_out_is_never_overwritten`: an existing `--out` exits 2, and its bytes are unchanged.
 - [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setc`. Expected: FAIL, with `ModuleNotFoundError: No module named 'setc'`.
 - [ ] **Step 3:** Implement, then lock the script.
 - [ ] **Step 4:** Run the tests again. Expected: all pass.
