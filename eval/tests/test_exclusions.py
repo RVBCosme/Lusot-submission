@@ -81,6 +81,10 @@ def test_the_first_reason_wins():
 
 def test_status_and_blank_labels():
     assert exclusion(label="subsided") == "no matching alert"
+    # A main label that doesn't map, in words or in numbers: 8 in gives gutter and
+    # 25 cm half_knee.
+    assert exclusion(label="(other words)") == "unmapped label"
+    assert exclusion(label="8 in (25 cm)") == "unmapped label"
     assert exclusion(label="", passability="") == "unmapped label"
     # A blank depth beside a class phrase that maps to nothing gives no ground
     # truth either (MS6E-Q1, item 14).
