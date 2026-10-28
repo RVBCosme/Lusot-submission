@@ -443,7 +443,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 
     It prints `photos=<n> skipped=<k> sam_calls=<c> seconds=<s>`. It exits 0; 1 on a `MetaApiError`, printing its class and status only, with finished photos kept; 2 on a refusal or `MissingApiKey`.
 
-- [ ] **Step 1: Write the failing tests.** A `FakeClient` in the test file records each image and phrase and returns synthetic instances; it never touches the network. The probe is loaded with `importlib.util.spec_from_file_location`, as MS3a's runner tests load theirs.
+- [x] **Step 1: Write the failing tests.** A `FakeClient` in the test file records each image and phrase and returns synthetic instances; it never touches the network. The probe is loaded with `importlib.util.spec_from_file_location`, as MS3a's runner tests load theirs.
   - **The copied guards,** tested as Task 2 tests `guards`:
     - `test_copied_refuse_sealed`: Task 2's cases, with the stream-name case on Windows
     - `test_copied_console_needs_both_handles`: with a fake `is_console`, each handle alone fails
@@ -464,10 +464,12 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_meta_error_keeps_finished_photos`: the fake raises `MetaApiError("x", status=503)` on the fourth call. Exit 1, the first photo's folder is complete, and the output holds only the class name and 503.
   - `test_missing_key_exits_2`: `make_client` raises `MissingApiKey`.
   - `test_source_lists_no_folder_and_reads_no_environment`: the probe's source has no listing call, `environ` or `getenv`.
-- [ ] **Step 2:** From the root, run `uv run --locked --directory backend/analysis pytest -q tests/test_set_b_masks.py`, then `uv run --locked --script eval/data/tests/run_tests.py -k guard_copies`. Expected: both FAIL, with `FileNotFoundError` for `probes/set_b_masks.py`.
-- [ ] **Step 3:** Implement. Calls run one at a time on one client.
-- [ ] **Step 4:** Run the test file and the parity test, then `uv run --locked --directory backend/analysis pytest -q` and `uv run --locked --directory backend/analysis ruff check .`. Expected: all pass, MS1's tests unchanged, and ruff clean.
-- [ ] **Step 5:** Commit `feat(analysis): add set_b_masks, the face-blurred SAM masks for Set B`.
+- [x] **Step 2:** From the root, run `uv run --locked --directory backend/analysis pytest -q tests/test_set_b_masks.py`, then `uv run --locked --script eval/data/tests/run_tests.py -k guard_copies`. Expected: both FAIL, with `FileNotFoundError` for `probes/set_b_masks.py`.
+- [x] **Step 3:** Implement. Calls run one at a time on one client.
+- [x] **Step 4:** Run the test file and the parity test, then `uv run --locked --directory backend/analysis pytest -q` and `uv run --locked --directory backend/analysis ruff check .`. Expected: all pass, MS1's tests unchanged, and ruff clean.
+- [x] **Step 5:** Commit `feat(analysis): add set_b_masks, the face-blurred SAM masks for Set B`.
+
+*Evidence (Task 5, Oct 29): commits ffa46da and 76b1d03 (new files only; no existing `backend/analysis` file changed). `uv run --directory backend/analysis pytest -q`: 180 passed; `uv run --locked --script eval/data/tests/run_tests.py`: 76 passed, the guard parity test included; ruff, the plan-leak check, the account-ID scan and gitleaks clean; 24 of 24 mutations caught. Every photo reaches SAM only as a `BlurredImage`, and consent and the car's odd/even side are checked before any client exists; tests use a fake client only (no live Meta call). The task review found that a photo listed twice was paid twice and that stems could collide; one fix round refused duplicate stems, named missing photos before any call, repaired `files.txt` after an interrupt, held consent files beside `cars.csv`, refused final-car crops under `--water`, and required an absolute `--out`. The re-review was clean.*
 
 ### Task 6: Places and events (C203, C224, MS2-Q4)
 
