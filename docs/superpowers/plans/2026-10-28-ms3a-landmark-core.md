@@ -745,10 +745,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `claim(ddb, table: str, key: Mapping[str, dict], token: str, now_s: int) -> ClaimState` is one `UpdateItem`:
     - it sets `#status = :processing`, `claimToken = :token` and `claimedAt = :now`, a Number in epoch seconds
     - condition: `#status = :pending OR (#status = :processing AND claimedAt < :expired)`, where `:expired = now_s - LEASE_S`
-    - it passes `ReturnValuesOnConditionCheckFailure="ALL_OLD"`. On `ConditionalCheckFailedException`, it reads the item from `exc.response["Item"]`: a status in `FINAL_STATUSES` → `"finished"`; anything else → `"leased"`. moto 5.2.4 supports this.
+    - it passes `ReturnValuesOnConditionCheckFailure="ALL_OLD"`. On `ConditionalCheckFailedException`, it reads the item from `exc.response["Item"]`: a status in `FINAL_STATUSES` → `"finished"`; `processing` with this `token` → `"claimed"`, because the SDK retried a claim that had succeeded (C82); anything else → `"leased"`. moto 5.2.4 supports this.
     - other AWS errors propagate
   - `write_result(ddb, table: str, key: Mapping[str, dict], token: str, fields: Mapping[str, str | bool | int | Mapping[str, int]]) -> bool` is one `UpdateItem` that sets every field:
-    - condition: `#status = :processing AND claimToken = :token`. It returns False when that fails: the lease was lost.
+    - condition: `#status = :processing AND claimToken = :token`, with `ReturnValuesOnConditionCheckFailure="ALL_OLD"`. When that fails and the old item holds this `token` and the `status` being written, the SDK retried a write that had succeeded, so it returns True (C82). Otherwise it returns False: the lease was lost.
     - every attribute name goes through `ExpressionAttributeNames`. `status` and `level` are DynamoDB reserved words, and moto enforces them.
     - values: `str` → `S`, `bool` → `BOOL` (check it before `int`), `int` → `N`, a mapping of ints → `M`
 - Produces, in `tests/fakes.py`: `create_reports_table(ddb, name: str) -> None`, the table and index as MS1's `test_handler.py` creates them
@@ -764,6 +764,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `test_lost_lease_drops_the_write`: claim with `"a"`, then set `claimToken` to `"b"` directly → `write_result(..., "a", ...)` is False, and the item keeps `processing` and `"b"`.
   - `test_write_requires_processing`: a `done` item holding token `"a"` → False.
   - `test_other_aws_errors_propagate`: `update_item` patched to raise `ProvisionedThroughputExceededException` → both `claim` and `write_result` raise `ClientError`.
+  - `test_a_repeated_claim_is_its_own` (C82): `claim` twice with the same token and `now_s` → `"claimed"` both times; the item is unchanged by the second.
+  - `test_a_repeated_write_is_its_own` (C82): claim, then `write_result` twice with the same token and fields → True both times. A `write_result` with another token on that finished item → False.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_report_store.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement `report_store.py` and `create_reports_table`.
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.

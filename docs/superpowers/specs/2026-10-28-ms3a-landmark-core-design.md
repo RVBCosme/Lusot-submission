@@ -51,7 +51,7 @@ For each message (batch size 1), in order:
 7. Run the pipeline (§3.2).
 8. Publish (§3.2 step 8).
 
-Every write after the claim requires `status = processing` and this worker's `claimToken`. If that check fails, the lease was lost: the worker drops its result, leaves `raw/` alone and finishes the message.
+Every write after the claim requires `status = processing` and this worker's `claimToken`. If that check fails, the lease was lost: the worker drops its result, leaves `raw/` alone and finishes the message. A failed check that finds this worker's own token already applied is the worker's own earlier attempt, repeated by the AWS SDK's retry, and counts as success (C82).
 
 **Errors (C59)**
 
@@ -312,6 +312,7 @@ C42 to C49 come from the draft. C44 to C48 are revised where marked. C50 onward 
 | C78 | **Ties inside one vehicle** follow C54's order: a floor first, then a wheel before the body, then the lowest box id. So `rim_top` beside `wheel_covered` reads tire, as a floor, from the covered wheel. | One order everywhere keeps results repeatable (B3) and prefers the cautious "at least" wording. |
 | C79 | **The prompt loads before the claim,** with the key (§3.1 step 3). A missing or broken prompt returns the message, like a key fault. | A missing prompt is a deploy fault. It belongs in the dead-letter queue and its alarm, not in failed reports (C60). |
 | C80 | **Log fields beyond §3.6's list:** `meta_calls`, `brightness`, `sharpness`, `numbered` and `meta_status`. | The smoke run reads `meta_calls` for B1's "no Meta call" check. The others help tune C44 and C70 later. None is private (C62). |
+| C82 *(from Task 12's review)* | **A repeated claim or write is the worker's own.** When a claim's condition fails and the old item is `processing` with this worker's token, the claim succeeded on an earlier try, so it counts as claimed. When a result write's condition fails and the old item holds this worker's token and the status being written, the write succeeded on an earlier try, so it counts as written. | The AWS SDK retries a DynamoDB call whose answer was lost (a timeout, a 5xx), and the repeat then fails against the first try's own result. Read as a lease held or lost, that would leave the report `processing` until its 7-day expiry and keep the raw photo, against W25. Tokens are a new random value for every delivery, so a match can't be another worker's. |
 | C81 | **Test-screen wording** (§3.8):<ul><li>MMDA's 7 levels read like "Knee deep at this spot (MMDA level)." The two added levels read "Below gutter deep at this spot." and "Above chest deep at this spot.", without "(MMDA level)".</li><li>The class line follows plan §9: "MMDA lists this level as not passable to light vehicles (NPLV)." The added levels read "Shallower than MMDA's gutter level, which MMDA lists as passable to all vehicles (PATV)." and "Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV)."</li><li>A refusal shows D19's English line.</li></ul> | CLAUDE.md forbids calling the 9 levels MMDA's, and plan §9 frames the class as what MMDA lists the level as, not a verdict on the spot. D19 is Rene's confirmed refusal line. The rest is test-build wording until MS5 and M20. |
 
 ## 5. Not in 3a
