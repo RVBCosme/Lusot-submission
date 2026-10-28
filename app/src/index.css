@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/*
+ * Keeps the title and the footer line clear of Android's status and navigation bars. Capacitor 8
+ * draws the WebView edge to edge when the page sets viewport-fit=cover; its SystemBars plugin then
+ * injects --safe-area-inset-*, because env(safe-area-inset-*) is wrong in Android WebView before
+ * 140. Browsers fall back to env(). The 1rem is the page's own margin.
+ */
+.safe-area {
+  padding-top: calc(1rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  padding-right: calc(1rem + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  padding-bottom: calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-left: calc(1rem + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+}

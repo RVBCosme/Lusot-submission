@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { HttpError, pollReport, postToS3, requestUpload, type ReportResult } from './lib/api'
+import { apiBaseUrl, HttpError, pollReport, postToS3, requestUpload, type ReportResult } from './lib/api'
 import { capturePhoto, getFix } from './lib/capture'
 
-const API_URL = import.meta.env.VITE_API_URL
+// Read once at load (R31). Tests pass their own apiUrl.
+const API_URL = apiBaseUrl(import.meta.env.VITE_API_URL)
 const POOR_ACCURACY_M = 50
 
 const STEPS = {
@@ -20,13 +21,19 @@ interface Problem {
   detail: string
 }
 
-function App() {
+const NO_API_URL: Problem = {
+  message: 'This build has no API address, so it cannot upload.',
+  detail: 'VITE_API_URL is not set. Put it in app/.env.local, then build again.',
+}
+
+function App({ apiUrl = API_URL }: { apiUrl?: string }) {
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<Step>()
   const [accuracyM, setAccuracyM] = useState<number>()
   const [reportId, setReportId] = useState<string>()
   const [result, setResult] = useState<string>()
   const [problem, setProblem] = useState<Problem>()
+  const shownProblem = problem ?? (apiUrl === '' ? NO_API_URL : undefined)
 
   async function takeAndUpload() {
     // The `step` state is stale inside this closure, so the run keeps its own copy for the error message.
@@ -47,7 +54,7 @@ function App() {
       const fix = await getFix()
       setAccuracyM(fix.accuracyM)
       advance('link')
-      const { reportId: id, upload } = await requestUpload(API_URL, {
+      const { reportId: id, upload } = await requestUpload(apiUrl, {
         lat: fix.lat,
         lng: fix.lng,
         gpsAccuracyM: fix.accuracyM,
@@ -57,7 +64,7 @@ function App() {
       advance('upload')
       await postToS3(upload, blob)
       advance('analysis')
-      setResult(describeResult(await pollReport(API_URL, id)))
+      setResult(describeResult(await pollReport(apiUrl, id)))
       advance('done')
     } catch (err) {
       setProblem(describeProblem(current, err))
@@ -67,12 +74,17 @@ function App() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col gap-4 p-4">
+    <main className="safe-area mx-auto flex min-h-dvh max-w-md flex-col gap-4">
       <h1 className="text-xl font-bold">Lusot: MS1 test build</h1>
-      <button type="button" onClick={takeAndUpload} disabled={busy} className="rounded border px-4 py-2 disabled:opacity-50">
+      <button
+        type="button"
+        onClick={takeAndUpload}
+        disabled={busy || apiUrl === ''}
+        className="rounded border px-4 py-2 disabled:opacity-50"
+      >
         Take photo and upload
       </button>
-      <div className="flex flex-col gap-1">
+      <div role="status" className="flex flex-col gap-1">
         {step && <p>Step: {STEPS[step]}</p>}
         {accuracyM !== undefined && (
           <p>
@@ -83,10 +95,10 @@ function App() {
         {reportId && <p>Report: {reportId}</p>}
         {result && <p>Final status: {result}</p>}
       </div>
-      {problem && (
+      {shownProblem && (
         <div role="alert" className="flex flex-col gap-1">
-          <p>{problem.message}</p>
-          <p>Details: {problem.detail}</p>
+          <p>{shownProblem.message}</p>
+          <p>Details: {shownProblem.detail}</p>
         </div>
       )}
       <footer className="mt-auto text-sm">
@@ -109,10 +121,16 @@ function describeProblem(step: Step, err: unknown): Problem {
       detail,
     }
   }
-  if (err instanceof HttpError && (err.code === 'capture_too_old' || err.code === 'capture_in_future')) {
+  if (err instanceof HttpError && err.code === 'capture_too_old') {
     return {
       message:
         "The phone's clock or the photo time is off by more than 15 minutes. Check the phone's date and time, then take a new photo. Nothing was uploaded.",
+      detail,
+    }
+  }
+  if (err instanceof HttpError && err.code === 'capture_in_future') {
+    return {
+      message: "The phone's clock is ahead of the real time. Check the clock, then try again. Nothing was uploaded.",
       detail,
     }
   }
