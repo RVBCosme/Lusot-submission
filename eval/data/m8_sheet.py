@@ -48,7 +48,8 @@ SCRIPT = Path(__file__).with_name("m8_sheet.js")
 # The photos carry the page, so the rest stays quiet. The in-between rule is the one
 # thing set apart. System fonts only, since the page loads nothing. m8_sheet.js styles
 # the photo, its markers and its row inline, so no rule here touches them: an inline
-# style wins, and the click geometry depends on it.
+# style wins, and the click geometry depends on it. The tools stay in view only where
+# they fit on one row; a taller sticky bar would hide the photos.
 STYLE = """\
 :root {
   color-scheme: light;
@@ -89,9 +90,9 @@ h1 { margin: 24px 0 8px; font-size: 1.5rem; line-height: 1.25; }
 }
 .m8-tools [role="status"] { flex: 1 0 100%; min-height: 1.5em; margin: 0; }
 .m8-tools label, .m8-tools input { max-width: 100%; }
-@media (min-width: 40em) {
+@media (min-width: 56em) {
   .m8-tools { position: sticky; top: 0; z-index: 1; }
-  .m8-photo { scroll-margin-top: 8rem; }
+  .m8-photo { scroll-margin-top: 9rem; }
 }
 button, select, input { font: inherit; color: inherit; }
 button, select {
