@@ -85,7 +85,7 @@ All new.
 | `eval/tests/rules_md.py` | reads `eval/rules.md`'s sections and tables for the drift tests (C408) | 1 |
 | `eval/scoring/__init__.py` | `RULES_VERSION` and the package docstring | 1 |
 | `eval/scoring/scale.py` | the 9 levels, their limits and classes (rules §1) | 1 |
-| `eval/scoring/labels.py` | rules §2's mapping and its word list (C404, C420) | 1 |
+| `eval/scoring/labels.py` | rules §2's mapping and its word list (C404, C420) | 1, 10 |
 | `eval/scoring/rows.py` | the results contract: loading, the allow-list and the row types (C402, C403) | 2, 4 |
 | `eval/scoring/paths.py` | the sealed-path guard (C411), shared by the loader and the one command | 2 |
 | `eval/tests/builders.py` | synthetic row builders shared by the tests | 2 |
@@ -761,6 +761,40 @@ All new.
   - the same with `python3` (3.11.9)
   - `uv run --no-project --python 3.9 python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run`. uv downloads CPython 3.9 once (spec §3). If that download fails, record the error; the after-merge CI step then covers 3.9.
 - [ ] **Step 7:** Run the leak checks, then commit `feat(eval): rebuild the report with one command`.
+
+### Task 10: Two more label readings (MS6E-Q1, items 15 and 16)
+
+Added on Oct 28 at 11:25 PM, after Quezon City's official road-status pages turned up labels that §2 doesn't map. The tracker found them while checking official alert text. This task runs before Task 8.
+
+**Files:**
+- Modify: `eval/scoring/labels.py` (Task 1's file)
+- Test: `eval/tests/test_labels.py`
+
+**Interfaces:**
+- No signature changes.
+- `LABEL_WORDS` gains `ankle` and `head`, and a committed label may hold `+` after a number (spec C420).
+- `--label-words` therefore prints the two new words, and MS3b's export picks them up.
+
+**The readings (spec C404):**
+- **Item 15.** When a label's words aren't one of §2's phrases (and aren't a status), the label takes its level from its measures, as a label with no words does. Words that are a phrase still win. Words with no measure stay unmapped.
+- **Item 16.**
+  - `head` maps to `above_chest`, as `lagpas tao` does, and takes `deep` or `level` like any phrase.
+  - A number followed by `+` and a unit means "at least that depth". It maps to `above_chest` when the number is over 45 in, and otherwise leaves the label unmapped. "At least 13 in" could be deeper than half tire, and a label never sets a floor.
+
+- [ ] **Step 1: Write the failing tests** in `test_labels.py`:
+  - `test_measures_decide_unmapped_words` (item 15):
+    - `ANKLE DEEP (9 inches)` gives `LevelLabel("level", "half_knee")`, and `Ankle Deep` gives `unmapped`
+    - `knee deep (25 inches)` still gives `knee`, because words win
+    - `ankle deep (61 cm)` gives `tire`, since 61 cm is 24.02 in
+  - `test_head_plus` (item 16):
+    - `Head+ (60+ inches)`, `Head+`, `head deep` and `head level` each give `above_chest`
+    - `60+ inches` gives `above_chest`
+    - `13+ in` gives `unmapped`
+  - `test_label_words_take_ankle_head_and_plus`: `label_words_ok` passes `ANKLE DEEP (9 inches)` and `Head+ (60+ inches)`, and still refuses `Espana Maceda` and `knee deep 8:00 AM`. `head` and `ankle` are in `LABEL_WORDS`.
+- [ ] **Step 2:** Run the tests. Expected: FAIL.
+- [ ] **Step 3:** Implement the two readings in `labels.py`, and update its docstring, so it no longer says that only §2's phrases map.
+- [ ] **Step 4:** Run the whole suite. Expected: PASS. Task 1's drift tests still pass, because they read `eval/rules.md` toward the code only. The final review's bidirectional drift test, if it adds one, must allow `head` until v0.7 lands.
+- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): read alert labels by their inches when the words don't map (MS6E-Q1 items 15, 16)`.
 
 ---
 
