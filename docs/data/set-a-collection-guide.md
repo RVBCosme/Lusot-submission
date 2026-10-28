@@ -1,6 +1,6 @@
 # Set A collection guide (for Rene, by hand)
 
-Set A is the main evaluation set: Metro Manila flood photos, each matched to an MMDA or city flood alert for the same spot (plan §11, Table 12; manual action M7). We need about **50 photos**. The split into development and sealed photos happens later, by script, so you don't have to think about it while collecting.
+Set A is the main evaluation set: Metro Manila flood photos, each paired with a flood alert that MMDA or a city posted for the same spot (plan §11, Table 12; manual action M7). We need about **50 photos**. The split into development and sealed photos happens later, by script, so you don't have to think about it while collecting.
 
 This guide also covers A-neg, your M8 labels, Set B's cars (M10), the sidewall photos (M11), consented items (M9) and Set D (M13). Each log has an empty template in `eval/templates/`, and MS2's tools read the same columns and values (`eval/data/formats.py`, MS2 spec §5.9). Updated Oct 28 for MS2 (spec C209, C218), with the tracker's Set A search checklist v2 folded in.
 
@@ -10,12 +10,12 @@ This guide also covers A-neg, your M8 labels, Set B's cars (M10), the sidewall p
 
 ## What counts as a good Set A photo
 
-**Only photos that MMDA or a city government posted itself count** (plan §11, Table 25, M7, as updated Oct 27). The rules disqualify data used without the rights to it. Philippine law gives no copyright to works of the Government, so these photos may be used privately, but they are never redistributed.
+**Only photos that MMDA or a city government posted itself count** (plan §11, Table 25, M7, as updated Oct 27). The hackathon's rules disqualify an entry that uses data it holds no rights to. Under Philippine law, the Government's own works carry no copyright, so we may use these photos privately, but we never pass them on.
 
-1. **Best:** an MMDA post (or a Quezon City post, since QC uses the same gauge) that contains **both** the alert and a photo. The photo and the label then share one source and one time.
+1. **Best:** an MMDA post (or a Quezon City post, since QC uses the same gauge) that contains **both** the alert and a photo. The photo and its label then come from one post, at one time.
 2. **Also fine:** a photo that MMDA or a city government posted separately, at the **same named spot** (the same street plus its cross street or landmark) and within **30 minutes** of an MMDA or city alert for that spot.
 3. **Never:** photos from news outlets, private pages or anyone else. News lists only help you find the official posts.
-4. The photo must show the water against something Lusot can read: a parked car's wheel, or an adult standing still, **in the water**. A wide aerial shot is useless.
+4. The photo must show the water against something Lusot can read: the wheel of a parked car, or an adult standing still, **in the water**. A wide aerial shot is useless.
 5. Inside Metro Manila only.
 6. **Labels printed on the picture:**
    - **Why it matters:** alert cards, banners and captions burned into the image can show the depth or passability. The AI can read that text, which would give it the answer.
@@ -38,9 +38,10 @@ Skip a photo if any of these is true:
 
 - MMDA's own Facebook page and X account.
 - A city government's own page, or the official page of one of its offices, such as its disaster office (DRRMO) or its information office. Counting city offices is MS2-Q4's default, which waits for your OK.
-- **Not these:** barangay pages, officials' personal pages, police or fire pages, and any photo the post credits to someone else. The tools count such a poster as `other`, and the photo is left out (`eval/rules.md` §9).
+- **Not these:** barangay pages, officials' personal pages, and police or fire pages. If you log one by mistake, the tools count its poster as `other`, and the photo is left out (`eval/rules.md` §9).
+- **Skip a photo the post credits to someone else,** such as a resident or a news outlet, and don't log it. Its poster is still MMDA or the city, so no tool can catch it.
 
-Write `poster`, and `alert_poster`, as `MMDA`, the city's name (`Quezon City`), or the city's name and then its office (`Quezon City DRRMO`, `Manila Public Information Office`). The intake warns about any poster it counts as `other`, so you can fix a slip.
+Write `poster` and `alert_poster` as `MMDA`, as the city's name (`Quezon City`), or as the city's name followed by one of these office words: `Government`, `City Government`, `City Hall`, `LGU`, `DRRMO`, `CDRRMO`, `PIO`, `Public Information Office` or `Information Office`. For example: `Quezon City DRRMO`, `Manila Public Information Office`. Any other spelling, even a natural one such as "Manila DRRM Office", counts as `other`. The intake warns about every poster and alert poster it counts as `other`; when it does, check the spelling.
 
 ## Where to look (you browse; Claude never does)
 
@@ -58,7 +59,7 @@ Write `poster`, and `alert_poster`, as `MMDA`, the city's name (`Quezon City`), 
 - More days are in the tracker's addendum to the index (`alert-index-addendum.md`, in your handoff folder). Use it once you've OK'd it; it's on your task list. Skip Sep 2, 2024: MMDA's posts that day only say "subsided", with no depth words.
 
 **Search words** (you type them):
-- **MMDA's gauge words:** "half gutter", "gutter deep", "above gutter level", "half knee", "knee deep", "above knee level", "half tire", "tire deep", "waist deep", "chest deep"
+- **Depth words, as MMDA's alerts write them:** "half gutter", "gutter deep", "above gutter level", "half knee", "knee deep", "above knee level", "half tire", "tire deep", "waist deep", "chest deep"
 - **Passability:** "passable to all types of vehicles", "not passable to light vehicles", "NPLV"
 - **Flood in Filipino:** "baha"
 - **On X:** for example `from:MMDA since:2026-08-09 until:2026-08-11`, once you've checked that it's MMDA's verified account
@@ -67,13 +68,17 @@ Write `poster`, and `alert_poster`, as `MMDA`, the city's name (`Quezon City`), 
 ## Set up your logs (once)
 
 1. Create `C:\Systems\Lusot\lusot-data\set_a\raw\` and `C:\Systems\Lusot\lusot-data\a_neg\raw\` if they don't exist.
-2. Copy `eval/templates/set_a_log.csv` to `C:\Systems\Lusot\lusot-data\set_a\set_a_log.csv`, and `eval/templates/a_neg_log.csv` to `C:\Systems\Lusot\lusot-data\a_neg\a_neg_log.csv`. Logs you already made from the checklist still work: a Set A log with the three new columns added at the end, and an A-neg log made from the Set A template plus `surface`. A Set A log with only the 17 old columns works too, but a separate-post row needs `alert_poster` and `alert_spot_text`.
-3. **Edit the logs in a spreadsheet app, and save them as CSV in UTF-8.** In Excel that's "CSV UTF-8 (Comma delimited)". A plain CSV save writes ñ, as in `Las Piñas`, in another encoding, which the check can't read. A spreadsheet also quotes a cell that holds a comma or a quote mark, as CSV needs.
+2. **Keep a working copy of each log in Excel.** Open its template in `eval/templates/` (`set_a_log.csv`, `a_neg_log.csv`), format the date and time columns as Text, and save it as an Excel file: `C:\Systems\Lusot\lusot-data\set_a\raw\set_a_log.xlsx` and `C:\Systems\Lusot\lusot-data\a_neg\raw\a_neg_log.xlsx`. They go in `raw\` because the deny rules already keep agents out of it, and you delete it after the split anyway. The other logs in this guide work the same way, with each working copy next to its CSV.
+   - A log you already started as a CSV still works. To make it your working copy, open it through Data > From Text/CSV, with the date and time columns set to Text, and save it as `.xlsx`. If Excel already rewrote some dates or times, the intake flags them, and you fix them in the working copy.
+   - Its columns can be the template's or the checklist's: a Set A log with the three new columns at the end, or an A-neg log made from the Set A template plus `surface`. A Set A log with only the 17 old columns works too, but a separate-post row needs `alert_poster` and `alert_spot_text`.
+3. **Give the intake a CSV copy.** Whenever the log should be checked, and before the split, which reads only the CSV, save the working copy, then save it again as "CSV UTF-8 (Comma delimited)" under the template's name: `set_a\set_a_log.csv` and `a_neg\a_neg_log.csv`. Close that CSV without changing it, and go on in the `.xlsx`. Excel's plain "CSV" writes ñ, as in `Las Piñas`, in an encoding the check can't read.
+   - Never open the CSV copy in Excel and save it again. A CSV keeps no cell formats, so Excel turns its dates and times into its own short form, such as `8/9/2026 8:20`, and the check then refuses every one.
+   - If you have to open a CSV, use Data > From Text/CSV and set the date and time columns to Text.
 4. **Keep every row full.**
    - Every row needs a cell for each column in the header row, even an empty one. This matters for the three optional columns at the end of Set A's header: if your header has them, every row needs their cells, even when all three are empty. A spreadsheet's CSV export does this for you.
    - Never leave a header cell blank, and never add an extra comma after the last column.
    - A row with too many or too few cells, or a header with a blank or repeated name, stops the check, so that no value slips into the wrong column.
-5. **Dates and times** are Manila time. Write dates as `YYYY-MM-DD`, and times as `YYYY-MM-DD HH:MM` on the 24-hour clock, with two digits for the hour: `2026-08-09 08:20`, `2026-07-10 14:50`. A spreadsheet may rewrite them in its own format when it saves, so format those columns as text before you type in them.
+5. **Dates and times** are Manila time. Write dates as `YYYY-MM-DD`, and times as `YYYY-MM-DD HH:MM` on the 24-hour clock, with two digits for the hour: `2026-08-09 08:20`, `2026-07-10 14:50`. Columns formatted as Text keep them exactly as you type them.
 
 ## How to log each Set A photo
 
@@ -106,7 +111,7 @@ Write `poster`, and `alert_poster`, as `MMDA`, the city's name (`Quezon City`), 
 | `alert_poster` | Separate-post rows only: who posted the alert, written as for `poster`. Blank on same-post rows. |
 | `alert_spot_text` | Separate-post rows only: the alert's spot, exactly as written. Blank on same-post rows. |
 
-**The photo's columns and the alert's.** On a photo's extra rows, repeat `candidate_id`, `platform`, `post_url`, `poster`, `post_time_pht`, `spot_text`, `city`, `photo_file`, `reference_visible`, `label_in_image`, `faces_or_plates` and `same_spot_as` exactly; the intake flags an id whose rows differ in them. `logged_on`, `alert_time_pht`, `level_label_raw`, `passability_raw`, `photo_in_alert_post`, `alert_poster`, `alert_spot_text` and `notes` belong to each row's own alert.
+**The photo's columns and the alert's.** On a photo's extra rows, repeat `candidate_id`, `platform`, `post_url`, `poster`, `post_time_pht`, `spot_text`, `city`, `photo_file`, `reference_visible`, `label_in_image`, `faces_or_plates` and `same_spot_as` exactly; the intake flags an id whose rows differ in them. `logged_on`, `alert_time_pht`, `level_label_raw`, `passability_raw`, `photo_in_alert_post`, `alert_poster`, `alert_spot_text` and `notes` are each row's own. The tools join a photo's notes from all its rows.
 
 **Never fill `other_alerts_raw`.** It isn't in your log: the tools work it out from your rows.
 
@@ -117,7 +122,7 @@ Write `poster`, and `alert_poster`, as `MMDA`, the city's name (`Quezon City`), 
 **How the tools match a photo to its alerts** (C223, C224; `eval/rules.md` §3), so you know why the spots and times matter:
 - An alert in the photo's own post always fits.
 - A separate alert fits when MMDA or a Metro Manila city government posted it, at the same spot, and its time and the photo's post time are at most 30 minutes apart. The same spot means the two spot texts share two names, such as a street and its cross street or landmark, or each names one place and it's the same one.
-- The fitting alert nearest in time gives the photo's labels, and the other fitting alerts' depth words become `other_alerts_raw`. If two fitting alerts' depths differ by more than one level, the photo is left out as conflicting (`eval/rules.md` §3).
+- The fitting alert nearest in time gives the photo's labels, and the other fitting alerts' depth words become `other_alerts_raw`. If two fitting alerts disagree on the depth by two levels or more, the photo is left out as conflicting (`eval/rules.md` §3).
 - A photo that no alert fits is left out as "no matching alert". The intake warns, so you can check for a slip in a spot or a time.
 
 ## When the intake flags something
@@ -135,7 +140,7 @@ Wet streets that aren't flooded, and dry streets, ideally with parked cars or pe
 
 - **Spread them out:** at least **5 places, over at least 2 days**, so the split has events to draw from.
 - **Files:** `N001.jpg`, `N002.jpg` and so on, in `C:\Systems\Lusot\lusot-data\a_neg\raw\`.
-- **The log:** `a_neg\a_neg_log.csv`, copied from `eval/templates/a_neg_log.csv`, or the checklist's copy of the Set A template plus `surface`. Its columns are Set A's, except:
+- **The log:** `a_neg\a_neg_log.csv`, made from `eval/templates/a_neg_log.csv`, or the checklist's copy of the Set A template plus `surface`. Its columns are Set A's, except:
   - `candidate_id`: `N001`, `N002`, …
   - `poster`: `own` or `friend`
   - `post_time_pht`: when the photo was taken, `YYYY-MM-DD HH:MM`
@@ -185,7 +190,7 @@ Set B tests the wheel geometry where the depth is known: you photograph dry park
 - **Which cars:** parked, side-on, in daylight, plus an angled photo of some if there's time. The types are `sedan_hatch` (sedans and hatchbacks), `suv_mpv` (SUVs and MPVs) and `van`, each with the same tire code on both axles. Skip a car whose tire code has no aspect ratio, such as `195R14C`: the generator can't use it.
 - **How many:** at least **6 cars by Oct 30**, and about 10 in all.
 - **Numbering (C210):** number the cars `B01`, `B02`… in the order you photograph them. Odd numbers are development cars, in `C:\Systems\Lusot\lusot-data\set_b\dev\`. Even numbers are final cars, in `set_b\sealed\`, and Claude never sees them.
-- **Files:** each of those two folders holds its own `cars.csv`, copied from `eval/templates/set_b_cars.csv`, with one row per photo, and the photos in `photos\` beside it: `B01-1.jpg`, `B01-2.jpg`… (the car, then the photo's number).
+- **Files:** each of those two folders holds its own `cars.csv`, made from `eval/templates/set_b_cars.csv`, with one row per photo, and the photos in `photos\` beside it: `B01-1.jpg`, `B01-2.jpg`… (the car, then the photo's number).
 - **The owner's OK:** save each owner's OK (a screenshot is fine) beside `cars.csv`, name it in `consent_file`, and put the version of the text it answered in `consent_version`. Window 4 drafts the text (`docs/drafts/set-b-and-m11-permission-draft.md`, on its branch until it merges). A car without its OK is never sent to Meta. The final cars' OKs go into the Set B archive with the rest, so keep a copy outside `set_b\sealed\` if you want them at hand after the archive test.
 
 | Column | What to put |
@@ -203,9 +208,9 @@ Set B tests the wheel geometry where the depth is known: you photograph dry park
 
 ## Sidewall photos (M11)
 
-Close photos of the tire sidewall codes on a jeepney, a tricycle and a bus, plus a Hilux and a Tamaraw if you can (G5). Claude reads each code from its photo and checks it against yours, and the confirmed codes go to MS3b's tire-code file.
+Close photos of the size codes on the tire sidewalls of one jeepney, one tricycle and one bus, and of a Hilux and a Tamaraw if you can (G5). Claude reads each code from its photo and checks it against yours, and the confirmed codes go to MS3b's tire-code file.
 
-- **Files:** the photos in `C:\Systems\Lusot\lusot-data\sidewalls\`, with `sidewalls.csv` beside them, copied from `eval/templates/sidewalls.csv`, and each driver's permission (a screenshot is fine) there too. Window 4's draft of the permission text is in the same file as Set B's.
+- **Files:** the photos in `C:\Systems\Lusot\lusot-data\sidewalls\`, with `sidewalls.csv` beside them, made from `eval/templates/sidewalls.csv`, and each driver's permission (a screenshot is fine) there too. Window 4's draft of the permission text is in the same file as Set B's.
 - **Row numbers:** this log has no id column, so the intake names its rows as `sidewalls row <n>`. It counts data rows too: data row n is spreadsheet row n + 1.
 
 | Column | What to put |
@@ -222,10 +227,10 @@ Close photos of the tire sidewall codes on a jeepney, a tricycle and a bus, plus
 
 ## Consented sample photos (M9, separate from Set A)
 
-Flood photos and clips from friends, family or community groups, for the "Try a sample" button and the demo. They are **never** mixed into Set A.
+Flood photos and clips that friends, relatives or community groups give you, for the "Try a sample" button and the demo. They **never** join Set A.
 
 - **Ask with the donor message you approve.** Window 4 drafts it in `docs/drafts/m9-donor-message-draft.md`, on its branch until it merges; its latest draft, on Oct 28, is `M9-v3`. It replaces the draft message this guide used to hold. The written OK must cover every use, because the rules require us to hold the rights to everything we submit, so a chat "sure" isn't enough.
-- **Files:** each item in `C:\Systems\Lusot\lusot-data\consented\`, with `consented_log.csv` beside it, copied from `eval/templates/consented_log.csv`, and each written OK (a screenshot of the reply is fine) there too.
+- **Files:** each item in `C:\Systems\Lusot\lusot-data\consented\`, with `consented_log.csv` beside it, made from `eval/templates/consented_log.csv`, and each written OK (a screenshot of the reply is fine) there too.
 - **Where and when** matter: each demo pin sits at its photo's real spot.
 
 | Column | What to put |
@@ -244,9 +249,9 @@ Flood photos and clips from friends, family or community groups, for the "Try a 
 
 ## Set D (M13, only if it rains)
 
-Set D is final only: it is sealed, and Claude never sees it. If it rains, photograph a puddle beside a parked car and measure its depth with a ruler, aiming for at least 5 ruler-checked photos. Measure only from a dry curb, in boots, and never step into the water or the road.
+Set D is final only: it is sealed, and Claude never sees it. If it rains, find standing water next to a parked car, read its depth there with a ruler, and photograph it; aim for 5 or more such photos. Stay on a dry curb in boots the whole time: never wade into the water or walk onto the road.
 
-- **Files:** the photos in `C:\Systems\Lusot\lusot-data\set_d\sealed\photos\`, and `set_d_log.csv` in `set_d\sealed\`, copied from `eval/templates/set_d_log.csv`.
+- **Files:** the photos in `C:\Systems\Lusot\lusot-data\set_d\sealed\photos\`, and `set_d_log.csv` in `set_d\sealed\`, made from `eval/templates/set_d_log.csv`.
 - **Then** you run `seal_set_d` yourself, test its archive in 7-Zip, and empty `set_d\sealed\` (C217, C219).
 
 | Column | What to put |
