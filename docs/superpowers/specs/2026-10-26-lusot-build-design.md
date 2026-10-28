@@ -220,7 +220,7 @@ All five were rechecked against the Oct 27 plan; G1 to G4 are still needed.
 
 **G2. Pay once per photo** (MS4)
 - When the SQS message arrives, conditionally move the report from `pending` to `processing` and give it a lease (`claimedAt` plus a claim token).
-- If the report is already `done`, `refused` or `failed`, or another live lease holds it, delete the message and stop without calling Meta.
+- If the report is already `done`, `refused` or `failed`, delete the message and stop without calling Meta. If another live lease holds it, return the message for a later retry and stop without calling Meta (MS3a's C89, Oct 29). The copy then finds the report final, or re-claims it once the lease has expired.
 - The final write requires status `processing` and the same claim token. A retry may re-claim a lease that has expired, for example after a Lambda timeout.
 - *Why:* the conditional write in §7 step 8 stops a result from being overwritten. The Oct 27 text says it also stops "a second paid analysis", but it can't: two workers can both pay Meta before either writes.
 

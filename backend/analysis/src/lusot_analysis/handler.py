@@ -8,9 +8,10 @@ photo, so no raw photo outlives its report's result (W25).
 An AWS error returns the message for an SQS retry, which comes after the claim's
 lease has expired (C46). A fault in what the run loads, and a key or account that
 Meta rejects, return it too, so they end in the dead-letter queue and its alarm, not
-in failed reports (C60, C73, C79). So does a delivery that meets another worker's
-live lease: a message is finished only once its report is final or its own work has
-ended, so a copy is left to claim the report again if that worker crashes (C89).
+in failed reports (C60, C73, C79). A delivery that meets another worker's live lease
+also returns its message, but its copy normally finishes on redelivery: a message is
+finished only once its report is final or its own work has ended, so a copy is left
+to claim the report again if that worker crashes (C89).
 """
 
 from __future__ import annotations
