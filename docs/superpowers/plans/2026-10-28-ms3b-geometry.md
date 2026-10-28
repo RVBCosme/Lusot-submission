@@ -531,8 +531,9 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
       - each kept `READING_TYPES` vehicle whose body gives a reading (`wheels_hidden`, and `BODY_ROWS[body]` isn't `None`)
 
       Every Waterline with a cause enters `step3_drops`.
+    - **Step 2's rim links, always:** `link_rims(sam["wheel"].instances, sam["wheel rim"].instances)`, over all of SAM's wheels before the cuts, as C55 links wheels among all of SAM's vehicles (P14). So a rim inside a cut wheel's box never joins a kept wheel, and each kept wheel then takes its own rims.
+      - The links run with geometry off too. They are box logic only and pay for nothing, and the evidence record's `rim_outline` needs them whether or not geometry is on, or later dropped (C328, MS4's C505, C418).
     - **Steps 4 and 5, only with geometry on:**
-      - `link_rims(sam["wheel"].instances, sam["wheel rim"].instances)`, over all of SAM's wheels before the cuts, as C55 links wheels among all of SAM's vehicles (P14). So a rim inside a cut wheel's box never joins a kept wheel. Each kept wheel then takes its own rims.
       - for every wheel of a kept vehicle: `wheel_geometry(answer_waterline=..., codes=tire_codes(vehicle_type), rims=..., waterline=..., wheel_box=box_xyxy(instance), brightness=scores.brightness, tuning=tuning)`
     - **Then** `measure(kept, step3_drops=..., geometry=...)` and `combine`, as before.
   - **New log keys (C316):**
@@ -633,6 +634,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - `level: str | None` and `level_from: Literal["landmark", "geometry"] | None`: the box's own reading, or `None` when it gives none
     - `inches: tuple[float, float] | None`: geometry's unrounded min and max, whenever geometry measured the wheel, G4's drop included
     - `rim: RimDrawing | None`: with a geometry reading only
+    - `rim_outline: tuple[Polygon, ...] = ()`: on a wheel entry, the outline of the `wheel rim` mask step 2 linked to it (C300), simplified like `outline`, with or without a geometry reading; `()` when no rim is linked (C328, for MS4's C505)
     - `waterline: tuple[tuple[float, float], tuple[float, float]] | None`: `((x_first, y_w), (x_last, y_w))` from step 3's `x_span`, wherever step 3 found a `y_w`
     - `used: bool`: its reading entered the combine as one that can decide, so it counts in `basis`
     - `deciding: bool`; `dropped: str | None`, its cause; `rechecked: bool = False`, which only the self-check's addendum sets (C311)
@@ -652,15 +654,16 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - entry 1: `body`, landmark `not_visible`, level `None`, not used or deciding, dropped `None`
     - entry 2: `wheel`, landmark `rim_quarter`, level `half_knee`, `level_from` `geometry`, inches within 0.02 of (7.720, 8.184), `rim.centre` within 0.5 of (320.0, 239.6), used and deciding, dropped `None`, `rechecked` false
     - entry 2's waterline is `((x0, 257.0), (x1, 257.0))`, where `(x0, x1)` is `find_waterline(wheel mask, water, TUNING).x_span`
+    - entry 2's `rim_outline` is one polygon of at least 8 points, each within 1.5 px of the rim mask's edge. Entry 1's is `()`.
     - each entry's `box` is its numbered box, and the water outline is the one rectangle {(0, 257), (639, 257), (639, 479), (0, 479)}
   - `test_evidence_marks_drops_and_kept_readings`: `level_case()` plus Task 6's persons 3 and 4 (a dry standing adult at `knee`, and a wading adult at `knee`):
     - wheel 2: level `knee`, `level_from` `landmark`, used and deciding, and a waterline at row 280.0 from column 150 to 199
     - person 3: level `knee`, not used, dropped `no_water_contact`, waterline `None`
     - person 4: level `None`, not used, dropped `person_wading`
   - `test_a_g4_drop_keeps_its_geometry`: `geometry_case(waterline="rim_three_quarters")` with geometry on → `no_usable_reference`, and wheel 2 is dropped `wheel_methods_disagree`, with level `None`, not used, its inches within 0.02 of (7.720, 8.184) and its `rim` set.
-  - `test_evidence_with_geometry_off`: `geometry_case("van")` with geometry off → vehicle 1 dropped `vehicle_type`, wheel 2 dropped `wheel_vehicle_dropped`, and no inches or rim anywhere.
+  - `test_evidence_with_geometry_off`: `geometry_case("van")` with geometry off → vehicle 1 dropped `vehicle_type`, wheel 2 dropped `wheel_vehicle_dropped`, and no inches or rim anywhere. Wheel 2's `rim_outline` is still set, since its rim is linked (C328).
   - Review Focus 6, `test_evidence_holds_no_face_plate_or_reason` (C62, C518): with `level_case()`, which has a face and a plate, the entries are exactly boxes 1 and 2; no entry's box is the face's `(300, 120, 330, 150)` or the plate's `(220, 270, 280, 290)`; no polygon lies wholly inside either box; and `REASON-MARKER-31` isn't in `repr(run.evidence)`.
-  - Review Focus 6, `test_evidence_never_reaches_the_log`: no key of `run.log` is `evidence`, `outline`, `water_outline` or `rechecked`, and `json.dumps(run.log)` doesn't contain `"outline"`.
+  - Review Focus 6, `test_evidence_never_reaches_the_log`: no key of `run.log` is `evidence`, `outline`, `rim_outline`, `water_outline` or `rechecked`, and `json.dumps(run.log)` doesn't contain `"outline"`.
   - `test_no_evidence_before_the_answer`: a `flat_jpeg(10)` photo (`too_dark`) and a `judge` that raises `meta_error(500)` (`model_error`) both give `evidence is None`. `level_case()` answered with `standing_water: "no"` and its wheel at `tire_only` gives no flood seen, with a record of boxes 1 and 2: landmarks `not_visible` and `tire_only`, every `level` `None`, nothing used, deciding or dropped, and the water outline present.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_evidence.py tests/test_pipeline.py tests/test_apply_drops.py tests/test_measure.py`. Expected: the new tests FAIL.
 - [ ] **Step 3:** Implement. The record is assembled from what steps 3 to 6 already hold; no step measures anything new for it.
