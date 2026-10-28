@@ -2,13 +2,15 @@
 
 The split keeps each event whole on one side, so an event that is too big costs only
 balance, while one that is too small can leak a flood across the two sides (W18). So
-rows join on any shared name, whatever their city, and an empty key joins the date's
-other empty keys.
+rows of one date join on any shared name, whatever their city, marked names included,
+and when a name of one sits whole inside a name of the other, as edsa does in edsa
+kamuning (S-R9). An empty key joins the date's other empty keys.
 """
 
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from itertools import combinations
 
 import places
 
@@ -34,10 +36,12 @@ def group_events(
     """Each row's event id, E01, E02… with at least two digits, numbered by each
     event's lowest photo id. The rows are one set's.
 
-    Two rows join on the same date when they have the same key, an empty one included,
-    or share a name. They also join when either links the other, and as a joined pair.
-    A link to an id that isn't a row is left out, since the intake reports it
-    (bad_link). A joined pair naming an id that isn't a row raises KeyError.
+    Two rows of one date join when they have the same key, an empty one included, or
+    when a name of one is a whole run of words inside a name of the other, an equal
+    name included (S-R9): edsa joins edsa kamuning, but edsa kamuning doesn't join edsa
+    ortigas. Rows also join, whatever their dates, when either links the other, and as
+    a joined pair. A link to an id that isn't a row is left out, since the intake
+    reports it (bad_link). A joined pair naming an id that isn't a row raises KeyError.
     """
     parent = {row.photo_id: row.photo_id for row in rows}
 
@@ -50,12 +54,10 @@ def group_events(
     def join(a: str, b: str) -> None:
         parent[find(a)] = find(b)
 
-    first: dict[tuple[str, str, str], str] = {}  # the first row with a date and mark
+    for a, b in combinations(rows, 2):
+        if a.date == b.date and _one_place(a.key, b.key):
+            join(a.photo_id, b.photo_id)
     for row in rows:
-        marks = [("key", row.key)]
-        marks += [("name", name) for name in places.names_of(row.key)]
-        for kind, value in marks:
-            join(first.setdefault((row.date, kind, value), row.photo_id), row.photo_id)
         for link in row.links:
             if link in parent:
                 join(link, row.photo_id)
@@ -70,6 +72,16 @@ def group_events(
         for number, ids in enumerate(members.values(), start=1)
         for photo_id in ids
     }
+
+
+def _one_place(a: str, b: str) -> bool:
+    """True when two keys are equal, or a name of one is a whole run of words inside a
+    name of the other, an equal name included."""
+    return a == b or any(
+        f" {x} " in f" {y} " or f" {y} " in f" {x} "
+        for x in places.names_of(a)
+        for y in places.names_of(b)
+    )
 
 
 def event_number(event_id: str) -> int:

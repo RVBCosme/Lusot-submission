@@ -50,6 +50,45 @@ def test_links_join_both_ways():
     assert events.group_events(unlinked) == {"A001": "E01", "A002": "E02"}
 
 
+def test_a_link_joins_whatever_its_dates():
+    rows = [
+        photo("A001", "Taft Ave. cor. Pedro Gil", "2026-08-09", links={"A002"}),
+        photo("A002", "Roxas Blvd. - Kalaw", "2026-08-10"),
+    ]
+    assert events.group_events(rows) == {"A001": "E01", "A002": "E01"}
+
+
+# S-R9 (b): one corner written two ways on one date. A name of one sits as a whole run
+# of words inside a name of the other.
+RUN_TOGETHER = [
+    ("EDSA Kamuning (SB)", "EDSA cor. Kamuning Rd."),
+    ("Espana Maceda", "España Blvd. cor. A. Maceda St."),
+    ("UN Ave. Taft", "Taft Ave. cor. UN Ave."),
+    ("Araneta E. Rodriguez (SB/NB)", "E Rodriguez - G. Araneta Intersection"),
+    ("Roxas Edsa intersection", "Roxas Blvd. - EDSA Intersection"),
+    ("España-Lacson", "España cor. Lacson"),
+    ("C-5 Ortigas", "C5 Ortigas"),
+]
+
+
+@pytest.mark.parametrize(("a", "b"), RUN_TOGETHER)
+def test_a_name_inside_another_joins_on_one_date(a, b):
+    """The rule is for events only: on two dates the rows stay apart, and same_spot
+    still says no."""
+    one_date = [photo("A001", a), photo("A002", b)]
+    two_dates = [photo("A001", a, "2026-08-09"), photo("A002", b, "2026-08-10")]
+    assert events.group_events(one_date) == {"A001": "E01", "A002": "E01"}
+    assert events.group_events(two_dates) == {"A001": "E01", "A002": "E02"}
+    assert not places.same_spot(places.spot_names(a), places.spot_names(b))
+
+
+def test_a_shared_word_alone_never_joins():
+    """edsa kamuning and edsa ortigas share a word, but neither name sits whole inside
+    the other, so they are two events."""
+    rows = [photo("A001", "EDSA Kamuning"), photo("A002", "EDSA Ortigas")]
+    assert events.group_events(rows) == {"A001": "E01", "A002": "E02"}
+
+
 def test_joined_pairs_join():
     """A joined pair, such as two duplicate photos, joins whatever its dates and spots.
     A pair must name two of the rows."""

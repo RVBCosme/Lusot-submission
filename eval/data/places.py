@@ -1,8 +1,10 @@
 """Spot, city and poster names for Set A and A-neg (C203, C224, MS2-Q4).
 
 A spot is the set of names its text gives: a street, its cross street or a landmark,
-each folded. The tools can't place a spot on a map, so Rene links nearby spots with
-other names, and corners on a city boundary, in same_spot_as (C203).
+each folded. A barangay's or a zone's name, and a Manila district's, is marked: it
+groups events, but never counts toward the same spot (S-R9). The tools can't place a
+spot on a map, so Rene links nearby spots with other names, and corners on a city
+boundary, in same_spot_as (C203).
 
 The word lists are the plan's, with the additions noted below. Like the rest of the
 normalisation, they are fixed and tested before the split (spec §10).
@@ -75,9 +77,36 @@ _DIRECTION_WORDS = (
     "bound",
 )
 _AREA_WORDS = ("area", "vicinity", "portion", "brgy", "barangay", "city", "the", "of")
-_DROPPED = frozenset(_STREET_WORDS + _DIRECTION_WORDS + _AREA_WORDS)
+_LANE_NOTES = ("innermost", "outermost", "pagbaba")  # S-R9; service stays a name
+_DROPPED = frozenset(_STREET_WORDS + _DIRECTION_WORDS + _AREA_WORDS + _LANE_NOTES)
 _SHORT_FORMS = {"sto": "santo", "sta": "santa"}
 _EDSA = re.compile(r"\bepifanio (?:de los|delos) santos\b")
+# Before step 3, a lone letter joins the number after it, so C-5, C 5 and C5 all give
+# c5 (S-R9).
+_LETTER_NUMBER = re.compile(r"\b([a-z]) (?=[0-9]+\b)")
+
+# Marked names (S-R9): a segment whose first word is one of these keys is a barangay's
+# or a zone's, and gives one name that starts with the key's value. A name equal to a
+# Manila district's is marked too.
+_MARKERS = {"brgy": "brgy", "barangay": "brgy", "zone": "zone"}
+MANILA_DISTRICTS = (
+    "Binondo",
+    "Ermita",
+    "Intramuros",
+    "Malate",
+    "Paco",
+    "Pandacan",
+    "Port Area",
+    "Quiapo",
+    "Sampaloc",
+    "San Andres",
+    "San Miguel",
+    "San Nicolas",
+    "Santa Ana",
+    "Santa Cruz",
+    "Santa Mesa",
+    "Tondo",
+)
 
 
 def fold(text: str) -> str:
@@ -117,31 +146,47 @@ def city_name(text: str) -> str | None:
     return _CITY_FORMS.get(fold(text))
 
 
+def _name(words: list[str]) -> str:
+    """Step 3 on a segment's words: the name left once the dropped words and single
+    letters are gone and the short forms are written out."""
+    kept = [
+        _SHORT_FORMS.get(word, word)
+        for word in words
+        if word not in _DROPPED and not (len(word) == 1 and word.isalpha())
+    ]
+    return _EDSA.sub("edsa", " ".join(kept))
+
+
+# The districts as step 3 leaves them, such as santa mesa, and port for Port Area.
+_DISTRICT_NAMES = frozenset(
+    _name(fold(district).split()) for district in MANILA_DISTRICTS
+)
+
+
 def spot_names(text: str) -> frozenset[str]:
     """The names a spot's text gives (C203, C224), in four steps:
 
     1. The raw text splits on , ; / & + ( ) [ ] and on a hyphen or dash with a space on
        each side. Each piece is folded and splits again on the connector words.
     2. A segment that is a Metro Manila city is dropped whole, so Quezon City never
-       leaves quezon.
-    3. The street, direction and area words are dropped, and so is a single letter,
-       such as the A of A. Maceda; a single digit stays. Then sto, sta and Epifanio
-       de los Santos are written as santo, santa and edsa.
-    4. Each non-empty remainder is one name.
+       leaves quezon. In the rest, a lone letter joins the number after it (c 5 gives
+       c5).
+    3. The street, direction and area words and the lane notes are dropped, and so is
+       a single letter, such as the A of A. Maceda; a single digit stays. Then sto, sta
+       and Epifanio de los Santos are written as santo, santa and edsa.
+    4. Each non-empty remainder is one name. A segment that starts with brgy, barangay
+       or zone gives one marked name, such as brgy dona imelda (S-R9).
     """
     names = set()
     for piece in _MARKS.split(text):
         for segment in _CONNECTORS.split(fold(piece)):
             if city_name(segment) is not None:
                 continue
-            words = [
-                _SHORT_FORMS.get(word, word)
-                for word in segment.split()
-                if word not in _DROPPED and not (len(word) == 1 and word.isalpha())
-            ]
-            name = _EDSA.sub("edsa", " ".join(words))
+            words = _LETTER_NUMBER.sub(r"\1", segment).split()
+            marker = _MARKERS.get(words[0]) if words else None
+            name = _name(words[1:] if marker else words)
             if name:
-                names.add(name)
+                names.add(f"{marker} {name}" if marker else name)
     return frozenset(names)
 
 
@@ -155,10 +200,17 @@ def names_of(key: str) -> frozenset[str]:
     return frozenset(name for name in key.split("|") if name)
 
 
+def marked(name: str) -> bool:
+    """True for a barangay's or a zone's name, or a Manila district's (S-R9). A marked
+    name groups events, but never counts toward the same spot."""
+    return name.split(" ", 1)[0] in _MARKERS.values() or name in _DISTRICT_NAMES
+
+
 def same_spot(a: frozenset[str], b: frozenset[str]) -> bool:
-    """True when two spots share at least two names, or each names one place and it is
-    the same one (C224)."""
-    return len(a & b) >= 2 or (len(a) == len(b) == 1 and a == b)
+    """True when two spots share at least two names that aren't marked, such as a
+    street and its cross street or landmark (C224, S-R9). One shared name is never
+    enough, even when it is each spot's only name."""
+    return len([name for name in a & b if not marked(name)]) >= 2
 
 
 def poster_kind(text: str) -> str:
