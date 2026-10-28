@@ -62,7 +62,7 @@ Draft: "Lusot is a live flood map for Metro Manila. A photo taken in the app get
   - retries only on 429, 500 and 503, with backoff and jitter
   - SAM is streamed, with a background fallback
   - prompts and schemas sit in versioned files
-  - every call runs on the hackathon's credits (D10)
+  - while the hackathon credits last, every call runs on them (D10). That wording holds after the lapse, whatever MS9-Q1 decides (MS9's N3).
 
 ### 3. Technical Depth & Execution (20%)
 

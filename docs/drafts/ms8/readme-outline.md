@@ -111,7 +111,7 @@ Words under the table (draft): "These are agreement figures with the labels MMDA
 | `muse-spark-1.3` | Names the landmarks from the numbered boxes (strict structured output), and runs Ask Lusot's tool calls |
 | `muse-voice-transcribe-1.0` | Transcribes spoken Taglish questions |
 
-How they are called, one line each: the Meta Model API through the OpenAI SDK at `https://api.meta.ai/v1`; SAM streamed; retries only on 429, 500 and 503, with backoff and jitter; prompts and schemas in versioned files; every call on the hackathon's credits (D10).
+How they are called, one line each: the Meta Model API through the OpenAI SDK at `https://api.meta.ai/v1`; SAM streamed; retries only on 429, 500 and 503, with backoff and jitter; prompts and schemas in versioned files; while the hackathon credits last, every call runs on them (D10). That wording holds after the credits lapse, whatever MS9-Q1 decides, and matches the privacy texts (MS9's N3).
 
 ### 8. Ask Lusot
 
@@ -132,7 +132,7 @@ How they are called, one line each: the Meta Model API through the OpenAI SDK at
 
 ### 10. Engineering
 
-- One AWS SAM template in `ap-southeast-1`, with no manual console changes. The API is an HTTP API with a Node.js Lambda in TypeScript; the analysis runs in a Python container Lambda. S3 holds `raw/`, `blurred/` and `overlay/`; SQS has a dead-letter queue (5 receives, with an alarm); DynamoDB uses TTL. SSM holds the stop switches, CloudWatch the alarms, and Amplify Hosting serves the site.
+- One AWS SAM template in `ap-southeast-1`, with no manual console changes. The API is an HTTP API with a Node.js Lambda in TypeScript; the analysis runs in a Python container Lambda. S3 holds `raw/`, `blurred/`, `overlay/`, `demo/` and `samples/`; SQS has a dead-letter queue (5 receives, with an alarm); DynamoDB uses TTL. SSM holds the stop switches, CloudWatch the alarms, and Amplify Hosting serves the site.
 - Each report is claimed before any Meta call, so a duplicate message never pays twice (G2). A claim that expires after a timeout can be taken again.
 - The tests (pytest, Vitest, Playwright) run in GitHub Actions on every push: `[counts from the last CI run]`.
 
@@ -140,9 +140,12 @@ How they are called, one line each: the Meta Model API through the OpenAI SDK at
 
 From the privacy policy as Rene approves it (M21), with nothing beyond it:
 - Faces are blurred before Meta receives a photo, and faces and plates again before Lusot stores a copy.
-- The original is deleted after analysis, and reports are kept 7 days.
+- The original is deleted after analysis. Reports, and their copies in `blurred/` and `overlay/`, are kept 7 days.
+- Two kinds of photo are kept longer, as the privacy policy states:
+  - demo pins' photos in `demo/`, which a 60-day backstop removes if the demo script doesn't (MS4's C510)
+  - the sample photos in `samples/`, kept while the sample button exists (MS4-Q11), in the form the approved policy describes (MS7-Q7 settles whether they are stored blurred)
 - No accounts and no names.
-- Meta may use what it receives on the hackathon's credits to improve its products, and the consent notice says so (D10).
+- Meta may use what it receives to improve its products, and the consent notice says so (D10). While the hackathon credits last, Lusot's calls run on them. That wording holds after the credits lapse (MS9-Q1; MS9's N3).
 - Link: `[privacy policy URL]`.
 
 ### 12. Run it yourself

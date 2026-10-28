@@ -115,6 +115,7 @@ Only Rene can also:
 - upload the video to his own account
 - choose the repository licence (M22, an MS7 item)
 - under MS8-Q1 (b), change the repository's commit address to his no-reply one, then turn on GitHub's two email-privacy settings, in that order
+- approve, on the day, any move of the submission past Nov 4, 10:00 PM (MS8-Q4's buffer), even under D7
 - answer §8's questions
 - confirm the checklist's "Rene confirms" items in the participant guide and the Discord
 
@@ -259,7 +260,9 @@ The sealed run is planned for Nov 3. Only some steps wait for its report, and ev
 | (b) | Always submit by Nov 4, 10:00 PM with what exists, marking the evaluation as pending if need be. Update the entry later only if the form allows edits (checklist O1). |
 | (c) | Hold the entry until the report is in, up to the cutoff. |
 
-**Default: (a).** The buffer exists to absorb a slip, 4 hours stay as margin, and no gap is filled with numbers the rules don't allow. The 10:00 PM target is his rule (CLAUDE.md), so moving it is his call. **Needed by Nov 3.**
+**Default: (a).** The buffer exists to absorb a slip, 4 hours stay as margin, and no gap is filled with numbers the rules don't allow.
+
+**The move into the buffer waits for Rene's OK on the day, even under D7.** Both late paths, the complete entry by 6:00 AM and the entry marked as pending, pass CLAUDE.md's "Submit by Nov 4, 2026, 10:00 PM Manila time". That target is his rule. If he hasn't answered by Nov 3, D7 would apply this default without him, so the plan marks the step itself as his. **Needed by Nov 3.**
 
 ### MS8-Q5: filming the five-person test for scene 7
 
