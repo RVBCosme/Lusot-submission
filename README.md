@@ -44,13 +44,12 @@ Every third-party starter, library, model and dataset is listed here with its li
 | [Capacitor](https://github.com/ionic-team/capacitor) (core, CLI and Android) | Wraps the app for Android; `app/android/` comes from its template | MIT |
 | Capacitor's [Camera](https://github.com/ionic-team/capacitor-camera) and [Geolocation](https://github.com/ionic-team/capacitor-geolocation) plugins | Taking the photo and reading the GPS fix | MIT |
 | [Gradle](https://github.com/gradle/gradle) wrapper | Runs the Android build; part of Capacitor's Android template | Apache-2.0 |
-| [AWS SAM CLI](https://github.com/aws/aws-sam-cli) and its [application templates](https://github.com/aws/aws-sam-cli-app-templates) | Builds and deploys `backend/template.yaml` | Apache-2.0 |
-| [aws-samples/serverless-patterns](https://github.com/aws-samples/serverless-patterns) | Reference for the S3 to SQS to Lambda wiring in `backend/template.yaml` | MIT-0 |
+| [AWS SAM CLI](https://github.com/aws/aws-sam-cli) | Builds and deploys `backend/template.yaml` | Apache-2.0 |
 | [AWS SDK for JavaScript v3](https://github.com/aws/aws-sdk-js-v3) | The API Lambda's calls to DynamoDB, S3 and SSM, and its upload links | Apache-2.0 |
 | [ngeohash](https://github.com/sunng87/node-geohash) | Geohash keys for reports | MIT |
 | [boto3](https://github.com/boto/boto3), with its [CRT](https://github.com/awslabs/aws-crt-python) extra in the scripts | AWS calls from the analysis Lambda and the scripts in `backend/scripts/` | Apache-2.0 |
-| [NumPy](https://github.com/numpy/numpy) | Image arrays in the analysis | BSD-3-Clause, with bundled parts under 0BSD, MIT, Zlib and CC0-1.0 |
-| [OpenCV](https://github.com/opencv/opencv), through [opencv-python-headless](https://github.com/opencv/opencv-python) | Decoding photos, running the face detector and blurring faces | Apache-2.0 (the wheel's packaging scripts are MIT) |
+| [NumPy](https://github.com/numpy/numpy) | Image arrays in the analysis | BSD-3-Clause, with bundled parts under 0BSD, MIT, Zlib and CC0-1.0. Its wheels also bundle OpenBLAS (BSD-3-Clause), LAPACK (BSD-3-Clause-Open-MPI) and the GCC runtime (GPL-3.0-or-later with the GCC Runtime Library Exception), and the Linux wheel in the Lambda image adds libquadmath (LGPL-2.1-or-later). The wheel's LICENSE.txt lists them. |
+| [OpenCV](https://github.com/opencv/opencv), through [opencv-python-headless](https://github.com/opencv/opencv-python) | Decoding photos, running the face detector and blurring faces | Apache-2.0 (the wheel's packaging scripts are MIT). Its wheels also bundle FFmpeg (LGPL-2.1) and other libraries under their own licences, listed in the wheel's LICENSE-3RD-PARTY.txt. The Linux wheel in the Lambda image also carries OpenBLAS, the GCC runtime and libquadmath, which that file doesn't list; their licences are as for NumPy. |
 | [OpenAI Python SDK](https://github.com/openai/openai-python) | The client for Meta's Model API | Apache-2.0 |
 | [httpx](https://github.com/encode/httpx) | HTTP calls in the cloud smoke test and the voice transcription call | BSD-3-Clause |
 | [meta-sam-parser](https://github.com/meta-models/meta-sam) | Parses SAM 3.1's segmentation responses | **SAM License**, Meta's own licence for its SAM materials |

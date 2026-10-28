@@ -204,7 +204,7 @@ Rene set this for Lusot on Oct 28. His global settings stay as they are.
 
 ## Commands
 
-Run these from the repo root in PowerShell, after the PATH refresh below, unless a line says otherwise.
+Run these from the repo root in PowerShell, after the PATH refresh below, unless a line says otherwise. `$env:LUSOT_DATA_DIR` is the private data folder, `C:\Systems\Lusot\lusot-data` when the variable is unset. A line that first sets `$env:MODEL_API_KEY` or `$env:JAVA_HOME` sets it for that call only in Claude's shell, where each call is a new process; in your own terminal it lasts for the session, so close the terminal afterwards.
 - **Setup,** once per clone: `npm ci`, then `npm run setup` (git then uses `.githooks`, whose pre-commit hook runs gitleaks), then `uv sync --directory backend/analysis`.
 - **Check:** `npm run check` runs three parts and stops at the first failure. Each part also runs alone, and CI runs the same three.
   - `check:node`: both workspaces' `typecheck` and `test`, the app's `lint`, and `node --test "scripts/*.test.mjs"`
@@ -218,13 +218,13 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **Probe** (spends Meta credits): `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis python probes/run_probe.py --photos 5 --water 10`.
   - Add `--voice-dir DIR` to send every WAV in DIR (mono, 16-bit, 16 kHz).
-  - Outputs go to `%LUSOT_DATA_DIR%\probes\`, and stdout gets counts and timings only.
+  - Outputs go to `$env:LUSOT_DATA_DIR\probes\`, and stdout gets counts and timings only.
 - **APK build** (debug). Never run it at the same time as a Docker build.
   1. `app/.env.local` holds `VITE_API_URL`, the stack's `ApiUrl` output (see `app/.env.example`). Then run `npm run build -w app`.
   2. From `app/`: `npx cap sync android`
-  3. From `app/android/`: `$env:JAVA_HOME = "$env:LOCALAPPDATA\Programs\jdk-21"; .\gradlew.bat assembleDebug`. Gradle needs JDK 21, and the user `JAVA_HOME` stays JDK 17, so set it in this command only.
+  3. From `app/android/`: `$env:JAVA_HOME = "$env:LOCALAPPDATA\Programs\jdk-21"; .\gradlew.bat assembleDebug`. Gradle needs JDK 21, and the user `JAVA_HOME` stays JDK 17, so set it in the command, never in the user environment.
   4. `.\gradlew.bat --stop` frees the memory.
-  5. Copy `app/android/app/build/outputs/apk/debug/app-debug.apk` to `%LUSOT_DATA_DIR%\builds\`, and record its SHA-256.
+  5. Copy `app/android/app/build/outputs/apk/debug/app-debug.apk` to `$env:LUSOT_DATA_DIR\builds\`, and record its SHA-256.
 
 Notes:
 - **AWS:**
