@@ -1046,6 +1046,9 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the dark JPEG's `meta_calls 0`
   - the reused-link result
   - the missing-photo code. If it is `NoSuchKey` (404) under the prefix-limited `s3:ListBucket` grant, remove `AccessDenied` from the missing-photo rule in a follow-up commit, so a real 403 retries into the dead-letter queue and its alarm instead of marking every report `photo_missing` (R93, from MS1's final review). Update `test_missing_photo_codes` and spec §3.1 step 6 to match.
+    - If it is `AccessDenied` (403), the prefix-limited grant buys nothing. Delete the `s3:ListBucket` statement and keep `AccessDenied` in the rule (Task 14's review, Minor 2).
+    - Either way, update the two comments that point to this run, the ListBucket statement's in `template.yaml` and the missing-photo rule's in `handler.py`. Cite the recorded result as "MS3a Task 16" (Task 14's review, Minor 3).
+    - The MS3a image builds as `analysisfunction:ms1`, because the template's `DockerTag` is `ms1`. CLAUDE.md's pre-deploy image check uses that tag.
   - the B4 checks
 
   Exit 1 → debug, fix, re-run. A re-run sends the same 6 photos again: it adds cost, not new photos. Exit 3 → Step 4.
