@@ -350,7 +350,7 @@ The markers P1 to P5 above show each spot where a probe result may change a numb
 
 | # | Open item | What it may change |
 |---|---|---|
-| P1 | Prompt v1, or a v2 that the probe teaches. This includes how Muse Spark answers waterlines on a dry street, and how often its ids go wrong. | the prompt version (§3.2 step 4), C47, C52 |
+| P1 | Prompt v1, or a v2 that the probe teaches. This includes how Muse Spark answers waterlines on a dry street, and how often its ids go wrong. **Settled for MS3a: v1** (`muse_spark_photo_v1`). Rene's MS3b-Q5 answer (Oct 28, 11:09 PM) keeps v1's two extra rules. Any v2 or new drawing is MS3b's (its C325). | the prompt version (§3.2 step 4), C47, C52 |
 | P2 | Whether SAM's wheel boxes on partly submerged wheels are good enough for the 40 px rule | C56's measure and the 40 px number |
 | P3 | Typical and worst latency per photo | B1's 60 s (C68), which must stay under the 180 s Lambda timeout |
 | P4 | How often SAM returns an empty water mask on a flooded photo. The water test measures it first, then the Manila check (C34, C40). | how many photos C51 refuses |
