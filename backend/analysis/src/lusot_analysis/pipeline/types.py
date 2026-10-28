@@ -27,6 +27,7 @@ REFUSED_REASONS = (
     "no_water_found",
     "no_usable_reference",
     "references_disagree",
+    "model_declined",  # Muse Spark refused to answer (C86)
 )
 FAILED_REASONS = (
     "model_calls_paused",

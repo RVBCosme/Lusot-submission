@@ -25,17 +25,22 @@ def box_xyxy(inst: SamInstance) -> tuple[float, float, float, float]:
 
 
 def segment_all(
-    client: ModelClient, image: BlurredImage, phrases: Sequence[str]
+    client: ModelClient,
+    image: BlurredImage,
+    phrases: Sequence[str],
+    *,
+    deadline: float | None = None,
 ) -> dict[str, SamResult]:
     """Ask SAM for every phrase at once, one thread each, keyed by phrase.
 
-    The threads share the client and its connections (R61). If a call raises, the
-    first error in phrase order propagates once every call has ended, so a
-    MetaApiError keeps its status.
+    The threads share the client and its connections (R61). Each call runs under
+    `deadline`, the run's (C84). If a call raises, the first error in phrase order
+    propagates once every call has ended, so a MetaApiError keeps its status.
     """
     with ThreadPoolExecutor(max_workers=len(phrases)) as pool:
         futures = {
-            phrase: pool.submit(client.segment, image, phrase) for phrase in phrases
+            phrase: pool.submit(client.segment, image, phrase, deadline=deadline)
+            for phrase in phrases
         }
     return {phrase: future.result() for phrase, future in futures.items()}
 

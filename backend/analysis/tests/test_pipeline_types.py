@@ -44,6 +44,7 @@ def test_reasons_are_the_spec_lists():
         "no_water_found",
         "no_usable_reference",
         "references_disagree",
+        "model_declined",  # Muse Spark refused to answer (C86)
     )
     assert FAILED_REASONS == (
         "model_calls_paused",

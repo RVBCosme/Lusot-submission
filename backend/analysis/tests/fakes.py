@@ -187,6 +187,28 @@ def meta_error(status: int) -> MetaApiError:
     return MetaApiError(f"HTTP {status}", status=status)
 
 
+def level_case() -> tuple[bytes, dict[str, SamResult], dict]:
+    """The level case: a photo, SAM's results and Muse Spark's answer, read as knee.
+
+    The photo is 640 x 480 noise. SAM finds one vehicle, numbered 1, and its wheel,
+    numbered 2, which the 40 px rule keeps; water below them; a face and a plate.
+    Muse Spark answers a parked sedan_hatch with its body not_visible and the wheel at
+    rim_three_quarters. run_pipeline reads that as knee from the wheel, and stores a
+    photo. The pipeline's, the offline runner's and the handler's tests share it.
+    """
+    sam = sam_results(
+        {
+            "vehicle": [(100, 100, 400, 300)],
+            "wheel": [(150, 250, 200, 300)],
+            "floodwater": [(0, 280, 640, 480)],
+            "face": [(300, 120, 330, 150)],
+            "license plate": [(220, 270, 280, 290)],
+        }
+    )
+    given = answer(vehicles=[vehicle(1)], wheels=[wheel(2, "rim_three_quarters")])
+    return noise_jpeg(), sam, given
+
+
 class FakeClient:
     """A ModelClient that answers from fixed results and records each call.
 
