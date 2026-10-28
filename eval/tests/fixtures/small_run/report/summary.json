@@ -1,0 +1,57 @@
+{
+  "baseline_class": "NPLV",
+  "baseline_level": "knee",
+  "configurations": {
+    "geometry": {
+      "coverage": {
+        "k": 6,
+        "n": 8
+      },
+      "failed": 1,
+      "passability": {
+        "k": 5,
+        "n": 5
+      },
+      "refused": 1,
+      "underestimation": {
+        "k": 1,
+        "n": 5
+      }
+    },
+    "landmark": {
+      "coverage": {
+        "k": 6,
+        "n": 8
+      },
+      "failed": 1,
+      "passability": {
+        "k": 4,
+        "n": 5
+      },
+      "refused": 1,
+      "underestimation": {
+        "k": 3,
+        "n": 5
+      }
+    }
+  },
+  "date": "2026-10-30",
+  "geometry_stays": true,
+  "inches_shown": false,
+  "kind": "sealed",
+  "rules_version": "0.6",
+  "set_b": {
+    "envelope": {
+      "k": 4,
+      "n": 7
+    },
+    "measured": {
+      "k": 7,
+      "n": 8
+    },
+    "median_error_in": "0.75",
+    "wheels": 8,
+    "worst_error_in": "2.75"
+  },
+  "shipped": "geometry"
+}
