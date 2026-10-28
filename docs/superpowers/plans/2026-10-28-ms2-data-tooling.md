@@ -381,7 +381,7 @@ Most likely first. Each line names its test.
   - one self-contained HTML file, with an inline `<style>` and one classic inline `<script>`. The script holds `m8_sheet.js`, verbatim, and a JSON block of `start`'s `data`, under Task 4a's keys: the ids, file names, Table 5's lists and `STORAGE_KEY`. The JSON has `</` escaped, and the M8 columns stay in the script.
   - images by the relative path `raw/<photo_file>`, beside the page; no network
   - `IN_BETWEEN_RULE` above the photos, and nothing else from the log
-- **The command:** it reads only `candidate_id` and `photo_file`, and stats each `<out folder>/raw/<photo_file>`. Problems print as `row <n> candidate_id: bad_id` or `<id> photo_file: missing`, exit 1 and write nothing. Otherwise it writes the page (a rerun overwrites it, as rows are added) and prints `photos=<n>`.
+- **The command:** it reads only `candidate_id` and `photo_file`, and stats each `<out folder>/raw/<photo_file>`. Problems print as `row <n> candidate_id: bad_id` or `<id> photo_file: file_missing` (a file not in `raw/`; `missing` means a blank cell, S-R10), exit 1 and write nothing. Otherwise it writes the page (a rerun overwrites it, as rows are added) and prints `photos=<n>`.
 
 - [x] **Step 1: Write the failing tests.**
   - `test_page_lists_each_photo_once`: a log with two rows for `A002` and one for `A001` gives a data block listing `A001`, then `A002`.
@@ -390,7 +390,7 @@ Most likely first. Each line names its test.
   - `test_page_states_the_convention`: `IN_BETWEEN_RULE` is in the page.
   - `test_page_embeds_the_script`: `m8_sheet.js`'s text contains no `</`, and the page holds that text verbatim.
   - `test_sheet_reads_no_photo_bytes`: `synth.opened_paths` on `m8_sheet.py` shows no `open` under `raw/`.
-  - `test_missing_photo_and_bad_ids`: a missing `raw/A003.jpg` gives exit 1 and `A003 photo_file: missing`; a bad id gives `row 2 candidate_id: bad_id`; no page is written.
+  - `test_missing_photo_and_bad_ids`: a missing `raw/A003.jpg` gives exit 1 and `A003 photo_file: file_missing`; a bad id gives `row 2 candidate_id: bad_id`; no page is written.
   - `test_refuses_sealed_paths`: `--set-a-log` or `--out` under a `sealed` folder exits 2.
 - [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k test_m8_sheet`. Expected: FAIL, with `ModuleNotFoundError: No module named 'm8_sheet'`.
 - [x] **Step 3:** Implement, then run `uv lock --script eval/data/m8_sheet.py`.
@@ -585,7 +585,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - **Warnings:** `metro_manila=no`, `poster_kind=other` (Set A) and `match=none`.
 - No `Finding` or `Fact` ever holds a cell's text.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_each_problem_kind`, parametrized over the kinds above; each case gives exactly its finding.
   - `test_each_required_value`, parametrized over each set's required values: a blank one gives `<id> <column>: missing`.
   - `test_bad_id_names_the_row_not_the_cell`: `candidate_id = "Espana"` gives `row 1 candidate_id: bad_id`, and `Espana` appears in no finding.
@@ -605,10 +605,12 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_a_neg_log_from_the_template_reads_cleanly`: a log with the template's columns, plus blank alert columns, gives no problem.
   - `test_spreadsheet_saved_log_reads_cleanly` (Review Focus 1)
   - `test_findings_hold_no_cell_text`: a sentinel in every column of rows with problems, and no sentinel in any `str()` of a finding or fact
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setlogs`. Expected: FAIL, with `ModuleNotFoundError: No module named 'setlogs'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(data): check the Set A and A-neg logs and match photos to alerts`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setlogs`. Expected: FAIL, with `ModuleNotFoundError: No module named 'setlogs'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(data): check the Set A and A-neg logs and match photos to alerts`.
+
+*Evidence (Task 7, Oct 29): commits b0839e6 and 76409e5. `uv run --locked --script eval/data/tests/run_tests.py`: 234 passed, also with `-W error`; ruff, the plan-leak check, the account-ID scan and gitleaks clean; mutation checks caught 25 of 25 and then 14 of 14. Matching follows C223 and S-R9 (two-name spots; ties deterministic), output holds only ids, fixed kinds and counts (C201), and S-R4's `alert_poster=other` warning is in. The task review found that same-post rows skip the spot test, so a multi-spot post could attach another corner's label; one fix round (S-R10) added the warnings `same_post=several` and `nearest=tied` and the guide sentence, refused a `;` in a label and an unknown header column, and made `missing` mean a blank cell and `file_missing` a photo not on disk in both this task's checks and `m8_sheet` (Task 4b's text above is updated to match). The re-review was clean.*
 
 ### Task 8: Passability classes, M8, consent and the intake command (§5.3, C204, C208, C218)
 
