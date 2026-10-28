@@ -1,6 +1,6 @@
 # Lusot progress board
 
-- **Last updated:** Oct 28, 2026, 8:15 AM Manila, by Claude (MS1 Tasks 1 to 3 and 6 to 9 done; paused for the office)
+- **Last updated:** Oct 28, 2026, 10:15 AM Manila, by Claude (morning double-check; three windows start, D20)
 - **Rule:** tick a box only after its check passes, and write the evidence next to it.
 - **Status words:** Not started, In progress, Done, Blocked, Dropped (with a reason).
 - **Key dates (Manila time):** kickoff Oct 27, 12:00 AM. Core working by Oct 29. Build ends Nov 3. **Submit Nov 4, 10:00 PM.** Hard cutoff Nov 5, 10:00 AM. Closing ceremony and finals Nov 10, 1:00 AM.
@@ -10,9 +10,9 @@
 | MS | Name | Dates (Manila) | Status | Spec | Plan | Evidence |
 |---|---|---|---|---|---|---|
 | MS0 | Prepare | Oct 26 to kickoff (+ Oct 27) | In progress: all done except M7's 20 candidates (moved to MS2) and R3, R6, R7 (needed later) | [build design](superpowers/specs/2026-10-26-lusot-build-design.md) (approved Oct 28) | checklist below | see the MS0 checklist |
-| MS1 | Set up | Oct 27 to 28 | In progress (started Oct 28, 12:10 AM). Tasks 1, 2, 3, 6, 7, 8 and 9 are done. Paused from about 8:15 AM; Task 10 (the APK) is next. | [MS1 spec](superpowers/specs/2026-10-28-ms1-setup-design.md) (Claude's; Rene to approve) | [MS1 plan](superpowers/plans/2026-10-28-ms1-setup.md) (12 tasks) | ticked steps in the plan; [Oct 28 log](log/2026-10-28.md). The stack `lusot` is live, and the cloud smoke test passed at 6:07 AM. |
+| MS1 | Set up | Oct 27 to 28 | In progress (started Oct 28, 12:10 AM). Tasks 1, 2, 3, 6, 7, 8 and 9 are done. From about 10:30 AM, two windows finish it (D20): Window 1 runs Tasks 10, 11 and 12, and Window 2 runs Tasks 4 and 5. | [MS1 spec](superpowers/specs/2026-10-28-ms1-setup-design.md) (Claude's; Rene to approve) | [MS1 plan](superpowers/plans/2026-10-28-ms1-setup.md) (12 tasks) | ticked steps in the plan; [Oct 28 log](log/2026-10-28.md). The stack `lusot` is live, and the cloud smoke test passed at 6:07 AM. |
 | MS2 | Data | Oct 27 to 30 | Not started | none | none | none |
-| MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | In progress: the 3a spec is written and builder-checked (Oct 28). Its plan is next, and the build follows MS1. | [MS3a spec](superpowers/specs/2026-10-28-ms3a-landmark-core-design.md) (Claude's; Rene to approve and answer Q1 to Q4) | to come | none yet |
+| MS3 | Measurement (3a core by Oct 29, 3b by Nov 1) | Oct 28 to Nov 1 | In progress: the 3a spec is written and builder-checked, and Rene answered Q1 to Q4 (7:58 AM, Oct 28). The plan draft is committed. Window 3 reviews it, then builds (D20). | [MS3a spec](superpowers/specs/2026-10-28-ms3a-landmark-core-design.md) (Claude's; Rene approves after today's amendments) | [MS3a plan](superpowers/plans/2026-10-28-ms3a-landmark-core.md) (17 tasks; draft, under review) | none yet |
 | MS4 | Backend | Oct 31 to Nov 1 | Not started | none | none | none |
 | MS5 | App | Nov 1 to 3 | Not started | none | none | none |
 | MS6 | Ask Lusot and evaluation | Nov 2 to 3 | Not started | none | none | none |
@@ -62,7 +62,7 @@ From Table 27 of the plan (M1 to M33, as of the 10:31 PM update on Oct 27), plus
 | T4 | Setup | Install Android Studio Otter (2025.2.1) or newer, which bundles the JDK, plus the Android SDK 36 platform (Capacitor 8 minimum) | Oct 27 to 28 | Done. Evidence: Android Studio 2026.2 in `C:\Program Files\Android\Android Studio` (`studio64.exe`, bundled JBR 25). `sdkmanager --list_installed` shows `platforms;android-36` (rev 2), `build-tools;36.0.0` and `platform-tools` 37.0.1. Command-line tools 22.0 match Google's SHA-256. `ANDROID_HOME` and `JAVA_HOME` (JDK 17.0.20.1) were already set and left unchanged; Capacitor 8's JDK need is confirmed at MS1. |
 | T5 | Setup | Optional: fix the GitHub connector token in Claude Code (the GitHub CLI already works) | Any time | Not started |
 | T7 | Setup | Give the GitHub CLI the `workflow` scope so CI can be pushed: `gh auth refresh -h github.com -s workflow`, then approve in the browser (D16) | When convenient; CI stays parked until then | Not started (Oct 28: the token has `gist`, `read:org` and `repo` only) |
-| T8 | Setup | Restart Claude Code from a new terminal so it picks up the fixed `MODEL_API_KEY` (F5) | Next time Claude Code is restarted | Not started. Until then, scripts read the key from the Windows user variable. |
+| T8 | Setup | Restart Claude Code from a new terminal so it picks up the fixed `MODEL_API_KEY` (F5) | Next time Claude Code is restarted | Done. Evidence: in the new session, `MODEL_API_KEY` is 48 characters and equals the user variable (Claude, 9:55 AM, Oct 28; never printed). |
 | M1 | Accounts | Create the AWS account with a card that allows online and international charges, a billing address and a phone code; turn on MFA for the root user | Oct 27 | Done (plan §24) |
 | M2 | Accounts | Check the Lambda concurrency quota in Service Quotas and request an increase if it is too low | Oct 27 | Done (plan §24, 10:31 PM): AWS declined 1,000 on Oct 27 for lack of usage history. Lusot works within 10 and asks again after some real use (plan Table 18). |
 | M3 | Accounts | Claim the $150 credits with Meta's claim form (application email and Team ID); add a card that passes Meta's check; set a Spend Limit alert; then create the API key | Oct 27; claim by Nov 4, 9:00 PM ET | Done. Evidence: Billing page read by Claude in Chrome, Oct 27, about 9:35 PM: $150 free credits in use, a card on file, an email alert at $100 monthly spend. One API key exists (plan §24). |
@@ -155,7 +155,9 @@ From Table 11 of the plan. Update each row as its check passes.
 | Oct 27 | C3, C4, C6 to C21 | Claude's calls from the Oct 27 plan updates, the fact check and the second builder check (build design §6, §19) | Claude (pending Rene's approval) |
 | Oct 28 | Approval | Build design approved with fixes F1 to F6 (design §20): the face blur moves into MS1, probes use STURM-FloodDepth only, and stale lines are corrected | Rene |
 | Oct 28 | D15 | Overnight, Claude keeps going on any work that doesn't need Rene, across milestones; the D7 gates still hold | Rene |
-| Oct 28 | D16 | Pushes and full checks at the end of each milestone; CI parked until the `workflow` scope is granted (T7). This is Claude's reading of "Run every only after milestones for now to maximize time", for Rene to confirm. | Rene (reading by Claude) |
+| Oct 28 | D16 | Pushes and full checks at the end of each milestone; CI parked until the `workflow` scope is granted (T7). This was Claude's reading of "Run every only after milestones for now to maximize time", and Rene confirmed it at about 10:05 AM. | Rene |
 | Oct 28 | D17 | AWS alarms email the address on Rene's Claude account, passed at deploy time and kept out of the repo | Rene |
 | Oct 28 | D18 | Model routing for this project only: Sonnet 5.5 at xhigh for easy tasks, Opus 5.5 at max for medium and up, Fable 5.1 at max only when Opus can't do it; workflows only when needed, at most 50 agents | Rene |
+| Oct 28 | D19 | Refusal copy: plan §9's line drops "safe" and reads "Retake it from a dry spot…". The English line is confirmed; the Taglish draft waits for M20 | Rene |
+| Oct 28 | D20 | Three Claude windows work at once, each in its own git worktree: Window 1 runs MS1 Tasks 10 to 12 and owns the log and this board until MS1 closes, Window 2 runs Tasks 4 and 5, and Window 3 reviews the MS3a plan and builds MS3a. Each window runs one implementer at a time | Rene |
 | Pending | R3, R6, R7 | UI language and visual direction; consented demo photos and fallbacks; how the submission repo gets its history | Rene |
