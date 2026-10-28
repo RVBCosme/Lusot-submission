@@ -383,7 +383,7 @@ Most likely first. Each line names its test.
   - `IN_BETWEEN_RULE` above the photos, and nothing else from the log
 - **The command:** it reads only `candidate_id` and `photo_file`, and stats each `<out folder>/raw/<photo_file>`. Problems print as `row <n> candidate_id: bad_id` or `<id> photo_file: missing`, exit 1 and write nothing. Otherwise it writes the page (a rerun overwrites it, as rows are added) and prints `photos=<n>`.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_page_lists_each_photo_once`: a log with two rows for `A002` and one for `A001` gives a data block listing `A001`, then `A002`.
   - `test_page_holds_no_log_text`: every other column holds a sentinel (`SENTINEL-SPOT`, `SENTINEL-LINK`, `SENTINEL knee deep`, `SENTINEL-NOTE`…), and none reaches the page.
   - `test_page_needs_no_network`: no `http:`, `https:`, `<link` or `@import`, and every `src=` starts with `raw/`.
@@ -392,17 +392,19 @@ Most likely first. Each line names its test.
   - `test_sheet_reads_no_photo_bytes`: `synth.opened_paths` on `m8_sheet.py` shows no `open` under `raw/`.
   - `test_missing_photo_and_bad_ids`: a missing `raw/A003.jpg` gives exit 1 and `A003 photo_file: missing`; a bad id gives `row 2 candidate_id: bad_id`; no page is written.
   - `test_refuses_sealed_paths`: `--set-a-log` or `--out` under a `sealed` folder exits 2.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k test_m8_sheet`. Expected: FAIL, with `ModuleNotFoundError: No module named 'm8_sheet'`.
-- [ ] **Step 3:** Implement, then run `uv lock --script eval/data/m8_sheet.py`.
-- [ ] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/m8_sheet.py --help` exits 0.
-- [ ] **Step 5 (controller, a browser check on a synthetic page):**
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k test_m8_sheet`. Expected: FAIL, with `ModuleNotFoundError: No module named 'm8_sheet'`.
+- [x] **Step 3:** Implement, then run `uv lock --script eval/data/m8_sheet.py`.
+- [x] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/m8_sheet.py --help` exits 0.
+- [x] **Step 5 (controller, a browser check on a synthetic page):**
   - Build a page from a synthetic log and two `synth.jpeg` images in the scratchpad, never in `lusot-data`.
   - Open it with the Playwright plugin. If the plugin refuses `file://` pages, serve the scratch folder with `uv run --python 3.13 python -m http.server --bind 127.0.0.1 --directory <scratch folder> 8770`, and open the page on port 8770 of `127.0.0.1`.
   - Click a point on each photo, set the values and marks, export, reload, and import.
   - Expected: the re-imported state matches, and the export equals the first export.
 
   Agents never open the real page: it shows Set A photos.
-- [ ] **Step 6:** Commit `feat(data): add the M8 labelling sheet`.
+- [x] **Step 6:** Commit `feat(data): add the M8 labelling sheet`.
+
+*Evidence (Task 4b, Oct 28): commits 35f6287, 647fbfe, bf6b547, 932e329 and b1983eb. `uv run --locked --script eval/data/tests/run_tests.py`: 75 passed, also with `-W error`; 13 of 13 mutations caught; ruff, the plan-leak check, the account-ID scan and gitleaks clean. A browser check on a synthetic page showed every request was the page or a `raw/` photo, Clear dismissed then accepted, and no sideways scroll from 320 to 1280 px. The page states Rene's final in-between rule (MS3b-Q5, 11:09 PM). The task review found that `--out` could overwrite any file, Rene's log included; one fix round made a non-`.html` `--out` a usage error, required each photo file to be `<id>.<jpg|jpeg|png>`, and named a missing column. The re-review was clean.*
 
 ### Task 5: `set_b_masks` (C200; MS2-Q3 (a))
 
