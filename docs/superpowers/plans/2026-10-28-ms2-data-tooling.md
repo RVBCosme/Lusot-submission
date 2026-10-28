@@ -648,7 +648,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 
     It exits 1 on any problem, 0 otherwise, and 2 when refused. It writes no file.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_rules_md_passability_table`: parse `eval/rules.md` §2's passability table, found by its header row, `Passability as written` (the level table comes first under the `## 2.` heading). Expand each row's comma-separated variants, with and without `(types of)` and `(sedan)`; `class_of` gives each row's class.
   - `test_deep_rows`, parametrized:
     - True: `"NPLV"`, `"NPATV"`, `"Not passable to light vehicles"`, `"not passable to all types of vehicles"`
@@ -664,10 +664,28 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_intake_output_holds_no_log_text`: sentinels in every text column (links, spots, labels, notes, posters, cities and alert columns), and none in stdout or stderr
   - `test_intake_refuses_sealed_paths`, for each flag
   - `test_intake_imports_only_the_standard_library`: a fresh interpreter imports `intake`, and `numpy`, `cv2` and `py7zr` aren't in `sys.modules`.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "strata or otherlogs or intake"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'strata'`.
-- [ ] **Step 3:** Implement, then run `uv lock --script eval/data/intake.py`.
-- [ ] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/intake.py --help` exits 0.
-- [ ] **Step 5:** Commit `feat(data): add the intake command with the class count and the M8, consent and sidewall checks`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "strata or otherlogs or intake"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'strata'`.
+- [x] **Step 3:** Implement, then run `uv lock --script eval/data/intake.py`.
+- [x] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/intake.py --help` exits 0.
+- [x] **Step 5:** Commit `feat(data): add the intake command with the class count and the M8, consent and sidewall checks`.
+
+*Evidence (Task 8, Oct 29):*
+- **Commits:** 8922515, a4d9d7a and 2d6a15e.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py` gives 357 passed, also with `-W error`. `uv run --locked --script eval/data/intake.py --help` exits 0.
+- **Checks:** ruff, the plan-leak check, the account-ID scan and gitleaks are clean. Mutation checks caught 53 of 53, then 9 of 9.
+- **The task review approved it,** with no Critical or Important findings:
+  - the deep rule matches `eval/rules.md` §2's passability table
+  - an unapproved consent version can't pass (C218)
+  - output holds only ids, fixed kinds and counts (C201)
+  - a malformed log is named
+- **One fix round (S-R11):**
+  - A log that is missing or not UTF-8 is named (`<log> log: file_missing` or `not_utf8`).
+  - M8 isn't read after a Set A `missing_column`, so no noise lines follow it.
+  - The column checks have explicit branches.
+  - A repeated consented `item_id` is a problem.
+  - The guide explains the new kinds.
+
+  The re-review was clean.
 
 ### Task 9: Photo facts and the write-once archive (§5.5 step 2, C205)
 
