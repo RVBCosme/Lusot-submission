@@ -133,9 +133,50 @@ test("import refuses a file it can't read whole", () => {
   assert.throws(refused("A001,P1,wheel,0.5,0.5,,,hub,,"), /^Error: row 1 ref_id: bad_ref$/);
   assert.throws(refused("A001,R1,wheel,1.5,0.5,,,hub,,"), /^Error: row 1 x: out_of_range$/);
   assert.throws(refused("A001,R1,wheel,0.5,,,,hub,,"), /^Error: row 1 y: out_of_range$/);
-  assert.throws(refused("A001,R1,wheel,0.5,0.5,van,,hub,,"), /^Error: row 1 vehicle_type: not_blank$/);
+  assert.throws(
+    refused("A001,R1,wheel,0.5,0.5,van,,hub,,"),
+    /^Error: row 1 vehicle_type: not_blank$/,
+  );
   const twice = csv(HEADER, "A001,R1,wheel,0.5,0.5,,,hub,,", "A001,R1,person,0.2,0.5,,,knee,,");
   assert.throws(() => M8.fromCsv(twice, ["A001"]), /^Error: row 2 ref_id: duplicate_ref$/);
+});
+
+test("an import counts the rows it keeps and the rows it leaves out", () => {
+  const text = csv(
+    HEADER,
+    "A001,P1,photo,,,,,,ok,",
+    ",,,,,,,,,", // a blank row counts as neither
+    "A001,R1,wheel,0.5,0.5,,,hub,,",
+    "A009,P1,photo,,,,,,dark,",
+  );
+  const read = M8.readImport(text, ["A001", "A002"]);
+  assert.deepEqual([read.kept, read.dropped], [2, 1]);
+  assert.equal(
+    M8.toCsv(read.state),
+    csv(HEADER, "A001,P1,photo,,,,,,ok,", "A001,R1,wheel,0.5,0.5,,,hub,,"),
+  );
+});
+
+test("an import that keeps no row for this page's photos is refused", () => {
+  const foreign = csv(HEADER, "A009,P1,photo,,,,,,ok,", "A009,R1,wheel,0.5,0.5,,,hub,,");
+  for (const text of [foreign, csv(HEADER)]) {
+    assert.throws(
+      () => M8.readImport(text, ["A001", "A002"]),
+      /^Error: it has no rows for this page's photos$/,
+    );
+  }
+  // Restoring the autosave still reads such a file, and reports what it leaves out.
+  const { state, kept, dropped } = M8.fromCsv(foreign, ["A001", "A002"]);
+  assert.deepEqual([kept, dropped], [0, 2]);
+  assert.equal(M8.toCsv(state), csv(HEADER));
+});
+
+test("the photo's inline style pins the border and padding its click geometry assumes", () => {
+  // fractionOf reads the photo's getBoundingClientRect(), which includes any border and
+  // padding, and an inline style wins over the page's stylesheet.
+  const style = /const IMAGE_STYLE =\s*"([^"]*)"/.exec(source)[1].split(";");
+  assert.ok(style.includes("border:0"), style.join(";"));
+  assert.ok(style.includes("padding:0"), style.join(";"));
 });
 
 test("problems name a photo without marks and a wheel without its waterline", () => {

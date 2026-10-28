@@ -41,9 +41,9 @@ var M8 = (function () {
     wheel: ["waterline"],
     person: ["waterline"],
   };
-  // formats.QUALITIES and formats.SUBSET_TAGS.
-  const QUALITIES = ["ok", "dark", "blurry"];
-  const SUBSETS = ["reflection", "splash", "moving"];
+  // formats.QUALITIES and formats.SUBSET_TAGS, in order; test_m8_script.py ties them.
+  const QUALITIES = Object.freeze(["ok", "dark", "blurry"]);
+  const SUBSETS = Object.freeze(["reflection", "splash", "moving"]);
   const REF_ID = /^R[1-9][0-9]*$/;
   const DECIMAL = /^[0-9]+(\.[0-9]+)?$/;
 
@@ -112,10 +112,11 @@ var M8 = (function () {
   }
 
   // Reads a CSV that toCsv wrote, with or without a BOM, with \n or \r\n line endings, and
-  // returns {state, dropped}. Blank rows are skipped, and the rows of photos not in
-  // photoIds are dropped and counted. Any other row that can't be read whole refuses the
-  // file: it throws an Error naming the row and column, never a cell's text. Values aren't
-  // checked against their lists: the intake does that.
+  // returns {state, kept, dropped}. Blank rows are skipped. kept counts the rows read for
+  // photos in photoIds, and dropped the rows of other photos, which are left out. Any other
+  // row that can't be read whole refuses the file: it throws an Error naming the row and
+  // column, never a cell's text. Values aren't checked against their lists: the intake
+  // does that.
   function fromCsv(text, photoIds) {
     const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text; // past a BOM
     const lines = body.split(/\r?\n/);
@@ -123,6 +124,7 @@ var M8 = (function () {
       throw new Error("header: not the M8 columns");
     }
     const state = newState(photoIds);
+    let kept = 0;
     let dropped = 0;
     lines.slice(1).forEach((line, index) => {
       const cells = cellsOf(line);
@@ -137,11 +139,21 @@ var M8 = (function () {
       });
       if (Object.hasOwn(state.photos, row.photo_id)) {
         readRow(state.photos[row.photo_id], row, where);
+        kept += 1;
       } else {
         dropped += 1;
       }
     });
-    return { state, dropped };
+    return { state, kept, dropped };
+  }
+
+  // Reads a file to import, whose rows are to replace the page's labels and their autosave.
+  // A file that keeps no row for the page's photos, such as another set's export or an
+  // empty one, is refused, since importing it would empty the page.
+  function readImport(text, photoIds) {
+    const read = fromCsv(text, photoIds);
+    if (read.kept === 0) throw new Error("it has no rows for this page's photos");
+    return read;
   }
 
   // What is left to label, in the export's order: a photo whose quality isn't picked, and
@@ -219,14 +231,17 @@ var M8 = (function () {
   }
 
   // Inline styles only where the page's geometry depends on them; the page's stylesheet
-  // does the rest. align-items keeps the frame as tall as its photo, so the marker layer
-  // lies exactly over it. The list's small basis keeps it beside the photo when there is
-  // room, so a click's values are picked without scrolling. A marker is white on dark red
-  // (about 7:1), edged in white so it shows on dark photos too.
+  // does the rest, and an inline style wins over it. The photo has no border or padding,
+  // so its box, which fractionOf reads, is the photo itself. align-items keeps the frame as
+  // tall as its photo, so the marker layer lies exactly over it. The list's small basis
+  // keeps it beside the photo when there is room, so a click's values are picked without
+  // scrolling. A marker is white on dark red (about 7:1), edged in white so it shows on
+  // dark photos too.
   const ROW_STYLE = "display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start";
   const LIST_STYLE = "flex:1 1 16em;margin:0";
   const FRAME_STYLE = "position:relative;max-width:100%";
-  const IMAGE_STYLE = "display:block;max-width:100%;max-height:70vh;cursor:crosshair";
+  const IMAGE_STYLE =
+    "display:block;border:0;padding:0;max-width:100%;max-height:70vh;cursor:crosshair";
   const LAYER_STYLE = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
   const MARKER_STYLE =
     "position:absolute;transform:translate(-50%,-50%);padding:0 4px;border:2px solid #fff;" +
@@ -292,6 +307,7 @@ var M8 = (function () {
     const say = (text) => {
       status.textContent = text;
     };
+    const rows = (count) => count + (count === 1 ? " row" : " rows");
 
     const todo = make("details");
     todo.className = "m8-todo";
@@ -405,19 +421,22 @@ var M8 = (function () {
         (text) => {
           let read;
           try {
-            read = fromCsv(text, ids);
+            read = readImport(text, ids);
           } catch (error) {
             say("Couldn't import the file: " + error.message + "." + unchanged);
             return;
           }
-          if (!win.confirm("Replace the labels on this page with the file's?")) return;
+          // Both counts go in the question, before anything is replaced.
+          const kept = rows(read.kept) + " for this page's photos";
+          const left = rows(read.dropped) + " for other photos";
+          const question = "Replace the labels on this page with the file's?";
+          if (!win.confirm(question + " It keeps " + kept + " and leaves out " + left + ".")) {
+            return;
+          }
           state = read.state;
           save();
           drawAll();
-          const left = read.dropped
-            ? " Its " + read.dropped + " rows for photos not on this page were left out."
-            : "";
-          say("Imported the file's labels." + left);
+          say("Imported the file: it kept " + kept + " and left out " + left + ".");
         },
         () => say("Couldn't read the file." + unchanged),
       );
@@ -510,7 +529,7 @@ var M8 = (function () {
         const read = fromCsv(saved, ids);
         state = read.state;
         const left = read.dropped
-          ? " " + read.dropped + " saved rows are for photos not on this page;" +
+          ? " Left out " + rows(read.dropped) + " saved for photos not on this page;" +
             " your next change drops them."
           : "";
         say("Restored the labels saved in this browser." + left);
@@ -526,6 +545,8 @@ var M8 = (function () {
 
   return {
     COLUMNS,
+    QUALITIES,
+    SUBSETS,
     fractionOf,
     newState,
     addRef,
@@ -534,6 +555,7 @@ var M8 = (function () {
     setMarks,
     toCsv,
     fromCsv,
+    readImport,
     problems,
     start,
   };
