@@ -15,7 +15,7 @@
 | 2.2 | After the variants bullet, add: "Any phrase may end with `deep` or `level`, or with neither: the two words are interchangeable, as "above gutter deep" beside "above gutter level" shows. Real alerts write "half tire level"." | MS6E-Q1, item 12; MS6 spec C404 | interchangeable |
 | 2.3 | After the range bullet, add: "A range may carry a unit on each number (13"-18"). Two measures not joined by a range word, such as "24 in (61 cm)", give one depth in two units: the label takes that level when both units give the same level, and is unmapped when they don't." | MS6E-Q1, item 13 (Pasig gives depths in centimetres and inches: the alert index) | as written |
 | 2.4 | Replace `- **Statuses that are not depths**, such as "subsided", can't match a photo.` with: "- **Statuses that are not depths**, such as "subsided", can't match a photo. As a photo's own label, a status gives "no matching alert". Among a photo's other matching alerts, it is ignored." | MS6E-Q1, item 7 | as written |
-| 2.5 | After the "Any other label is excluded" bullet, add: "A passability phrase that maps to no class leaves the photo out of the passability metric only, and is logged. A photo whose alert gives neither a depth nor a class is excluded as "unmapped label"." | MS6E-Q1, item 2; MS6 spec C404 | as written |
+| 2.5 | After the "Any other label is excluded" bullet, add: "A passability phrase that maps to no class leaves the photo out of the passability metric only, and is logged. A photo whose alert gives neither a depth nor a class is excluded as "unmapped label"." | MS6E-Q1, items 2 and 14; MS6 spec C404 | as written |
 
 ## §3. Matching a photo to an alert
 

@@ -349,10 +349,10 @@ All new.
     - reason 1: `poster_kind` is neither `mmda` nor `city`
     - reason 2: `label_in_image == "yes"`
     - reason 3: `match == "none"`, or the main level label has kind `status`
-    - reason 4: the main level label is `unmapped`; or both main labels are `blank`; or any label in `others` is `unmapped`
+    - reason 4: the main level label is `unmapped`; or the main level label is `blank` and the class label is `blank` or `unmapped` (MS6E-Q1, item 14); or any label in `others` is `unmapped`
     - reason 5: the levels of the main label and of the `others` (statuses and blanks left out) span more than one level
     - reason 6: `duplicate`; reason 7: not `metro_manila`; reason 8: not `decodes`
-    - An `unmapped` passability label alone excludes nothing (MS6E-Q1, item 2).
+    - An `unmapped` passability label beside a mapped level label excludes nothing (MS6E-Q1, item 2).
   - `a_neg_exclusion(facts: Facts) -> str | None`: `duplicate` → reason 6; not `decodes` → reason 8 (MS6E-Q1, item 6)
 - Produces, in `scoring.metrics`:
   - `Rate(k: int, n: int)`, a frozen dataclass with `.value -> Fraction | None`, which is `None` when `n == 0`
@@ -380,6 +380,7 @@ All new.
     - `test_status_and_blank_labels`:
       - `subsided` gives `no matching alert`
       - two blank labels give `unmapped label`
+      - a blank level label with `closed`, a class phrase that maps to nothing, gives `unmapped label` (MS6E-Q1, item 14)
       - a blank level label with `NPLV` gives `None` (an alert with only a class)
       - an unmapped passability phrase with `knee deep` gives `None`
     - `test_other_alerts`:
