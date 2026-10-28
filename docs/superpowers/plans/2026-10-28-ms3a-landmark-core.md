@@ -1,6 +1,6 @@
 # MS3a Landmark Core Implementation Plan
 
-> **Status (Oct 28, 8:30 AM): draft, not yet reviewed.** The plan writer finished just before the pause, and the plan is committed so it isn't lost. Before any task runs, the controller self-reviews it and rules on the 5 spec gaps in its notes (kept at `.superpowers/ms3a-plan-notes.md`, which git ignores).
+> **Status (Oct 28):** reviewed by Window 3 (D20). The review settled the five spec gaps and the provisional calls as spec C72 to C81, and amended the tasks to match.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -20,7 +20,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-28-ms3a-landmark-core-design.md`. It is binding, including Rene's §7 answers of Oct 28 (commit f632cde, which sets C54 by Q4). Executors read both.
 
-**Starts after MS1 closes.** MS1 Task 4 (`lusot_analysis/meta_client.py`) and Task 5 must be in the repo: `annotate.py`, `prompts/muse_spark_photo_v1.md`, `prompts/muse_spark_photo_v1.schema.json`, `probes/run_probe.py` and the probe note. Their Interfaces are used exactly as the MS1 plan states them. MS3a changes an MS1 interface only where a task says so.
+**Order (D20).** The branch `ms3a-landmark-core` starts from `ms1-setup` at `461c398`.
+- **Before MS1 closes:** Tasks 1, 6, 10, 11 and 12, in that order. They need nothing from MS1 Tasks 4 and 5.
+- **After MS1 closes:** merge `main` and re-run every test. Then Tasks 2, 3, 4, 5, 7, 8, 9, 13, 14, 15, 16 and 17, in that order. These need MS1 Task 4 (`lusot_analysis/meta_client.py`) and Task 5: `annotate.py`, `prompts/muse_spark_photo_v1.md`, `prompts/muse_spark_photo_v1.schema.json`, `probes/run_probe.py` and the probe note.
+
+MS1's Interfaces are used exactly as the MS1 plan states them. MS3a changes an MS1 interface only where a task says so.
 
 ## Global Constraints
 
@@ -65,24 +69,20 @@
   - The word "safe" never appears in screen copy.
 - **Toolchain:** Python `>=3.13,<3.14` through uv; Node 22; TypeScript `strict: true`. Library versions are pinned in lockfiles. Check each library's API with Context7 before calling it.
 - **Commits:**
-  - Conventional Commits, ending with these two lines:
-    ```
-    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-    Claude-Session: https://claude.ai/code/session_01APg5f7uACjpJWbzKxrpBcx
-    ```
+  - Conventional Commits, ending with the attribution lines Claude Code gives the session. The controller copies its own lines into each brief.
   - Write the message to a file and use `git commit -F <file>`. Never pipe it from Windows PowerShell 5.1.
   - Never `--no-verify`.
 - **Builds:** a Docker build and a Gradle build never run at the same time.
-- **Shells:** start each PowerShell command with the PATH refresh in `.superpowers/sdd/2026-10-28-ms1-setup/context.md`. Run the analysis package's commands from `backend/analysis` with `uv run`. The PEP 723 scripts in `backend/scripts` run from the repo root.
+- **Shells:** start each PowerShell command with the PATH refresh in `CLAUDE.md` ("Commands"). Commit from PowerShell after it, or the gitleaks hook fails closed. Run the analysis package's commands from `backend/analysis` with `uv run`. The PEP 723 scripts in `backend/scripts` run from the repo root.
 
 ## Review Focus
 
 Most likely first. Each line names its tests.
 
-1. **Muse Spark leaves a numbered box unanswered** (it skips a car, a wheel or a person). The box should give no reading and invent no floor:
+1. **Muse Spark leaves a numbered box unanswered** (it skips a car, a wheel or a person). The box should give no reading and invent no floor (C76):
    - an unanswered vehicle is dropped with its wheels
    - an unanswered linked wheel counts as visible, so its car gets no body reading
-   - an unanswered person neither counts nor blocks wading adults
+   - an unanswered person neither counts nor blocks wading adults; only a person answered as an adult standing still blocks them
 
    Tests: Task 4 `test_unanswered_boxes_give_no_reading`, Task 5 `test_unanswered_wheel_blocks_the_body_reading`.
 2. **A finished report gets another delivery after its lease time has passed.** This happens when the raw delete failed and SQS redelivers 18 minutes later. The redelivery should not re-claim the report or call Meta. It should only delete. Tests: Task 12 `test_finished_report_with_old_claim_is_never_reclaimed`, Task 13 `test_failed_delete_redelivered_after_lease_time_only_deletes`.
@@ -96,7 +96,7 @@ Most likely first. Each line names its tests.
   - Opus 5.5 at max: Tasks 1 to 16 and the code-quality reviews
   - Sonnet 5.5 at xhigh: the spec-compliance reviews
   - Claude itself: Task 17, and the key step in Task 16 (Step 5)
-- **Branch:** `ms3a-landmark-core`, from `main` after MS1's merge. Tasks run one at a time (R1). Only Tasks 3 and 14 touch `pyproject.toml`, `uv.lock` or `requirements.lock.txt`.
+- **Branch:** `ms3a-landmark-core`, from `ms1-setup` at `461c398`, with `main` merged in once MS1 closes (D20; see "Order" above). Tasks run one at a time (R1). Only Tasks 3 and 14 touch `pyproject.toml`, `uv.lock` or `requirements.lock.txt`.
 - **MS1 interfaces this plan uses** (names as the MS1 plan gives them):
   - `face_blur`: `BlurredImage` (`jpeg`, `width`, `height`, `faces`, `blur_version`, `.bgr()`, `.derive(bgr, base)`), `blur_for_meta(data, *, max_side=1600)`, `decode_image`, `blur_faces(bgr, faces, *, margin=0.25)`, `FaceBox(x, y, w, h, score)`, `UndecodableImage`, `FACE_BLUR_VERSION`
   - `meta_client`: `SAM_PHRASES`, `SAM_MODEL`, `SPARK_MODEL`, `MissingApiKey`, `MetaApiError` (`.status`), `SamInstance(id, box, mask, score)`, `SamResult(phrase, instances, elapsed_s, raw)`, `SparkResult(data, input_tokens, output_tokens, elapsed_s, raw)`, `MetaClient(api_key=None, ...)` with `.segment(image, phrase)` and `.judge(image, *, prompt, schema, schema_name)`
@@ -119,7 +119,7 @@ Most likely first. Each line names its tests.
 **Interfaces:**
 - Produces, in `lusot_analysis.rules` (`eval/rules.md` §1 and §6, spec §3.3):
   - `LEVELS: tuple[str, ...] = ("below_gutter", "gutter", "half_knee", "half_tire", "knee", "tire", "waist", "chest", "above_chest")`
-  - `PASSABILITY: Mapping[str, str]`: `PATV` for the first three levels, `NPLV` for `half_tire` and `knee`, `NPATV` from `tire` down
+  - `PASSABILITY: Mapping[str, str]`: `PATV` for the first three levels, `NPLV` for `half_tire` and `knee`, `NPATV` for `tire` and every deeper level (`eval/rules.md` §1)
   - `level_index(level: str) -> int`, which raises `ValueError` for an unknown level
   - `@dataclass(frozen=True) class Reading: level: str; floor: bool`
   - `WHEEL_ROWS`, `PEOPLE_ROWS`, `BODY_ROWS: Mapping[str, Reading | None]`, holding the spec's three tables. `not_visible` maps to `None`. The body table maps `mid_door` and `window` to `Reading("tire", True)`, and every other value to `None`.
@@ -138,9 +138,11 @@ Most likely first. Each line names its tests.
     - fields: `status: Literal["done", "refused", "failed"]`, `reason: str | None = None`, `no_flood_seen: bool = False`, `level: str | None = None`, `landmark: str | None = None`, `passability: str | None = None`, `level_is_floor: bool = False`, `basis: Mapping[str, int] | None = None`
     - builders: `Outcome.refused(reason)`, `Outcome.failed(reason)`, `Outcome.no_flood()`, `Outcome.level_result(level, landmark, level_is_floor, basis)`. The last takes `passability` from `rules.PASSABILITY`; that lookup is step 7 (map).
     - `__post_init__` raises `ValueError` on any other shape (C42, C50):
-      - a reason from the wrong list
+      - a reason from the wrong list, a `refused` or `failed` outcome without a reason, or `done` with a reason
       - `done` with neither a level nor `no_flood_seen`, or with both
       - an unknown level
+      - a level result without `landmark` or `basis`, or whose `passability` isn't `PASSABILITY[level]`
+      - a no-flood result carrying `landmark`, `passability`, `basis` or `level_is_floor`
       - `basis` keys other than exactly `vehicles` and `people`, or counts summing to 0
       - result fields on `refused` or `failed`
     - `.item_fields() -> dict[str, object]`: the report item's attributes (§3.5):
@@ -150,7 +152,11 @@ Most likely first. Each line names its tests.
     - `.log_name: str`: `"done/level"`, `"done/no_flood_seen"`, `"refused/<reason>"` or `"failed/<reason>"`
   - `@dataclass(frozen=True) class Reference: kind: Literal["wheel", "body", "person"]; box_id: int; landmark: str; reading: Reading`. For a body reading, `box_id` is the vehicle's id. For a wheel, it is the wheel's id.
   - `class ModelClient(Protocol)` with `segment(image: BlurredImage, phrase: str) -> SamResult` and `judge(image: BlurredImage, *, prompt: str, schema: dict, schema_name: str) -> SparkResult`
+    - **Before MS1 closes (R80):** `meta_client` isn't on the branch yet. The module starts with `from __future__ import annotations` and imports `SamResult`, `SparkResult` and `BlurredImage` only under `if TYPE_CHECKING:`. The import stays that way after the merge, so loading the rules never loads the OpenAI SDK.
   - `class ModelAnswerError(Exception)`: Muse Spark's answer isn't valid JSON or fails the schema (C47)
+  - `class ModelKeyRejected(Exception)`: Meta answered 401, 402 or 403, so the key or the account was rejected (C73). It holds `status: int`. Task 8 raises it, and Tasks 9 and 13 handle it.
+
+The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_every_schema_enum` checks them against MS1's schema after the merge.
 
 - [ ] **Step 1: Write the failing tests.** Every expected value is the spec's.
   - `test_levels_are_the_nine_in_order`: `LEVELS` equals the tuple above; `level_index("gutter") == 1`; `level_index("knee") == 4`; `level_index("deep")` raises `ValueError`.
@@ -176,6 +182,9 @@ Most likely first. Each line names its tests.
   - `test_outcome_rejects_bad_shapes`, parametrized over each `__post_init__` case above. Each raises `ValueError`.
   - `test_every_reason_has_a_log_name`: `Outcome.refused(r).log_name == f"refused/{r}"` for every refused reason, the same for failed, and the two `done` names.
   - `test_pipeline_not_built_is_not_a_new_reason`: `"pipeline_not_built" not in FAILED_REASONS`. MS1's reason stays readable only on old reports.
+  - `test_types_import_the_meta_client_only_for_type_checking` (R80): an `ast` walk of `pipeline/types.py` finds every import of `lusot_analysis.meta_client` and `lusot_analysis.face_blur` inside an `if TYPE_CHECKING:` block, and none outside one. It reads the file, so it holds after Task 8 fills `pipeline/__init__.py`.
+  - `test_rules_load_without_the_meta_client` (R80): in a fresh interpreter, `import lusot_analysis.rules, sys; print("lusot_analysis.meta_client" in sys.modules, "openai" in sys.modules)` prints `False False`.
+  - `test_key_rejected_keeps_its_status`: `ModelKeyRejected(401).status == 401`.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_rules.py tests/test_pipeline_types.py`. Expected: FAIL (modules missing).
 - [ ] **Step 3:** Implement the two modules with the names and values above. The tables are plain dict literals, so a reviewer can check them against spec §3.3 line by line.
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: all PASS; ruff clean.
@@ -184,7 +193,8 @@ Most likely first. Each line names its tests.
 ### Task 2: Segment step and the boxes before numbering
 
 **Files:**
-- Create: `backend/analysis/src/lusot_analysis/pipeline/segment.py`, `backend/analysis/src/lusot_analysis/pipeline/references.py`, `backend/analysis/tests/fakes.py` (shared test builders; not collected by pytest)
+- Create: `backend/analysis/src/lusot_analysis/pipeline/segment.py`, `backend/analysis/src/lusot_analysis/pipeline/references.py`
+- Modify: `backend/analysis/tests/fakes.py` (shared test builders; not collected by pytest). Task 12 created it before MS1 closed, holding `create_reports_table`; this task adds the builders below.
 - Test: `backend/analysis/tests/test_segment.py`, `backend/analysis/tests/test_prepare_boxes.py`
 
 **Interfaces:**
@@ -361,10 +371,10 @@ Most likely first. Each line names its tests.
     - **`wheels_hidden`** (C53, C69) is true when both hold:
       - the vehicle isn't in `small_wheel_vehicles`
       - every numbered wheel linked to it has an entry whose waterline is in `HIDDEN_WHEEL`. This holds trivially when none is linked. An unanswered wheel makes it false.
-    - **People** (C57; Rene Q3):
+    - **People** (C57, C76; Rene Q3):
       - no entry → `person_unanswered`
       - `adult` is `no` or `unsure` → `person_not_adult`
-      - an adult whose `standing_still` is `no` or `unsure` is wading. If any adult has `standing_still = yes`, whatever its waterline, every wading adult → `person_wading`. Otherwise wading adults are kept.
+      - an adult whose `standing_still` is `no` or `unsure` is wading. If any person answered `adult = yes` has `standing_still = yes`, whatever its waterline, every wading adult → `person_wading`. Otherwise wading adults are kept. An unanswered person, or one answered `adult: unsure`, never blocks (C76).
     - `wake_visible` is read and changes nothing (C63).
 
 - [ ] **Step 1: Write the failing tests:**
@@ -374,7 +384,7 @@ Most likely first. Each line names its tests.
   - `test_wading_adults_yield_to_a_standing_adult`: one standing adult, and wading adults with `standing_still` `no` and `unsure` → only the standing adult is kept; `person_wading` 2.
   - `test_a_hidden_standing_adult_still_blocks_wading` (Rene Q3): a standing adult at `not_visible`, plus a wading adult at `waist` → the wading adult is dropped; the kept person is the `not_visible` one.
   - `test_wading_adults_count_when_nobody_stands`: two wading adults → both kept.
-  - `test_a_standing_child_does_not_block_wading_adults`: a child (`adult = no`, standing) plus a wading adult → the adult is kept and the child dropped.
+  - `test_a_standing_child_does_not_block_wading_adults`, parametrized over `adult` `no` and `unsure` (C76): that person, standing, plus a wading adult → the adult is kept and the other person dropped.
   - `test_wheels_hidden`, parametrized:
     - `wheel_covered` plus `not_visible` → True
     - one wheel at `rim_top` → False
@@ -384,7 +394,7 @@ Most likely first. Each line names its tests.
   - Review Focus 1, `test_unanswered_boxes_give_no_reading`:
     - vehicle 1 has no entry, and its wheel 3 → `vehicle_unanswered` 1 and `wheel_vehicle_dropped` 1
     - kept vehicle 2: wheel 4 unanswered, wheel 5 `not_visible` → `KeptVehicle(2, "not_visible", ((5, "not_visible"),), wheels_hidden=False)` and `wheel_unanswered` 1
-    - person 6 has no entry → `person_unanswered` 1, and it doesn't block wading adult 7, who is kept
+    - person 6 has no entry → `person_unanswered` 1, and it doesn't block wading adult 7, who is kept (C76)
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_apply_drops.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement the types and `apply_drops`.
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
@@ -404,7 +414,7 @@ Most likely first. Each line names its tests.
     2. the readings of its wheels (`WHEEL_ROWS`, skipping `None`). If `disagree` is true → drop as `vehicle_wheels_disagree`. That is C43, which uses C54's test: an exact wheel more than one level below the vehicle's deepest wheel.
     3. the candidates: each wheel reading as `Reference("wheel", wheel id, waterline, reading)`. When `wheels_hidden` holds and `BODY_ROWS[body]` isn't `None`, also `Reference("body", vehicle id, body, reading)`.
     4. no candidate → `vehicle_no_reading`. Otherwise the deepest candidate speaks for the vehicle. Ties use C54's order: a floor first, then a wheel before the body, then the lowest box id.
-    5. a vehicle dropped here also counts each of its wheels as `wheel_vehicle_dropped`
+    5. a vehicle dropped in item 1 or 2 also counts each of its wheels as `wheel_vehicle_dropped`. A `vehicle_no_reading` doesn't, because its wheels gave nothing to drop.
   - **Each person:** `PEOPLE_ROWS[waterline]` gives `Reference("person", id, waterline, reading)`, or `person_no_reading`.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -426,7 +436,7 @@ Most likely first. Each line names its tests.
     - body `mid_door` → the `wheel_covered` wheel wins the tie over the body
   - `test_no_linked_wheel_reads_from_the_body`: no wheels and `window` → a `tire` floor, kind `body`. No wheels and `bumper` → `vehicle_no_reading`.
   - `test_each_people_row_reads_through`: parametrized over the 7 marks; `not_visible` → `person_no_reading`.
-  - Review Focus 1, `test_unanswered_wheel_blocks_the_body_reading`: `KeptVehicle(2, "window", ((5, "not_visible"),), wheels_hidden=False)` → no reference, and `vehicle_no_reading` 1.
+  - Review Focus 1, `test_unanswered_wheel_blocks_the_body_reading`: `KeptVehicle(2, "window", ((5, "not_visible"),), wheels_hidden=False)` → no reference, and the drops equal exactly `Counter({"vehicle_no_reading": 1})`.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_measure.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement `measure` as specified.
 - [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .`. Expected: PASS; clean.
@@ -548,8 +558,9 @@ Most likely first. Each line names its tests.
     - **step 5:** `measure`
     - **steps 6 and 7:** `combine`
     - **step 8.1:** a level result, with both `PUBLISH_PHRASES` among `phrases` → `publish_jpeg(image, sam)`. Otherwise `None`.
-    - **Errors (C59):**
-      - `MetaApiError` or `ModelAnswerError` → `failed/model_error`. Check `MetaApiError` before anything broader: it subclasses `RuntimeError`.
+    - **Errors (C59, C73):**
+      - A `MetaApiError` whose `.status` is 401, 402 or 403 raises `ModelKeyRejected(status)` out of `run_pipeline`. It is not an outcome (C73).
+      - Any other `MetaApiError`, or a `ModelAnswerError` → `failed/model_error`. Check `MetaApiError` before anything broader: it subclasses `RuntimeError`.
       - The error `judge` raises on an answer that isn't JSON (read `meta_client.py` to learn which class) is turned into `ModelAnswerError`.
       - Any other exception → `failed/pipeline_error`.
       - The log keeps the error's class name (`error`) and, for `MetaApiError`, `meta_status`. It never keeps the message.
@@ -565,7 +576,10 @@ Most likely first. Each line names its tests.
     - `error`, `meta_status`: on failures only
 - Produces, in `tests/fakes.py`: `level_case() -> tuple[bytes, dict[str, SamResult], dict]`, the photo, SAM results and answer of `test_level_result_end_to_end` below. Tasks 9 and 13 reuse it as "the level case".
 
-- [ ] **Step 1:** Check that `tests/test_meta_client.py` covers both §3.6 items: a `BlurredImage` subclass is refused (`type(img) is BlurredImage`), and a key under 20 characters is refused. If either test is missing, add it there (`test_rejects_blurred_image_subclass`, `test_short_key_refused`).
+- [ ] **Step 1:** Check MS1's work and record each finding in the task report:
+  - `tests/test_meta_client.py` covers both §3.6 items: a `BlurredImage` subclass is refused (`type(img) is BlurredImage`), and a key under 20 characters is refused. If either test is missing, add it there (`test_rejects_blurred_image_subclass`, `test_short_key_refused`).
+  - Read `meta_client.py` for the classes it raises on a timeout or a connection error that outlasts its retries. They are Meta errors, so they end `failed/model_error` (C59), never `pipeline_error`. Add each to the Errors mapping and to `test_model_errors_pay_once`.
+  - Read the probe note's count of face boxes that overlap wheel boxes (P5). If it is above 0, stop and report it: the controller rules on P5 before this task goes on.
 - [ ] **Step 2: Write the failing tests** (`FakeClient`, `noise_jpeg()`, `prompt = load_prompt(REPO_PROMPTS)`):
   - `test_level_result_end_to_end`, built from `level_case()`:
     - SAM: `vehicle (100, 100, 400, 300)`, `wheel (150, 250, 200, 300)`, `floodwater (0, 280, 640, 480)`, `face (300, 120, 330, 150)`, `license plate (220, 270, 280, 290)`
@@ -586,6 +600,7 @@ Most likely first. Each line names its tests.
     - the answer has an extra key
     - the answer has an id as a string
     - `judge` raises the class it raises on a non-JSON answer (see **Errors** above)
+  - `test_rejected_key_raises` (C73), parametrized: `segment` raises `meta_error(401)`, `segment` raises `meta_error(402)`, and `judge` raises `meta_error(403)` → each raises `ModelKeyRejected` with that status. In the `judge` case, the fake recorded exactly 1 `judge` call.
   - `test_other_exceptions_are_pipeline_errors`: `segment` raises `KeyError("boom-marker")` → `failed/pipeline_error`, and `"boom-marker"` isn't in `json.dumps(run.log)`.
   - `test_reason_text_never_reaches_the_log` (C62): `"REASON-MARKER-31"` isn't in `json.dumps(run.log)`, and `PipelineRun` has no field holding the answer.
   - `test_reading_phrases_skip_face_and_plate` (C66): with `phrases=READING_PHRASES`, `segment` is called 5 times, never for `face` or `license plate`, and a level result has `publish_jpeg is None`.
@@ -627,7 +642,7 @@ Most likely first. Each line names its tests.
   - `replay(photo: Path, run_dir: Path) -> PipelineRun`
   - `main(argv: list[str] | None = None) -> int`:
     - commands: `live <photo> [--data-dir DIR]`, where the directory defaults to `LUSOT_DATA_DIR`, and `replay <photo> <run dir>`
-    - exit 0; 1 when a replay's outcome differs from the saved one; 2 when refused (a sealed path, a missing or short key, another photo)
+    - exit 0; 1 when a replay's outcome differs from the saved one; 2 when refused (a sealed path, a missing or short key, a key Meta rejects with `ModelKeyRejected`, another photo)
     - prints only: the outcome's `log_name` and level, `meta_calls`, instances and ms per phrase, Muse Spark's ms, tokens, drops, and on replay `same as saved: True|False`
     - never prints the answer, its reason or the key. Every line masks 12-digit runs.
 
@@ -640,6 +655,7 @@ Most likely first. Each line names its tests.
   - `test_refuses_paths_inside_sealed_folders`, parametrized over `tmp_path/"sealed"/"x.jpg"`, `tmp_path/"a"/"Sealed"/"x.jpg"` and `tmp_path/"sealed"/"sub"/".."/"x.jpg"`. None of these exists, and the test creates none. `main(["live", str(p)]) == 2`, and the output says `refused: path inside a folder named sealed`. `refuse_sealed(tmp_path/"unsealed"/"x.jpg")` doesn't raise.
   - `test_live_sends_the_reading_phrases_and_saves_under_the_data_dir`: `make_client` is replaced by a `FakeClient`, with `--data-dir tmp_path`. The result: exit 0, a run directory under `tmp_path/"runs"`, 5 `segment` calls, `meta_calls` in the output, and no `REASON-MARKER-31` in it.
   - `test_missing_or_short_key_exits_2_without_echo`: `MODEL_API_KEY` is `"\x16"` and the real `make_client` is used → exit 2, and `"\x16"` isn't in the output.
+  - `test_rejected_key_exits_2` (C73): a `FakeClient` whose `segment` raises `meta_error(401)` → exit 2, and no run directory is written.
   - `test_replay_needs_no_key`: with `MODEL_API_KEY` removed, `replay` of a recorded run → exit 0 and `same as saved: True`.
 - [ ] **Step 2:** Run `uv run pytest -q tests/test_saved.py tests/test_run_pipeline.py`. Expected: FAIL.
 - [ ] **Step 3:** Implement `saved.py` and the runner. The runner loads the prompt with `load_prompt(Path(__file__).resolve().parents[1] / "prompts")`. That is allowed: only package code must not walk up from `__file__`, and the runner runs only in the repo.
@@ -680,15 +696,16 @@ Most likely first. Each line names its tests.
 - Consumes: Task 10's body
 - Produces:
   - `ReportResult` gains `noFloodSeen?: boolean`, `level?: string`, `landmark?: string`, `passability?: string`, `basis?: { vehicles: number; people: number }` and `levelIsFloor?: boolean`
-  - `pollReport` keeps its signature and resolves with those fields. It still polls through `pending`, `processing` and 404 (R30, R32).
-  - `export class PollTimeoutError extends Error` is thrown on a timeout, with today's message
+  - `pollReport` keeps its signature and resolves with `status`, `refusalReason` and those fields only, as today it drops `reportId` and `capturedAt`. It still polls through `pending`, `processing` and 404 (R30, R32).
+  - `export class PollTimeoutError extends Error`, built as `new PollTimeoutError(reportId, timeoutMs)`, is thrown on a timeout. It builds today's message: `` `No result for report ${reportId} after ${timeoutMs / 1000} s` ``.
+  - The result shows as one `<p>` per line inside the status region, without MS1's `Final status:` prefix, so each line can be matched exactly.
   - the result lines (§3.8). This is test-build wording; final wording waits for MS5 and Rene's review (M20).
-    - **A level**, three lines:
-      - `<words> at this spot (MMDA level).`, where the level's words are `Below gutter deep`, `Gutter deep`, `Half-knee deep`, `Half-tire deep`, `Knee deep`, `Tire deep`, `Waist deep`, `Chest deep` and `Above chest deep`. With `levelIsFloor`, the line reads `At least <words in lower case> at this spot (MMDA level).`
-      - `MMDA class: <passability>, <class words>.`, where the class words are `passable to all vehicles` (PATV), `not passable to light vehicles` (NPLV) and `not passable to any vehicle` (NPATV)
+    - **A level**, three lines (C81):
+      - For MMDA's 7 levels: `<words> at this spot (MMDA level).`, where the words are `Gutter deep`, `Half-knee deep`, `Half-tire deep`, `Knee deep`, `Tire deep`, `Waist deep` and `Chest deep`. The two added levels drop "(MMDA level)": `Below gutter deep at this spot.` and `Above chest deep at this spot.` With `levelIsFloor`, the line starts `At least` and the words go lower case, as in `At least tire deep at this spot (MMDA level).`
+      - For MMDA's 7 levels: `MMDA lists this level as <class words> (<passability>).`, where the class words are `passable to all vehicles` (PATV), `not passable to light vehicles` (NPLV) and `not passable to any vehicle` (NPATV). For `below_gutter`: `Shallower than MMDA's gutter level, which MMDA lists as passable to all vehicles (PATV).` For `above_chest`: `Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV).`
       - `From <n> reference object<s>.`, where n is the vehicles plus the people
     - **No flood seen:** `No flood seen.`
-    - **A refusal:** `I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road.` This is the wording the Oct 28 log proposes for M20; plan §9's own line uses the banned word.
+    - **A refusal:** `I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road.` Rene confirmed this English line (D19, C81); plan §9's own line uses the banned word.
     - **Processing failed, and a poll timeout:** `Processing failed, try again.`
     - **Refused and failed** results add a small line, `Reason: <refusalReason>` (`text-xs`).
     - The message comes from `status`, never from the reason (C50). So MS1's `pipeline_not_built` now reads as processing failed. MS1's footer line stays.
@@ -697,8 +714,12 @@ Most likely first. Each line names its tests.
   - `pollReport returns the result fields`: a `done` body with every field → `toEqual` on those fields.
   - `pollReport times out with a clear error`: also `rejects.toBeInstanceOf(PollTimeoutError)`.
   - Update `App uploads the photo and shows the result` (`failed/pipeline_not_built`): it now shows `Processing failed, try again.` and `Reason: pipeline_not_built`.
-  - `App shows a level result`: `knee`, `NPLV`, basis 1 and 1 → `Knee deep at this spot (MMDA level).`, `MMDA class: NPLV, not passable to light vehicles.`, `From 2 reference objects.`
-  - `App says at least for a floor`: `tire`, `levelIsFloor`, `NPATV`, basis 1 and 0 → `At least tire deep at this spot (MMDA level).` and `From 1 reference object.`
+  - `App shows a level result`: `knee`, `NPLV`, basis 1 and 1 → `Knee deep at this spot (MMDA level).`, `MMDA lists this level as not passable to light vehicles (NPLV).`, `From 2 reference objects.`
+  - `App says at least for a floor`: `tire`, `levelIsFloor`, `NPATV`, basis 1 and 0 → `At least tire deep at this spot (MMDA level).`, `MMDA lists this level as not passable to any vehicle (NPATV).` and `From 1 reference object.`
+  - `App never calls the two added levels MMDA's` (CLAUDE.md, C81), parametrized:
+    - `below_gutter`, `PATV` → `Below gutter deep at this spot.` and `Shallower than MMDA's gutter level, which MMDA lists as passable to all vehicles (PATV).`
+    - `above_chest`, `NPATV` → `Above chest deep at this spot.` and `Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV).`
+    - in both, the text `(MMDA level)` appears nowhere on the screen
   - `App shows no flood seen`.
   - `App shows a refusal and its reason`: `refused/too_dark` → the refusal line and `Reason: too_dark`.
   - `App shows processing failed and its reason`: `failed/model_error`.
@@ -712,8 +733,7 @@ Most likely first. Each line names its tests.
 ### Task 12: Report store: the claim and the result writes
 
 **Files:**
-- Create: `backend/analysis/src/lusot_analysis/report_store.py`
-- Modify: `backend/analysis/tests/fakes.py` (add `create_reports_table`)
+- Create: `backend/analysis/src/lusot_analysis/report_store.py`, and `backend/analysis/tests/fakes.py` with `create_reports_table` only. This task runs before MS1 closes (D20), so `fakes.py` must not import `meta_client`; Task 2 adds the rest.
 - Test: `backend/analysis/tests/test_report_store.py`
 
 **Interfaces:**
@@ -740,7 +760,7 @@ Most likely first. Each line names its tests.
   - `test_expired_lease_is_reclaimed`: `processing`, `claimedAt = now_s - 901`, token `"old"` → `"claimed"`, with the new token and `claimedAt == now_s`.
   - Review Focus 2, `test_finished_report_with_old_claim_is_never_reclaimed`: `done`, `claimedAt = now_s - 3600`, token `"old"` → `"finished"`; the item is unchanged.
   - `test_writes_a_level_result_under_the_claim`: claim, then `write_result` with `Outcome.level_result("knee", "rim_three_quarters", False, {"vehicles": 1, "people": 0}).item_fields() | {"photoKey": "blurred/r_<32 hex>.jpg"}` → True. The item has `status` `done`, `noFloodSeen` `{"BOOL": False}`, `level`, `landmark`, `passability`, `levelIsFloor`, `basis {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}}` and `photoKey`; `claimToken` stays.
-  - `test_writes_refusals_and_failures`: `refused/too_dark` → `status` and `refusalReason`.
+  - `test_writes_refusals_and_failures`, parametrized over `refused/too_dark` and `failed/model_error` → exactly `status` and `refusalReason` among the result fields.
   - `test_lost_lease_drops_the_write`: claim with `"a"`, then set `claimToken` to `"b"` directly → `write_result(..., "a", ...)` is False, and the item keeps `processing` and `"b"`.
   - `test_write_requires_processing`: a `done` item holding token `"a"` → False.
   - `test_other_aws_errors_propagate`: `update_item` patched to raise `ProvisionedThroughputExceededException` → both `claim` and `write_result` raise `ClientError`.
@@ -763,7 +783,7 @@ Most likely first. Each line names its tests.
 - Produces:
   - `handler.handler(event: dict, context) -> dict`, with the same shape as MS1's
   - `handler.analyse(data: bytes, client: ModelClient) -> PipelineRun`: the handler's pipeline call, `run_pipeline(data, client, _prompt(), phrases=SAM_PHRASES)` (B3)
-  - the log `outcome` values (exact): each result's `Outcome.log_name`, plus `already_finished`, `lease_held`, `lease_lost`, `unknown_key`, `s3_test_event`, `error`, `model_key_loaded=true` and `model_key_missing`
+  - the log `outcome` values (exact): each result's `Outcome.log_name`, plus `already_finished`, `lease_held`, `lease_lost`, `unknown_key`, `s3_test_event`, `error`, `model_key_loaded=true`, `model_key_missing` and `model_key_rejected`
 - **The flow for each S3 record** (spec §3.1):
   1. Skip test events. A key that isn't `raw/r_<32 hex>.jpg` is deleted and logged as `unknown_key` (MS1).
   2. `_find_report` through `reportId-index`. If the report isn't there yet, retry (MS1).
@@ -776,11 +796,12 @@ Most likely first. Each line names its tests.
   4. `claim(...)` with `uuid.uuid4().hex` and `_now_s()`:
      - `"finished"` → delete `raw/`, logged as `already_finished`
      - `"leased"` → logged as `lease_held`; `raw/` is left alone
+     - `"claimed"` → delete `blurred/{id}.jpg` first, before any Meta call (C72). A delete of a missing key succeeds; a failed delete raises, and the message retries before anything is paid.
   5. A switch value other than `off` → finish `failed/model_calls_paused`.
   6. `get_object` on `raw/`:
      - the codes `NoSuchKey` and `AccessDenied` → finish `failed/photo_missing`, logging the error fields
      - any other S3 error raises, and the message retries
-  7. `analyse(data, client)`
+  7. `analyse(data, client)`. A `ModelKeyRejected` (C73) sets `_META_CLIENT` to `None`, logs `model_key_rejected` with `meta_status`, and returns the message. The report stays `processing`, and `raw/` is kept.
   8. Publish:
      - for a level result, first put `blurred/{id}.jpg` (`ContentType: image/jpeg`)
      - then `write_result` with `item_fields()`, plus `photoKey` on a level. False → `lease_lost`: no batch failure, and `raw/` is left alone.
@@ -802,6 +823,7 @@ Most likely first. Each line names its tests.
     - `test_s3_test_event_is_ignored`
     - `test_unknown_key_is_deleted_and_skipped`, also asserting the `unknown_key` outcome
     - `test_report_not_found_is_retried`
+    - `test_undecodable_file_marks_bad_file`, now ending `failed/bad_file` through the pipeline, with no Meta call
     - `test_aws_error_is_logged_by_code_and_http_status_only`: the line's keys are `reportId`, `outcome`, `error`, `http_status` and `ms`. It has no `status` key and no `arn:`.
   - **Replaced:** the tests below supersede these MS1 stub tests, which are deleted:
     - `test_stub_marks_failed_pipeline_not_built_and_deletes_raw`
@@ -815,6 +837,10 @@ Most likely first. Each line names its tests.
     - `test_level_result_is_published`: `done` with the level fields and `photoKey`. The `blurred/` object decodes to 640 × 480, `raw/` is gone, and the fake recorded 7 + 1 calls.
     - `test_non_level_results_store_no_photo`, parametrized over no flood seen, `refused/too_dark` (with `flat_jpeg(10)`), `refused/photo_unusable` and `failed/model_error` (`judge` raises). Each gets exact item fields, no `blurred/` key, and no `raw/` left.
     - `test_publish_switch_is_not_read` (C64): with `/lusot/stop/publish` set to `on`, a level result is still published.
+    - `test_stale_photo_is_removed_after_the_claim` (C72), parametrized over no flood seen and `failed/model_calls_paused`: the report is `processing` with `claimedAt = now - 901`, and `blurred/{id}.jpg` already exists. After the delivery, no `blurred/` object is left and the item has no `photoKey`.
+    - `test_failed_photo_cleanup_retries_before_paying` (C72): `delete_object` on `blurred/` raises `InternalError` → `RETRY`, status `processing`, `raw/` kept, and no fake calls.
+  - **A rejected key (C73):**
+    - `test_rejected_key_drops_the_client_and_retries`: the real `_meta_client`, with `handler.MetaClient` replaced by a recorder that returns a `FakeClient` whose `judge` raises `meta_error(401)`. The first delivery → `RETRY`, the status stays `processing`, `raw/` is kept, and one line reads `model_key_rejected` with `meta_status` 401. A second delivery at `now + 1080` re-claims and reads the key from SSM again, so the recorder built two clients.
   - **Before the claim (C60):**
     - `test_unreadable_switch_leaves_the_report_pending`: `get_parameter` raises for the switch only → `RETRY`. The status stays `pending`, with no `claimToken`, `raw/` kept and no fake calls.
     - `test_key_load_failure_is_not_cached`: the real `_meta_client`, with `handler.MetaClient` replaced by a recorder that returns a `FakeClient` on the level case.
@@ -829,7 +855,7 @@ Most likely first. Each line names its tests.
     - `test_delivery_after_result_pays_nothing_and_deletes_raw`, parametrized over `done`, `refused`, `failed`: no failures, the item unchanged, `raw/` gone, no calls, `already_finished`.
     - `test_live_lease_is_left_alone`: `processing` with `claimedAt = now - 60` → no failures, `raw/` kept, the item unchanged, `lease_held`.
     - `test_expired_lease_is_reclaimed`: `claimedAt = now - 901` → processed with one set of calls and a new token.
-    - `test_racing_deliveries_pay_once`: the fake's first `segment("floodwater")` hook runs `handler.handler(message(), None)` and asserts it returns no failures. In all, 7 + 1 calls; the second line is `lease_held`; the report ends `done` with `raw/` gone.
+    - `test_racing_deliveries_pay_once`: the fake's first `segment("floodwater")` hook runs `handler.handler(message(), None)` and asserts it returns no failures. In all, 7 + 1 calls; the nested delivery's line is `lease_held` (it finishes and logs first); the report ends `done` with `raw/` gone.
     - `test_lease_lost_at_the_final_write`: the answer gives no flood seen, and the `judge` hook sets the item's `claimToken` to `"other"`. Result: no failures; the item stays `processing` with `"other"` and no result fields; `raw/` is kept; `lease_lost`.
     - `test_failed_raw_delete_retries_without_reanalysis`: `delete_object` fails once → `RETRY` with status `done`. The redelivery deletes and makes no new calls.
     - Review Focus 2, `test_failed_delete_redelivered_after_lease_time_only_deletes`: as above, but the redelivery runs at `now + 1080`. No new calls; the item is unchanged and `raw/` is gone.
@@ -860,13 +886,13 @@ Most likely first. Each line names its tests.
 - Consumes: `PROMPTS_DIR` (Task 13), `prompts/` (MS1 Task 5), `jsonschema` (Task 3)
 - Produces:
   - an image that holds the prompts at `${LAMBDA_TASK_ROOT}/prompts`, with `PROMPTS_DIR` set, and every locked package hash-checked in the task root
-  - a role with `s3:PutObject` on `blurred/*`, and `s3:ListBucket` limited to `raw/`
+  - a role with `s3:PutObject` and `s3:DeleteObject` on `blurred/*` (C72), and `s3:ListBucket` limited to `raw/`
 
 - [ ] **Step 1:** Add two statements to `AnalysisRole`:
-  - `s3:PutObject` on `!Sub "${UploadBucket.Arn}/blurred/*"`
+  - `s3:PutObject` and `s3:DeleteObject` on `!Sub "${UploadBucket.Arn}/blurred/*"`
   - `s3:ListBucket` on `!GetAtt UploadBucket.Arn`, with `Condition: {StringLike: {"s3:prefix": "raw/*"}}`. Comment it: the grant makes a missing raw photo read as 404 `NoSuchKey`. AWS doesn't document whether a prefix-limited grant counts, so the handler keeps `AccessDenied` in the missing-photo rule, and Task 16 records which code comes back (§3.6).
 
-  Run `sam validate --lint --profile lusot --region ap-southeast-1` from `backend`. Expected: valid. Also, `grep -n "ReservedConcurrentExecutions\|Resource: \"\*\"" backend/template.yaml` finds nothing.
+  Run `sam validate --lint --profile lusot --region ap-southeast-1` from `backend`. Expected: valid. Also from `backend`, `grep -n "ReservedConcurrentExecutions\|Resource: \"\*\"" template.yaml` finds nothing, and `grep -c "AnalysisRole" template.yaml` prints a number above 0, which proves the grep read the file.
 - [ ] **Step 2:** Regenerate the lock: `uv export --no-dev --no-emit-project --format requirements-txt -o requirements.lock.txt`. Expected: `grep -c "^jsonschema==" requirements.lock.txt` prints 1, and every package line has a `--hash=sha256:`.
 - [ ] **Step 3:** Change the Dockerfile:
   - `RUN pip install --no-cache-dir --require-hashes --target ${LAMBDA_TASK_ROOT} -r ${LAMBDA_TASK_ROOT}/requirements.lock.txt`. `--target` makes pip ignore the base image's copies, so it checks the hash of every locked package, `six`, `python-dateutil` and `urllib3` included. Lambda puts the task root first on `sys.path`. Comment it so.
@@ -900,22 +926,23 @@ Most likely first. Each line names its tests.
   - `dark_jpeg() -> bytes`: 1600 × 1200, a horizontal grey gradient from 0 to 30
   - `wait_final(http, api_url, report_id, *, since: float, bound_s: float = 60.0, clock=time.monotonic, sleep=time.sleep) -> dict` polls every 2 s through `pending`, `processing` and 404. It raises `CheckFailed` after `bound_s` (C68).
   - `check_report_body(body: dict) -> None` checks C67's shapes
+  - `check_form_fresh(issued_s: float, now_s: float) -> None` raises `CheckFailed("reused link: form too old")` when more than 280 s have passed since `POST /uploads` returned the form (C27's 300 s, less a margin)
   - `log_lines(session, report_id: str, since_ms: int) -> list[dict]` returns the analysis log's JSON lines for one report: the text from the first `{` of each event. It waits up to 30 s and never prints them.
   - the HTTP client is `httpx.Client(timeout=30, transport=httpx.HTTPTransport(local_address="0.0.0.0"))`. That forces IPv4, which matters because IPv6 doesn't connect on this Wi-Fi (Oct 28 log). httpx 0.28.1 documents `local_address`.
 - **The B1 run's checks, in order** (keep MS1's preflight, PNG, key-loaded and stop-switch checks):
   1. the CORS preflight
   2. Upload the 5 STURM photos and the dark JPEG. The dark one goes from the app origin, with MS1's allow-origin checks. Each report must be final within 60 s of its 204.
-  3. The dark JPEG is `refused/too_dark`, and its log line has `meta_calls` 0.
-  4. Every body passes `check_report_body`. If no STURM report has a level, print the outcomes and carry on. The run then ends with exit 3 instead of 0, so the B4 and B5 checks still run.
-  5. No `raw/` object is left for any report (head gives 404). `blurred/{id}.jpg` exists for each level report, and for no other (B4).
-  6. **The reused link (B5):** re-post the form of the first report whose log shows `meta_calls` above 0, with the same bytes. S3 returns 204; `raw/` is gone within 60 s; the log has an `already_finished` line, and exactly one line with `meta_calls` above 0.
+  3. **The reused link (B5), run as soon as the first STURM report is final** and its log line shows `meta_calls` above 0, before the next upload. The upload form expires 300 s after `POST /uploads` (C27), and the whole run takes longer. Re-post that report's form with the same bytes; if the form is older than 280 s, fail with `reused link: form too old`. S3 returns 204; `raw/` is gone within 60 s; the log has an `already_finished` line, and exactly one line with `meta_calls` above 0.
+  4. The dark JPEG is `refused/too_dark`, and its log line has `meta_calls` 0.
+  5. Every body passes `check_report_body`. If no STURM report has a level, print the outcomes and carry on. The run then ends with exit 3 instead of 0, so the B4 and B5 checks still run.
+  6. No `raw/` object is left for any report (head gives 404). `blurred/{id}.jpg` exists for each level report, and for no other (B4).
   7. **The missing photo (§3.6):**
      - create a report with `POST /uploads`, and upload no photo
      - send the queue one S3-shaped notification for `raw/{id}.jpg`, through `get_queue_url` on `QueueName`. The URL is never printed.
      - expect `failed/photo_missing` within 60 s
      - print the line's `error` and `http_status`
   8. MS1's PNG refusal, key-loaded and stop-switch checks
-- `--fallback` (C71) uploads positions 15 to 29 one at a time and stops at the first level. It runs checks 2, 4 and 5 on them, and prints how many it sent.
+- `--fallback` (C71) uploads positions 15 to 29 one at a time and stops at the first level. It runs checks 2, 5 and 6 on them, and prints how many it sent.
 - The output is counts and timings only: each report's outcome or level, and its seconds to a final status. Everything prints through the masking `say()`.
 
 - [ ] **Step 1: Write the failing tests.** They use only fakes: `httpx.MockTransport`, `tmp_path` trees and no AWS.
@@ -928,6 +955,7 @@ Most likely first. Each line names its tests.
   - `test_dark_jpeg_is_below_the_brightness_cutoff`: it decodes to 1600 × 1200 with a mean grey under 40.
   - `test_wait_final_polls_through_processing`: replies of `pending`, `processing`, 404 and then `done` → `done`. A fake clock that passes 61 s while `processing` → `CheckFailed`.
   - `test_report_body_shapes` (C67): a level body, a no-flood body and a refused body pass. A body with `photoKey`, `lat` or `claimToken` fails, and so does a level body without `levelIsFloor`.
+  - `test_reused_link_needs_a_fresh_form`: 280 s after issue passes; 280.1 s raises `CheckFailed` with `reused link: form too old`.
   - `test_log_lines_parse_the_lambda_text_format`: the event `"[INFO]\t2026-10-29T01:02:03.000Z\treq-1\t{\"reportId\": \"r_...\", \"meta_calls\": 0}\n"` parses, and a line that isn't JSON is skipped.
   - `test_sealed_paths_are_refused`.
 - [ ] **Step 2:** Run `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root (R5's pattern). Expected: FAIL.
@@ -957,7 +985,7 @@ Most likely first. Each line names its tests.
 
   Exit 1 → debug, fix, re-run. A re-run sends the same 6 photos again: it adds cost, not new photos. Exit 3 → Step 4.
 - [ ] **Step 4: C71's fallback** (only after exit 3):
-  1. **Offline, with no key and no Meta call:** replay the probe's 5 saved A1 outputs through `probes/run_pipeline.py replay`, and record each photo's outcome and drop causes as counts. If MS1 Task 5's saved layout differs from Task 9's, convert it with a one-off script in the session scratchpad, never committed. This shows why the 5 gave no level.
+  1. **The diagnosis, with no Meta call (C75):** read the 5 STURM photos' log lines from Step 3, and record each photo's outcome and drop causes as counts. This shows why the 5 gave no level. Nothing is replayed.
   2. Run `uv run backend/scripts/smoke_upload.py --fallback`. It sends up to 15 more STURM photos, positions 15 to 29 from Level1 to Level3, and stops at the first level.
   3. If there is still no level, B1 is partly met, with the drop causes as the reason. 3a then closes on B2 to B5 and the other cloud checks, and the cloud proof of a level moves to the first Manila photos. Record that for Task 17.
 - [ ] **Step 5 (Claude; one photo, about $0.01):** check B3 on real data.
