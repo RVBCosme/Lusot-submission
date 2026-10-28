@@ -80,7 +80,7 @@ What makes it worth judging is that every path has one rule: who sees a result a
 MS3a's handler claims the report, runs the pipeline under its deadline (C84, with C88's 30 s margin), saves `blurred/{id}.jpg` for a level result (its C61), and writes the result under the claim token. MS4 adds, for a level result, before the final write:
 - **The overlay** (C505): `overlay/{id}.jpg`, the blurred photo with these drawn on it:
   - the masks: wheel, person, water, and a rim once MS3b links it
-  - the waterline wherever MS3b's geometry computed one, with its fitted rim
+  - the waterline wherever the record holds one (MS3b's step 3 finds it for landmark readings too), and the fitted rim where geometry ran
   - the numbered boxes, each with its reading in plain words: the landmark category for a landmark reading, and its level
 
   Dropped references are dimmed and carry no level, and a wheel the self-check re-checked is marked.
@@ -101,6 +101,14 @@ Every write after the claim still requires `status = processing` and the worker'
 - `dropped` (the cause, or `None`) and `rechecked` (the self-check re-ran it)
 
 The record also holds the water mask's outline. It adds no computation: it keeps what the steps already know. MS4 reads it and changes nothing in how it is made.
+
+**MS3b adopted the record as its C328** (Window 3, through the tracker, Oct 29, from MS3b's amendment draft `c8632ba`). No field was renamed.
+- **Named fields:** the mask outline is `outline`; `rim` is OpenCV `fitEllipse`'s centre, axes and angle; the water mask's outline is `water_outline`. Each entry also gains `level_from`.
+- **`waterline`** is set wherever MS3b's step 3 found one, not only with geometry.
+- **`inches`** is set even when G4 drops the wheel.
+- **A vehicle's box** has `kind: body`.
+- **`rechecked`** is always false in MS3b.
+- **The record is `None`** until the answer passes the schema and the id check.
 
 ### 4.3 The API
 
@@ -211,7 +219,7 @@ The fault cases are unit tests on fakes. No fault injection goes into the code t
 | C502 | **The Metro Manila test runs in the API at upload,** on the final point after the nudge. It's a point-in-polygon test on a bundled NCR boundary file, which sets the mode once. The demo script runs the same test on each demo spot. The polygon is simplified to keep the file small, and its source and licence sit beside it (MS4-Q1). | The API already has the coordinates and checks them (MS1). Deciding at creation keeps the analysis Lambda mode-blind until publish. C21 leaves the polygon's source to MS4. |
 | C503 | **Photo links** are presigned GETs that last 5 minutes, issued only by `GET /reports/{id}` and only for level results. For a `live` or `demo` report they're issued while the pin is visible. For other modes, they're issued for the report's 7 days (MS4-Q10, which carries PRIV-Q2). | Plan §13 asks for short-lived links. The pin detail must show its work (plan §4, Table 21), and how long anyone holding a pin's id can open its photo is a privacy choice for Rene. |
 | C504 | **Pins carry the report id,** as plan Table 15's routes do (`GET /reports/{id}`, `POST /reports/{id}/flag`). The unguessable id keeps a result private only until it is published: for `private`, `sample`, `eval`, refused and failed reports, only the uploader or the script knows it. | Draft 1 hid report ids behind a separate pin id. That left pins unable to show their work, which plan Table 21 makes a must. The plan's own flag route already shares pins' ids. |
-| C505 | **The overlay** draws, on the blurred photo, the masks, each waterline that geometry computed, the fitted rim, and the numbered boxes with each reference's reading in words (the landmark category for a landmark reading). It draws no line where nothing computed one. This is drawn in fixed colours that stay legible on any photo (a JPEG has no app theme). **The layers file** keeps the same marks as vectors, so MS5 can draw them one after another. No face or plate outline goes into either. The overlay's words follow MS3a's C81 wording and R3's language, and Rene reviews them (M20). | Plan §4 and Table 21: each pin shows the masks, the fitted rim and the waterline it used. The should-have overlay that draws itself needs its layers apart. |
+| C505 | **The overlay** draws, on the blurred photo, the masks, each waterline the record holds (MS3b's step 3), the fitted rim, and the numbered boxes with each reference's reading in words (the landmark category for a landmark reading). It draws no line where the record holds none, and shows no inches for a dropped wheel. This is drawn in fixed colours that stay legible on any photo (a JPEG has no app theme). **The layers file** keeps the same marks as vectors, so MS5 can draw them one after another. No face or plate outline goes into either. The overlay's words follow MS3a's C81 wording and R3's language, and Rene reviews them (M20). | Plan §4 and Table 21: each pin shows the masks, the fitted rim and the waterline it used. The should-have overlay that draws itself needs its layers apart. |
 | C506 | **"No flood seen" isn't published** (MS4-Q2's default). The uploader still sees it. | MS3a stores no photo or basis for it (its C61), so such a pin couldn't show its work (plan §13). C17 calls a false "no flood seen" the most dangerous miss. |
 | C507 | **`readings`** is stored on the item for level results and returned by `GET /reports/{id}`. It is a list of `{id, kind, landmark, level, inches, used, dropped}`, where `inches` is present only once the gate shows inches. | Table 14 keeps per-reference readings, and the pin detail lists its evidence. |
 | C508 | **Device limits** live in a separate `limits` table, provisioned at 2 read and 2 write units, with a TTL. The device id comes from `X-Lusot-Device`. A missing or malformed id counts in a shared `none` bucket. It's a soft limit, and the stage throttling stays the hard one. | Plan §12's per-device limits. A separate table keeps the reports table clean. The shared bucket keeps MS1's test screen, the APK under M14, and the smoke script working until MS5 sends ids. |
