@@ -1,0 +1,129 @@
+{
+  "type": "object",
+  "properties": {
+    "photo_usable": {
+      "type": "string",
+      "enum": ["yes", "no"]
+    },
+    "standing_water": {
+      "type": "string",
+      "enum": ["yes", "no", "unsure"]
+    },
+    "vehicles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sedan_hatch",
+              "suv_mpv",
+              "pickup",
+              "van",
+              "jeepney",
+              "tricycle",
+              "motorcycle",
+              "bus_truck",
+              "unknown"
+            ]
+          },
+          "moving": {
+            "type": "string",
+            "enum": ["yes", "no", "unsure"]
+          },
+          "wake_visible": {
+            "type": "boolean"
+          },
+          "body_waterline": {
+            "type": "string",
+            "enum": [
+              "below_bumper",
+              "bumper",
+              "door_sill",
+              "mid_door",
+              "window",
+              "not_visible"
+            ]
+          }
+        },
+        "required": ["id", "type", "moving", "wake_visible", "body_waterline"],
+        "additionalProperties": false
+      }
+    },
+    "wheels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "waterline": {
+            "type": "string",
+            "enum": [
+              "tire_only",
+              "rim_quarter",
+              "hub",
+              "rim_three_quarters",
+              "rim_top",
+              "wheel_covered",
+              "not_visible"
+            ]
+          }
+        },
+        "required": ["id", "waterline"],
+        "additionalProperties": false
+      }
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "adult": {
+            "type": "string",
+            "enum": ["yes", "no", "unsure"]
+          },
+          "standing_still": {
+            "type": "string",
+            "enum": ["yes", "no", "unsure"]
+          },
+          "waterline": {
+            "type": "string",
+            "enum": [
+              "ankle",
+              "mid_shin",
+              "knee",
+              "mid_thigh",
+              "waist",
+              "chest",
+              "above_chest",
+              "not_visible"
+            ]
+          }
+        },
+        "required": ["id", "adult", "standing_still", "waterline"],
+        "additionalProperties": false
+      }
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "photo_usable",
+    "standing_water",
+    "vehicles",
+    "wheels",
+    "people",
+    "reason"
+  ],
+  "additionalProperties": false
+}
