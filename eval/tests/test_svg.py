@@ -275,6 +275,48 @@ def test_median_tick_sits_at_the_median():
     assert tick.get("y1") == tick.get("y2") == target.get("y1")
 
 
+def test_error_plot_scale_and_axis():
+    # A peak of 4 in from an error gives steps of 1 in. A peak of 6.3 in from the
+    # target gives steps of 2 in, so the target must set the scale too.
+    for errors, target, ticks, wheel, value in (
+        (ERRORS, Decimal("2.5"), ["0", "1", "2", "3", "4"], "wheel 4: 2.00 in", "2"),
+        (
+            (Decimal("0.5"), Decimal(4)),
+            Decimal("6.3"),
+            ["0", "2", "4", "6", "8"],
+            "wheel 2: 4.00 in",
+            "4",
+        ),
+    ):
+        root = ElementTree.fromstring(plot_svg(errors, target))
+        # The gridlines and their labels, from the axis up.
+        gridlines = sorted(
+            lines(root, "axis") + lines(root, "grid"),
+            key=lambda line: -number(line, "y1"),
+        )
+        labels = sorted(
+            (text for text in root.iter(SVG + "text") if "tick" in classes(text)),
+            key=lambda text: -number(text, "y"),
+        )
+        assert [label.text for label in labels] == ticks
+        assert len(gridlines) == len(ticks)
+        assert "axis" in classes(gridlines[0])
+        # Each label sits 4 px below its gridline.
+        for line, label in zip(gridlines, labels):
+            assert Decimal(label.get("y")) - Decimal(line.get("y1")) == 4
+        # The dot of a value on the scale sits on that value's gridline.
+        by_label = {label.text: line for line, label in zip(gridlines, labels)}
+        dots = list(root.iter(SVG + "circle"))
+        (marked,) = [dot for dot in dots if dot.find(SVG + "title").text == wheel]
+        assert marked.get("cy") == by_label[value].get("y1")
+        # Every dot lies between the top gridline and the axis.
+        axis, top = number(gridlines[0], "y1"), number(gridlines[-1], "y1")
+        assert all(top <= number(dot, "cy") <= axis for dot in dots)
+        # Both lie inside the canvas, which a scale moving the gridlines and the
+        # dots together would break.
+        assert 0 <= top < axis <= number(root, "height")
+
+
 def test_charts_are_deterministic():
     # Three wheels and a 3 in top make thirds, which round to 2 decimals.
     thirds = (Decimal("0.1"), Decimal(1), Decimal("2.9"))
