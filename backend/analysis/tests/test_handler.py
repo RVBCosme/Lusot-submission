@@ -11,6 +11,8 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,10 +44,14 @@ BUCKET = "lusot-test-uploads"
 TABLE = "lusot-test-reports"
 KEY_PARAM = "/lusot/meta/model-api-key"
 SWITCH = "/lusot/stop/model-calls"
+PUBLISH = "/lusot/stop/publish"
 FAKE_KEY = "fake-model-key-" + "0" * 33  # 48 characters, like the real key (spec A8)
 REPORT_ID = "r_" + "0123456789abcdef" * 2
 RAW_KEY = f"raw/{REPORT_ID}.jpg"
 PHOTO_KEY = f"blurred/{REPORT_ID}.jpg"
+# What a level stores: its photo, and its overlay's image and JSON (C510).
+STORED_KEYS = [PHOTO_KEY, f"overlay/{REPORT_ID}.jpg", f"overlay/{REPORT_ID}.json"]
+PUBLISHED_FIELDS = ("published", "feedPart")
 CAPTURED_AT = "2026-10-28T03:00:00.000Z"
 NOW_S = 1_800_000_000  # the claim's clock, fixed in every test
 # A pending live report as the API writes it (Table 14 subset), at the plan §12 spot.
@@ -60,7 +66,8 @@ ITEM = {
     "capturedAt": {"S": CAPTURED_AT},
 }
 KEY = {"pk": ITEM["pk"], "sk": ITEM["sk"]}
-# The level case's result as stored: knee from wheel 2, with its photo (C61).
+# The level case's result as stored: knee from wheel 2, with its photo (C61), and
+# published, as a live level is while the publish switch is "off".
 KNEE = {
     "noFloodSeen": {"BOOL": False},
     "level": {"S": "knee"},
@@ -69,6 +76,12 @@ KNEE = {
     "levelIsFloor": {"BOOL": False},
     "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
     "photoKey": {"S": PHOTO_KEY},
+    "published": {"BOOL": True},
+    "feedPart": {"S": "live"},
+}
+# The same result written unpublished.
+KNEE_UNPUBLISHED = {
+    name: value for name, value in KNEE.items() if name not in PUBLISHED_FIELDS
 }
 LEVEL_PHOTO = level_case()[0]
 REASON = "REASON-MARKER-31"  # the reason fakes.answer gives every answer
@@ -134,6 +147,7 @@ def aws(monkeypatch, prompts):
         )
         create_reports_table(ddb, TABLE)
         ssm.put_parameter(Name=SWITCH, Value="off", Type="String")
+        ssm.put_parameter(Name=PUBLISH, Value="off", Type="String")
         ssm.put_parameter(Name=KEY_PARAM, Value=FAKE_KEY, Type="SecureString")
         yield SimpleNamespace(s3=s3, ddb=ddb, ssm=ssm)
     handler._client.cache_clear()  # its clients belong to the mock that just ended
@@ -200,6 +214,12 @@ def keys(aws) -> list[str]:
     return [
         obj["Key"] for obj in aws.s3.list_objects_v2(Bucket=BUCKET).get("Contents", [])
     ]
+
+
+def published(aws) -> dict:
+    """The report's `published` and `feedPart`, those it has."""
+    item = report(aws)
+    return {name: item[name] for name in PUBLISHED_FIELDS if name in item}
 
 
 def message(key: str = RAW_KEY) -> dict:
@@ -503,16 +523,22 @@ def test_deadline_comes_from_the_lambda_context(aws, fake):
     assert [keywords["deadline"] for keywords in fake.keywords] == [None] * 8
 
 
-def test_publish_switch_is_not_read(aws, fake, monkeypatch):
-    # C64: 3a doesn't read /lusot/stop/publish. MS4 applies it to the map and feed.
-    aws.ssm.put_parameter(Name="/lusot/stop/publish", Value="on", Type="String")
+def test_publish_switch_is_read_once_after_the_result(aws, fake, monkeypatch):
+    # C516 replaces 3a's C64: the switch acts at write time. It is read once, after
+    # the paid result and before its write, and while set it leaves the level
+    # unpublished, with its photo.
+    aws.ssm.put_parameter(Name=PUBLISH, Value="on", Type="String", Overwrite=True)
     reads = spy_parameters(monkeypatch, set())
+    at_judge = []
+    fake.on_judge = lambda: at_judge.append([read["Name"] for read in reads])
     seed(aws, photo=LEVEL_PHOTO)
     assert handler.handler(message(), None) == NO_FAILURES
-    assert status(aws) == ("done", None)
-    assert report(aws)["photoKey"] == {"S": PHOTO_KEY}
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
     assert keys(aws) == [PHOTO_KEY]
-    assert [read["Name"] for read in reads] == [SWITCH]
+    assert [read["Name"] for read in reads] == [SWITCH, PUBLISH]
+    assert at_judge == [[SWITCH]]  # so the publish read came after the judge call
 
 
 @pytest.mark.parametrize(
@@ -521,12 +547,13 @@ def test_publish_switch_is_not_read(aws, fake, monkeypatch):
     ids=["no-flood-seen", "model-calls-paused"],
 )
 def test_stale_photo_is_removed_after_the_claim(aws, fake, switch, expected):
-    # An earlier attempt saved its level's photo and then failed its write, and its
-    # lease has expired. Every attempt starts with no photo (C72).
+    # An earlier attempt saved its level's photo and overlay and then failed its
+    # write, and its lease has expired. Every attempt starts with none of them (C72).
     fake.answer = answer(standing_water="no")
     aws.ssm.put_parameter(Name=SWITCH, Value=switch, Type="String", Overwrite=True)
     seed(aws, photo=LEVEL_PHOTO, **claimed("old", NOW_S - 901))
-    aws.s3.put_object(Bucket=BUCKET, Key=PHOTO_KEY, Body=b"a stale level photo")
+    for key in STORED_KEYS:
+        aws.s3.put_object(Bucket=BUCKET, Key=key, Body=b"a stale level object")
     assert handler.handler(message(), None) == NO_FAILURES
     assert status(aws) == expected
     assert "photoKey" not in report(aws)
@@ -541,6 +568,163 @@ def test_failed_photo_cleanup_retries_before_paying(aws, fake, monkeypatch):
     assert status(aws) == ("processing", None)
     assert keys(aws) == [RAW_KEY]
     assert fake.calls == []
+
+
+# Storage and publishing by mode (C510, C516)
+
+
+@pytest.mark.parametrize(
+    ("mode", "prefix"),
+    [
+        ("live", ""),
+        ("private", ""),
+        ("sample", ""),
+        ("eval", ""),
+        ("demo", "demo/"),
+    ],
+)
+def test_keys_by_mode(mode, prefix):
+    item = ITEM | {"mode": {"S": mode}}
+    assert handler._photo_keys(item) == (
+        f"{prefix}blurred/{REPORT_ID}.jpg",
+        f"{prefix}overlay/{REPORT_ID}.jpg",
+        f"{prefix}overlay/{REPORT_ID}.json",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "photo", "judged", "before", "during", "read", "pinned"),
+    [
+        pytest.param("live", LEVEL_PHOTO, None, "off", None, True, True, id="live"),
+        pytest.param("demo", LEVEL_PHOTO, None, "off", None, True, True, id="demo"),
+        pytest.param(
+            "private", LEVEL_PHOTO, None, "off", None, False, False, id="private"
+        ),
+        pytest.param(
+            "sample", LEVEL_PHOTO, None, "off", None, False, False, id="sample"
+        ),
+        pytest.param("eval", LEVEL_PHOTO, None, "off", None, False, False, id="eval"),
+        pytest.param(
+            "live",
+            LEVEL_PHOTO,
+            answer(standing_water="no"),
+            "off",
+            None,
+            False,
+            False,
+            id="live-no-flood-seen",
+        ),
+        pytest.param(
+            "live", flat_jpeg(10), None, "off", None, False, False, id="live-refusal"
+        ),
+        pytest.param(
+            "live",
+            LEVEL_PHOTO,
+            meta_error(500),
+            "off",
+            None,
+            False,
+            False,
+            id="live-failure",
+        ),
+        pytest.param(
+            "live", LEVEL_PHOTO, None, "on", None, True, False, id="publish-on"
+        ),
+        # None: the publish read raises.
+        pytest.param(
+            "live", LEVEL_PHOTO, None, None, None, True, False, id="publish-unreadable"
+        ),
+        pytest.param(
+            "live", LEVEL_PHOTO, None, "off", "on", True, False, id="set-mid-run"
+        ),
+        pytest.param(
+            "live", LEVEL_PHOTO, None, "on", "off", True, True, id="cleared-mid-run"
+        ),
+    ],
+)
+def test_publish_rules(
+    aws, fake, monkeypatch, mode, photo, judged, before, during, read, pinned
+):
+    # Review Focus 4: only a live or demo level is published, and only while the
+    # switch reads "off" when its result is written. `during` sets the switch while
+    # Muse Spark answers. The switch is read only for a result that could be pinned.
+    if judged is not None:
+        fake.answer = judged
+    failing = set()
+    if before is None:
+        failing.add(PUBLISH)
+    else:
+        aws.ssm.put_parameter(Name=PUBLISH, Value=before, Type="String", Overwrite=True)
+    reads = spy_parameters(monkeypatch, failing)
+    if during is not None:
+        fake.on_judge = lambda: aws.ssm.put_parameter(
+            Name=PUBLISH, Value=during, Type="String", Overwrite=True
+        )
+    seed(aws, photo=photo, mode={"S": mode})
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert report(aws)["status"]["S"] in ("done", "refused", "failed")
+    expected = {"published": {"BOOL": True}, "feedPart": {"S": mode}} if pinned else {}
+    assert published(aws) == expected
+    assert [r["Name"] for r in reads] == ([SWITCH, PUBLISH] if read else [SWITCH])
+
+
+def test_mode_is_read_from_the_item(aws, fake):
+    # Review Focus 4: the event names only the raw photo. The same event publishes a
+    # live report and nothing for a private one: an analysed photo from outside
+    # Metro Manila is shown to its sender but never pinned.
+    event = message()
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(event, None) == NO_FAILURES
+    assert published(aws) == {"published": {"BOOL": True}, "feedPart": {"S": "live"}}
+    seed(aws, photo=LEVEL_PHOTO, mode={"S": "private"})  # pending again
+    assert handler.handler(event, None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    expected = ITEM | {"mode": {"S": "private"}} | claimed(token, NOW_S, "done")
+    assert item == expected | KNEE_UNPUBLISHED
+    assert keys(aws) == [PHOTO_KEY]
+
+
+def test_failed_publish_read_never_retries(aws, fake, monkeypatch, caplog):
+    # Review Focus 3: the result is paid for, so a failed publish read writes it
+    # unpublished instead of returning the message to claim and pay again.
+    reads = spy_parameters(monkeypatch, {PUBLISH})
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
+    assert keys(aws) == [PHOTO_KEY]
+    assert len(fake.calls) == 8
+    assert [read["Name"] for read in reads] == [SWITCH, PUBLISH]  # read once
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["publish_switch"] == {
+        "error": "InternalServerError",
+        "http_status": 500,
+    }
+    # The code and status only: the error's message carries an ARN.
+    assert "arn:" not in caplog.text
+    assert "not authorized" not in caplog.text
+
+
+def test_demo_photo_goes_under_demo(aws, fake):
+    # C510: a demo pin's objects go under demo/, with its own 60-day backstop. An
+    # earlier attempt's three demo/ objects are deleted at the claim (C72).
+    demo_keys = [f"demo/{key}" for key in STORED_KEYS]
+    seed(aws, photo=LEVEL_PHOTO, mode={"S": "demo"}, **claimed("old", NOW_S - 901))
+    for key in demo_keys:
+        aws.s3.put_object(Bucket=BUCKET, Key=key, Body=b"a stale demo object")
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    demo_knee = KNEE | {"photoKey": {"S": demo_keys[0]}, "feedPart": {"S": "demo"}}
+    demo_item = ITEM | {"mode": {"S": "demo"}}
+    assert item == demo_item | claimed(token, NOW_S, "done") | demo_knee
+    assert keys(aws) == [demo_keys[0]]
+    _, sam, _ = level_case()
+    stored = aws.s3.get_object(Bucket=BUCKET, Key=demo_keys[0])["Body"].read()
+    assert stored == publish_jpeg(blur_for_meta(LEVEL_PHOTO), sam)
 
 
 # A rejected key (C73)
@@ -1050,3 +1234,27 @@ def test_b3_on_a_real_saved_run(prompts):
     saved = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert replayed.outcome == handled.outcome
     assert dataclasses.asdict(handled.outcome) == saved["outcome"]
+
+
+# The cold start (Oct 29)
+
+
+def test_importing_the_handler_loads_no_cv2_or_model():
+    # The Lambda's init hit its 10 s limit, so the handler's import loads nothing
+    # heavy: no OpenCV, no face_blur (the only module that builds YuNet) and no
+    # pipeline. A new interpreter, since this test process has loaded cv2 already.
+    code = (
+        "import sys\n"
+        "import lusot_analysis.handler\n"
+        "heavy = {'cv2', 'lusot_analysis.face_blur', 'lusot_analysis.pipeline'}\n"
+        "loaded = sorted(heavy & set(sys.modules))\n"
+        "assert not loaded, loaded\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr

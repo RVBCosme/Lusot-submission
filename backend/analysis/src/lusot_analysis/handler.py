@@ -12,6 +12,13 @@ in failed reports (C60, C73, C79). A delivery that meets another worker's live l
 also returns its message, but its copy normally finishes on redelivery: a message is
 finished only once its report is final or its own work has ended, so a copy is left
 to claim the report again if that worker crashes (C89).
+
+A report's mode, read from its item, sets where its photo is stored (C510), and a
+live or demo level is published only while the publish switch reads "off" (C516).
+
+The Meta client and the pipeline are imported where they are first used, not at
+import: with OpenCV beside them, the Lambda's init reached its 10 s limit (the cold
+start, Oct 29). The first delivery in each container pays for them inside its invoke.
 """
 
 from __future__ import annotations
@@ -24,16 +31,19 @@ import re
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import unquote_plus
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from lusot_analysis.meta_client import SAM_PHRASES, MetaClient, MissingApiKey
-from lusot_analysis.pipeline import PipelineRun, run_pipeline
-from lusot_analysis.pipeline.types import ModelClient, ModelKeyRejected, Outcome
 from lusot_analysis.prompts import PromptSpec, load_prompt
 from lusot_analysis.report_store import claim, write_result
+
+if TYPE_CHECKING:  # annotations only: each loads where it is used
+    from lusot_analysis import meta_client
+    from lusot_analysis.pipeline import PipelineRun
+    from lusot_analysis.pipeline.types import ModelClient, Outcome
 
 DEADLINE_MARGIN_S = 30  # the run stops this long before Lambda's timeout (C84, C88)
 
@@ -49,11 +59,12 @@ _NOT_FOUND_VISIBILITY_S = 10  # a report not yet in the index retries this soon 
 # The outcomes that return the message: an error, a rejected key (C73), and another
 # worker's live lease (C89).
 _RETRY_OUTCOMES = frozenset({"error", "model_key_rejected", "lease_held"})
+_PUBLISHED_MODES = frozenset({"live", "demo"})  # the modes that pin (C516)
 
 logger = logging.getLogger("lusot.analysis")
 logger.setLevel(logging.INFO)  # Lambda's text log format otherwise drops INFO
 
-_META_CLIENT: MetaClient | None = None  # set by _meta_client once the key loads
+_META_CLIENT: meta_client.MetaClient | None = None  # set by _meta_client once loaded
 
 
 class ReportNotFound(LookupError):
@@ -84,7 +95,17 @@ def _client(service: str):
     return boto3.client(service)
 
 
-def _meta_client() -> MetaClient:
+def MetaClient(*, api_key: str) -> meta_client.MetaClient:
+    """A new Meta client, its module imported on first use (the cold start).
+
+    It keeps the class's name, so a test can put a recorder in its place.
+    """
+    from lusot_analysis.meta_client import MetaClient as meta_client_class
+
+    return meta_client_class(api_key=api_key)
+
+
+def _meta_client() -> meta_client.MetaClient:
     """The Meta client, made from the key in SSM once per process (spec §3.6).
 
     It is kept only once it is made, so a failed load is tried again by the next
@@ -94,6 +115,8 @@ def _meta_client() -> MetaClient:
     """
     global _META_CLIENT
     if _META_CLIENT is None:
+        from lusot_analysis.meta_client import MissingApiKey
+
         try:
             value = _client("ssm").get_parameter(
                 Name=os.environ["MODEL_KEY_PARAM"], WithDecryption=True
@@ -126,6 +149,15 @@ def _model_calls_switch() -> str:
     return _client("ssm").get_parameter(Name=name)["Parameter"]["Value"]
 
 
+def _publish_switch() -> str:
+    """The publish stop switch's value, read for each result that could be pinned.
+
+    Uncached, as the model-calls switch is, so a change acts on the next result.
+    """
+    name = os.environ["STOP_PARAM_PREFIX"] + "publish"
+    return _client("ssm").get_parameter(Name=name)["Parameter"]["Value"]
+
+
 def analyse(
     data: bytes, client: ModelClient, *, deadline: float | None = None
 ) -> PipelineRun:
@@ -135,6 +167,9 @@ def analyse(
     its photo to store (C61). `deadline` is the run's deadline as a time.monotonic()
     value (C84).
     """
+    from lusot_analysis.meta_client import SAM_PHRASES
+    from lusot_analysis.pipeline import run_pipeline
+
     return run_pipeline(data, client, _prompt(), phrases=SAM_PHRASES, deadline=deadline)
 
 
@@ -193,6 +228,8 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     the pipeline still logs the pipeline's fields, the paid calls among them.
     """
     global _META_CLIENT
+    from lusot_analysis.pipeline.types import ModelKeyRejected, Outcome
+
     report = _find_report(report_id)
     # Step 3, before the claim: if any load fails, the message retries and the report
     # stays untouched (C60, C79).
@@ -218,13 +255,16 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         # message returns with the queue's own visibility timeout, not R92's 10 s:
         # its copy comes back once the report is final or the lease has expired (C89).
         return "lease_held"
-    # An earlier attempt may have saved its level's photo and then failed its write.
-    # Every attempt starts with none, so only a written level keeps one (C72).
-    _delete(_photo_key(report_id))
+    # An earlier attempt may have saved its level's photo and overlay and then failed
+    # its write. Every attempt starts with none, so only a written level keeps them
+    # (C72).
+    for stored in _photo_keys(report):
+        _delete(stored)
 
     # Step 5: only an explicit "off" lets model calls through (C60).
     if switch != "off":
-        return _finish(report, key, token, Outcome.failed("model_calls_paused"))
+        paused = Outcome.failed("model_calls_paused")
+        return _finish(report, key, token, paused, line=line)
 
     # Step 6: the raw photo.
     try:
@@ -237,9 +277,9 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         if exc.response["Error"]["Code"] not in _MISSING_PHOTO_CODES:
             raise
         line.update(_error_fields(exc))  # a retry can't bring the photo back
-        return _finish(report, key, token, Outcome.failed("photo_missing"))
+        return _finish(report, key, token, Outcome.failed("photo_missing"), line=line)
     if not data.startswith(_JPEG_MAGIC):  # before any decoder sees it (C83)
-        return _finish(report, key, token, Outcome.failed("bad_file"))
+        return _finish(report, key, token, Outcome.failed("bad_file"), line=line)
 
     # Step 7: the pipeline.
     try:
@@ -253,7 +293,7 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     line.update(run.log)
 
     # Step 8: publish.
-    return _finish(report, key, token, run.outcome, run.publish_jpeg)
+    return _finish(report, key, token, run.outcome, run.publish_jpeg, line)
 
 
 def _find_report(report_id: str) -> dict:
@@ -269,19 +309,25 @@ def _find_report(report_id: str) -> dict:
 
 
 def _finish(
-    report: dict, key: str, token: str, outcome: Outcome, photo: bytes | None = None
+    report: dict,
+    key: str,
+    token: str,
+    outcome: Outcome,
+    photo: bytes | None = None,
+    line: dict | None = None,
 ) -> str:
     """Store the photo, if any, write the result, then delete the raw photo (spec §3.2).
 
     It returns the outcome to log. `photo` comes with a level result only (C61), and
     it is stored before the write, so a level is never written without its photo. The
-    write is under the claim: a lost lease writes nothing and leaves the raw photo to
-    the worker that holds the report. If the delete fails, the message returns, and
-    the retry finds the report finished and only deletes.
+    write carries the publish fields, if any, and errors join `line`, the report's
+    one log line. The write is under the claim: a lost lease writes nothing and
+    leaves the raw photo to the worker that holds the report. If the delete fails,
+    the message returns, and the retry finds the report finished and only deletes.
     """
     fields = outcome.item_fields()
     if photo is not None:
-        photo_key = _photo_key(report["reportId"]["S"])
+        photo_key = _photo_keys(report)[0]
         _client("s3").put_object(
             Bucket=os.environ["BUCKET_NAME"],
             Key=photo_key,
@@ -289,6 +335,7 @@ def _finish(
             ContentType="image/jpeg",
         )
         fields["photoKey"] = photo_key
+    fields |= _publish_fields(report, outcome, {} if line is None else line)
     written = write_result(
         _client("dynamodb"), os.environ["TABLE_NAME"], _item_key(report), token, fields
     )
@@ -296,6 +343,28 @@ def _finish(
         return "lease_lost"
     _delete(key)
     return outcome.log_name
+
+
+def _publish_fields(report: dict, outcome: Outcome, line: dict) -> dict:
+    """The fields that pin a live or demo level, or none (C516).
+
+    The mode is the item's, never the event's. Only a level in a mode that pins
+    reads the publish switch: once, after the pipeline and before the write. Only an
+    explicit "off" lets it publish, as with the model-calls switch. The result is
+    already paid for, so a failed read writes it unpublished, never retried, and adds
+    the error's code and status to `line` as `publish_switch` (Review Focus 3).
+    """
+    mode = report["mode"]["S"]
+    if outcome.level is None or mode not in _PUBLISHED_MODES:
+        return {}
+    try:
+        switch = _publish_switch()
+    except Exception as exc:  # noqa: BLE001
+        line["publish_switch"] = _error_fields(exc)
+        return {}
+    if switch != "off":
+        return {}
+    return {"published": True, "feedPart": mode}
 
 
 def _retry_soon(record: dict) -> dict:
@@ -344,8 +413,18 @@ def _item_key(report: dict) -> dict:
     return {"pk": report["pk"], "sk": report["sk"]}
 
 
-def _photo_key(report_id: str) -> str:
-    return f"blurred/{report_id}.jpg"
+def _photo_keys(report: dict) -> tuple[str, str, str]:
+    """The report's stored photo and its overlay's image and JSON (C510).
+
+    A demo report's go under demo/, which has its own 60-day backstop.
+    """
+    report_id = report["reportId"]["S"]
+    prefix = "demo/" if report["mode"]["S"] == "demo" else ""
+    return (
+        f"{prefix}blurred/{report_id}.jpg",
+        f"{prefix}overlay/{report_id}.jpg",
+        f"{prefix}overlay/{report_id}.json",
+    )
 
 
 def _delete(key: str) -> None:
