@@ -138,6 +138,19 @@ def layout(prepared: Prepared, boxes: Sequence[NumberedBox]) -> Layout:
     )
 
 
+def instances_by_id(prepared: Prepared, layout: Layout) -> dict[int, SamInstance]:
+    """Each numbered box's SAM instance, by box id.
+
+    number_boxes keeps each kind in SAM's order, so the k-th numbered box of a kind is
+    the k-th kept instance of its phrase, which the kind names.
+    """
+    instances: dict[int, SamInstance] = {}
+    for kind in ("vehicle", "wheel", "person"):
+        ids = [box.id for box in layout.boxes if box.kind == kind]
+        instances |= dict(zip(ids, _instances(prepared.sam, kind), strict=True))
+    return instances
+
+
 def validate_answer(data: object, schema: dict) -> None:
     """Raise ModelAnswerError unless `data` is an object that passes `schema` (C47).
 

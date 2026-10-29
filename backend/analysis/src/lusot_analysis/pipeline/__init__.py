@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+import numpy as np
+
+from lusot_analysis import rules
 from lusot_analysis.annotate import (
+    NumberedBox,
     check_ids_per_item,
     draw_numbered_boxes,
     number_boxes,
@@ -24,20 +28,29 @@ from lusot_analysis.meta_client import (
     SPARK_MODEL,
     MetaApiError,
     ModelRefused,
+    SamInstance,
+    SamResult,
 )
 from lusot_analysis.pipeline.combine import combine
+from lusot_analysis.pipeline.geometry import (
+    GeometryReading,
+    link_rims,
+    wheel_geometry,
+)
 from lusot_analysis.pipeline.measure import measure
 from lusot_analysis.pipeline.publish import PUBLISH_PHRASES, publish_jpeg
 from lusot_analysis.pipeline.quality import quality_refusal, quality_scores
 from lusot_analysis.pipeline.references import (
+    Kept,
     apply_drops,
     gate,
+    instances_by_id,
     layout,
     prepare_boxes,
     validate_answer,
     water_found,
 )
-from lusot_analysis.pipeline.segment import segment_all
+from lusot_analysis.pipeline.segment import box_xyxy, segment_all
 from lusot_analysis.pipeline.types import (
     KEY_REJECTED_STATUSES,
     ModelAnswerError,
@@ -45,7 +58,9 @@ from lusot_analysis.pipeline.types import (
     ModelKeyRejected,
     Outcome,
 )
+from lusot_analysis.pipeline.waterline import Waterline, find_waterline, water_mask
 from lusot_analysis.prompts import PromptSpec
+from lusot_analysis.tuning import TUNING, Tuning
 
 # The phrases the reading uses: SAM_PHRASES without the two that only the publish
 # blur reads. The offline runner sends these, since nothing it makes is stored (C66).
@@ -73,14 +88,21 @@ def run_pipeline(
     *,
     phrases: Sequence[str] = SAM_PHRASES,
     deadline: float | None = None,
+    geometry_in_level: bool = False,
+    tuning: Tuning = TUNING,
 ) -> PipelineRun:
-    """Run spec §3.2's steps on one uploaded photo, in order.
+    """Run spec §3.2's steps on one uploaded photo, in order, with MS3b's (its §4).
 
     `phrases` are SAM's requests: SAM_PHRASES in the Lambda, READING_PHRASES offline
     (C66). A level result gets a photo to store only when both PUBLISH_PHRASES ran.
     `deadline` is the run's deadline as a time.monotonic() value, and every segment
     and judge call gets it (C84); None sets none. A file blur_for_meta refuses ends
     failed, bad_file, before any Meta call.
+
+    `geometry_in_level` puts rim geometry in the level path (C309). Off is MS3a's
+    rules plus step 3, so vans and `unknown` are dropped by type and no geometry is
+    computed. `tuning` gives the cutoffs: the quality gate's, step 3's and the
+    geometry checks' (C310). Step 3 runs either way, after the gate (C317).
 
     Errors end as outcomes (C59), checked in this order:
     - Muse Spark refused to answer: refused, model_declined (C86).
@@ -93,11 +115,26 @@ def run_pipeline(
     The log gains each step's fields once the step runs (spec §3.6, C80).
     `meta_calls` counts the segment and judge calls made, failed ones included. A
     failure adds the error's class name and, for a MetaApiError, its status, never
-    its message. Muse Spark's reason never reaches the log (C62).
+    its message. Muse Spark's reason never reaches the log (C62). C316's fields:
+    - from step 2 on: `geometry_in_level` ("on" or "off"), `tuning_version` and
+      `rim_edge_k`, k
+    - with geometry on, once its checks run: `wheels_measured` and `geometry_checks`,
+      each failed check counted by cause
+    - on a level result: `level_from`, and `depth_in` when it is "geometry": the
+      inches as the item stores them, [min, max] rounded outward (C308)
     """
     log: dict[str, object] = {"meta_calls": 0}
     try:
-        outcome, photo = _run_steps(data, client, prompt, phrases, deadline, log)
+        outcome, photo = _run_steps(
+            data,
+            client,
+            prompt,
+            phrases,
+            deadline,
+            log,
+            geometry_in_level=geometry_in_level,
+            tuning=tuning,
+        )
     except ModelRefused:
         return PipelineRun(Outcome.refused("model_declined"), log, None)
     except MetaApiError as exc:  # before Exception, as it is a RuntimeError
@@ -122,6 +159,9 @@ def _run_steps(
     phrases: Sequence[str],
     deadline: float | None,
     log: dict[str, object],
+    *,
+    geometry_in_level: bool,
+    tuning: Tuning,
 ) -> tuple[Outcome, bytes | None]:
     """The steps, adding each one's fields to `log` as it runs. Errors propagate."""
     # Step 0: the face blur, before any Meta call (C20).
@@ -137,7 +177,7 @@ def _run_steps(
         "brightness": round(scores.brightness, 1),
         "sharpness": round(scores.sharpness, 1),
     }
-    refusal = quality_refusal(scores)
+    refusal = quality_refusal(scores, tuning)
     if refusal is not None:
         return Outcome.refused(refusal), None
 
@@ -146,6 +186,9 @@ def _run_steps(
     log |= {
         "models": {"sam": SAM_MODEL, "spark": SPARK_MODEL},
         "prompt_version": prompt.version,
+        "geometry_in_level": "on" if geometry_in_level else "off",  # C309, C316
+        "tuning_version": tuning.version,
+        "rim_edge_k": tuning.rim_edge_k,
         "meta_calls": len(phrases),
     }
     sam = segment_all(client, image, phrases, deadline=deadline)
@@ -158,6 +201,12 @@ def _run_steps(
     log["drops"] = drops  # the later steps' drops are added to it
     boxes = number_boxes(prepared.sam)
     links = layout(prepared, boxes)
+    instances = instances_by_id(prepared, links)
+    # Step 2's rim links (C300), with geometry on or off: they are box logic only.
+    # `rims` keeps each wheel's one linked rim for the evidence record, which draws
+    # it either way (C328, R127). A wheel with none, or with several, is left out.
+    linked = _rim_links(sam, boxes, instances)
+    rims = {w: found[0] for w, found in linked.items() if len(found) == 1}  # noqa: F841
     kinds = Counter(box.kind for box in boxes)
     log["numbered"] = {
         "vehicles": kinds["vehicle"],
@@ -187,11 +236,30 @@ def _run_steps(
     settled = gate(answer, has_water=water_found(sam["floodwater"]))
     if settled is not None:
         return settled, None
-    kept, kept_drops = apply_drops(answer, links)
+    # With geometry on, vans and `unknown` are kept for geometry alone (C318).
+    geometry_types = rules.GEOMETRY_ONLY_TYPES if geometry_in_level else frozenset()
+    kept, kept_drops = apply_drops(answer, links, geometry_types=geometry_types)
     drops.update(kept_drops)
 
+    # Step 3, after the gate, beside the drops above (C317): the waterline under each
+    # kept reference that gives a reading. A reference it drops never decides.
+    water = water_mask(sam["floodwater"], (image.height, image.width))
+    waterlines = _waterlines(kept, instances, water, tuning)
+    step3_drops = {i: w.cause for i, w in waterlines.items() if w.cause is not None}
+
+    # Steps 4 and 5 of spec §4, with geometry on: each kept vehicle's wheels.
+    geometry: dict[int, GeometryReading] = {}
+    if geometry_in_level:
+        geometry, checks = _wheel_geometry(
+            kept, instances, linked, waterlines, scores.brightness, tuning
+        )
+        log |= {"wheels_measured": len(geometry), "geometry_checks": checks}
+
     # Step 5: a reading for each kept vehicle and adult. Steps 6 and 7: the level.
-    references, measure_drops = measure(kept)
+    # Step 3's causes and wheel_methods_disagree join the drops here.
+    references, measure_drops = measure(
+        kept, step3_drops=step3_drops, geometry=geometry
+    )
     drops.update(measure_drops)
     outcome, deciding = combine(references)
     if deciding is None:  # a refusal
@@ -201,8 +269,92 @@ def _run_steps(
     photo = None
     if all(phrase in phrases for phrase in PUBLISH_PHRASES):
         photo = publish_jpeg(image, sam)
-    log["deciding"] = deciding.kind
+    log |= {"deciding": deciding.kind, "level_from": outcome.level_from}
+    if outcome.level_from == "geometry":  # as the item stores them (C308)
+        low, high = rules.round_out(outcome.depth_in_min, outcome.depth_in_max)
+        log["depth_in"] = [low, high]
     return outcome, photo
+
+
+def _rim_links(
+    sam: Mapping[str, SamResult],
+    boxes: Sequence[NumberedBox],
+    instances: Mapping[int, SamInstance],
+) -> dict[int, tuple[SamInstance, ...]]:
+    """Each numbered wheel's linked rims, by its box id (C300).
+
+    The links are made among all of SAM's wheels, before the cuts, as C55 links
+    wheels among all of SAM's vehicles. So a rim inside a cut wheel's box joins no
+    kept wheel, and each kept wheel takes only its own rims (P14). A kept wheel is
+    SAM's own instance, so it is found by identity.
+    """
+    wheels = sam["wheel"].instances
+    links = link_rims(wheels, sam["wheel rim"].instances)
+    by_wheel = {id(wheel): found for wheel, found in zip(wheels, links, strict=True)}
+    return {
+        box.id: by_wheel[id(instances[box.id])] for box in boxes if box.kind == "wheel"
+    }
+
+
+def _waterlines(
+    kept: Kept,
+    instances: Mapping[int, SamInstance],
+    water: np.ndarray,
+    tuning: Tuning,
+) -> dict[int, Waterline]:
+    """Step 3's waterline for each kept reference that gives a reading, by box id.
+
+    Those are each kept vehicle's wheels answered other than not_visible, its body
+    when it gives C53's reading (a sedan or SUV whose wheels are hidden, at a body row
+    that reads), and each kept adult whose waterline reads (C317).
+    """
+    ids: list[int] = []
+    for vehicle in kept.vehicles:
+        ids += [w for w, line in vehicle.wheels if line != "not_visible"]
+        body_reads = (
+            vehicle.vehicle_type in rules.READING_TYPES
+            and vehicle.wheels_hidden
+            and rules.BODY_ROWS[vehicle.body_waterline] is not None
+        )
+        if body_reads:  # C53
+            ids.append(vehicle.id)
+    ids += [p.id for p in kept.people if rules.PEOPLE_ROWS[p.waterline] is not None]
+    return {i: find_waterline(instances[i].mask, water, tuning) for i in ids}
+
+
+def _wheel_geometry(
+    kept: Kept,
+    instances: Mapping[int, SamInstance],
+    linked: Mapping[int, Sequence[SamInstance]],
+    waterlines: Mapping[int, Waterline],
+    brightness: float,
+    tuning: Tuning,
+) -> tuple[dict[int, GeometryReading], Counter[str]]:
+    """Spec §4's steps 4 and 5 for each answered wheel of a kept vehicle.
+
+    It returns the geometry readings by wheel id, and how many wheels failed each
+    check. `brightness` is the quality gate's score (check 4), and a wheel's box is
+    SAM's (checks 6 and 9).
+    """
+    readings: dict[int, GeometryReading] = {}
+    checks: Counter[str] = Counter()
+    for vehicle in kept.vehicles:
+        codes = rules.tire_codes(vehicle.vehicle_type)
+        for wheel_id, line in vehicle.wheels:
+            reading = wheel_geometry(
+                answer_waterline=line,
+                codes=codes,
+                rims=linked[wheel_id],
+                waterline=waterlines.get(wheel_id),
+                wheel_box=box_xyxy(instances[wheel_id]),
+                brightness=brightness,
+                tuning=tuning,
+            )
+            if isinstance(reading, str):
+                checks[reading] += 1
+            else:
+                readings[wheel_id] = reading
+    return readings, checks
 
 
 def _ms(seconds: float) -> int:

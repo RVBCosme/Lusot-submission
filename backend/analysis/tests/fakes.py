@@ -261,6 +261,31 @@ def level_case() -> tuple[bytes, dict[str, SamResult], dict]:
     return noise_jpeg(), sam, given
 
 
+def geometry_case(
+    vehicle_type: str = "sedan_hatch", waterline: str = "rim_quarter"
+) -> tuple[bytes, dict[str, SamResult], dict]:
+    """The geometry case: a photo, SAM's results and Muse Spark's answer.
+
+    The photo is 640 x 480 noise. SAM's wheel, rim and water are wheel_scene's masks at
+    y_true 257, with the boxes (263, 183, 378, 257), (285, 205, 356, 257) and (0, 257,
+    640, 480). Its vehicle is (150, 100, 500, 300), and the other phrases find nothing.
+    Muse Spark answers vehicle 1, a parked `vehicle_type` with its body not_visible,
+    and wheel 2 at `waterline`. With geometry on, run_pipeline measures a sedan_hatch's
+    wheel at 7.720 to 8.184 in, which is half_knee. Tasks 7 to 10 and 12 reuse it.
+    """
+    wheel_mask, rim_mask, water = wheel_scene(y_true=257)
+    sam = sam_results({"vehicle": [(150, 100, 500, 300)]})
+    for phrase, xyxy, mask in (
+        ("wheel", (263, 183, 378, 257), wheel_mask),
+        ("wheel rim", (285, 205, 356, 257), rim_mask),
+        ("floodwater", (0, 257, 640, 480), water),
+    ):
+        found = [instance(0, xyxy, mask=mask)]
+        sam[phrase] = SamResult(phrase, found, elapsed_s=0.5, raw="")
+    given = answer(vehicles=[vehicle(1, vehicle_type)], wheels=[wheel(2, waterline)])
+    return noise_jpeg(), sam, given
+
+
 class FakeClient:
     """A ModelClient that answers from fixed results and records each call.
 
