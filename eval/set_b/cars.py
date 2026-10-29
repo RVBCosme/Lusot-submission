@@ -28,6 +28,8 @@ PHOTO_FILE = re.compile(
 )
 # The columns all of a car's rows must agree on.
 CAR_COLUMNS = ("model", "vehicle_type", "tire_code")
+# The columns read in any case and lower-cased, as the logs' list values are.
+LIST_COLUMNS = ("vehicle_type", "view")
 
 
 @dataclass
@@ -63,7 +65,9 @@ def check_cars(path: Path, *, side: str) -> CarsCheck:
     - consent_file: bad_path unless it is a bare file name beside cars.csv, as
       set_b_masks takes it, and not cars.csv's own name in any case (S-R29's M3,
       amending addition 3)
-    Each row whose consent_version Rene hasn't approved, a blank one included, warns
+    vehicle_type and view are read in any case: each is lower-cased in rows first, as
+    the logs' list values are, so the truth and the counts hold the list's spelling
+    (M-5). Each row whose consent_version Rene hasn't approved, a blank one included, warns
     consent_version=unapproved (C218), once per row on either side, so the warnings
     count rows (S-R29's M4).
 
@@ -84,6 +88,9 @@ def check_cars(path: Path, *, side: str) -> CarsCheck:
     ]
     if missing:
         return CarsCheck(found.rows, missing, [], {})
+    for row in found.rows:  # a spreadsheet may capitalise a list value (M-5)
+        for column in LIST_COLUMNS:
+            row[column] = row[column].lower()
     final = side == "final"
     problems: list[Finding] = []
     warnings: list[Fact] = []

@@ -774,6 +774,63 @@ def test_masks_are_verified_before_the_password(data, prompts, capsys, case):
     assert prompts == []
 
 
+def no_masks_folder(paths) -> None:
+    """set_b_masks --final stopped before B04-1, row 3: it has no folder and no line."""
+    folder = paths["--masks"] / "B04-1"
+    for name in ("blurred.jpg", *generate.MASK_FILES):
+        (folder / name).unlink()
+    folder.rmdir()
+    rewrite_listing(paths["--masks"] / "files.txt", lambda line: "  B04-1/" not in line)
+
+
+def one_mask_file_gone(paths) -> None:
+    """B02-2, row 2, lacks its rim masks, and files.txt lacks their line."""
+    (paths["--masks"] / "B02-2" / "sam_wheel_rim_masks.npz").unlink()
+    rewrite_listing(
+        paths["--masks"] / "files.txt",
+        lambda line: not line.endswith("  B02-2/sam_wheel_rim_masks.npz"),
+    )
+
+
+def dropped_car_unmasked(paths) -> None:
+    """B06, row 4, is dropped for its 195R14C but has its owner's OK, so set_b_masks
+    masks it too; it has no folder and no line."""
+    rows = (*FINAL_ROWS[:3], {"car_id": "B06", "tire_code": "195R14C"})
+    synth.set_b_cars(paths["--cars"].parent, [synth.car_row(**r) for r in rows])
+    folder = paths["--masks"] / "B06-1"
+    for name in ("blurred.jpg", *generate.MASK_FILES):
+        (folder / name).unlink()
+    folder.rmdir()
+    rewrite_listing(paths["--masks"] / "files.txt", lambda line: "  B06-1/" not in line)
+
+
+UNMASKED = {
+    "no masks folder": (no_masks_folder, "row 3 masks: missing"),
+    "one file gone": (one_mask_file_gone, "row 2 masks: missing"),
+    "a dropped car's photo": (dropped_car_unmasked, "row 4 masks: missing"),
+}
+
+
+@pytest.mark.parametrize("case", UNMASKED.values(), ids=list(UNMASKED))
+def test_final_photo_without_masks_stops_before_the_password(
+    data, prompts, capsys, case
+):
+    """I-1: a final photo with its owner's OK whose masks folder, or one of its four
+    files, isn't there, because set_b_masks --final stopped partway or skipped it, stops
+    the run before the password, naming its row, so the sealed set is never short.
+    set_b_masks masks each such photo whatever its tire code. The development run
+    counts the same gap as no_masks instead (test_drops_are_counted_by_cause)."""
+    change, expected = case
+    paths = final_layout(data)
+    change(paths)
+    assert run(paths, "--final") == 1
+    out, err = capsys.readouterr()
+    assert (out, err) == (f"{expected}\n", "")
+    printed_nothing_final(out)
+    assert nothing_written(paths)
+    assert prompts == []
+
+
 def dev_unlisted(paths) -> None:
     rewrite_listing(
         paths["--dev-masks"] / "files.txt",

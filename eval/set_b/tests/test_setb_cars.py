@@ -94,6 +94,27 @@ def test_each_problem(tmp_path, cells, expected):
 
 
 @pytest.mark.parametrize(
+    ("column", "values"),
+    [
+        ("vehicle_type", ("SUV_MPV", "suv_mpv", "Van")),
+        ("view", ("Side", "ANGLED", "side")),
+    ],
+)
+def test_list_values_read_in_any_case(tmp_path, column, values):
+    """M-5: a spreadsheet may capitalise a list value, so vehicle_type and view are
+    read in any case and lower-cased, as the logs' list values are. A car's rows that
+    differ only in case agree."""
+    rows = [
+        synth.car_row(**{column: values[0]}),
+        synth.car_row(photo_file="B01-2.jpg", **{column: values[1]}),
+        synth.car_row(car_id="B03", **{column: values[2]}),
+    ]
+    found = check(tmp_path, rows)
+    assert (found.problems, found.drops) == ([], {})
+    assert [row[column] for row in found.rows] == [value.lower() for value in values]
+
+
+@pytest.mark.parametrize(
     "consent",
     ["../b01-ok.png", "a/../b01-ok.png", "C:/b01-ok.png", "C:b01-ok.png", "/b01-ok.png"]
     + ["\\b01-ok.png", "\\\\server\\share\\b01-ok.png", "b01-ok.png:x", "./b01-ok.png"]

@@ -27,7 +27,9 @@ Final cars, Rene alone, from his own Windows PowerShell window (C202, C214):
 Every path but the record's is absolute, the archive's folder must exist, and each masks
 folder must hold set_b_masks' files.txt. Each owner's OK is a bare file name beside
 cars.csv. It checks cars.csv, the files the archive will hold, hashing each mask again
-against files.txt, and C214's overlap with the development cars; it generates in
+against files.txt, that each photo with its owner's OK has its masks (a stop there
+means set_b_masks --final hasn't finished: rerun it, then this), and C214's overlap
+with the development cars; it generates in
 memory and encodes the record, and only then asks for the password. No crop, truth row
 or overlay is ever written in plaintext: they go into the archive in one pass (C205),
 with the record, cars.csv, the raw photos, the owners' OKs, and the masks listed under
@@ -115,7 +117,8 @@ def generate(cars: CarsCheck, masks: Path, *, split: str) -> Generated:
     with split, dev or sealed, in each row. The caller has refused a check with
     problems, so each kept tire code is a size.
 
-    A photo is dropped as no_masks when one of its four files is missing, undecodable
+    A photo is dropped as no_masks when one of its four files is missing (the final
+    run stops on that first, I-1), undecodable
     when blurred.jpg doesn't decode, or as wheels.pick_wheels' no_vehicle or no_wheel.
     Each chosen wheel is linked to its rim, and rim_edge_ratio is measured on the
     unshrunk masks, since a ratio holds no pixels. Then each crop crops.plan_crops
@@ -532,9 +535,11 @@ def _masks_listing(
     withdrawn after an earlier set_b_masks run, or for a car no longer in cars.csv, is
     never opened or archived. Each line read must be `<sha256>  <stem>/<file>`, its
     path listed once (bad_line), with its file there (missing) and hashing to it
-    (hash_mismatch). Each of the four files generate reads for a kept row must be
-    listed when it is there (unlisted), so every crop comes from masks the archive
-    holds.
+    (hash_mismatch). Each of the four files generate reads must be there for every
+    archived row (missing): set_b_masks --final masks each photo with its owner's OK,
+    so a gap means that run stopped partway or skipped the photo, and the sealed set
+    would be short (I-1). Each of them must be listed for a kept row when it is there
+    (unlisted), so every crop comes from masks the archive holds.
 
     Return those lines as a files.txt of their own, sorted by path, with \\n endings;
     their paths; and the problems, each naming its photo's row, once per kind. A
@@ -570,6 +575,10 @@ def _masks_listing(
         listed.add(name.casefold())
         if kind is not None:
             _add(problems, Finding(f"row {row['#']}", "masks", kind))
+    for row in archived:
+        folder = masks / Path(row["photo_file"]).stem
+        if not all((folder / file).is_file() for file in ("blurred.jpg", *MASK_FILES)):
+            _add(problems, Finding(f"row {row['#']}", "masks", "missing"))
     for row in kept:
         stem = Path(row["photo_file"]).stem
         for file in ("blurred.jpg", *MASK_FILES):
