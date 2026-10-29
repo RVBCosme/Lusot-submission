@@ -43,7 +43,7 @@ _MANILA = timezone(timedelta(hours=8))
 _GIT_SECONDS = 30
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 # C221's id head (table.ID_PATTERN before its -n parts), as a token inside any text.
-_ID_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,3}[0-9]{1,4}(?![A-Za-z0-9])")
+ID_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,3}[0-9]{1,4}(?![A-Za-z0-9])")
 
 
 def record_kind(record: Mapping) -> str:
@@ -124,7 +124,7 @@ def record_bytes(record: Mapping) -> bytes:
 
 def _holds_id(value: object) -> bool:
     if isinstance(value, str):
-        return _ID_TOKEN.search(value) is not None
+        return ID_TOKEN.search(value) is not None
     if isinstance(value, Mapping):
         return any(_holds_id(key) or _holds_id(item) for key, item in value.items())
     if isinstance(value, (list, tuple)):

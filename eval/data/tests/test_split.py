@@ -594,16 +594,56 @@ def test_rerun_names_the_partial_outputs(paths, prompts, capsys):
     paths["--set-a-dev"].mkdir()
     assert run(paths) == 2
     out, err = capsys.readouterr()
-    assert out.splitlines() == [
+    assert out == ""
+    assert err.splitlines() == [
         "--archive exists: delete it before rerunning",
         "--set-a-dev exists: delete it before rerunning",
     ]
-    assert err == ""
     assert paths["--archive"].read_bytes() == b"a partial archive"
     assert list(paths["--set-a-dev"].iterdir()) == []
     assert not paths["--a-neg-dev"].exists()
     assert not paths["--record"].exists()
     assert prompts == []
+
+
+def tree(folder: Path) -> dict[str, bytes]:
+    """Each file under the folder, by its path from there, with its bytes."""
+    return {
+        path.relative_to(folder).as_posix(): path.read_bytes()
+        for path in sorted(folder.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_rerun_after_a_failure_past_the_password(paths, prompts, tmp_path, capsys):
+    """Review Focus 3 for real (S-R21's M4): A-neg's dev folder can't be created, since
+    a file stands where its parent should be, so the split fails after the archive and
+    Set A's dev side are written. The rerun with the same arguments names both partial
+    outputs, asks for no password, and changes nothing."""
+    blocker = tmp_path / "data" / "a_neg" / "blocker"
+    blocker.write_bytes(b"a file where a folder should be")
+    paths["--a-neg-dev"] = blocker / "dev"
+    assert run(paths) == 1
+    out, err = capsys.readouterr()
+    assert err == "stopped: FileExistsError\n"
+    assert ID_TOKEN.search(out + err) is None
+    assert prompts == PROMPTS
+    archive = paths["--archive"].read_bytes()
+    dev = tree(paths["--set-a-dev"])
+    assert "manifest.csv" in dev
+    assert not paths["--record"].exists()
+
+    assert run(paths) == 2
+    assert capsys.readouterr() == (
+        "",
+        "--archive exists: delete it before rerunning\n"
+        + "--set-a-dev exists: delete it before rerunning\n",
+    )
+    assert prompts == PROMPTS  # the rerun showed no prompt
+    assert paths["--archive"].read_bytes() == archive
+    assert tree(paths["--set-a-dev"]) == dev
+    assert not paths["--a-neg-dev"].exists()
+    assert not paths["--record"].exists()
 
 
 @pytest.mark.parametrize("flag", OUTPUTS)
@@ -614,7 +654,7 @@ def test_rerun_names_each_existing_output(paths, prompts, capsys, flag):
         paths[flag].parent.mkdir(exist_ok=True)
         paths[flag].write_bytes(b"x")
     assert run(paths) == 2
-    assert capsys.readouterr() == (f"{flag} exists: delete it before rerunning\n", "")
+    assert capsys.readouterr() == ("", f"{flag} exists: delete it before rerunning\n")
     assert prompts == []
 
 
@@ -623,10 +663,128 @@ def test_archive_folder_must_exist(paths, prompts, capsys):
     is refused before anything is read."""
     paths["--archive"] = paths["--archive"].parent / "missing" / "lusot-sealed.7z"
     assert run(paths) == 2
-    assert capsys.readouterr() == ("--archive folder missing: create it first\n", "")
+    assert capsys.readouterr() == ("", "--archive folder missing: create it first\n")
     assert not paths["--archive"].parent.exists()
     assert nothing_written(paths)
     assert prompts == []
+
+
+# Output paths that overlap (S-R21's M1), each as the flags it changes, given the
+# layout's paths and the test's working folder, and the refusal.
+DEV_OVERLAP = "refused: the two dev folders overlap\n"
+RECORD_IN_DEV = "refused: --record is inside a dev folder\n"
+OVERLAPS = {
+    "one dev folder": (
+        lambda p, cwd: {"--a-neg-dev": p["--set-a-dev"]},
+        DEV_OVERLAP,
+    ),
+    "a_neg dev inside set_a dev": (
+        lambda p, cwd: {"--a-neg-dev": p["--set-a-dev"] / "a_neg"},
+        DEV_OVERLAP,
+    ),
+    "set_a dev inside a_neg dev": (
+        lambda p, cwd: {"--set-a-dev": p["--a-neg-dev"] / "x" / "set_a"},
+        DEV_OVERLAP,
+    ),
+    "one dev folder through ..": (
+        lambda p, cwd: {"--a-neg-dev": p["--set-a-dev"] / "x" / ".."},
+        DEV_OVERLAP,
+    ),
+    "record inside set_a dev": (
+        lambda p, cwd: {"--record": p["--set-a-dev"] / "split.json"},
+        RECORD_IN_DEV,
+    ),
+    "record deep inside a_neg dev": (
+        lambda p, cwd: {"--record": p["--a-neg-dev"] / "records" / "split.json"},
+        RECORD_IN_DEV,
+    ),
+    "record that is a dev folder": (
+        lambda p, cwd: {"--record": p["--a-neg-dev"]},
+        RECORD_IN_DEV,
+    ),
+    "relative record inside a dev folder": (
+        lambda p, cwd: {"--set-a-dev": cwd / "dev", "--record": Path("dev", "s.json")},
+        RECORD_IN_DEV,
+    ),
+}
+WINDOWS_OVERLAPS = {
+    "one dev folder in another case": (
+        lambda p, cwd: {"--a-neg-dev": Path(str(p["--set-a-dev"]).upper())},
+        DEV_OVERLAP,
+    ),
+    "record inside a dev folder in another case": (
+        lambda p, cwd: {"--record": Path(str(p["--set-a-dev"]).upper(), "s.json")},
+        RECORD_IN_DEV,
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        *OVERLAPS.values(),
+        *(
+            pytest.param(
+                case,
+                marks=pytest.mark.skipif(
+                    sys.platform != "win32", reason="NTFS ignores case"
+                ),
+            )
+            for case in WINDOWS_OVERLAPS.values()
+        ),
+    ],
+    ids=[*OVERLAPS, *WINDOWS_OVERLAPS],
+)
+def test_split_refuses_overlapping_outputs(
+    paths, prompts, tmp_path, monkeypatch, capsys, case
+):
+    """Two dev flags on one folder, or the record inside a dev folder, would fail only
+    after the archive exists. They are refused on the strings, as Windows compares
+    them, before anything opens or is created. The test runs in an empty folder of
+    its own, so a relative path would land there."""
+    change, expected = case
+    data = tmp_path / "data"
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    given = dict(paths) | change(paths, cwd)
+    assert run(given) == 2
+    assert capsys.readouterr() == ("", expected)
+    code, opened = synth.opened_paths(SPLIT, arguments(given))
+    assert code == 2
+    assert [item for item in opened if inside(item[1], data)] == []
+    assert prompts == []
+    assert list(cwd.iterdir()) == []
+    assert nothing_written(paths)
+    assert not any(Path(os.path.abspath(given[out])).exists() for out in OUTPUTS)
+
+
+def test_split_outputs_that_only_share_a_prefix_run(paths, prompts):
+    """dev-2 isn't inside dev, nor dev.json, though each name starts with dev."""
+    set_a = paths["--set-a-dev"].parent
+    paths["--a-neg-dev"] = set_a / "dev-2"
+    paths["--record"] = set_a / "dev.json"
+    assert run(paths) == 0
+    assert (set_a / "dev-2" / "manifest.csv").is_file()
+    assert (set_a / "dev.json").is_file()
+
+
+def test_relative_record_lands_under_the_working_folder(
+    paths, prompts, tmp_path, monkeypatch
+):
+    """S-R13: R3 gives the record relative to the repo root, where Rene runs the
+    split, so it lands there (S-R21's M5)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    paths["--record"] = Path("eval", "data", "records", "split.json")
+    assert run(paths) == 0
+    record = json.loads(
+        (repo / "eval" / "data" / "records" / "split.json").read_bytes()
+    )
+    assert record["tool"] == "eval/data/split.py"
+    assert record["archive"]["sha256"] == table.sha256_file(paths["--archive"])
+    assert not (tmp_path / "data" / "records").exists()
 
 
 def test_password_mismatch_writes_nothing(paths, prompts, monkeypatch, capsys):

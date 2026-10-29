@@ -57,7 +57,7 @@ _ZERO = {"events": 0, "rows": 0}
 _NOT_WRITTEN = "not a file the tools wrote"
 # An archive's file name, as a record gives it: a bare ASCII name, at most 100
 # characters before .7z, which can be opened beside RUN_DIR and printed (S-R18).
-_ARCHIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.7z")
+ARCHIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.7z")
 
 Row = Mapping[str, str]
 
@@ -355,10 +355,10 @@ def _sealed(
 
 def _archive(run_dir: Path, record: Mapping) -> list[str]:
     """The record's archive, beside run_dir, checked against its hash (C220). The name
-    is opened and printed only when it is _ARCHIVE_NAME's, so a record can neither steer
+    is opened and printed only when it is ARCHIVE_NAME's, so a record can neither steer
     the read elsewhere nor print text of its own."""
     name = record["archive"]["file"]
-    if not isinstance(name, str) or _ARCHIVE_NAME.fullmatch(name) is None:
+    if not isinstance(name, str) or ARCHIVE_NAME.fullmatch(name) is None:
         return ["archive_name"]
     path = run_dir.parent / name
     if not path.is_file() or table.sha256_file(path) != record["archive"]["sha256"]:

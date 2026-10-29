@@ -22,14 +22,16 @@ Usage, from the repo root, in Rene's own Windows PowerShell window:
         --archive <data>\sealed\lusot-sealed.7z
         --record eval\data\records\<date>-split.json [--allow-missing-m8]
 The archive and the dev folders are absolute paths, and the archive's folder, named
-sealed, must exist. None of the four outputs may exist yet: a rerun names each one left
-by a stopped run, which Rene deletes first.
+sealed, must exist. The two dev folders may not overlap, and the record may not lie in
+either. None of the four outputs may exist yet: a rerun names each one left by a
+stopped run, which Rene deletes first.
 
 It prints the intake's warnings as a count, then, once written, the rows and events per
 set, side and group, the counts per fact value, audit PASS, copy check <k> of <n>, and
 the archive's size and SHA-256. No id prints there. A problem in the logs prints as
 <id> <column>: <kind>, before any photo is sealed, and a copy-check stop names a
-development id only.
+development id only. These print to stdout. A refusal, an output that exists and a
+missing archive folder included, prints to stderr.
 
 Exit codes: 0 written; 1 a problem in the logs, a log that can't be read, a set with
 fewer than 2 events, a copy check or audit that fails, a record that would hold an id,
@@ -38,6 +40,7 @@ output that exists, a missing archive folder, or the password.
 """
 
 import argparse
+import os
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -93,9 +96,19 @@ def _archive_name_ok(name: str) -> bool:
     committed record, which holds it, holds no id (S-R16). The two rules are theirs, so
     the three tools never drift apart (S-R19)."""
     return (
-        audit._ARCHIVE_NAME.fullmatch(name) is not None
-        and record_io._ID_TOKEN.search(name) is None
+        audit.ARCHIVE_NAME.fullmatch(name) is not None
+        and record_io.ID_TOKEN.search(name) is None
     )
+
+
+def _within(path: Path, folder: Path) -> bool:
+    """True when the path is the folder or lies inside it. Both are compared on their
+    strings, absolute and normalised, in Windows' case rules (S-R21)."""
+    inner, outer = (
+        os.path.normcase(os.path.normpath(os.path.abspath(given)))
+        for given in (path, folder)
+    )
+    return inner == outer or inner.startswith(outer.rstrip(os.sep) + os.sep)
 
 
 def _refuse(text: str) -> int:
@@ -264,9 +277,15 @@ def _split(args: argparse.Namespace) -> int:
     ):
         if not folder.is_absolute():
             return _refuse(f"{flag} must be absolute")
+    # Overlapping outputs would fail only once the archive exists (S-R21).
+    set_a_dev, a_neg_dev = args.set_a_dev, args.a_neg_dev
+    if _within(set_a_dev, a_neg_dev) or _within(a_neg_dev, set_a_dev):
+        return _refuse("the two dev folders overlap")
+    if _within(args.record, set_a_dev) or _within(args.record, a_neg_dev):
+        return _refuse("--record is inside a dev folder")
 
     # 2. Rene's own console. 3. The outputs, which must not exist yet, and the archive's
-    # folder, which must (Review Focus 3, S-R12).
+    # folder, which must (Review Focus 3, S-R12). Each one found is a refusal.
     guards.require_console()
     stops = [
         f"{flag} exists: delete it before rerunning"
@@ -281,7 +300,7 @@ def _split(args: argparse.Namespace) -> int:
     if not args.archive.parent.is_dir():
         stops.append("--archive folder missing: create it first")
     for line in stops:
-        print(line)
+        print(line, file=sys.stderr)
     if stops:
         return 2
 
@@ -304,7 +323,9 @@ def _split(args: argparse.Namespace) -> int:
     print(f"warnings={len(result.warnings)}")
     if result.problems:
         return 1
-    m8_check = result.m8  # read, since a Set A log missing a column is a problem
+    # result.m8 is set: the intake skips M8 only when Set A's log lacks a column, which
+    # is a problem, so that run has already stopped above.
+    m8_check = result.m8
 
     # 5. The logs and the M8 export, read once as bytes: hashed into the record and
     # archived as they are (addition 5).
