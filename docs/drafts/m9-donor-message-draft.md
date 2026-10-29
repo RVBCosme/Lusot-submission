@@ -2,7 +2,7 @@
 
 > **Draft, Oct 28, 2026 (Window 4). Version `M9-v4`.** **Approved Oct 29, 10:36 PM (the tracker's clock) by Claude under Rene's delegation (PDF item 10).** Taglish polish may follow at M20, and any change makes a new version. (Approved text: `fe5e4da`.)
 >
-> This replaces the draft message in `docs/data/set-a-collection-guide.md`, which said "faces blurred first" without its limits and left out what Meta keeps. Rene sends it, adapts it and approves every line (M9, M21). The Taglish version is a draft for his M20 review.
+> This replaces the draft message in `docs/data/set-a-collection-guide.md`, which said "faces blurred first" without its limits and left out what Meta keeps. Rene sends it, adapts it and approves every line (M9, M21). The Taglish version was approved with the English; M20 polish may follow.
 >
 > **Records:** keep each donor's reply (a screenshot is fine) next to their photo, with who appears in it, who took it, and where and when it was taken (design §12, C18). Note the version (`M9-v4`) the reply answered, so MS2's intake can record it.
 >
@@ -37,18 +37,18 @@ If you agree, please reply: "Yes, you may use it for all four." You can say no, 
 
 ---
 
-## Taglish (draft for M20; not for use until Rene approves it)
+## Taglish (approved Oct 29, 10:36 PM by the tracker's clock, by Claude under Rene's delegation; M20 polish may follow)
 
-- *Taglish draft (M20):* Hi [name]! Gumagawa ako ng Lusot, isang flood-depth app, para sa Meta Global AI Developer Hackathon. Puwede ko bang gamitin ang [photo / video] mo ng baha sa [lugar], [petsa]? Ikaw ba mismo ang kumuha nito? Kung hindi, sino?
-- *Taglish draft (M20):* Kung papayag ka, gagamitin ko ito sa apat na paraang ito:
-1. *Taglish draft (M20):* **Susuriin ito ng AI service ng Meta,** isang beses sa simula, at ulit tuwing pinapatakbo ito ng app bilang sample.
-   - *Taglish draft (M20):* Awtomatikong bina-blur muna ang mga mukha, pero puwedeng hindi ma-blur ng automatic blurring ang ilang mukha: napakaliit, nakatagilid, may takip, o nasa dilim.
-   - *Taglish draft (M20):* Hindi naka-blur ang plate number bago ito matanggap ng Meta.
-   - *Taglish draft (M20):* Puwedeng i-save ng Meta ang natatanggap nito nang walang takdang tagal, at habang hackathon credits ko ang nagbabayad sa analysis, puwede itong gamitin ng Meta para pagandahin ang mga produkto nito.
-   - *Taglish draft (M20):* Puwede akong tulungan ng isang AI assistant (Claude, ng Anthropic) na suriin ito, kaya puwede rin itong matanggap ng Anthropic, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check.
-2. *Taglish draft (M20):* **Ipapakita ito sa Lusot app,** bilang sample at bilang demo pin na may label, hangga't tumatakbo ang app, naka-blur ang mga mukha at plate number.
-3. *Taglish draft (M20):* **Gagamitin ito sa demo video ko at sa isang post sa X,** naka-blur din sa parehong paraan.
-4. *Taglish draft (M20):* **Isa-submit ko ito sa hackathon.** Magkakaroon ang mga organizer, ang kanilang mga subsidiary, agent at partner company ng perpetual, irrevocable, worldwide, royalty-free at non-exclusive na lisensya na gamitin ang mga na-submit para sa anumang layunin, kasama ang marketing.
-- *Taglish draft (M20):* Bina-blur ang mga mukha at plate number bago ipakita ang kahit ano, pero puwedeng may hindi ma-blur ng automatic blurring. Tinitingnan ko muna ang bawat isa bago ipakita.
-- *Taglish draft (M20):* Sino ang nasa photo, at pumayag din ba sila? Saan mismo, at anong oras ito kinunan?
-- *Taglish draft (M20):* Kung papayag ka, paki-reply ng: "Oo, puwede mong gamitin ito para sa apat na iyon." Puwede kang tumanggi, o bawiin ang pagpayag mo anumang oras bago ang Nov 3. Pagkalipas ng Nov 3, puwede ko pang alisin ang sample at ang demo pin, pero hindi na ang video, ang post o ang na-submit na kopya. Kapag binawi mo, hindi na nito mababawi ang mga kopyang hawak na ng Meta.
+- *Taglish:* Hi [name]! Gumagawa ako ng Lusot, isang flood-depth app, para sa Meta Global AI Developer Hackathon. Puwede ko bang gamitin ang [photo / video] mo ng baha sa [lugar], [petsa]? Ikaw ba mismo ang kumuha nito? Kung hindi, sino?
+- *Taglish:* Kung papayag ka, gagamitin ko ito sa apat na paraang ito:
+1. *Taglish:* **Susuriin ito ng AI service ng Meta,** isang beses sa simula, at ulit tuwing pinapatakbo ito ng app bilang sample.
+   - *Taglish:* Awtomatikong bina-blur muna ang mga mukha, pero puwedeng hindi ma-blur ng automatic blurring ang ilang mukha: napakaliit, nakatagilid, may takip, o nasa dilim.
+   - *Taglish:* Hindi naka-blur ang plate number bago ito matanggap ng Meta.
+   - *Taglish:* Puwedeng i-save ng Meta ang natatanggap nito nang walang takdang tagal, at habang hackathon credits ko ang nagbabayad sa analysis, puwede itong gamitin ng Meta para pagandahin ang mga produkto nito.
+   - *Taglish:* Puwede akong tulungan ng isang AI assistant (Claude, ng Anthropic) na suriin ito, kaya puwede rin itong matanggap ng Anthropic, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check.
+2. *Taglish:* **Ipapakita ito sa Lusot app,** bilang sample at bilang demo pin na may label, hangga't tumatakbo ang app, naka-blur ang mga mukha at plate number.
+3. *Taglish:* **Gagamitin ito sa demo video ko at sa isang post sa X,** naka-blur din sa parehong paraan.
+4. *Taglish:* **Isa-submit ko ito sa hackathon.** Magkakaroon ang mga organizer, ang kanilang mga subsidiary, agent at partner company ng perpetual, irrevocable, worldwide, royalty-free at non-exclusive na lisensya na gamitin ang mga na-submit para sa anumang layunin, kasama ang marketing.
+- *Taglish:* Bina-blur ang mga mukha at plate number bago ipakita ang kahit ano, pero puwedeng may hindi ma-blur ng automatic blurring. Tinitingnan ko muna ang bawat isa bago ipakita.
+- *Taglish:* Sino ang nasa photo, at pumayag din ba sila? Saan mismo, at anong oras ito kinunan?
+- *Taglish:* Kung papayag ka, paki-reply ng: "Oo, puwede mong gamitin ito para sa apat na iyon." Puwede kang tumanggi, o bawiin ang pagpayag mo anumang oras bago ang Nov 3. Pagkalipas ng Nov 3, puwede ko pang alisin ang sample at ang demo pin, pero hindi na ang video, ang post o ang na-submit na kopya. Kapag binawi mo, hindi na nito mababawi ang mga kopyang hawak na ng Meta.

@@ -829,6 +829,7 @@ Still open: `w4-independent` isn't merged, and `main` is `98e8266` (Oct 29, 9:07
   - pytest, if its row doesn't already cover this use, with what it brings: colorama, iniconfig, packaging, pluggy and Pygments
   - `actions/setup-python`, if CI adds it
 - [ ] Add `eval/**/review.csv` and `.playwright-mcp/` to `.gitignore`. `review.csv` holds Rene's notes, and Task 7's chart check used the Playwright plugin.
+- [ ] `review.csv` gains the blank `claude_check` column before `rene_verdict` (spec C426, Rene's rule of Oct 29: Claude annotates first, then he reviews), with its test and the fixture's rebuild; until then the harness writes the old column set.
 - [ ] Record the changes on the board and in the day's log.
 
 ## When `eval/rules.md` becomes v0.7 (the same commit as the rules change)

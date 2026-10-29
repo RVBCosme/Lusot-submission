@@ -6,7 +6,7 @@
 > - **Set B (M10):** for the owners of the parked cars Rene photographs
 > - **M11:** for the drivers whose jeepney, tricycle, bus, Hilux or Tamaraw tire sidewall he photographs
 >
-> MS2's intake records who gave each OK. Rene sends them, adapts them and approves every line (M21). The Taglish versions are drafts for his M20 review. This draft is information, not legal advice.
+> MS2's intake records who gave each OK. Rene sends them, adapts them and approves every line (M21). The Taglish versions were approved with the English; M20 polish may follow. This draft is information, not legal advice.
 >
 > Two facts behind the wording:
 > - **Claude sees some of these photos.** MS2's draft plan has Claude review Set B's development overlays (its C213) and read each M11 tire code from its photo (its §5.8). So the texts say that Anthropic, which runs Claude, receives them. Set B's final cars are sealed, and Claude never sees them.
@@ -29,14 +29,14 @@ Hi [name]! For my flood-depth app Lusot, built for the Meta Global AI Developer 
 
 If that's OK, please reply: "Yes, you may use the photos of my car for Lusot's tests."
 
-### Taglish (draft for M20; not for use until Rene approves it)
+### Taglish (approved Oct 29, 10:36 PM by the tracker's clock, by Claude under Rene's delegation; M20 polish may follow)
 
-- *Taglish draft (M20):* Hi [name]! Para sa flood-depth app kong Lusot, na ginawa para sa Meta Global AI Developer Hackathon, puwede ko bang kunan ng photo ang nakaparada mong sasakyan mula sa gilid, sa araw, pati ang tire code sa gilid ng gulong nito? Gagamitin ko lang ang mga photo para i-test kung gaano kahusay sumukat ng lalim ang Lusot mula sa mga gulong.
-- *Taglish draft (M20):* Hindi ko isasama ang mga tao sa photo. Awtomatikong bina-blur ang mga mukha bago matanggap ng Meta ang photo, pero puwedeng may hindi ma-blur ng automatic blurring.
-- *Taglish draft (M20):* Makikita ang plate number mo. Mapupunta ang mga photo sa AI service ng Meta, na binabayaran ng hackathon credits ko, para i-outline ang mga gulong. Puwedeng i-save ng Meta ang mga ito nang walang takdang tagal, at puwedeng gamitin para pagandahin ang mga produkto nito.
-- *Taglish draft (M20):* Tinutulungan ako ng isang AI assistant (Claude, ng Anthropic) na suriin ang mga photo, kaya matatanggap din ng Anthropic ang ilan sa mga ito, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check.
-- *Taglish draft (M20):* Itinatago ko nang pribado ang mga photo. Hindi sila lalabas sa app, sa demo video o sa code repository, at buburahin ko ang mga kopya ko bago ang [petsa, pagkatapos burahin ang sealed test archive].
-- *Taglish draft (M20):* Kung OK sa iyo, paki-reply ng: "Oo, puwede mong gamitin ang mga photo ng sasakyan ko para sa mga test ng Lusot."
+- *Taglish:* Hi [name]! Para sa flood-depth app kong Lusot, na ginawa para sa Meta Global AI Developer Hackathon, puwede ko bang kunan ng photo ang nakaparada mong sasakyan mula sa gilid, sa araw, pati ang tire code sa gilid ng gulong nito? Gagamitin ko lang ang mga photo para i-test kung gaano kahusay sumukat ng lalim ang Lusot mula sa mga gulong.
+- *Taglish:* Hindi ko isasama ang mga tao sa photo. Awtomatikong bina-blur ang mga mukha bago matanggap ng Meta ang photo, pero puwedeng may hindi ma-blur ng automatic blurring.
+- *Taglish:* Makikita ang plate number mo. Mapupunta ang mga photo sa AI service ng Meta, na binabayaran ng hackathon credits ko, para i-outline ang mga gulong. Puwedeng i-save ng Meta ang mga ito nang walang takdang tagal, at puwedeng gamitin para pagandahin ang mga produkto nito.
+- *Taglish:* Tinutulungan ako ng isang AI assistant (Claude, ng Anthropic) na suriin ang mga photo, kaya matatanggap din ng Anthropic ang ilan sa mga ito, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check.
+- *Taglish:* Itinatago ko nang pribado ang mga photo. Hindi sila lalabas sa app, sa demo video o sa code repository, at buburahin ko ang mga kopya ko bago ang [petsa, pagkatapos burahin ang sealed test archive].
+- *Taglish:* Kung OK sa iyo, paki-reply ng: "Oo, puwede mong gamitin ang mga photo ng sasakyan ko para sa mga test ng Lusot."
 
 ---
 
@@ -51,9 +51,9 @@ Hi [name]! For my flood-depth app Lusot, may I take a close-up photo of your [je
 
 If that's OK, please reply: "Yes, you may photograph my tire for Lusot."
 
-### Taglish (draft for M20; not for use until Rene approves it)
+### Taglish (approved Oct 29, 10:36 PM by the tracker's clock, by Claude under Rene's delegation; M20 polish may follow)
 
-- *Taglish draft (M20):* Hi [name]! Para sa flood-depth app kong Lusot, puwede ko bang kunan ng close-up na photo ang gilid ng gulong ng [jeepney / tricycle / bus / sasakyan] mo, para mabasa ang size code nito? Hindi kita at ang ibang tao isasama sa photo.
-- *Taglish draft (M20):* Tinutulungan ako ng isang AI assistant (Claude, ng Anthropic) na basahin ang code, kaya matatanggap ng Anthropic ang photo, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check.
-- *Taglish draft (M20):* Itinatago ko nang pribado ang photo, at buburahin ko ito bago ang [petsa]. Hindi ito lalabas sa app, sa demo video o sa code repository. Ang tire size lang ang mapupunta sa listahan ng Lusot ng mga tire size.
-- *Taglish draft (M20):* Kung OK sa iyo, paki-reply ng: "Oo, puwede mong kunan ng photo ang gulong ko para sa Lusot."
+- *Taglish:* Hi [name]! Para sa flood-depth app kong Lusot, puwede ko bang kunan ng close-up na photo ang gilid ng gulong ng [jeepney / tricycle / bus / sasakyan] mo, para mabasa ang size code nito? Hindi kita at ang ibang tao isasama sa photo.
+- *Taglish:* Tinutulungan ako ng isang AI assistant (Claude, ng Anthropic) na basahin ang code, kaya matatanggap ng Anthropic ang photo, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check.
+- *Taglish:* Itinatago ko nang pribado ang photo, at buburahin ko ito bago ang [petsa]. Hindi ito lalabas sa app, sa demo video o sa code repository. Ang tire size lang ang mapupunta sa listahan ng Lusot ng mga tire size.
+- *Taglish:* Kung OK sa iyo, paki-reply ng: "Oo, puwede mong kunan ng photo ang gulong ko para sa Lusot."
