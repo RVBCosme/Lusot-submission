@@ -1127,7 +1127,14 @@ GEOMETRY_LOG_KEYS = {
     "depth_in",
 }
 # Names only the evidence record uses (C328)
-EVIDENCE_KEYS = {"evidence", "outline", "water_outline", "rechecked"}
+EVIDENCE_KEYS = {
+    "evidence",
+    "outline",
+    "water_outline",
+    "rim_outline",
+    "inches",
+    "rechecked",
+}
 
 
 def all_keys(value: object) -> set[str]:

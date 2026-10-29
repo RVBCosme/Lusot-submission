@@ -866,12 +866,29 @@ def parser_reached():
 
 
 @pytest.mark.parametrize(
-    "size",
-    ["335,320", "334,321", "100000,100000"],
-    ids=["a-row-too-tall", "a-column-too-wide", "far-too-large"],
+    "data",
+    [
+        "data=335,320",
+        "data=334,321",
+        "data=100000,100000",
+        # The parser trims JavaScript's whitespace, U+FEFF among it, from keys and
+        # values, so these claim 335 rows to it too
+        "data=﻿335,320",
+        "﻿data=335,320",
+        # Past Python's 4,300-digit limit for int()
+        "data=" + "1" * 5000 + ",320",
+    ],
+    ids=[
+        "a-row-too-tall",
+        "a-column-too-wide",
+        "far-too-large",
+        "bom-before-the-value",
+        "bom-before-the-key",
+        "past-the-int-digit-limit",
+    ],
 )
 def test_segment_mask_larger_than_the_image_raises_before_parsing(
-    photo, monkeypatch, size
+    photo, monkeypatch, data
 ):
     # C330: meta-sam-parser allocates rows x columns bytes from the size SAM claims,
     # while it reads the mask, so a size larger than the 320 x 334 photo is refused
@@ -879,7 +896,7 @@ def test_segment_mask_larger_than_the_image_raises_before_parsing(
     monkeypatch.setattr(meta_client, "image_segmentation_format", parser_reached)
     text = (
         "<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|>"
-        f"<|mask;x=0;y=0;data={size},!!!!!(QO(0lu8?|>\n"
+        f"<|mask;x=0;y=0;{data},!!!!!(QO(0lu8?|>\n"
     )
     meta = FakeMeta(sam_stream(text))
     c, _ = client(meta)
@@ -900,6 +917,32 @@ def test_segment_mask_at_the_image_size_passes_the_size_check(photo):
     assert instance.box == (0.0, 0.0, 320.0, 334.0)
     assert instance.mask.shape == (334, 320)
     assert instance.mask.all()
+
+
+@pytest.mark.parametrize(
+    "fields", ["x=0;y=0;data=abc", "x=0;y=0"], ids=["not-a-size", "no-data"]
+)
+def test_segment_mask_with_no_size_is_left_to_the_parser(photo, fields):
+    # A `data` that doesn't start with two integers, or none at all, gets past the
+    # size check, and the parser reports the record.
+    text = f"<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|><|mask;{fields}|>\n"
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError, match="SAM's output couldn't be read") as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+def test_segment_reads_a_frame_trimmed_as_the_parser_trims_it(photo):
+    # The parser accepts a frame width written with U+FEFF before it, and the frame
+    # check reads it the same way, as 320.
+    raster = np.ones((4, 4), np.uint8)
+    text = mask_text((10, 20, 13, 23), raster, (320, 334)).replace("w=", "w=﻿")
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(photo, "wheel").instances
+    assert instance.box == (10.0, 20.0, 14.0, 24.0)
 
 
 def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):

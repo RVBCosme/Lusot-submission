@@ -33,6 +33,12 @@ from meta_sam_parser import (
     image_segmentation_format,
 )
 
+# The parser's own field trim, which strips JavaScript's whitespace, U+FEFF among it,
+# so the size and frame checks read each field as the parser does and can't drift
+# from it (C330). It is private, and uv.lock pins meta-sam-parser at 0.1.0: an
+# upgrade that renames it fails at import, never silently.
+from meta_sam_parser._segmentation import _trim
+
 from lusot_analysis.face_blur import BlurredImage
 
 BASE_URL = "https://api.meta.ai/v1"
@@ -719,10 +725,12 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
     A mask whose claimed size is taller or wider than the image raises MetaApiError
     before the parser runs, since the parser allocates that size as it reads (C330).
     """
-    # A `data` that doesn't start with two integers is left for the parser to report.
     for body in _MASK_TOKEN.findall(text):
         size = _MASK_SIZE.match(_token_fields(body).get("data", ""))
-        if size and (int(size[1]) > image.height or int(size[2]) > image.width):
+        if size is None:  # not two integers: left for the parser to report
+            continue
+        rows, columns = size.groups()
+        if _larger_than(rows, image.height) or _larger_than(columns, image.width):
             raise MetaApiError("a SAM mask is larger than the image")
     parser = image_segmentation_format().create_parser()
     parser.push(text)
@@ -757,6 +765,16 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
             SamInstance(int(record.object_id), box, mask, record.confidence)
         )
     return instances
+
+
+def _larger_than(digits: str, side: int) -> bool:
+    """True when the ASCII decimal `digits` claim more than `side` (C330).
+
+    Digits longer than the side's own count as larger without int(), so a size past
+    Python's 4,300-digit limit for int() is refused, never a ValueError. A size
+    padded with leading zeros to that length is refused too.
+    """
+    return len(digits) > len(str(side)) or int(digits) > side
 
 
 def _scaled_down(size: tuple[int, int], box: tuple[int, int]) -> bool:
@@ -797,12 +815,15 @@ def _upscaled(crop: np.ndarray, size: tuple[int, int]) -> np.ndarray:
 
 
 def _token_fields(body: str) -> dict[str, str]:
-    """A token's `key=value` fields by name, trimmed, as SAM's protocol reads them."""
+    """A token's `key=value` fields by name, trimmed by the parser's own _trim.
+
+    So a key or value reads here exactly as meta-sam-parser reads it (C330).
+    """
     fields = {}
     for field in body.split(";"):
         key, sep, value = field.partition("=")
         if sep:
-            fields[key.strip()] = value.strip()
+            fields[_trim(key)] = _trim(value)
     return fields
 
 
