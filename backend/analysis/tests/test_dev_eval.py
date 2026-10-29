@@ -532,19 +532,27 @@ def test_export_refuses_bad_paths(tmp_path, monkeypatch, capsys, harness):
     assert tool.main(export_argv(data, elsewhere), tuning=START) == 2
     assert capsys.readouterr().out == "refused: --out must lie under the data folder\n"
     assert not elsewhere.exists()
-    # A manifest photo under a folder named sealed: refused before any photo is
-    # read, and nothing is made. No photo is written there: only the manifest
-    # names it.
+    # A manifest photo is one bare name (M6), so a path into a folder named sealed is
+    # refused with the manifest; a photo named sealed is refused by the sealed guard,
+    # before any photo is read. Nothing is made, and no photo is written there: only
+    # the manifest names it.
     data = write_data(tmp_path / "other")
-    data.rows["A001"]["photo_file"] = "../../sealed/A001.jpg"
-    rows = [data.rows[photo_id] for photo_id in ("A001", "A002")]
-    data.set_a.write_text(csv_text(MANIFEST_COLUMNS, rows), encoding="utf-8")
     monkeypatch.setenv("LUSOT_DATA_DIR", str(data.root))
     out = data.root / "results" / "x"
-    assert tool.main(export_argv(data, out), tuning=START) == 2
-    assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
-    assert not out.exists()
-    assert not (data.root / "set_a" / "sealed").exists()
+    for photo_file, printed in (
+        (
+            "../../sealed/A001.jpg",
+            "invalid: manifest row 1: photo_file must be one name, with no folder",
+        ),
+        ("sealed", "refused: path inside a folder named sealed"),
+    ):
+        data.rows["A001"]["photo_file"] = photo_file
+        rows = [data.rows[photo_id] for photo_id in ("A001", "A002")]
+        data.set_a.write_text(csv_text(MANIFEST_COLUMNS, rows), encoding="utf-8")
+        assert tool.main(export_argv(data, out), tuning=START) == 2
+        assert capsys.readouterr().out == printed + "\n"
+        assert not out.exists()
+        assert not (data.root / "set_a" / "sealed").exists()
     # --out under the runs folder, beside the raw outputs.
     beside = data.root / "runs" / "results"
     assert tool.main(export_argv(data, beside), tuning=START) == 2
@@ -602,20 +610,29 @@ def test_a_folder_that_only_holds_sealed_is_allowed(tmp_path, monkeypatch, harne
 
 
 def test_run_folders_are_checked_for_sealed(tmp_path, monkeypatch, capsys, harness):
-    # A photo id that leads its run folder into a folder named sealed is refused
-    # before that folder is looked at, by run and by export (C66).
+    # A photo id is one bare name (M6), so one that leads its run folder out of
+    # runs/dev/ is refused with the manifest. One named sealed makes a run folder named
+    # sealed, which is refused before that folder is looked at, by run and by export
+    # (C66).
     data = write_data(tmp_path, set_a=("A001",), a_neg=("N001",))
     record_all(monkeypatch, data)
-    data.rows["A001"]["photo_id"] = "../../../../sealed/A001"
-    data.set_a.write_text(
-        csv_text(MANIFEST_COLUMNS, [data.rows["A001"]]), encoding="utf-8"
-    )
-    for argv in (
-        ["run", "--manifest", str(data.set_a), "--yes"],
-        export_argv(data, data.root / "results" / "x"),
+    for photo_id, printed in (
+        (
+            "../../../../sealed/A001",
+            "invalid: manifest row 1: photo_id must be one name, with no folder",
+        ),
+        ("sealed", "refused: path inside a folder named sealed"),
     ):
-        assert tool.main(argv, tuning=START) == 2
-        assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
+        data.rows["A001"]["photo_id"] = photo_id
+        data.set_a.write_text(
+            csv_text(MANIFEST_COLUMNS, [data.rows["A001"]]), encoding="utf-8"
+        )
+        for argv in (
+            ["run", "--manifest", str(data.set_a), "--yes"],
+            export_argv(data, data.root / "results" / "x"),
+        ):
+            assert tool.main(argv, tuning=START) == 2
+            assert capsys.readouterr().out == printed + "\n"
     assert not (data.root / "sealed").exists()
     assert not (data.root / "results").exists()
 
@@ -652,6 +669,55 @@ def test_export_without_the_harness_waits_for_set_a(tmp_path, monkeypatch, capsy
     assert tool.main(export_argv(data, stale), tuning=START) == 2
     assert "earlier export's set_a.jsonl" in capsys.readouterr().out
     assert sorted(path.name for path in stale.iterdir()) == ["set_a.jsonl"]
+
+
+def test_export_refuses_another_exports_rows(tmp_path, monkeypatch, capsys, harness):
+    # A Set B export's folder holds rows the harness would score under this run.json,
+    # so it is refused, with nothing rewritten (M4).
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    other = data.root / "results" / "set-b"
+    other.mkdir(parents=True)
+    (other / "set_b.jsonl").write_text("{}\n", encoding="utf-8")
+    assert tool.main(export_argv(data, other), tuning=START) == 2
+    assert (
+        capsys.readouterr().out
+        == "refused: --out holds another export's rows: use a new folder\n"
+    )
+    assert sorted(path.name for path in other.iterdir()) == ["set_b.jsonl"]
+    # The same holds when the Set A rows wait for the harness (R133).
+    monkeypatch.setattr(tool, "RUN_EVAL", tmp_path / "missing" / "eval" / "run_eval.py")
+    assert tool.main(export_argv(data, other), tuning=START) == 2
+    assert "another export's rows" in capsys.readouterr().out
+    assert sorted(path.name for path in other.iterdir()) == ["set_b.jsonl"]
+
+
+def test_export_into_its_own_folder_again_rewrites_it(
+    tmp_path, monkeypatch, capsys, harness
+):
+    # A re-export rewrites every file it finds, so it is allowed (M4).
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    out = data.root / "results" / "again"
+    for _ in range(2):
+        assert tool.main(export_argv(data, out), tuning=START) == 0
+    assert sorted(path.name for path in out.iterdir()) == [
+        "a_neg.jsonl",
+        "run.json",
+        "set_a.jsonl",
+    ]
+    capsys.readouterr()
+    # Without the harness the Set A rows wait, and a re-export still rewrites the
+    # a_neg.jsonl and run.json it finds.
+    monkeypatch.setattr(tool, "RUN_EVAL", tmp_path / "missing" / "eval" / "run_eval.py")
+    waiting = data.root / "results" / "waiting-again"
+    for _ in range(2):
+        assert tool.main(export_argv(data, waiting), tuning=START) == 2
+        assert "waiting:" in capsys.readouterr().out
+    assert sorted(path.name for path in waiting.iterdir()) == [
+        "a_neg.jsonl",
+        "run.json",
+    ]
 
 
 def test_set_records_its_cutoffs(tmp_path, monkeypatch, harness):

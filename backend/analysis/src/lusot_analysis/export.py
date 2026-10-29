@@ -166,8 +166,9 @@ _ESTIMATE_NUMBERS = ("depthInPoint", "depthInMin", "depthInMax")
 # wheel, 1 the leftmost.
 _ID = re.compile("[A-Z]{1,3}[0-9]{1,4}(?:-[0-9]{1,3}){0,2}")
 _WHEELS = ("1", "2")
-# A bare file name in the crops folder: no separator, no ":", which names an NTFS
-# stream, and no trailing dot, which Windows strips (R156). ".." is refused apart.
+# A bare name, for a crop_file and for a manifest's photo_id, set and photo_file: no
+# separator, no ":", which names an NTFS stream, and no trailing dot, which Windows
+# strips (R156). ".." is refused apart.
 _FILE_NAME = re.compile("[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?")
 # A tire code as MS2's tires.parse_tire_code reads a sidewall's: any case, an
 # optional P or LT, spaces around the R, an optional Z before it, a C suffix, and
@@ -191,7 +192,8 @@ class InputError(ValueError):
 def parse_manifest(text: str) -> list[dict]:
     """MS2's manifest.csv, from its text: one dict per row, in file order.
 
-    A byte-order mark is dropped. photo_id, set and photo_file must be filled in,
+    A byte-order mark is dropped. photo_id, set and photo_file must be filled in, each
+    one bare name that leads no path out of the folder it is joined to (M6).
     photo_id must be unique, and a Set A row (set A) needs its event_id; other
     manifests, such as Task 16's for Set C, may leave it out (P10).
     """
@@ -205,6 +207,10 @@ def parse_manifest(text: str) -> list[dict]:
         for column in _MANIFEST_NEEDS:
             if not row[column]:
                 raise InputError(f"manifest row {number} has no {column}")
+            if not _FILE_NAME.fullmatch(row[column]) or ".." in row[column]:
+                raise InputError(
+                    f"manifest row {number}: {column} must be one name, with no folder"
+                )
         if row["photo_id"] in seen:
             raise InputError(
                 f"manifest row {number}: photo_id repeats an earlier row's"

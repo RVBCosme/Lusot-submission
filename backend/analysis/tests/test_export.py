@@ -451,6 +451,33 @@ def test_labels_match_the_harness():
     assert verdicts == [stays for _, stays in LABELS]
 
 
+@pytest.mark.parametrize(
+    ("row", "column"),
+    [
+        ("../x,C,c1.jpg", "photo_id"),
+        ("C001,A/B,c1.jpg", "set"),
+        ("C001,C,sub\\p.jpg", "photo_file"),
+        ("C001,C,C:p.jpg", "photo_file"),
+        ("C001,C,p.", "photo_file"),
+        ("C001,C,a..b.jpg", "photo_file"),
+    ],
+)
+def test_a_manifest_row_names_its_files_with_bare_names(row, column):
+    # M6: no cell may lead a path out of the folder it is joined to, so the check
+    # runs before any path is built, and the message names the row and the column but
+    # never the cell's text.
+    with pytest.raises(export.InputError) as raised:
+        export.parse_manifest(f"photo_id,set,photo_file\n{row}\n")
+    assert str(raised.value) == (
+        f"manifest row 1: {column} must be one name, with no folder"
+    )
+    # A normal row still parses.
+    text = "photo_id,set,photo_file\nA001,A-neg,p_01.jpg\n"
+    assert export.parse_manifest(text) == [
+        {"photo_id": "A001", "set": "A-neg", "photo_file": "p_01.jpg"}
+    ]
+
+
 def test_parsers_take_text_not_paths():
     # Task 19 reads the sealed files itself, after its own guard, and hands their
     # text to these: no path and no guard here.

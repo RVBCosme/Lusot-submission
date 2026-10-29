@@ -39,7 +39,8 @@ Run from backend/analysis:
 path given is refused when it lies inside a folder named sealed, as is every photo a
 manifest names and every run folder (C66). run's data folder must lie outside the
 repo (R131). export's --out must lie under the data folder, outside its runs/ folder
-and outside the repo, so no row is written into the repo or beside the raw outputs.
+and outside the repo, so no row is written into the repo or beside the raw outputs. It
+holds no set_b.jsonl, and no set_a.jsonl or a_neg.jsonl that this export won't rewrite.
 --runs and --sam-from are single folder names. Nothing printed holds a photo's name,
 a path, a label, an answer or a key, and every line masks runs of 12 digits.
 
@@ -249,9 +250,13 @@ def export_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
     words = label_words() if sides["set_a"] else frozenset()
     if words is None:  # R133: the Set A rows wait for the harness
         del sides["set_a"]
-        # An earlier export's Set A rows would be scored beside this run.json.
-        if (args.out / "set_a.jsonl").exists():
-            _refuse("--out holds an earlier export's set_a.jsonl: use a new folder")
+    # Rows this export leaves in place would be scored beside its run.json: another
+    # export's, or an earlier export's Set A or A-neg rows that it won't rewrite.
+    if (args.out / "set_b.jsonl").exists():
+        _refuse("--out holds another export's rows: use a new folder")
+    for name in ("set_a", "a_neg"):
+        if name not in sides and (args.out / f"{name}.jsonl").exists():
+            _refuse(f"--out holds an earlier export's {name}.jsonl: use a new folder")
     if not any(sides.values()):
         if words is None:
             return _waiting()
