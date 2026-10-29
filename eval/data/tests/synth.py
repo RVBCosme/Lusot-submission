@@ -234,6 +234,49 @@ def split_inputs(root: Path) -> dict[str, Path]:
     return paths
 
 
+def car_row(**cells: str) -> dict[str, str]:
+    """A row of Set B's cars.csv that passes every check on the development side: car
+    B01's first photo, a side view of a sedan with a 175/65R14 tire, whose owner's OK,
+    on the approved text SETB-v1, lies beside cars.csv as b01-ok.png (C218).
+
+    Each keyword sets one cell. photo_file and consent_file follow car_id unless they
+    are given.
+    """
+    car = cells.get("car_id", "B01")
+    row = {
+        "car_id": car,
+        "photo_file": f"{car}-1.jpg",
+        "model": "Toyota Vios",
+        "vehicle_type": "sedan_hatch",
+        "tire_code": "175/65R14",
+        "view": "side",
+        "taken_on": "2026-10-29",
+        "consent_file": f"{car.lower()}-ok.png",
+        "consent_version": "SETB-v1",
+        "notes": "",
+    }
+    row.update(cells)
+    return row
+
+
+def set_b_cars(folder: Path, rows: Sequence[Mapping[str, str]]) -> Path:
+    """Write the rows as folder/cars.csv, and an owner's OK for each consent_file they
+    name, at its path relative to cars.csv, so a test deletes one to drop its car.
+    Return cars.csv's path. A name that could lead outside the folder raises
+    AssertionError before anything is written: a test of such names writes its
+    cars.csv with write_csv."""
+    names = {row["consent_file"] for row in rows if row["consent_file"]}
+    for name in names:
+        parts = name.replace("\\", "/").split("/")
+        assert ":" not in name and ".." not in parts and parts[0], "consent path"
+    cars = write_csv(folder / "cars.csv", formats.CARS_COLUMNS, rows)
+    for name in names:
+        consent = folder / name
+        consent.parent.mkdir(parents=True, exist_ok=True)
+        consent.write_bytes(b"a synthetic owner's OK")
+    return cars
+
+
 def ellipse_mask(
     shape: tuple[int, int], centre: tuple[float, float], half_h: float, half_w: float
 ) -> np.ndarray:
