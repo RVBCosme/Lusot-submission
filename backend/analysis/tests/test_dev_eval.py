@@ -563,6 +563,44 @@ def test_export_refuses_bad_paths(tmp_path, monkeypatch, capsys, harness):
     assert not out.exists()
 
 
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ("sealed.",),
+        ("sealed ",),
+        ("SEALED. .",),
+        ("sealed::$INDEX_ALLOCATION",),
+        ("x", "Sealed..", "y"),
+    ],
+    ids=["dot", "space", "dots-and-spaces", "stream", "inside"],
+)
+def test_sealed_spelled_the_windows_way_is_refused(
+    tmp_path, monkeypatch, capsys, harness, parts
+):
+    # R156: Windows strips a name's trailing dots and spaces, and reads a part's
+    # name before any ":" (an NTFS stream), so each --out opens a folder named
+    # sealed. Refused before anything is read, and nothing is made.
+    data = write_data(tmp_path, set_a=("A001",), a_neg=())
+    out = data.root.joinpath(*parts, "results")
+    assert tool.main(export_argv(data, out), tuning=START) == 2
+    assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
+    assert sorted(path.name for path in data.root.iterdir()) == ["a_neg", "set_a"]
+    # A settings name can't end in a dot, or hold a ":", either.
+    for name in ("default_boxes-v1.", "x.", "sealed::$INDEX_ALLOCATION", "x:y"):
+        with pytest.raises(SystemExit) as exc:
+            tool.main(export_argv(data, out, "--runs", name), tuning=START)
+        assert exc.value.code == 2
+
+
+def test_a_folder_that_only_holds_sealed_is_allowed(tmp_path, monkeypatch, harness):
+    data = write_data(tmp_path, set_a=("A001",), a_neg=())
+    record_all(monkeypatch, data)
+    for name in ("sealedx", "unsealed"):
+        out = data.root / "results" / name
+        assert tool.main(export_argv(data, out), tuning=START) == 0
+        assert (out / "set_a.jsonl").is_file()
+
+
 def test_run_folders_are_checked_for_sealed(tmp_path, monkeypatch, capsys, harness):
     # A photo id that leads its run folder into a folder named sealed is refused
     # before that folder is looked at, by run and by export (C66).

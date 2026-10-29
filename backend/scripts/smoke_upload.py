@@ -394,11 +394,18 @@ def refuse_sealed(path: Path) -> None:
 
     The offline runner's rule, run before the path is opened or listed: the path is
     checked first as written, made absolute, so a path that names the folder never
-    reaches the disk, then resolved, so `..` and links can't hide the folder.
+    reaches the disk, then resolved, so `..` and links can't hide the folder. Each
+    part is read as Windows reads a name: in any case, by its name before any ":",
+    and without trailing dots and spaces. So the NTFS stream
+    `sealed::$INDEX_ALLOCATION`, `sealed.` and `sealed ` all count (R156), as in
+    MS2's is_sealed_name.
     """
 
     def inside(checked: Path) -> bool:
-        return "sealed" in (part.lower() for part in checked.parts)
+        return any(
+            part.split(":", 1)[0].rstrip(". ").casefold() == "sealed"
+            for part in checked.parts
+        )
 
     if inside(path.absolute()) or inside(path.resolve()):
         raise CheckFailed("refused: a path inside a folder named sealed")

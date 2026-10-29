@@ -137,6 +137,47 @@ def test_refuses_paths_inside_sealed_folders(tmp_path, monkeypatch, capsys, part
     runner.refuse_sealed(tmp_path / "unsealed" / "x.jpg")  # a part must equal it
 
 
+# R156: Windows strips a name's trailing dots and spaces, and reads a part's name
+# before any ":" (an NTFS stream), so each of these opens a folder named sealed. The
+# last one is a part inside a path. MS2's is_sealed_name reads them the same way.
+WINDOWS_SEALED = [
+    ("sealed.",),
+    ("sealed ",),
+    ("SEALED. .",),
+    ("sealed::$INDEX_ALLOCATION",),
+    ("x", "Sealed..", "y"),
+]
+
+
+@pytest.mark.parametrize(
+    "parts",
+    WINDOWS_SEALED,
+    ids=["dot", "space", "dots-and-spaces", "stream", "inside"],
+)
+def test_refuses_sealed_spelled_with_trailing_dots_or_spaces(
+    tmp_path, monkeypatch, capsys, parts
+):
+    # None of these exists, and none is made: the refusal comes before anything is
+    # opened, listed or built (C66).
+    path = tmp_path.joinpath(*parts, "x.jpg")
+    with pytest.raises(SystemExit) as exc:
+        runner.refuse_sealed(path)
+    assert exc.value.code == 2
+    monkeypatch.setattr(runner, "make_client", no_client)
+    assert runner.main(["live", str(path)]) == 2
+    out = capsys.readouterr().out
+    assert out.count("refused: path inside a folder named sealed") == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["sealedx", "unsealed", "sealed.d", "x.sealed"])
+def test_a_part_that_only_holds_sealed_is_allowed(tmp_path, name):
+    # A part must be "sealed" once its case, any stream name and its trailing dots
+    # and spaces are set aside; one that merely holds the word is another folder.
+    runner.refuse_sealed(tmp_path / name / "x.jpg")
+    runner.refuse_sealed(tmp_path / "a" / f"{name}." / "x.jpg")
+
+
 class LinkedPath:
     """Stands in for a link: as written it names no sealed folder, but it resolves
     into one. Nothing is made on disk, so no symlink and no sealed folder is needed.

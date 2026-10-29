@@ -122,14 +122,23 @@ def refuse_data_in_repo(data_dir: Path) -> None:
 
 
 def _inside(path: Path, folder: str) -> bool:
-    """True when a part of `path` is `folder`, ignoring case.
+    """True when a part of `path` names `folder` as Windows reads it: in any case, by
+    its name before any ":", and without trailing dots and spaces. So the NTFS stream
+    `sealed::$INDEX_ALLOCATION`, `sealed.` and `sealed ` all count (R156), as in
+    MS2's is_sealed_name (eval/data/guards.py).
 
     The path is checked first as written, made absolute, so a path that names the
     folder never reaches the disk: on Windows, resolving opens what exists of it.
     Then it is checked resolved, so `..` and links can't hide the folder.
     """
-    named = folder in (part.lower() for part in path.absolute().parts)
-    return named or folder in (part.lower() for part in path.resolve().parts)
+
+    def names(checked: Path) -> bool:
+        return any(
+            part.split(":", 1)[0].rstrip(". ").casefold() == folder
+            for part in checked.parts
+        )
+
+    return names(path.absolute()) or names(path.resolve())
 
 
 def make_client() -> MetaClient:

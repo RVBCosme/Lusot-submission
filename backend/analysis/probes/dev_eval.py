@@ -105,8 +105,9 @@ _NUMBERING_DROPS = (
 )
 _TOKEN = re.compile("[a-z][a-z0-9_]{0,31}")
 # A settings folder's name, as settings_name and --repeat make them: one name, with
-# no separator, so --runs and --sam-from can't leave runs/dev/<set>/.
-_FOLDER = re.compile("[A-Za-z0-9_][A-Za-z0-9_.-]*")
+# no separator, so --runs and --sam-from can't leave runs/dev/<set>/; no ":", which
+# names an NTFS stream; and not ending in a dot, which Windows strips (R156).
+_FOLDER = re.compile("[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?")
 _MANILA = timezone(timedelta(hours=8))  # Manila keeps no daylight saving time
 
 

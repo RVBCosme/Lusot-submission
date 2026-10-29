@@ -757,6 +757,29 @@ class LinkedPath:
         return self.resolved
 
 
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ("sealed.",),
+        ("sealed ",),
+        ("SEALED. .",),
+        ("sealed::$INDEX_ALLOCATION",),
+        ("x", "Sealed..", "y"),
+    ],
+    ids=["dot", "space", "dots-and-spaces", "stream", "inside"],
+)
+def test_sealed_spelled_with_trailing_dots_or_spaces_is_refused(tmp_path, parts):
+    # R156: Windows strips a name's trailing dots and spaces, and reads a part's name
+    # before any ":" (an NTFS stream), so each of these opens a folder named sealed,
+    # as MS2's is_sealed_name reads it. None exists, and none is made.
+    with pytest.raises(CheckFailed, match="inside a folder named sealed"):
+        smoke_upload.refuse_sealed(tmp_path.joinpath(*parts, "x.jpg"))
+    assert list(tmp_path.iterdir()) == []
+    # A part that only holds the word is another folder.
+    for name in ("sealedx", "unsealed", "sealedx.", "unsealed "):
+        smoke_upload.refuse_sealed(tmp_path / name / "x.jpg")
+
+
 def test_sealed_paths_are_refused(tmp_path):
     # The offline runner's rule (C66): a part equal to "sealed", in any case, as
     # written or resolved, before anything is opened or listed. None of these exists.
