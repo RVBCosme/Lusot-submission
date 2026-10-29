@@ -1,6 +1,7 @@
 {
   "key": "spend#meta",
   "attribute": "micro_usd",
+  "seeded_attr": "seeded",
   "cases": [
     ["0", 0],
     ["0.0025", 2500],
