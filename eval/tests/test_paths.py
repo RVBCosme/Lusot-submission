@@ -14,8 +14,30 @@ MESSAGE = "path inside a folder named sealed"
 
 @pytest.mark.parametrize(
     "parts",
-    [("sealed",), ("a", "Sealed", "x"), ("sealed", "sub", ".."), ("sealed", "..", "x")],
-    ids=["sealed", "in another case", "inside, then up", "up again, as given"],
+    [
+        ("sealed",),
+        ("a", "Sealed", "x"),
+        ("sealed", "sub", ".."),
+        ("sealed", "..", "x"),
+        # Windows drops a name's trailing dots and spaces, so these open "sealed" (R156).
+        ("sealed.",),
+        ("sealed ", "x"),
+        ("a", "SEALED.", "x"),
+        ("Sealed ..",),
+        # An NTFS stream name after the folder's name opens the folder too.
+        ("sealed::$INDEX_ALLOCATION", "x"),
+    ],
+    ids=[
+        "sealed",
+        "in another case",
+        "inside, then up",
+        "up again, as given",
+        "a trailing dot",
+        "a trailing space",
+        "a trailing dot in capitals",
+        "trailing spaces and dots",
+        "a stream suffix",
+    ],
 )
 def test_refuses_sealed_paths(tmp_path, parts):
     with pytest.raises(SealedPath) as caught:
@@ -29,6 +51,8 @@ def test_allows_other_paths(tmp_path):
     for path in (
         tmp_path / "unsealed" / "x",
         tmp_path / "sealed_notes",
+        tmp_path / "sealedx",
+        tmp_path / "sealed.txt",
         tmp_path / "final",
     ):
         refuse_sealed(path)
