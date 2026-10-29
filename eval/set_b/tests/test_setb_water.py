@@ -3,6 +3,7 @@ muddy water, with ripples and the scene mirrored about the line, and every pixel
 it is the photo's own."""
 
 import numpy as np
+import pytest
 import record_io
 import water
 
@@ -107,6 +108,14 @@ def test_the_scene_is_mirrored_about_the_line():
         assert moved.tolist() == [[29 - j, 40], [30 + j, 40]]
     other, _ = water.composite(scene(2), rows, np.random.default_rng(5))
     assert np.array_equal(out[60:], other[60:])
+
+
+def test_rows_must_match_the_width():
+    """M-1: rows of any shape but (width,) raise ValueError, never broadcast."""
+    for shape in (1, SHAPE[1] - 1, SHAPE[1] + 1, (1, SHAPE[1])):
+        rows = np.full(shape, 50, np.int64)
+        with pytest.raises(ValueError):
+            water.composite(scene(1), rows, np.random.default_rng(5))
 
 
 def test_generator_version_passes_the_record_guard():

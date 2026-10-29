@@ -32,9 +32,12 @@ def composite(
     where y >= rows[x]: a row at or above 0 floods the whole column, and one at or past
     the height leaves it dry. A water pixel j rows below its column's line, row r + j,
     mirrors row r - 1 - j. Where that row would lie above the frame, the base alone
-    fills the pixel. The image itself is left as it was.
+    fills the pixel. The image itself is left as it was. Rows of any shape but (width,)
+    raise ValueError instead of broadcasting.
     """
     height, width = image.shape[:2]
+    if rows.shape != (width,):
+        raise ValueError("rows must hold one row per column")
     water = np.arange(height)[:, None] >= rows[None, :]
     colour = MUD + rng.uniform(-MUD_SHIFT, MUD_SHIFT, 3)
     # The ripples: bands spaced 2 to 5 % of the image's height apart, so a shrunk

@@ -2,7 +2,7 @@
 drawn water and its wheels' truth.
 
 Two of a photo's four crops are shrunk so the smaller wheel is 50 to 80 px tall, well
-over C56's 40 px. Each crop's wheels and waterline are measured again in the crop's own
+over C56's 40 px; make_crop refuses one that lands outside. Each crop's wheels and waterline are measured again in the crop's own
 pixels, so its truth is its own. Every draw comes from the photo's two generators,
 seeded from its file name, so the same photo gives the same crops, byte for byte.
 """
@@ -28,6 +28,12 @@ BANDS = (
     ("half_tire", 10.0, 13.0),
 )
 _LIMITS = {band: (low, high) for band, low, high in BANDS}
+
+
+class ShrinkOutOfRange(ValueError):
+    """A shrunk crop whose smaller wheel came out outside C211's 50 to 80 px. Its text
+    is fixed and names no id or path. The generator counts it as shrink_out_of_range,
+    so such a crop never reaches the sealed archive unseen."""
 
 
 def band_limits(band: str, diameter: float) -> tuple[float, float] | None:
@@ -70,7 +76,7 @@ def plan_crops(
     The draws come in a fixed order, so a rerun gives the same plans: the bands kept,
     in BANDS order, are shuffled, and crop numbers 1 to n follow that order; then each
     crop's depth, evenly within its band, in crop order; then which two crops shrink;
-    then each shrunk crop's target, evenly from 50.5 to 79.5 px, in crop order.
+    then each shrunk crop's target, evenly from 52.5 to 79.5 px, in crop order.
     """
     kept = [
         (band, limits)
@@ -80,10 +86,14 @@ def plan_crops(
     rng.shuffle(kept)
     depths = [rng.uniform(*limits) for _, limits in kept]
     shrunk = rng.sample(range(len(kept)), min(2, len(kept)))
-    # Half a pixel inside C211's 50 to 80 (S-R26): INTER_NEAREST can move a shrunk
-    # wheel's height a pixel from its target, so this margin keeps it in 50 to 80.
+    # Inside C211's 50 to 80 by 2.5 px at the bottom and 0.5 px at the top (S-R27).
+    # The rows INTER_NEAREST keeps span L = h * H' / H, within half a pixel of the
+    # target: floor(L) or ceil(L) of them. It samples columns too, so a convex wheel's
+    # narrow top and bottom rows can each drop out, which takes the height down to
+    # floor(L) - 2, never further. Dropped columns only remove rows, so the top needs
+    # just the half pixel. make_crop still refuses any result outside 50 to 80.
     targets = [
-        rng.uniform(50.5, 79.5) if n in shrunk else None for n in range(len(kept))
+        rng.uniform(52.5, 79.5) if n in shrunk else None for n in range(len(kept))
     ]
     return [
         CropPlan(
@@ -122,6 +132,10 @@ def make_crop(
     and each mask with INTER_NEAREST. Each wheel's geometry is then measured in the
     crop's own pixels, and the line drawn through them at the plan's depth, so the
     truth comes from the rows the crop's water actually starts at.
+
+    When it did shrink (scale under 1) and the smaller wheel's height in the crop isn't
+    50 to 80 px, it raises ShrinkOutOfRange. A wheel already under its target isn't
+    shrunk, so it never raises.
     """
     image, scale = blurred, 1.0
     geoms = [truth.wheel_geom(mask, diameter) for mask in wheel_masks]
@@ -140,6 +154,9 @@ def make_crop(
             )
             for mask in wheel_masks
         ]
+        shrunk_px = min(geom.ground_row - geom.top_row for geom in geoms)
+        if scale < 1 and not 50 <= shrunk_px <= 80:
+            raise ShrinkOutOfRange("a shrunk wheel is outside 50 to 80 px")
     rows = truth.line_rows(geoms, plan.depth_in, image.shape[1])
     composited, water_mask = water.composite(image, rows, rng)
     wheels = [(geom, truth.wheel_truth(geom, rows)) for geom in geoms]

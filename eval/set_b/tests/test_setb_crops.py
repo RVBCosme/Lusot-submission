@@ -45,6 +45,21 @@ def shrunk_size(scale: float, shape: tuple[int, int]) -> tuple[int, int]:
     return (max(1, round(shape[1] * scale)), max(1, round(shape[0] * scale)))
 
 
+def smaller_height(
+    image: np.ndarray,
+    masks: list[np.ndarray],
+    plan: crops.CropPlan,
+    rng: np.random.Generator,
+) -> int | None:
+    """The smaller wheel's height on the crop's own WheelGeom, or None when make_crop
+    refuses the crop with ShrinkOutOfRange."""
+    try:
+        crop = crops.make_crop(image, masks, DIAMETER, plan, rng)
+    except crops.ShrinkOutOfRange:
+        return None
+    return min(geom.ground_row - geom.top_row for geom, _ in crop.wheels)
+
+
 def test_photo_rngs_are_seeded_from_the_name():
     """Addition 1: both generators take the SHA-256 of "<GENERATOR_SEED>:<file>" as a
     big-endian integer."""
@@ -79,7 +94,7 @@ def test_band_limits():
 
 def test_plan_crops():
     """Four plans, B01-1-1 to B01-1-4, one per band in a seeded order. Each depth lies
-    within its band, exactly two shrink, to targets of 50.5 to 79.5 px (S-R26), and the
+    within its band, exactly two shrink, to targets of 52.5 to 79.5 px (S-R27), and the
     same seed gives the same plans."""
     plans = crops.plan_crops("B01", 1, DIAMETER, random.Random(7))
     assert [plan.crop_id for plan in plans] == [f"B01-1-{n}" for n in range(1, 5)]
@@ -89,7 +104,7 @@ def test_plan_crops():
         low, high = crops.band_limits(plan.band, DIAMETER)
         assert low <= plan.depth_in <= high
         if plan.shrink:
-            assert 50.5 <= plan.target_px <= 79.5
+            assert 52.5 <= plan.target_px <= 79.5
         else:
             assert plan.target_px is None
     assert sum(plan.shrink for plan in plans) == 2
@@ -116,7 +131,7 @@ def test_plan_crops_draw_order(diameter, count):
     depths = [check.uniform(*crops.band_limits(name, diameter)) for name in kept]
     shrunk = check.sample(range(len(kept)), min(2, len(kept)))
     targets = [
-        check.uniform(50.5, 79.5) if n in shrunk else None for n in range(len(kept))
+        check.uniform(52.5, 79.5) if n in shrunk else None for n in range(len(kept))
     ]
     assert len(plans) == count
     assert plans == [
@@ -131,7 +146,7 @@ def test_plan_crops_draw_order(diameter, count):
 def test_small_crop_wheel_height():
     """Addition 5: over 200 photo names and 50 wheel sizes, every shrunk crop's smaller
     wheel, measured on the crop's own WheelGeom, is 50 to 80 px tall, so C56's 40 px
-    holds."""
+    holds, and make_crop refuses none of them."""
     image = photo(1, (480, 800))
     outside, checked = [], 0
     for k in range(200):
@@ -142,13 +157,54 @@ def test_small_crop_wheel_height():
         for plan in crops.plan_crops(car_id, photo_no, DIAMETER, rng):
             if not plan.shrink:
                 continue
-            crop = crops.make_crop(image, masks, DIAMETER, plan, np_rng)
-            height = min(geom.ground_row - geom.top_row for geom, _ in crop.wheels)
+            height = smaller_height(image, masks, plan, np_rng)
             checked += 1
-            if not 50 <= height <= 80:
+            if height is None or not 50 <= height <= 80:
                 outside.append((name, plan.crop_id, round(plan.target_px, 4), height))
     assert checked == 400
     assert outside == []
+
+
+def test_shrink_margin_holds_at_both_ends():
+    """S-R27: on the test's round wheels, of 50 sizes, every target within a pixel of
+    either end of the drawn range, 52.5 to 53.5 and 78.5 to 79.5 px in steps of 0.05,
+    gives a smaller wheel 50 to 80 px tall, and make_crop refuses none. A target of 50.5
+    could give 49 px: INTER_NEAREST samples columns too, and can miss a round wheel's
+    one-pixel top and bottom rows."""
+    image = photo(1, (480, 800))
+    hundredths = [*range(5250, 5351, 5), *range(7850, 7951, 5)]
+    targets = [n / 100 for n in hundredths]  # 21 at each end
+    outside = []
+    for half_h in range(50, 100):
+        masks = wheel_masks(half_h, (480, 800), ground=420)
+        for target in targets:
+            plan = crops.CropPlan("B01-1-1", "gutter", 6.0, True, target)
+            height = smaller_height(image, masks, plan, np.random.default_rng(0))
+            if height is None or not 50 <= height <= 80:
+                outside.append((half_h, target, height))
+    assert outside == []
+
+
+def test_make_crop_refuses_an_out_of_range_shrink():
+    """S-R27: a shrunk crop whose smaller wheel lands outside 50 to 80 px raises
+    ShrinkOutOfRange, a ValueError whose fixed text names no id or path. On the test's
+    wheel_masks(54), whose far wheel is 97 px tall, a target of 50.5 gives 49 px, since
+    the column sampling misses its one-pixel top and bottom rows, and one of 85.0 gives
+    about 85. A wheel already under its target isn't shrunk (scale 1), so it never
+    raises, even under 50 px."""
+    image = photo(1, (480, 800))
+    masks = wheel_masks(54, (480, 800), ground=420)
+    for target in (50.5, 85.0):
+        plan = crops.CropPlan("B01-1-1", "gutter", 6.0, True, target)
+        with pytest.raises(crops.ShrinkOutOfRange) as refused:
+            crops.make_crop(image, masks, DIAMETER, plan, np.random.default_rng(0))
+        assert isinstance(refused.value, ValueError)
+        assert str(refused.value) == "a shrunk wheel is outside 50 to 80 px"
+    small = wheel_masks(28, (480, 800), ground=420)  # the far wheel is 45 px tall
+    plan = crops.CropPlan("B01-1-2", "gutter", 6.0, True, 60.0)
+    crop = crops.make_crop(image, small, DIAMETER, plan, np.random.default_rng(0))
+    assert crop.scale == 1.0
+    assert min(geom.ground_row - geom.top_row for geom, _ in crop.wheels) == 45
 
 
 def test_rows_are_the_crops_own():
