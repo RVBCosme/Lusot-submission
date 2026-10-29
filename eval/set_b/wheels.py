@@ -67,21 +67,23 @@ def pick_wheels(
     - its box's height over width is 0.9 to 2.0, both inclusive, compared exactly in
       integers
 
-    Of the wheels kept, the MAX_WHEELS with the most mask pixels are used. Ties, for the
-    largest vehicle and among the wheels, keep the input order.
+    The wheels kept are walked from the most mask pixels down, and up to MAX_WHEELS of
+    them are used. One that is the same wheel as a wheel already used is skipped
+    (S-R24): its box's centre lies inside that wheel's box, or its box holds that
+    wheel's centre, as a hub mask inside its tire's does. So one wheel seen as two
+    masks gives a one-wheel result. Ties, for the largest vehicle and among the wheels,
+    keep the input order.
     """
     if not vehicles:
         return "no_vehicle"
-    vx0, vy0, vx1, vy1 = max(vehicles, key=_area).box  # max keeps the first of equals
+    vehicle = max(vehicles, key=_area)  # max keeps the first of equals
     height, width = shape
     kept = []
     for wheel in wheels:
         x0, y0, x1, y1 = wheel.box
-        cx, cy = (x0 + x1 - 1) // 2, (y0 + y1 - 1) // 2
         box_w, box_h = x1 - x0, y1 - y0
         if (
-            vx0 <= cx < vx1
-            and vy0 <= cy < vy1
+            _inside(_centre(wheel), vehicle)
             and x0 > 0
             and y0 > 0
             and x1 < width
@@ -94,7 +96,13 @@ def pick_wheels(
         return "no_wheel"
     # sorted is stable, with reverse too, so equal areas keep the input order.
     largest = sorted(kept, key=lambda wheel: np.count_nonzero(wheel.mask), reverse=True)
-    return sorted(largest[:MAX_WHEELS], key=lambda wheel: wheel.box[0] + wheel.box[2])
+    chosen: list[Instance] = []
+    for wheel in largest:
+        if len(chosen) == MAX_WHEELS:
+            break
+        if not any(_same_wheel(wheel, other) for other in chosen):
+            chosen.append(wheel)
+    return sorted(chosen, key=lambda wheel: wheel.box[0] + wheel.box[2])
 
 
 def link_rim(wheel: Instance, rims: Sequence[Instance]) -> Instance | None:
@@ -104,6 +112,24 @@ def link_rim(wheel: Instance, rims: Sequence[Instance]) -> Instance | None:
     if not overlaps or max(overlaps) == 0:
         return None
     return rims[overlaps.index(max(overlaps))]
+
+
+def _centre(instance: Instance) -> tuple[int, int]:
+    """The (column, row) of an instance's box centre."""
+    x0, y0, x1, y1 = instance.box
+    return (x0 + x1 - 1) // 2, (y0 + y1 - 1) // 2
+
+
+def _inside(point: tuple[int, int], instance: Instance) -> bool:
+    """True when the (column, row) lies inside the instance's half-open box."""
+    x, y = point
+    x0, y0, x1, y1 = instance.box
+    return x0 <= x < x1 and y0 <= y < y1
+
+
+def _same_wheel(a: Instance, b: Instance) -> bool:
+    """True when either box holds the other's centre (S-R24)."""
+    return _inside(_centre(a), b) or _inside(_centre(b), a)
 
 
 def _area(instance: Instance) -> int:

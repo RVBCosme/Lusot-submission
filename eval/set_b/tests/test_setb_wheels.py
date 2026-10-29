@@ -113,6 +113,40 @@ def test_ties_keep_input_order(tmp_path):
     assert [wheel.box[0] for wheel in chosen] == [382]
 
 
+def test_overlapping_masks_of_one_wheel_count_once(tmp_path):
+    """S-R24: a hub mask inside its tire's mask is the same wheel, so the second wheel
+    is used, though the hub has more pixels."""
+    hub = ellipse((200, 100), 22, 19)  # inside LEFT, and 45 px tall
+    second = ellipse((200, 300), 21, 19)
+    assert np.count_nonzero(hub) > np.count_nonzero(second)
+    vehicles, found, _ = loaded(
+        tmp_path, [rect(*VEHICLE)], [hub, second, ellipse(*LEFT)]
+    )
+    chosen = wheels.pick_wheels(vehicles, found, SHAPE)
+    assert [wheel.box for wheel in chosen] == [LEFT_BOX, (281, 179, 320, 222)]
+
+
+def test_overlapping_masks_of_one_wheel_give_one_wheel(tmp_path):
+    """S-R24: a tire and its hub, with no other wheel, give a one-wheel result."""
+    hub = ellipse((200, 100), 22, 19)
+    vehicles, found, _ = loaded(tmp_path, [rect(*VEHICLE)], [hub, ellipse(*LEFT)])
+    chosen = wheels.pick_wheels(vehicles, found, SHAPE)
+    assert [wheel.box for wheel in chosen] == [LEFT_BOX]
+
+
+def test_a_box_around_a_chosen_centre_counts_once(tmp_path):
+    """S-R24, the other direction: a smaller mask whose box holds a chosen wheel's
+    centre is the same wheel, even when its own centre lies outside that wheel's box.
+    Here it is a thin outline, wide to the right."""
+    chosen_wheel = rect(150, 100, 250, 200)  # centre (149, 199)
+    outline = rect(60, 140, 294, 400)
+    outline[61:293, 141:399] = False  # centre (269, 176), outside chosen_wheel's box
+    assert np.count_nonzero(outline) < np.count_nonzero(chosen_wheel)
+    vehicles, found, _ = loaded(tmp_path, [rect(0, 0, *SHAPE)], [outline, chosen_wheel])
+    chosen = wheels.pick_wheels(vehicles, found, SHAPE)
+    assert [wheel.box for wheel in chosen] == [(100, 150, 200, 250)]
+
+
 def test_link_rim_by_overlap(tmp_path):
     """The rim mask that overlaps the wheel mask most is linked, and None when none
     overlaps."""
