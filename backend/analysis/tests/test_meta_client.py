@@ -20,6 +20,7 @@ import httpx
 import numpy as np
 import pytest
 from fakes import FakeClient
+from meta_sam_parser._mask_codec import _encode_raster
 
 from lusot_analysis import face_blur
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta
@@ -107,6 +108,37 @@ def photo() -> BlurredImage:
     row = np.linspace(0, 255, 320).astype(np.uint8)
     bgr = np.dstack([np.tile(row, (334, 1))] * 3)
     return blur_for_meta(cv2.imencode(".jpg", bgr)[1].tobytes())
+
+
+def gradient(width: int, height: int) -> BlurredImage:
+    """A face-free photo of `width` x `height`, built as the `photo` fixture is."""
+    row = np.linspace(0, 255, width).astype(np.uint8)
+    bgr = np.dstack([np.tile(row, (height, 1))] * 3)
+    return blur_for_meta(cv2.imencode(".jpg", bgr)[1].tobytes())
+
+
+@pytest.fixture(scope="module")
+def wide_photo() -> BlurredImage:
+    """A face-free 1600 x 1000 photo, the size of the one whose floodwater mask came
+    scaled to a 1024 px side (MS3a Task 16)."""
+    return gradient(1600, 1000)
+
+
+def mask_text(box: tuple[int, int, int, int], raster, frame: tuple[int, int]) -> str:
+    """SAM's text for one match: `box` is (x1, y1, x2, y2), inclusive as SAM sends it,
+    in a (w, h) frame, and `raster` (rows x columns of 0 and 1) is its one_bit mask.
+
+    meta-sam-parser has no public encoder, so this uses its private one,
+    _mask_codec._encode_raster, which its decoder re-runs to check each payload.
+    """
+    rows, cols = raster.shape
+    payload = _encode_raster(raster.astype(np.uint8).ravel().tolist(), cols, rows)
+    x1, y1, x2, y2 = box
+    w, h = frame
+    return (
+        f"<0f>0<|box;x1={x1};y1={y1};x2={x2};y2={y2};w={w};h={h}|>"
+        f"<|mask;x=0;y=0;data={rows},{cols},{payload}|>\n"
+    )
 
 
 class FakeMeta:
@@ -796,6 +828,85 @@ def test_segment_output_it_cannot_place_raises(photo, text):
     c, _ = client(meta)
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):
+    """MS3a Task 16: on a 1600 x 1000 photo, SAM sent the box
+    x1=0;y1=300;x2=1599;y2=999 (700 x 1600) with a 448 x 1024 mask, scaled by 0.64 so
+    its longer side is 1024 px. The client scales it up to the box, center-aligned."""
+    raster = np.zeros((448, 1024), np.uint8)
+    # Edges where center-aligned and plain nearest differ by a row and a column
+    raster[:150, :301] = 1
+    text = mask_text((0, 300, 1599, 999), raster, (1600, 1000))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(wide_photo, "floodwater").instances
+    assert instance.box == (0.0, 300.0, 1600.0, 1000.0)
+    assert instance.mask.shape == (1000, 1600)
+    assert not instance.mask[:300].any()  # the rows above the box
+    inside = instance.mask[300:]
+    # Row i takes source row floor((i + 0.5) * 448 / 700): 233 takes 149, 234 takes
+    # 150. Column j takes floor((j + 0.5) * 1024 / 1600): 469 takes 300, 470 takes 301.
+    assert inside[0, 0] and inside[233, 469]
+    assert not inside[234, 469] and not inside[233, 470]
+    assert instance.mask.sum() == 234 * 470  # plain nearest would give 235 x 471
+
+
+def test_segment_places_a_tall_mask_scaled_to_a_1024_px_side():
+    # A 1200 x 50 box in a 1000 x 1600 portrait photo comes as 1024 rows by
+    # round(50 * 1024 / 1200) = 43 columns.
+    raster = np.zeros((1024, 43), np.uint8)
+    raster[:303] = 1
+    text = mask_text((300, 100, 349, 1299), raster, (1000, 1600))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(gradient(1000, 1600), "person").instances
+    assert instance.box == (300.0, 100.0, 350.0, 1300.0)
+    inside = instance.mask[100:1300, 300:350]
+    # Row i takes floor((i + 0.5) * 1024 / 1200): 354 takes 302, 355 takes 303.
+    assert inside[354].all() and not inside[355].any()
+    assert instance.mask.sum() == inside.sum() == 355 * 50
+
+
+@pytest.mark.parametrize("rows", [19, 21])
+def test_segment_allows_a_scaled_short_side_1_px_off(wide_photo, rows):
+    # SAM's rounding is unknown: a 32 x 1600 box scales to 20.48 rows at 1024 px.
+    raster = np.ones((rows, 1024), np.uint8)
+    meta = FakeMeta(sam_stream(mask_text((0, 0, 1599, 31), raster, (1600, 1000))))
+    c, _ = client(meta)
+    (instance,) = c.segment(wide_photo, "floodwater").instances
+    assert instance.mask.sum() == instance.mask[:32].sum() == 32 * 1600
+
+
+@pytest.mark.parametrize(
+    ("box", "size"),
+    [
+        # Rasters smaller than a box with no side over 1024 px: scaled by 0.64, as a
+        # whole-frame scale would, and 1024 px wide but a row short of its box
+        ((0, 0, 999, 24), (16, 640)),
+        ((0, 0, 1023, 19), (19, 1024)),
+        # A 32 x 1600 box (20.48 rows at 1024 px): a long side of 1000, a short side
+        # 2 px off either way, and the scaled sides swapped
+        ((0, 0, 1599, 31), (20, 1000)),
+        ((0, 0, 1599, 31), (22, 1024)),
+        ((0, 0, 1599, 31), (18, 1024)),
+        ((0, 0, 1599, 31), (1024, 20)),
+        # Rasters larger than their box: 33 x 1600 on 32 x 1600, and 6 x 1024 on
+        # 5 x 1100, though 6 is within 1 px of round(5 * 1024 / 1100) = 5
+        ((0, 0, 1599, 31), (33, 1600)),
+        ((0, 0, 1099, 4), (6, 1024)),
+    ],
+)
+def test_segment_mask_scaled_any_other_way_raises(wide_photo, box, size):
+    # Only a mask scaled to a 1024 px side is placed; any other size must not read as
+    # a match or as no match (R63).
+    text = mask_text(box, np.ones(size, np.uint8), (1600, 1000))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(wide_photo, "floodwater")
     assert exc.value.status is None
     assert len(meta.requests) == 1
 

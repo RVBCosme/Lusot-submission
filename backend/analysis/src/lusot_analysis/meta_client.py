@@ -49,6 +49,8 @@ SAM_PHRASES = (
     "face",
     "license plate",
 )
+# SAM's longest mask side (MS3a Task 16: a 700 x 1600 box's mask came as 448 x 1024).
+SAM_MASK_SIDE = 1024
 
 _MODELS = frozenset({SAM_MODEL, SPARK_MODEL, TRANSCRIBE_MODEL})
 _MIN_KEY_LENGTH = 20  # the real key has 48 characters (spec A8), the stale shell copy 1
@@ -699,7 +701,9 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
 
     Text the parser drops or keeps as plain text, a box whose frame (its `w` and `h`)
     isn't the image's size, and a mask that doesn't fill its box inside the image
-    raise MetaApiError: a lost or misplaced record must not read as no match.
+    raise MetaApiError: a lost or misplaced record must not read as no match. A mask
+    whose box has a side over SAM_MASK_SIDE may come scaled down to that longer side,
+    and is scaled back up to fill its box (_scaled_down has the rule).
     """
     parser = image_segmentation_format().create_parser()
     parser.push(text)
@@ -721,17 +725,54 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
         x0, y0, x1, y1 = (
             int(v) for v in (bounds.left, bounds.top, bounds.right, bounds.bottom)
         )
-        size = (record.mask.height, record.mask.width)
-        if size != (y1 - y0, x1 - x0) or x1 > image.width or y1 > image.height:
+        size, box_size = (record.mask.height, record.mask.width), (y1 - y0, x1 - x0)
+        fits = size == box_size or _scaled_down(size, box_size)
+        if not fits or x1 > image.width or y1 > image.height:
             raise MetaApiError("a SAM mask doesn't fill its box inside the image")
         crop = np.frombuffer(decode_mask_to_raster(record.mask), np.uint8)
+        crop = crop.reshape(size).astype(bool)
         mask = np.zeros((image.height, image.width), bool)
-        mask[y0:y1, x0:x1] = crop.reshape(size).astype(bool)
+        mask[y0:y1, x0:x1] = crop if size == box_size else _upscaled(crop, box_size)
         box = (float(x0), float(y0), float(x1), float(y1))
         instances.append(
             SamInstance(int(record.object_id), box, mask, record.confidence)
         )
     return instances
+
+
+def _scaled_down(size: tuple[int, int], box: tuple[int, int]) -> bool:
+    """True when a mask of `size` is its `box` (both rows, columns) scaled down to a
+    longer side of SAM_MASK_SIDE, as SAM sends it when the box has a longer side.
+
+    The box needs a side over SAM_MASK_SIDE (MS3a Task 16). The mask's side along the
+    box's longer axis (both, for a square box) must be SAM_MASK_SIDE. Its other side
+    must be within 1 px of the box's, rounded at the same scale, as SAM's rounding is
+    unknown, and no longer than the box's.
+    """
+    longest = max(box)
+    if longest <= SAM_MASK_SIDE:
+        return False
+    for side, box_side in zip(size, box, strict=True):
+        # On the longer axis `scaled` is SAM_MASK_SIDE, and the side must match it.
+        scaled = round(box_side * SAM_MASK_SIDE / longest)
+        slack = 0 if box_side == longest else 1
+        if side > box_side or abs(side - scaled) > slack:
+            return False
+    return True
+
+
+def _upscaled(crop: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """`crop` scaled up to `size` (rows, columns) by center-aligned nearest neighbour.
+
+    Index i on each axis takes source index floor((i + 0.5) * src / dst), worked in
+    integers so a whole-number result stays whole. OpenCV's INTER_NEAREST_EXACT takes
+    one index less there, and plain INTER_NEAREST is half a pixel off throughout.
+    """
+    rows, cols = (
+        (2 * np.arange(dst) + 1) * src // (2 * dst)
+        for src, dst in zip(crop.shape, size, strict=True)
+    )
+    return crop[np.ix_(rows, cols)]
 
 
 def _token_fields(body: str) -> dict[str, str]:
