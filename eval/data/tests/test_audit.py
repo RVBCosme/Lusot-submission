@@ -536,7 +536,8 @@ def test_a_set_gone_from_both_sides_fails(tmp_path, monkeypatch, capsys):
     """S-R18: a set the record names, whose two manifests are both header-only, can't
     match the record's counts, so the split's check given the record's groups, and the
     sealed run, both fail on it. groups=None, the split's own call, sees only the sets
-    that have rows."""
+    that have rows. The sealed run also finds the emptied dev manifest's hash changed
+    (M-2)."""
     record = core_record(sides_of(manifest_rows()))
     rows = {key: row for key, row in manifest_rows().items() if row["set"] == "A"}
     expected = [
@@ -552,12 +553,12 @@ def test_a_set_gone_from_both_sides_fails(tmp_path, monkeypatch, capsys):
         manifest.unlink()
         synth.write_csv(manifest, formats.MANIFEST_COLUMNS, [])
     found = audit.audit_sealed(paths["run_dir"], paths["data"], [paths["record"]])
-    assert found == expected
+    assert found == ["manifest_hash A-neg", *expected]
     synth.console(monkeypatch)
     synth.typed(monkeypatch, "yes")
     args = sealed_args(paths["run_dir"], paths["data"], paths["record"])
     assert audit.main(args) == 1
-    printed = [summary(1), "FAIL", *SET_A_SPLIT_COUNTS, *expected]
+    printed = [summary(1), "FAIL", *SET_A_SPLIT_COUNTS, *found]
     assert capsys.readouterr() == ("\n".join(printed) + "\n", "")
 
 
@@ -902,6 +903,18 @@ def test_sealed_audit_hashes_each_archive(tmp_path):
         "archive_hash lusot-sealed.7z",
         "archive_hash lusot-sealed-set-d.7z",
     ]
+
+
+@pytest.mark.parametrize("set_name", ["A", "A-neg"])
+def test_sealed_rechecks_each_dev_manifest_hash(tmp_path, set_name):
+    """M-2: --sealed checks each development manifest's SHA-256 against the record's
+    dev_files entry, as --dev does. One changed byte, in a cell no check reads, gives
+    manifest_hash and the set's name, and nothing else."""
+    paths = lay_out(tmp_path)
+    manifest = paths[set_name]
+    manifest.write_bytes(manifest.read_bytes().replace(b"Manila", b"Manilo", 1))
+    found = audit.audit_sealed(paths["run_dir"], paths["data"], [paths["record"]])
+    assert found == [f"manifest_hash {set_name}"]
 
 
 @pytest.mark.parametrize(

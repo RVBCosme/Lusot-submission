@@ -22,9 +22,9 @@ Rene alone runs this one, at the sealed run (C202, C220):
     uv run --locked --script eval/data/audit.py --sealed <data>\sealed\run-1
         --dev-root <data> --record <split record> [--record <record> ...]
 For each record it first hashes the archive the record names, beside RUN_DIR. Then it
-checks the split's two sides, or Set B's final cars against the development cars; a Set
-D record has its hash checked only. It reads only the files the records and this
-layout name, and lists no folder.
+checks the development manifests' hashes and the split's two sides, or Set B's final
+cars against the development cars; a Set D record has its hash checked only. It reads
+only the files the records and this layout name, and lists no folder.
 
 It prints PASS or FAIL, the counts per set, group and side, then each violation. Only
 development ids print: a violation two rows share names the dev row, and the counts are
@@ -322,8 +322,10 @@ def audit_sealed(run_dir: Path, dev_root: Path, records: Sequence[Path]) -> list
     when the record's archive.file isn't a plain ASCII name ending in .7z (S-R18), or
     archive_hash <file>, when run_dir.parent / <file> is missing or doesn't hash to the
     record's archive.sha256. Then, by the record's kind:
-    - split: check_split on Set A's and A-neg's dev manifests under dev_root and the
-      sealed manifests under run_dir, with the record's groups
+    - split: manifest_hash <set> when a dev manifest under dev_root doesn't hash to the
+      record's dev_files entry, as in --dev (M-2); then check_split on Set A's and
+      A-neg's dev manifests and the sealed manifests under run_dir, with the record's
+      groups
     - set_b_final: car_on_both_sides <dev car id> across the final truth.csv under
       run_dir and the development one under dev_root, and count_mismatch set_b
       against the record's counts.cars and counts.crops
@@ -369,18 +371,22 @@ def _archive(run_dir: Path, record: Mapping) -> list[str]:
 def _sealed_split(
     run_dir: Path, dev_root: Path, record: Mapping
 ) -> tuple[list[str], list[str]]:
-    """The split's two sides, from the dev manifests and the sealed copy's."""
+    """The split's two sides, from the dev manifests and the sealed copy's. Each dev
+    manifest is first checked against the record's dev_files entry, as --dev checks it
+    (M-2)."""
     sides: dict[str, list[Row]] = {"dev": [], "sealed": []}
+    hashes = []
     for set_name, folder in FOLDERS.items():
-        for side, path in (
-            ("dev", dev_root / folder / "dev" / "manifest.csv"),
-            ("sealed", run_dir / folder / "manifest.csv"),
-        ):
+        dev = dev_root / folder / "dev" / "manifest.csv"
+        if table.sha256_file(dev) != record["dev_files"][DEV_FILES[set_name]]:
+            hashes.append(f"manifest_hash {set_name}")
+        for side, path in (("dev", dev), ("sealed", run_dir / folder / "manifest.csv")):
             rows = _manifest(path)
             if any(row["set"] != set_name for row in rows):
                 raise ValueError(_NOT_WRITTEN)
             sides[side] += rows
-    return _split(sides, _record_groups(record))
+    counts, violations = _split(sides, _record_groups(record))
+    return counts, hashes + violations
 
 
 def _set_b(

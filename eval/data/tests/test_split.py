@@ -463,6 +463,18 @@ def test_audit_sealed_passes_on_the_split_it_wrote(paths, prompts, tmp_path):
     ]
 
 
+def test_split_output_passes_audit_dev(paths, prompts, capsys):
+    """L3 (M-1): Claude's audit --dev, the first check after the split, passes on each
+    development manifest the split wrote, against its committed record."""
+    assert run(paths) == 0
+    capsys.readouterr()
+    for flag in DEV.values():
+        args = ["--dev", str(paths[flag] / "manifest.csv")]
+        assert audit.main([*args, "--record", str(paths["--record"])]) == 0, flag
+        out, err = capsys.readouterr()
+        assert (out.splitlines()[0], err) == ("PASS", ""), flag
+
+
 def test_duplicates_join_one_event(paths, prompts, tmp_path):
     raw = paths["--set-a-photos"]
     assert (raw / "A007.jpg").read_bytes() == (raw / "A001.jpg").read_bytes()
