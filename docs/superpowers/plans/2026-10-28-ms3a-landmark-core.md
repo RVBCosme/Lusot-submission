@@ -1061,9 +1061,13 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   1. **The diagnosis, with no Meta call (C75):** read B1's 5 photos' log lines from Step 3, and record each photo's outcome and drop causes as counts. This shows why the 5 gave no level. Nothing is replayed.
   2. Run `uv run backend/scripts/smoke_upload.py --fallback`. It sends up to 15 more photos, positions 5 to 19 of C87's order, and stops at the first level.
   3. If there is still no level, B1 is partly met, with the drop causes as the reason. 3a then closes on B2 to B5 and the other cloud checks, and the cloud proof of a level moves to the first Manila photos. Record that for Task 17.
-- [ ] **Step 5 (Claude; one photo, about $0.01):** check B3 on real data.
+- [x] **Step 5 (Claude; one photo, about $0.01):** check B3 on real data.
   - Run `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis probes/run_pipeline.py live "<the first photo in C87's order>"`. Expected: exit 0, and a run directory under `%LUSOT_DATA_DIR%\runs\`.
   - Then run `$env:LUSOT_B3_RUN_DIR = '<run dir>'; $env:LUSOT_B3_PHOTO = '<the photo>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: 2 passed, 0 skipped.
+  - Evidence (Oct 29, run before the deploy under R121, as it needs no AWS):
+    - **First run (9:00 PM):** `failed/model_error`, with `meta_status` null. SAM sent a water mask over 1024 px wide scaled to a 1024 px side, and the client refused it. Fixed by C90 (`044fdad`, `14ad29b`, reviewed).
+    - **Re-run on `044fdad` (9:19 PM):** exit 0, `refused/photo_unusable`, 6 Meta calls in 18 s. The `-k b3` command on that run gave **2 passed, 0 skipped**.
+    - **Cost:** the two runs plus one diagnostic SAM call came to about $0.037, against the step's $0.01 estimate. The estimate predates C87's 1600 px photos and Muse Spark's measured cost.
 - [ ] **Step 6:** Add up the spend: the Meta calls made (8 per cloud photo that reached SAM, plus 6 for Step 5), and the estimated cost from the token counts in the log lines. Record it.
   - A failed run's spend line is a lower bound. It counts only photos whose reports finished, so add up to 8 calls for each photo that timed out, or read that report's lines in CloudWatch (Task 15's re-review).
 
