@@ -767,8 +767,8 @@ def _upscaled(crop: np.ndarray, size: tuple[int, int]) -> np.ndarray:
 
     Index i on each axis takes source index floor((i + 0.5) * src / dst), worked in
     integers so a whole-number result stays whole. OpenCV's INTER_NEAREST_EXACT, in
-    16-bit fixed point, can take one index less at or just past a whole number, and
-    plain INTER_NEAREST is half a pixel off throughout.
+    16-bit fixed point, can be one index off either way within about 0.01 of a whole
+    number, and plain INTER_NEAREST is half a pixel off throughout.
     """
     rows, cols = (
         (2 * np.arange(dst) + 1) * src // (2 * dst)

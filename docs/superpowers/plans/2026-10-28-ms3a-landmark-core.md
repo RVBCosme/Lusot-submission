@@ -95,7 +95,7 @@ Most likely first. Each line names its tests.
 ## Execution notes
 
 - **Routing (D18):**
-  - Opus 5.5 at max: Tasks 1 to 16 and the code-quality reviews
+  - Opus 5.5 at max: Tasks 1 to 16 and the code-quality reviews, until Oct 29, 8:48 PM. From then on it is Opus 5.5 at `xhigh` (D18, amended by Rene), never `max`.
   - Sonnet 5.5 at xhigh: the spec-compliance reviews
   - Claude itself: Task 17, and the key step in Task 16 (Step 5)
 - **Branch:** `ms3a-landmark-core`, from `ms1-setup` at `461c398`, with `main` merged in once MS1 closes (D20; see "Order" above). Tasks run one at a time (R1). Only Tasks 3 and 14 touch `pyproject.toml`, `uv.lock` or `requirements.lock.txt`.
@@ -1131,6 +1131,26 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - `python scripts/check_no_plan_leak.py`
   - `git diff --name-only main | xargs grep -n -i -w "safe"`: nothing about flood conditions
   - once, the strict form: `git diff --name-only main | xargs grep -n -i "safe"` (any substring, such as "unsafe" or "safety"), with each hit judged and recorded
-- [ ] **Step 5:** Run the `security-review` skill on the branch, because it changes the role and the upload path. Then run `superpowers:requesting-code-review` on the whole branch, on Opus 5.5 at max (D18), and give the reviewer every held note: the ledger's deferred minors and parked findings. Fix anything confirmed, and re-run Step 4. Record what is left, each with its milestone, in the committed log.
-- [ ] **Step 5b:** Run `claude-md-management:revise-claude-md`, for Rene to approve. Propose, among this session's notes: (a) a deploy may set a stop switch that was flipped from the CLI back to `off`, so re-check every switch after a deploy during an incident; (b) in the dead-letter line, redrive only messages under a day old and purge older ones, since their photo is gone and a redrive restarts the IP address's 7-day clock.
+- [x] **Step 5:** Run the `security-review` skill on the branch, because it changes the role and the upload path. Then run `superpowers:requesting-code-review` on the whole branch, on Opus 5.5 at `xhigh` (D18, as amended Oct 29), and give the reviewer every held note: the ledger's deferred minors and parked findings. Fix anything confirmed, and re-run Step 4. Record what is left, each with its milestone, in the committed log.
+  - Evidence:
+    - **Security review:** the `security-review` skill ran on `origin/main...HEAD` at 5:57 AM, Oct 29, and found nothing at or above confidence 7. For the delta after it (C90 and R93), the final review carried the security lens instead (R123, in the Oct 29 log).
+    - **Whole-branch reviews:** R120's (Opus 5.5 at max, 6:29 AM) found no Critical or Important issue, and its M1 to M11 are in the Oct 28 log. The final one (Opus 5.5 at `xhigh`, on `98e8266..bda9ff5`, 10:40 PM) found no Critical issue and no code defect.
+    - **The final review's fixes, applied in the close commit:**
+      - **Important:** the slow photo was misattributed to the face blur. SAM's double mask decoding is the leading candidate, and it went to MS4.
+      - **Minor:** `_upscaled`'s docstring now says one index off either way.
+      - **Minor:** R123 is in the log with its premise corrected, and the parser's claimed-size allocation went to MS7.
+      - **Minor:** M10 and M11 moved to MS4.
+      - **Minor:** the board's stamp.
+    - **Left open, each with its milestone:** the Oct 29 log's deferred table.
+    - **Step 4 re-run after the fixes:** `npm run check` exit 0.
+- [x] **Step 5b:** Run `claude-md-management:revise-claude-md`, for Rene to approve. Propose, among this session's notes: (a) a deploy may set a stop switch that was flipped from the CLI back to `off`, so re-check every switch after a deploy during an incident; (b) in the dead-letter line, redrive only messages under a day old and purge older ones, since their photo is gone and a redrive restarts the IP address's 7-day clock.
+  - Evidence: the skill ran (10:23 PM, Oct 29). Seven proposals are in the Oct 29 log under "Waiting on Rene":
+    - (a) and (b) above
+    - the sealed deny rules' real paths
+    - the smoke test's cost, time and background run
+    - the account-ID scan before each commit
+    - `boto3[crt]` for Python AWS tools
+    - C90's 1600 px testing note
+
+    None is applied until Rene approves.
 - [ ] **Step 6:** Commit `docs: record MS3a results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3a-landmark-core` into `main` and push to the private repo (D16).

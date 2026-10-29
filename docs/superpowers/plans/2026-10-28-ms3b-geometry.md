@@ -144,7 +144,7 @@ Most likely first. Each line names its tests.
 ## Execution notes
 
 - **Routing (D18, R81):**
-  - Opus 5.5 at max: the implementers of Tasks 1 to 15 and 19, and each task's review, one seat with both verdicts (R81)
+  - Opus 5.5 at `xhigh` (D18, amended by Rene on Oct 29, 8:48 PM; never `max`): the implementers of Tasks 1 to 15 and 19, and each task's review, one seat with both verdicts (R81)
   - Sonnet 5.5 at xhigh: scoped re-reviews after a fix round
   - Claude itself: Task 11's paid steps, and Tasks 16 to 18
 - **Order:** one task at a time, in number order. Task 11 deploys the core before the development tools, because C311's Oct 31 gate needs D1. Task 16 runs on Set C before the split. Task 17 runs when its data exists and Rene has approved v0.7 (C322, MS3b-Q1 and Q2). Task 19 runs after Task 18's merge, by Nov 2 (C329).
