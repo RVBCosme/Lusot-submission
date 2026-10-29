@@ -64,6 +64,8 @@ def test_refuse_sealed_lets_other_names_pass(tmp_path):
         ("SEALED", True),
         ("sealed.", True),
         ("sealed ", True),
+        ("SEALED.", True),
+        ("Sealed ..", True),
         ("sealed::$INDEX_ALLOCATION", True),
         ("unsealed", False),
         ("sealed.csv", False),
@@ -73,6 +75,31 @@ def test_refuse_sealed_lets_other_names_pass(tmp_path):
 )
 def test_is_sealed_name(name, sealed):
     assert guards.is_sealed_name(name) is sealed
+
+
+# Spellings of sealed with trailing dots and spaces, which is_sealed_name strips, as
+# Windows does from a path's last name (MS3b's R156).
+TRAILING = ["sealed.", "sealed ", "SEALED.", "Sealed .."]
+
+
+@pytest.mark.parametrize("leaf", [False, True], ids=["inside", "leaf"])
+@pytest.mark.parametrize("form", TRAILING)
+def test_refuse_sealed_trailing_dots_and_spaces(tmp_path, capsys, form, leaf):
+    """Each spelling is refused inside a path and as its last name. On Windows, making
+    the path absolute already turns "sealed." and "SEALED." into a plain sealed
+    anywhere, and every spelling as the last name, so those cases hold there even
+    without the guard's own strip. "sealed " and "Sealed .." inside a path keep their
+    trailing characters, and other systems change nothing, so those cases need it."""
+    path = tmp_path / form if leaf else tmp_path / form / "x.csv"
+    with pytest.raises(SystemExit) as stop:
+        guards.refuse_sealed(path)
+    assert stop.value.code == 2
+    assert capsys.readouterr().err == "refused: path inside a folder named sealed\n"
+
+
+@pytest.mark.parametrize("form", TRAILING)
+def test_require_sealed_takes_trailing_dots_and_spaces(tmp_path, form):
+    guards.require_sealed(tmp_path / form / "a.7z", flag="--archive")
 
 
 def test_require_sealed(tmp_path, capsys):
