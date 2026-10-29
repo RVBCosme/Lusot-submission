@@ -167,8 +167,9 @@ _REVIEW_FIELDS = ("result", "class", "landmark")
 
 def build_review(run: Run) -> bytes | None:
     """Rene's review sheet for a development run (C426), or None for a sealed one: a
-    row for each Set A photo, then each A-neg photo, sorted by id, with empty columns
-    for his verdict and note. CSV in UTF-8, with \\r\\n line endings."""
+    row for each Set A photo, then each A-neg photo, sorted by id, with an empty
+    claude_check column, which Claude fills first, then empty ones for his verdict and
+    note. CSV in UTF-8, with \\r\\n line endings."""
     if run.kind != "development":
         return None
     run = _sorted(run)
@@ -186,6 +187,7 @@ def build_review(run: Run) -> bytes | None:
             *(f"{config}_{field}" for config in configs for field in _REVIEW_FIELDS),
             "m8_agreement",
             "m8_detail",
+            "claude_check",
             "rene_verdict",
             "rene_note",
         ]
@@ -225,7 +227,8 @@ def _review_row(
             result.landmark or "",
         ]
     # A-neg photos have no M8 labels, so only Set A's are ever counted.
-    return [*cells, *_m8_cells(row, counted=reason is None and row.answered), "", ""]
+    m8 = _m8_cells(row, counted=reason is None and row.answered)
+    return [*cells, *m8, "", "", ""]  # claude_check, rene_verdict, rene_note
 
 
 def _result_text(result: Result) -> str:

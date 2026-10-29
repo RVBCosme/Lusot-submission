@@ -686,6 +686,7 @@ def test_review_sheet(tmp_path):
         "geometry_landmark",
         "m8_agreement",
         "m8_detail",
+        "claude_check",
         "rene_verdict",
         "rene_note",
     ]
@@ -697,7 +698,8 @@ def test_review_sheet(tmp_path):
     assert by_id["A10"]["excluded"] == "depth or passability label visible in the image"
     assert by_id["N04"]["excluded"] == "duplicate or repost"
     assert by_id["A01"]["excluded"] == ""
-    assert all(row[-2:] == ["", ""] for row in rows)
+    # Claude annotates first, then Rene reviews (C426): all three start blank.
+    assert all(row[-3:] == ["", "", ""] for row in rows)
     a01 = by_id["A01"]
     assert [a01[key] for key in header[4:9]] == ["knee", "NPLV", "knee", "NPLV", "hub"]
     assert a01["m8_agreement"] == "2 of 4"

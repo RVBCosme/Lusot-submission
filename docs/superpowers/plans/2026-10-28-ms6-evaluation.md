@@ -820,16 +820,20 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
 
 ## After the merge (the merging window, not this branch)
 
-Still open: `w4-independent` isn't merged, and `main` is `98e8266` (Oct 29, 9:07 PM). The merging window ticks these.
+Done on `w4-independent` just before its merge, at the tracker's call (Oct 30, 7:15 AM), so CI checks them before they reach `main`. The branch first took `main` at `5c3b089` (`87fc903`, CI run 40970740214 passed). Window 4 merges it.
 
-- [ ] Add `uv run --locked --script eval/tests/run_tests.py` to `check:py` in the root `package.json`, so `npm run check` runs the eval tests.
-- [ ] Add the same command to `.github/workflows/ci.yml`, plus a step that runs `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` on Python 3.9 (for example with `actions/setup-python`, pinned to a commit SHA like the workflow's other actions).
-- [ ] Credit the new test libraries in the README, in its existing credits style (CLAUDE.md: every third-party library is credited), each with its licence, checked in the installed wheels:
+- [x] Add `uv run --locked --script eval/tests/run_tests.py` to `check:py` in the root `package.json`, so `npm run check` runs the eval tests.
+  - **Evidence:** `npm run check` exit 0, its `check:py` ending `325 passed`.
+- [x] Add the same command to `.github/workflows/ci.yml`, plus a step that runs `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` on Python 3.9 (for example with `actions/setup-python`, pinned to a commit SHA like the workflow's other actions).
+  - **Evidence:** CI's python job runs `npm run check:py`, which now holds the command, and a new step runs `uv run --no-project --python 3.9 python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run`. uv downloads CPython 3.9, so no new action is needed. Locally: `report: 5 files identical`.
+- [x] Credit the new test libraries in the README, in its existing credits style (CLAUDE.md: every third-party library is credited), each with its licence, checked in the installed wheels:
   - scikit-learn, and what its wheels bring: SciPy, joblib, threadpoolctl, NumPy, cloudpickle 3.1.2 and narwhals 2.28.0
   - pytest, if its row doesn't already cover this use, with what it brings: colorama, iniconfig, packaging, pluggy and Pygments
   - `actions/setup-python`, if CI adds it
-- [ ] Add `eval/**/review.csv` and `.playwright-mcp/` to `.gitignore`. `review.csv` holds Rene's notes, and Task 7's chart check used the Playwright plugin.
-- [ ] `review.csv` gains the blank `claude_check` column before `rene_verdict` (spec C426, Rene's rule of Oct 29: Claude annotates first, then he reviews), with its test and the fixture's rebuild; until then the harness writes the old column set.
+  - **Evidence:** a scikit-learn row (BSD-3-Clause), naming SciPy, joblib, threadpoolctl and cloudpickle (BSD-3-Clause), NumPy and narwhals (MIT), read from the installed wheels' metadata. pytest's row already covers this use; its colorama (BSD), iniconfig (MIT), packaging (Apache-2.0 or BSD-2-Clause), pluggy (MIT) and Pygments (BSD-2-Clause) fall under the README's pinned-dependencies note, which now names `eval/tests/run_tests.py.lock`. No `setup-python` was added.
+- [x] Add `eval/**/review.csv` and `.playwright-mcp/` to `.gitignore`. `review.csv` holds Rene's notes, and Task 7's chart check used the Playwright plugin.
+- [x] `review.csv` gains the blank `claude_check` column before `rene_verdict` (spec C426, Rene's rule of Oct 29: Claude annotates first, then he reviews), with its test and the fixture's rebuild; until then the harness writes the old column set.
+  - **Evidence:** `test_review_sheet` failed first, then passed; `uv run --locked --script eval/tests/run_tests.py -W error` gave 325 passed. No fixture holds a `review.csv`, since the rebuild check skips it, so nothing needed rebuilding.
 - [ ] Record the changes on the board and in the day's log.
 
 ## When `eval/rules.md` becomes v0.7 (the same commit as the rules change)
