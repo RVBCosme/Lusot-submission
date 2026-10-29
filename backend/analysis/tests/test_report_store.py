@@ -140,6 +140,35 @@ def test_writes_a_level_result_under_the_claim(ddb):
     }
 
 
+def test_writes_inches_as_numbers(ddb):
+    # C308: a geometry level stores its source, and its inches as numbers.
+    seed(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    outcome = Outcome.level_result(
+        "half_knee",
+        "rim_quarter",
+        False,
+        {"vehicles": 1, "people": 0},
+        level_from="geometry",
+        depth_in=(8.2, 8.8),
+    )
+    fields = outcome.item_fields()
+    assert (fields["depthInMin"], fields["depthInMax"]) == (8.2, 8.8)
+    assert write_result(ddb, TABLE, KEY, "a", fields) is True
+    assert stored(ddb) == PENDING | claimed("a", NOW_S) | {
+        "status": {"S": "done"},
+        "noFloodSeen": {"BOOL": False},
+        "level": {"S": "half_knee"},
+        "landmark": {"S": "rim_quarter"},
+        "passability": {"S": "PATV"},
+        "levelIsFloor": {"BOOL": False},
+        "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
+        "levelFrom": {"S": "geometry"},
+        "depthInMin": {"N": "8.2"},
+        "depthInMax": {"N": "8.8"},
+    }
+
+
 @pytest.mark.parametrize(
     ("status", "reason"), [("refused", "too_dark"), ("failed", "model_error")]
 )

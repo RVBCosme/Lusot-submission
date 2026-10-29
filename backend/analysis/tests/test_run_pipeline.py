@@ -515,11 +515,16 @@ def test_unknown_flag_values_are_usage_errors(tmp_path, monkeypatch, capsys, fla
 
 @pytest.fixture
 def handler_prompts(monkeypatch):
-    """The repo's prompts as the handler's PROMPTS_DIR, read fresh by the test."""
+    """The repo's prompts as the handler's PROMPTS_DIR, and its GEOMETRY_IN_LEVEL on,
+    both read fresh by the test (C309).
+    """
     monkeypatch.setenv("PROMPTS_DIR", str(REPO_PROMPTS))
+    monkeypatch.setenv("GEOMETRY_IN_LEVEL", "on")
     handler._prompt.cache_clear()
+    handler._geometry_in_level.cache_clear()
     yield
     handler._prompt.cache_clear()
+    handler._geometry_in_level.cache_clear()
 
 
 def test_handler_and_runner_send_the_same_effort(

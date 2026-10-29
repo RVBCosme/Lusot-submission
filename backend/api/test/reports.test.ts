@@ -91,6 +91,26 @@ describe("GET /reports/{id}", () => {
     });
   });
 
+  it("never returns levelFrom or the inches before the release gate", async () => {
+    // C308, C320: MS3b stores a level's source and, from geometry, its inches. MS6 adds the inches only if the release gate passes, and MS5 words levelFrom.
+    ddbMock.on(QueryCommand).resolves({ Items: [{ ...UPLOADED, ...CLAIM, ...LEVEL, levelFrom: "geometry", depthInMin: 15.1, depthInMax: 16.3 }] });
+
+    const res = await getReport(ID, deps);
+
+    expect(JSON.parse(res.body)).toEqual({
+      reportId: ID,
+      status: "done",
+      capturedAt: CAPTURED_AT,
+      noFloodSeen: false,
+      level: "knee",
+      landmark: "rim_three_quarters",
+      passability: "NPLV",
+      basis: { vehicles: 1, people: 1 },
+      levelIsFloor: false,
+    });
+    for (const name of ["levelFrom", "depthInMin", "depthInMax"]) expect(res.body).not.toContain(name);
+  });
+
   it("a done report with no flood seen returns noFloodSeen and nothing else new", async () => {
     ddbMock.on(QueryCommand).resolves({ Items: [{ ...UPLOADED, ...CLAIM, status: "done", noFloodSeen: true }] });
 
