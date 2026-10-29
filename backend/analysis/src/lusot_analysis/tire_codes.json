@@ -1,0 +1,23 @@
+{
+  "version": "tire-codes-v1",
+  "types": {
+    "sedan_hatch": [
+      {"code": "175/65R14", "vehicle": "Wigo", "source": "plan Table 7"},
+      {"code": "185/55R15", "vehicle": "Mirage G4", "source": "verification notes §4 (Mitsubishi PH model page)"},
+      {"code": "185/60R15", "vehicle": "Vios", "source": "plan Table 7"},
+      {"code": "195/55R16", "vehicle": "Vios", "source": "plan Table 7"}
+    ],
+    "suv_mpv": [
+      {"code": "205/55R16", "vehicle": "Xpander", "source": "plan Table 7"},
+      {"code": "205/55R17", "vehicle": "Xpander", "source": "plan Table 7"},
+      {"code": "185/65R15", "vehicle": "Avanza", "source": "plan Table 7"},
+      {"code": "195/60R16", "vehicle": "Avanza", "source": "plan Table 7"},
+      {"code": "205/65R16", "vehicle": "Raize and Innova", "source": "plan Table 7"},
+      {"code": "205/60R17", "vehicle": "Raize", "source": "plan Table 7"},
+      {"code": "215/55R17", "vehicle": "Innova", "source": "plan Table 7"}
+    ],
+    "van": [
+      {"code": "215/70R16C", "vehicle": "Hiace", "source": "plan Table 7"}
+    ]
+  }
+}

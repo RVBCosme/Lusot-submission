@@ -71,6 +71,7 @@ The rules say "Dates may be subject to change"; recheck the event page before ea
 **Budget**
 - **Meta:** $150 of credits, enough for about 5,000 photos as planned. **Every call runs on the credits** (D10). If the 10-day window ends before judging does, judging traffic bills the card instead. The stop switch, the $100 spend alert and a daily billing check stay on.
 - **AWS:** the free plan, with the full $200 of credits (all five activities done Oct 27, valid until Oct 27, 2027) and a $5 budget alert. Use Singapore prices: HTTP API is $1.25 per million requests.
+- **Note (Oct 28, after MS1's probe; the line above stays as approved):** a photo costs about $0.032 at Muse Spark's default effort, about $0.034 for full-size photos, because about 95% of Muse Spark's output is reasoning. $150 then covers about 4,400 to 4,700 photos, and the plan's 5,000 would cost about $160 to $170. Keeping the plan's reserve share means planning for about 3,100 to 3,300 photos. Revisit after MS3b's reasoning-effort test (C312). Cost is taken from billed usage, never from token counts, and the alerts stay on.
 
 **People.** Rene and Claude, as a solo entry. Rene tests on an Android phone and an iPhone; on iOS that means the web app in Safari.
 
@@ -101,7 +102,7 @@ The rules say "Dates may be subject to change"; recheck the event page before ea
 |---|---|---|---|
 | D1 | Oct 26 | Workflow | Superpowers is the main process. UI work uses ui-ux-pro-max and frontend-design, library docs come from Context7, and code follows the Karpathy guidelines. The work is split into milestones, each with its own spec and implementation plan. |
 | D2 | Oct 26 | Social-media data | Rene collects MMDA and Quezon City posts by hand, as plan M7 says. Claude prepares the log and handles matching, event splits and checks. Claude automates only public news articles, open datasets and spec pages. |
-| D3 | Oct 26 | Code foundation | Open-source starters: the official generators (Vite React-TS, Capacitor, AWS SAM) plus wiring adapted from `aws-samples/serverless-patterns`, credited. They go into a new repo, created after kickoff. |
+| D3 | Oct 26 | Code foundation | Open-source starters: the official generators (Vite React-TS, Capacitor, AWS SAM) plus wiring adapted from `aws-samples/serverless-patterns`, credited. They go into a new repo, created after kickoff. *(MS1 used the Vite and Capacitor generators. The backend was written for Lusot, with no `sam init` or serverless-patterns starter: see R47 in §6.)* |
 | D4 | Oct 26 | Tracking | Repo documents only: a spec and a checkbox plan for each milestone, plus `docs/PROGRESS.md` as the board. Nothing is mirrored into GitHub Issues. |
 | D5 | Oct 26 | Team | Solo entry: Rene is the only contributor. |
 | D6 | Oct 27 | Obsidian | The project folder itself is the Obsidian vault: `Lusot-Staging` now, the repo once it exists. Docs, decisions, ticks and a dated work log live once, in git. `.obsidian/` stays out of git. |
@@ -114,7 +115,7 @@ The rules say "Dates may be subject to change"; recheck the event page before ea
 | D15 | Oct 28 | Overnight work | While Rene sleeps, Claude keeps going on any work that doesn't need him, across milestones ("Anything that you can continue working on, so even if you can finish all tonight you can do it"). The D7 gates still hold. |
 | D16 | Oct 28 | Pushes and CI (Claude's reading, confirmed by Rene on Oct 28 at about 10:05 AM) | Rene's answer: "Run every only after milestones for now to maximize time." **Claude's reading:** for now, push and run the full checks at the end of each milestone, not after every task. The GitHub CLI lacks the `workflow` scope, so the CI workflow stays parked outside `.github/workflows/` until Rene runs `gh auth refresh -h github.com -s workflow`. Then it moves into place and runs on every push, as plan §19 asks. |
 | D17 | Oct 28 | Alarm email | AWS alarms (the dead-letter queue and others) email the address on Rene's Claude account. It is passed at deploy time from a git-ignored config and never written into the repo. |
-| D18 | Oct 28 | Model routing (this project only) | Subagents get Sonnet 5.5 at xhigh effort for easy tasks and Opus 5.5 at max effort for medium and harder ones. Fable 5.1 at max effort is used only when Opus can't do the task. Workflows are used only when needed, with at most 50 agents. Rene's global settings stay unchanged. |
+| D18 | Oct 28; amended Oct 29 | Model routing (this project only) | Subagents get Sonnet 5.5 at xhigh effort for easy tasks and Opus 5.5 at xhigh effort for medium and harder ones. It was max effort until Rene changed it on Oct 29 at 8:48 PM, and it is never max now. Fable 5.1 at max effort is used only when Opus can't do the task. Workflows are used only when needed, with at most 50 agents. Rene's global settings stay unchanged. |
 | D19 | Oct 28 | Refusal copy | Plan §9's refusal line drops the word "safe", which `CLAUDE.md` bans: "I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road." Rene confirmed the English line. The Taglish draft in the Oct 28 log waits for his copy review (M20). |
 | D20 | Oct 28 | Three parallel windows | From about 10:30 AM on Oct 28, three Claude windows run at once, each in its own git worktree and branch. Window 1 finishes MS1 (Tasks 10 to 12) in the main folder and owns the log, the board and the deploys until MS1 closes. Window 2 runs MS1 Tasks 4 and 5. Window 3 reviews the MS3a plan, builds the MS3a tasks that need nothing from Tasks 4 and 5, and builds the rest after MS1 closes. Each window runs one implementer at a time (R1), and the windows pass notes through git-ignored handoff files. |
 | D13 | Oct 27 | People as references | People count fully. A standing adult can set the level alone. With wheels in the photo too, the deepest believable reading wins, and a gap of more than one level means refusal. Wading adults count only when no adult is standing still. |
@@ -145,6 +146,8 @@ The rules say "Dates may be subject to change"; recheck the event page before ea
 | C19 | **Guards on the geometry outcome rule:** coverage may fall by at most 10 points, and passability agreement by at most 5 points. Proposed in `eval/rules.md` §8, for Rene to fix with M18 by Nov 2. | Underestimation alone can't catch what geometry gets wrong. |
 | C20 | **The face blur is the pipeline's first step,** in Python:<ul><li>It uses OpenCV's YuNet face detector. **It is built and tested in MS1, before the first Meta call**, and the model and its licence are confirmed then (fix F1, §20).</li><li>The analysis Lambda and the laptop tools share it. One implementation covers live uploads, samples, demo pins, tuning and the sealed run, so the phone needs no detector.</li><li>It is on from the start.</li><li>SAM's `face` request stays as a second pass before storage.</li><li>Plates still reach Meta, and the consent and privacy text say so.</li></ul> | The simplest way to meet D12 before tuning starts. |
 | C21 | **A `private` mode for photos taken outside Metro Manila,** next to live, sample, eval and demo. The analysis runs and the result shows on the phone, but never reaches the map or the feed. The usual device limits apply. The Metro Manila test uses an NCR boundary polygon; its source and licence are confirmed at MS4. | D14. |
+| R47 | **MS1 used no `sam init` or `aws-samples/serverless-patterns` starter** (amends D3 and §13 for the backend). Task 6 wrote `backend/template.yaml` and both functions for Lusot, so the README credits only what was used: the SAM CLI builds and deploys. D3's limit on where starting code may come from still holds. A ruling from the MS1 close, confirmed under Rene's delegation to the recommended option on Oct 28 (relayed by the tracker session); Rene can overturn it. | The credits must match what was used. D3 allows these starters but doesn't require them. |
+| R49 | **The dead-letter queue keeps messages 7 days, not the MS1 plan's first 14 days.** Each message is an S3 event record that carries the uploader's IP address. A ruling from the MS1 close, confirmed under Rene's delegation to the recommended option on Oct 28 (relayed by the tracker session); Rene can overturn it. | `CLAUDE.md`: keep data 7 days. |
 
 ## 7. Questions only Rene can answer
 
@@ -217,7 +220,7 @@ All five were rechecked against the Oct 27 plan; G1 to G4 are still needed.
 
 **G2. Pay once per photo** (MS4)
 - When the SQS message arrives, conditionally move the report from `pending` to `processing` and give it a lease (`claimedAt` plus a claim token).
-- If the report is already `done`, `refused` or `failed`, or another live lease holds it, delete the message and stop without calling Meta.
+- If the report is already `done`, `refused` or `failed`, delete the message and stop without calling Meta. If another live lease holds it, return the message for a later retry and stop without calling Meta (MS3a's C89, Oct 29). The copy then finds the report final, or re-claims it once the lease has expired.
 - The final write requires status `processing` and the same claim token. A retry may re-claim a lease that has expired, for example after a Lambda timeout.
 - *Why:* the conditional write in §7 step 8 stops a result from being overwritten. The Oct 27 text says it also stops "a second paid analysis", but it can't: two workers can both pay Meta before either writes.
 
@@ -239,7 +242,7 @@ All five were rechecked against the Oct 27 plan; G1 to G4 are still needed.
   - **Mirage G4:** confirmed on Mitsubishi PH's own page. 185/55R15 on every variant, 23.0 in, so it fits `sedan_hatch` (C13). The Oct 27 check confirmed its sales rank (8).
   - **Tamaraw:** 195R14C or 215/65R16 (26.3 to 27.0 in), from one secondary source.
   - **Hilux:** only the new generation's 265/60R18 (30.5 in) was found, from Thai data. The Hilux models already on Manila streets weren't verified.
-- **So M11 still photographs the jeepney, tricycle and bus, and adds a Hilux and a Tamaraw.**
+- **So M11 covers the jeepney, tricycle and bus, and adds a Hilux and a Tamaraw.** Amended Oct 29: Rene chose to source these sizes from public tire specs instead of sidewall photos. A draft is compiled for his review, and the codes land in MS3b's tire-code file (C304, R124).
 - Pickups get wheel measurement only after the Hilux sizes are verified; that is the plan's existing rule. A 30.5 in Hilux tire read as an SUV would come out one level too shallow, so W14's confusion matrix must check pickups.
 
 ## 10. Working process
@@ -306,7 +309,7 @@ G1 places each demo pin at the photo's real spot, so the location matters. The p
 ## 13. Code foundation (D3 in detail)
 
 - **`app/`:** `npm create vite` (react-ts template), then Tailwind, then Capacitor (core, CLI, Android, camera, geolocation), then `vite-plugin-pwa`, then Leaflet. Versions are confirmed with Context7 at MS1.
-- **`backend/`:**
+- **`backend/`** (as planned on Oct 26; MS1 wrote the template and both functions for Lusot instead, with no `sam init` or serverless-patterns code, R47 in §6):
   - `sam init` provides a Node.js TypeScript function for `api/` and a Python container-image function for `analysis/`.
   - The wiring comes from `aws-samples/serverless-patterns`: S3 filtered on `raw/`, then SQS with a dead-letter queue, then Lambda with an event-source maximum concurrency of 5.
   - `amazon-s3-presigned-urls-aws-sam` is archived, so it is a reference only.

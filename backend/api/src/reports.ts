@@ -22,11 +22,24 @@ export async function getReport(id: string | undefined, deps: ReportDeps): Promi
   );
   const report = Items?.[0];
   if (report === undefined) return json(404, { error: "not_found" });
-  // Only what the app needs: never the location.
-  return json(200, {
+  // Only what the app needs: never the location, readings, photoKey or the claim (C67).
+  const body: Record<string, unknown> = {
     reportId: report.reportId,
     status: report.status,
     refusalReason: report.refusalReason,
     capturedAt: report.capturedAt,
-  });
+  };
+  // noFloodSeen on every done report gives the app one rule; the level fields come only with a level (C67).
+  if (report.status === "done") {
+    body.noFloodSeen = report.noFloodSeen;
+    if (report.level !== undefined) {
+      body.level = report.level;
+      body.landmark = report.landmark;
+      body.passability = report.passability;
+      // A new map of the two counts, so nothing else stored in it reaches the app.
+      body.basis = { vehicles: report.basis.vehicles, people: report.basis.people };
+      body.levelIsFloor = report.levelIsFloor;
+    }
+  }
+  return json(200, body);
 }
