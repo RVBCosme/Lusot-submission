@@ -7,6 +7,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type Deps, route } from "../src/index";
 import { createFeed, createMapPins } from "../src/pins";
+import { createManifest } from "../src/samples";
 import { createStopSwitch } from "../src/stopSwitch";
 
 const ID = "r_0123456789abcdef0123456789abcdef";
@@ -33,7 +34,7 @@ function deps(): Deps {
     inchesShown: false,
     now: () => Date.parse(NOW_ISO),
   };
-  return { ...base, mapPins: createMapPins(base), feed: createFeed(base) };
+  return { ...base, mapPins: createMapPins(base), feed: createFeed(base), manifest: createManifest(base) };
 }
 
 beforeEach(() => {

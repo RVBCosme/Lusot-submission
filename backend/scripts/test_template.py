@@ -17,6 +17,7 @@ RES = T["Resources"]
 REPORT_STORE = (
     TEMPLATE.parent / "analysis" / "src" / "lusot_analysis" / "report_store.py"
 )
+API_ROUTER = TEMPLATE.parent / "api" / "src" / "index.ts"
 ALARM_TOPIC = [{"Ref": "AlarmTopic"}]
 APP_ORIGINS = {"Ref": "AppOrigins"}
 
@@ -94,6 +95,17 @@ def test_routes():
         "POST /samples/{sampleId}",
     }
     assert route_keys("FeedApi") == {"GET /pins.geojson"}
+
+
+def test_routes_match_the_api_router():
+    """Critical 2: each deployed route has a case in index.ts's route(), and each case a route."""
+    source = API_ROUTER.read_text(encoding="utf-8")
+    router = re.search(r"export async function route\(.*?\n}\n", source, re.DOTALL)
+    assert router, "route() is missing from index.ts"
+    cases = set(re.findall(r'^\s*case "([^"]+)":', router.group(0), re.MULTILINE))
+    deployed = route_keys("HttpApi") | route_keys("FeedApi")
+    assert len(deployed) == 8
+    assert cases == deployed
 
 
 def test_api_environment():

@@ -8,14 +8,16 @@ import { json, type JsonResponse } from "./http";
 import { logError } from "./log";
 import { createFeed, createMapPins, nearby, type PinDeps } from "./pins";
 import { getReport, type ReportDeps } from "./reports";
+import { createManifest, listSamples, runSample, type SampleDeps } from "./samples";
 import { createStopSwitch } from "./stopSwitch";
 import { createUpload, type UploadDeps } from "./uploads";
 
 export type Deps = UploadDeps &
   ReportDeps &
   PinDeps &
-  FlagDeps & {
-    // Built once per container from the deps, so their memos persist (T9).
+  FlagDeps &
+  SampleDeps & {
+    // Built once per container from the deps, so their memos persist (T9), as SampleDeps' manifest is.
     mapPins: () => Promise<JsonResponse>;
     feed: () => Promise<JsonResponse>;
   };
@@ -40,6 +42,10 @@ export async function route(event: RouteEvent, deps: Deps): Promise<JsonResponse
       return deps.feed();
     case "POST /reports/{id}/flag":
       return flagReport(event.pathParameters?.id, deviceHeader(event), deps);
+    case "GET /samples":
+      return listSamples(deps);
+    case "POST /samples/{sampleId}":
+      return runSample(event.pathParameters?.sampleId, deviceHeader(event), deps);
     default:
       return json(404, { error: "not_found" });
   }
@@ -57,7 +63,7 @@ function deviceHeader(event: RouteEvent): string | undefined {
 }
 
 // Built on the first request and kept for the container's life, so the stop switch cache and
-// the map's and the feed's memos persist.
+// the map's, the feed's and the manifest's memos persist.
 let live: Deps | undefined;
 
 export async function handler(event: APIGatewayProxyEventV2): Promise<JsonResponse> {
@@ -85,7 +91,7 @@ function liveDeps(): Deps {
     inchesShown: env("INCHES_SHOWN") === "true",
     now: Date.now,
   };
-  return { ...base, mapPins: createMapPins(base), feed: createFeed(base) };
+  return { ...base, mapPins: createMapPins(base), feed: createFeed(base), manifest: createManifest(base) };
 }
 
 function env(name: string): string {
