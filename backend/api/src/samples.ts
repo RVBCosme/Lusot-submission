@@ -4,7 +4,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { json, type JsonResponse } from "./http";
 import { take } from "./limits";
 import type { StopSwitch } from "./stopSwitch";
-import { newReportId } from "./uploads";
+import { isoSeconds, newReportId } from "./uploads";
 
 const MANIFEST_KEY = "samples/manifest.json"; // written only by samples.py (spec §4.5)
 const MANIFEST_MEMO_MS = 60_000; // so a removed sample leaves the list within a minute
@@ -22,8 +22,12 @@ export interface SampleEntry {
   date?: string;
   event?: string;
   // The seeding run's date and final result (MS4-Q8 (b)), served only while model calls are stopped.
+  // The result is GET /reports/{id}'s own fields, each present on its rule: noFloodSeen on a done
+  // result, the level fields only with a level, refusalReason only when refused.
   savedAt: string;
-  outcome: string;
+  status: "done" | "refused";
+  refusalReason?: string;
+  noFloodSeen?: boolean;
   level?: string;
   landmark?: string;
   passability?: string;
@@ -100,9 +104,9 @@ export async function runSample(
 
   const reportId = newReportId();
   const receivedAt = isoSeconds(nowS);
-  // F11, accepted: a sample removed within the manifest's 60 s memo passes the check above, spends a
-  // count, and leaves this pending item when the copy below answers 404. A sample never pins, so it is
-  // never shown, and it expires in 7 days.
+  // F11, accepted: whenever the copy below fails, the count is spent and this pending item is left:
+  // 404 for a sample removed within the manifest's 60 s memo, which passes the check above, and 500
+  // for any other failure. A sample never pins, so the item is never shown, and it expires in 7 days.
   await deps.ddb.send(
     new PutCommand({
       TableName: deps.tableName,
@@ -151,17 +155,25 @@ async function readManifest(deps: Pick<SampleDeps, "s3" | "bucketName">): Promis
   }
 }
 
-// A result without a level has no level fields, and JSON leaves out the undefined ones.
+// A manifest entry whose saved result can't be served. The handler logs its name and answers 500.
+class SavedResultError extends Error {
+  override name = "SavedResultError";
+}
+
+// The stored fields as samples.py wrote them (Task 8), not re-derived here. JSON leaves out the absent ones.
 function savedResult(entry: SampleEntry): Record<string, unknown> {
-  const { savedAt, outcome, level, landmark, passability, levelIsFloor } = entry;
-  return { saved: true, savedAt, result: { outcome, level, landmark, passability, levelIsFloor } };
+  const { savedAt, status, refusalReason, noFloodSeen, level, landmark, passability, levelIsFloor } = entry;
+  // Never an empty "saved" answer from an entry that drifted from what samples.py writes.
+  if (typeof savedAt !== "string" || (status !== "done" && status !== "refused")) {
+    throw new SavedResultError("the manifest entry has no saved result to serve");
+  }
+  return {
+    saved: true,
+    savedAt,
+    result: { status, refusalReason, noFloodSeen, level, landmark, passability, levelIsFloor },
+  };
 }
 
 function isNoSuchKey(err: unknown): boolean {
   return (err as { name?: string } | undefined)?.name === "NoSuchKey";
-}
-
-// Table 14's form, in UTC to the second, as uploads.ts writes receivedAt (2026-10-30T10:06:40Z).
-function isoSeconds(epochS: number): string {
-  return new Date(epochS * 1000).toISOString().replace(".000Z", "Z");
 }

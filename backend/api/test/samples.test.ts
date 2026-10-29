@@ -19,8 +19,11 @@ const DEVICE = "device-0123456789abcdef";
 const REPORT_ID = /^r_[0-9a-f]{32}$/; // C32, T6
 const LEVEL_SAMPLE = "s0123456789";
 const SYNTHETIC_SAMPLE = "sabcdef0123";
+const DRY_SAMPLE = "sfedcba9876";
 const MANIFEST_KEY = "samples/manifest.json";
-// The manifest as samples.py (Task 8) writes it, plus two fields that must never get out (C512).
+// The manifest as samples.py (Task 8) writes it, plus two fields that must never get out (C512). Each
+// saved result holds GET /reports/{id}'s own fields, present on its rule: noFloodSeen on a done result,
+// the level fields only with a level, and refusalReason only when refused.
 const MANIFEST = {
   version: 1,
   samples: [
@@ -33,7 +36,8 @@ const MANIFEST = {
       event: "Typhoon Carina",
       // The seeding run's date and final result (MS4-Q8 (b)), served only during a pause.
       savedAt: "2026-10-31",
-      outcome: "level",
+      status: "done",
+      noFloodSeen: false,
       level: "knee",
       landmark: "rim_three_quarters",
       passability: "NPLV",
@@ -41,13 +45,24 @@ const MANIFEST = {
       sourceNote: "SOURCE-NOTE-SENTINEL",
       notes: "NOTES-SENTINEL",
     },
-    // Only a synthetic composite leaves out place and date (spec §4.5). A result without a level has no level fields.
+    // Only a synthetic composite leaves out place and date (spec §4.5).
     {
       sampleId: SYNTHETIC_SAMPLE,
       credit: "Synthetic composite made by Lusot from open-licensed photos",
       license: "CC0 1.0",
       savedAt: "2026-10-31",
-      outcome: "cant_tell",
+      status: "refused",
+      refusalReason: "no_usable_reference",
+    },
+    {
+      sampleId: DRY_SAMPLE,
+      credit: "Photo by a contributor, CC BY 4.0, faces and plates blurred by Lusot",
+      license: "CC BY 4.0",
+      place: "Quezon City",
+      date: "2026-08-02",
+      savedAt: "2026-10-31",
+      status: "done",
+      noFloodSeen: true,
     },
   ],
 };
@@ -128,11 +143,34 @@ function expectLink(url: unknown, key: string): void {
   expect(parsed.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
 }
 
+// The environment index.ts's handler builds its own clients from.
+function stubApiEnv(): void {
+  vi.stubEnv("AWS_REGION", "ap-southeast-1");
+  vi.stubEnv("TABLE_NAME", "reports");
+  vi.stubEnv("INDEX_NAME", "reportId-index");
+  vi.stubEnv("BUCKET_NAME", BUCKET);
+  vi.stubEnv("STOP_PARAM_PREFIX", "/lusot/stop/");
+  vi.stubEnv("LIMITS_TABLE_NAME", "limits");
+  vi.stubEnv("FEED_INDEX_NAME", "feed-index");
+  vi.stubEnv("INCHES_SHOWN", "false");
+}
+
+// The handler of a new container, so no manifest memo from an earlier test carries over.
+async function coldHandler(): Promise<typeof handler> {
+  vi.resetModules();
+  return (await import("../src/index")).handler;
+}
+
 // The handler's catch answers 500, and logError's line holds the error's name and status, never its
 // message, which can hold an ARN.
-async function expectInternal(event: Partial<APIGatewayProxyEventV2>, error: string, status: number): Promise<void> {
+async function expectInternal(
+  event: Partial<APIGatewayProxyEventV2>,
+  error: string,
+  status: number | undefined,
+  entry: typeof handler = handler,
+): Promise<void> {
   const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-  const res = await handler({ isBase64Encoded: false, ...event } as APIGatewayProxyEventV2);
+  const res = await entry({ isBase64Encoded: false, ...event } as APIGatewayProxyEventV2);
 
   expect(res.statusCode).toBe(500);
   expect(JSON.parse(res.body)).toEqual({ error: "internal" });
@@ -182,10 +220,19 @@ describe("GET /samples", () => {
           license: "CC0 1.0",
           photoUrl: expect.any(String),
         },
+        {
+          sampleId: DRY_SAMPLE,
+          credit: "Photo by a contributor, CC BY 4.0, faces and plates blurred by Lusot",
+          license: "CC BY 4.0",
+          place: "Quezon City",
+          date: "2026-08-02",
+          photoUrl: expect.any(String),
+        },
       ],
     });
     expectLink(body.samples[0].photoUrl, `samples/${LEVEL_SAMPLE}.jpg`);
     expectLink(body.samples[1].photoUrl, `samples/${SYNTHETIC_SAMPLE}.jpg`);
+    expectLink(body.samples[2].photoUrl, `samples/${DRY_SAMPLE}.jpg`);
     // C512: neither the source note nor any other stored field gets out.
     expect(res.body).not.toContain("SOURCE-NOTE-SENTINEL");
     expect(res.body).not.toContain("NOTES-SENTINEL");
@@ -256,14 +303,7 @@ describe("POST /samples/{sampleId}", () => {
     await expect(runSample(LEVEL_SAMPLE, DEVICE, deps())).rejects.toMatchObject({ name: "AccessDenied" });
 
     // Through the handler, which builds its own clients from the environment.
-    vi.stubEnv("AWS_REGION", "ap-southeast-1");
-    vi.stubEnv("TABLE_NAME", "reports");
-    vi.stubEnv("INDEX_NAME", "reportId-index");
-    vi.stubEnv("BUCKET_NAME", BUCKET);
-    vi.stubEnv("STOP_PARAM_PREFIX", "/lusot/stop/");
-    vi.stubEnv("LIMITS_TABLE_NAME", "limits");
-    vi.stubEnv("FEED_INDEX_NAME", "feed-index");
-    vi.stubEnv("INCHES_SHOWN", "false");
+    stubApiEnv();
     // The two failed reads come first: a failed read isn't kept, while the run's good read stays in
     // the handler's memo for 60 s.
     for (const [name, status] of [
@@ -384,25 +424,79 @@ describe("POST /samples/{sampleId}", () => {
     expect(s3Mock.commandCalls(CopyObjectCommand)).toHaveLength(0);
   });
 
+  it("passes X-Lusot-Device through the router to the limits", async () => {
+    stubApiEnv();
+    const event: Partial<APIGatewayProxyEventV2> = {
+      routeKey: "POST /samples/{sampleId}",
+      pathParameters: { sampleId: LEVEL_SAMPLE },
+      headers: { "x-lusot-device": DEVICE },
+      isBase64Encoded: false,
+    };
+    const res = await (await coldHandler())(event as APIGatewayProxyEventV2);
+
+    expect(res.statusCode).toBe(201);
+    // The handler's clock is the real one, so the hour is matched by its form.
+    const [device, all] = updates();
+    expect(device.Key?.pk).toMatch(new RegExp(`^sample#${sha256(DEVICE)}#\\d{4}-\\d{2}-\\d{2}T\\d{2}$`));
+    expect(all.Key?.pk).toMatch(/^sample#ALL#\d{4}-\d{2}-\d{2}T\d{2}$/);
+    // C520: only the hash is sent, never the id.
+    for (const call of ddbMock.calls()) expect(JSON.stringify(call.args[0].input)).not.toContain(DEVICE);
+  });
+
   it("answers a paused sample with its saved seeding result and starts no run", async () => {
     ssmMock.on(GetParameterCommand, { Name: "/lusot/stop/model-calls" }).resolves({ Parameter: { Value: "on" } });
     const d = deps();
 
-    // MS4-Q8 (b), C527: marked as saved and dated, from the manifest entry.
+    // MS4-Q8 (b), C527: marked as saved and dated, with the report's own fields from the manifest entry.
     expect(await run(LEVEL_SAMPLE, d)).toStrictEqual({
       statusCode: 200,
       body: {
         saved: true,
         savedAt: "2026-10-31",
-        result: { outcome: "level", level: "knee", landmark: "rim_three_quarters", passability: "NPLV", levelIsFloor: false },
+        result: {
+          status: "done",
+          noFloodSeen: false,
+          level: "knee",
+          landmark: "rim_three_quarters",
+          passability: "NPLV",
+          levelIsFloor: false,
+        },
       },
+    });
+    expect(await run(DRY_SAMPLE, d)).toStrictEqual({
+      statusCode: 200,
+      body: { saved: true, savedAt: "2026-10-31", result: { status: "done", noFloodSeen: true } },
     });
     expect(await run(SYNTHETIC_SAMPLE, d)).toStrictEqual({
       statusCode: 200,
-      body: { saved: true, savedAt: "2026-10-31", result: { outcome: "cant_tell" } },
+      body: { saved: true, savedAt: "2026-10-31", result: { status: "refused", refusalReason: "no_usable_reference" } },
     });
+    // The spec's order holds during a pause: an unknown id is still 404, and the uploads switch still wins.
+    expect(await run("s9999999999", d)).toEqual({ statusCode: 404, body: { error: "not_found" } });
+    ssmMock.on(GetParameterCommand, { Name: "/lusot/stop/uploads" }).resolves({ Parameter: { Value: "on" } });
+    expect(await run(LEVEL_SAMPLE, deps())).toEqual({ statusCode: 503, body: { error: "uploads_paused" } });
     // No count, no item and no copy.
     expect(ddbMock.calls()).toHaveLength(0);
     expect(s3Mock.commandCalls(CopyObjectCommand)).toHaveLength(0);
+  });
+
+  it("refuses a saved result it can't serve, so the handler answers 500", async () => {
+    ssmMock.on(GetParameterCommand, { Name: "/lusot/stop/model-calls" }).resolves({ Parameter: { Value: "on" } });
+    const { savedAt: _savedAt, ...noDate } = MANIFEST.samples[2];
+    const { status: _status, ...noStatus } = MANIFEST.samples[2];
+    const drifted = [noDate, { ...noDate, savedAt: 20261031 }, noStatus, { ...noStatus, status: "failed" }];
+    for (const entry of drifted) {
+      s3Mock.on(GetObjectCommand).callsFake(() => ({ Body: objectBody({ version: 1, samples: [entry] }) }));
+
+      // Never an empty "saved" answer: a 500, with no count, no item and no copy.
+      await expect(runSample(DRY_SAMPLE, DEVICE, deps())).rejects.toMatchObject({ name: "SavedResultError" });
+    }
+    expect(ddbMock.calls()).toHaveLength(0);
+    expect(s3Mock.commandCalls(CopyObjectCommand)).toHaveLength(0);
+
+    // The handler logs the error's name, with no status since it isn't an AWS error.
+    stubApiEnv();
+    const event = { routeKey: "POST /samples/{sampleId}", pathParameters: { sampleId: DRY_SAMPLE } };
+    await expectInternal(event, "SavedResultError", undefined, await coldHandler());
   });
 });

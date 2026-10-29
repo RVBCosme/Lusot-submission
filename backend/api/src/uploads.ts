@@ -131,6 +131,7 @@ function inRange(value: unknown, min: number, max: number): value is number {
 }
 
 // Table 14's form, in UTC to the second (2026-10-30T10:05:12Z), so sort keys order by time.
-function isoSeconds(epochS: number): string {
+// samples.ts writes a sample report's receivedAt and sk with it too.
+export function isoSeconds(epochS: number): string {
   return new Date(epochS * 1000).toISOString().replace(".000Z", "Z");
 }
