@@ -16,7 +16,8 @@ Run from the repo root at MS2's close (Claude runs this one):
         --look eval\data\records\set-b-look-1.json
         --out eval\data\records\<date>-freeze.json
 --data is absolute. Each --file is relative to it, with no drive, root, stream, "." or
-".." part, and the record keys it as given, with /. Each --record is keyed by its bare
+".." part, and the record keys it as given, with /. A \ counts as / on every system,
+for the key and for the path that is opened. Each --record is keyed by its bare
 file name, with its SHA-256 and a copy of its archive block, or null when it has none.
 The generator version is read from set_b/dev/generated/truth.csv when that --file is
 given, spelled exactly so, and is null otherwise. Each --look is copied whole, in the
@@ -92,7 +93,10 @@ def _run(args: argparse.Namespace) -> int:
         return _refuse("--data must be absolute")
     if not all(_inside(rel) for rel in args.file):
         return _refuse("--file must stay inside --data")
-    paths = {rel.replace("\\", "/"): args.data / rel for rel in args.file}
+    # The key is the --file with / for \, and the path joins the key's parts onto --data,
+    # so a \ is a separator on every system, not only on Windows.
+    keys = [rel.replace("\\", "/") for rel in args.file]
+    paths = {key: args.data.joinpath(*key.split("/")) for key in keys}
     # The keys MS6 reads stay as written, and no entry replaces another's (S-R30).
     if any(rel.casefold() == TRUTH and rel != TRUTH for rel in paths):
         return _refuse(f"--file must be spelled {TRUTH}")

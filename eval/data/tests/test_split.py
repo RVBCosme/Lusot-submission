@@ -637,7 +637,9 @@ def test_rerun_after_a_failure_past_the_password(paths, prompts, tmp_path, capsy
     paths["--a-neg-dev"] = blocker / "dev"
     assert run(paths) == 1
     out, err = capsys.readouterr()
-    assert err == "stopped: FileExistsError\n"
+    # Windows raises FileExistsError, POSIX NotADirectoryError, for a file where a folder
+    # should be.
+    assert err in {"stopped: FileExistsError\n", "stopped: NotADirectoryError\n"}
     assert ID_TOKEN.search(out + err) is None
     assert prompts == PROMPTS
     archive = paths["--archive"].read_bytes()
