@@ -1259,7 +1259,12 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
   - the quoted `GEOMETRY_IN_LEVEL` literal
 
   CLAUDE.md isn't changed: it waits for Rene's approval.
-- [ ] **Step 7:** Commit `docs: record MS3b results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3b-geometry` into `main`, and push to the private repo (D16).
+- [x] **Step 7:** Commit `docs: record MS3b results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3b-geometry` into `main`, and push to the private repo (D16). Evidence (Oct 30):
+  - `6897cbc` was committed at 6:45 AM, and the tracker gave the merge OK on one condition: the branch's own CI passes first. That run, 40968383552, passed at 6:49 AM: `check:py`, `check:node` and `check:secrets` all succeeded.
+  - `ms3b-geometry` was merged into `main` as `5c3b089` (`--no-ff`, 6:49 AM).
+  - `npm run check` on `main`: exit 0 in 271 s, analysis 928 passed and 3 skipped.
+  - Pushed `7bc2bbe..5c3b089` at 6:54 AM. `main`'s CI run 40969376155 passed at 6:58 AM.
+  - No deploy followed (R155, as extended).
 
 ### Task 19: The sealed-run entry point, `run_sealed.py` (MS6's C412; R117, C329)
 
