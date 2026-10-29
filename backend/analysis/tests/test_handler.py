@@ -22,7 +22,7 @@ import boto3
 import cv2
 import numpy as np
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ReadTimeoutError
 from fakes import (
     REPO_PROMPTS,
     FakeClient,
@@ -139,6 +139,7 @@ def aws(monkeypatch, prompts):
     monkeypatch.setattr(handler, "MetaClient", no_meta_client)
     monkeypatch.setattr(handler, "_now_s", lambda: NOW_S)
     handler._client.cache_clear()
+    handler._post_run_ssm.cache_clear()
     with mock_aws():
         s3, ddb, ssm = (boto3.client(name) for name in ("s3", "dynamodb", "ssm"))
         s3.create_bucket(
@@ -150,7 +151,9 @@ def aws(monkeypatch, prompts):
         ssm.put_parameter(Name=PUBLISH, Value="off", Type="String")
         ssm.put_parameter(Name=KEY_PARAM, Value=FAKE_KEY, Type="SecureString")
         yield SimpleNamespace(s3=s3, ddb=ddb, ssm=ssm)
-    handler._client.cache_clear()  # its clients belong to the mock that just ended
+    # Their clients belong to the mock that just ended.
+    handler._client.cache_clear()
+    handler._post_run_ssm.cache_clear()
 
 
 @pytest.fixture
@@ -220,6 +223,13 @@ def published(aws) -> dict:
     """The report's `published` and `feedPart`, those it has."""
     item = report(aws)
     return {name: item[name] for name in PUBLISHED_FIELDS if name in item}
+
+
+def result(aws) -> tuple[str, str | None]:
+    """The report's status, with its level or its reason when it has one."""
+    item = report(aws)
+    detail = item.get("level", item.get("refusalReason", {}))
+    return item["status"]["S"], detail.get("S")
 
 
 def message(key: str = RAW_KEY) -> dict:
@@ -298,22 +308,27 @@ def record_meta_clients(monkeypatch, client: FakeClient) -> list[bool]:
 
 
 def spy_parameters(monkeypatch, failing: set[str]) -> list[dict]:
-    """Record each SSM read the handler makes, by its keywords.
+    """Record each SSM read the handler makes, by its keywords, in order.
 
-    A read of a name in `failing` raises InternalServerError. The test may change
-    `failing` between deliveries.
+    It covers both of the handler's SSM clients: the shared one, and the bounded one
+    for the reads after the paid run. A read of a name in `failing` raises
+    InternalServerError. The test may change `failing` between deliveries.
     """
-    ssm = handler._client("ssm")
-    get_parameter = ssm.get_parameter
     reads = []
 
-    def spy(**kwargs):
-        reads.append(kwargs)
-        if kwargs["Name"] in failing:
-            raise aws_error("InternalServerError", 500, "GetParameter")
-        return get_parameter(**kwargs)
+    def spy_on(ssm) -> None:
+        get_parameter = ssm.get_parameter
 
-    monkeypatch.setattr(ssm, "get_parameter", spy)
+        def spy(**kwargs):
+            reads.append(kwargs)
+            if kwargs["Name"] in failing:
+                raise aws_error("InternalServerError", 500, "GetParameter")
+            return get_parameter(**kwargs)
+
+        monkeypatch.setattr(ssm, "get_parameter", spy)
+
+    spy_on(handler._client("ssm"))
+    spy_on(handler._post_run_ssm())
     return reads
 
 
@@ -560,10 +575,12 @@ def test_stale_photo_is_removed_after_the_claim(aws, fake, switch, expected):
     assert keys(aws) == []
 
 
-def test_failed_photo_cleanup_retries_before_paying(aws, fake, monkeypatch):
-    # C72: the cleanup runs before any Meta call, so its failure costs nothing.
+@pytest.mark.parametrize("stored", STORED_KEYS)
+def test_failed_photo_cleanup_retries_before_paying(aws, fake, monkeypatch, stored):
+    # C72: the cleanup of each stored key runs before any Meta call, so its failure
+    # costs nothing.
     seed(aws, photo=LEVEL_PHOTO)
-    fail_deletes(monkeypatch, PHOTO_KEY)
+    fail_deletes(monkeypatch, stored)
     assert handler.handler(message(), None) == RETRY
     assert status(aws) == ("processing", None)
     assert keys(aws) == [RAW_KEY]
@@ -592,30 +609,64 @@ def test_keys_by_mode(mode, prefix):
     )
 
 
+KNEE_RESULT = ("done", "knee")  # the level case's result, as `result` reads it
+
+
 @pytest.mark.parametrize(
-    ("mode", "photo", "judged", "before", "during", "read", "pinned"),
+    ("mode", "photo", "judged", "before", "during", "final", "read", "pinned"),
     [
-        pytest.param("live", LEVEL_PHOTO, None, "off", None, True, True, id="live"),
-        pytest.param("demo", LEVEL_PHOTO, None, "off", None, True, True, id="demo"),
         pytest.param(
-            "private", LEVEL_PHOTO, None, "off", None, False, False, id="private"
+            "live", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, True, True, id="live"
         ),
         pytest.param(
-            "sample", LEVEL_PHOTO, None, "off", None, False, False, id="sample"
+            "demo", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, True, True, id="demo"
         ),
-        pytest.param("eval", LEVEL_PHOTO, None, "off", None, False, False, id="eval"),
+        pytest.param(
+            "private",
+            LEVEL_PHOTO,
+            None,
+            "off",
+            None,
+            KNEE_RESULT,
+            False,
+            False,
+            id="private",
+        ),
+        pytest.param(
+            "sample",
+            LEVEL_PHOTO,
+            None,
+            "off",
+            None,
+            KNEE_RESULT,
+            False,
+            False,
+            id="sample",
+        ),
+        pytest.param(
+            "eval", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, False, False, id="eval"
+        ),
         pytest.param(
             "live",
             LEVEL_PHOTO,
             answer(standing_water="no"),
             "off",
             None,
+            ("done", None),
             False,
             False,
             id="live-no-flood-seen",
         ),
         pytest.param(
-            "live", flat_jpeg(10), None, "off", None, False, False, id="live-refusal"
+            "live",
+            flat_jpeg(10),
+            None,
+            "off",
+            None,
+            ("refused", "too_dark"),
+            False,
+            False,
+            id="live-refusal",
         ),
         pytest.param(
             "live",
@@ -623,31 +674,66 @@ def test_keys_by_mode(mode, prefix):
             meta_error(500),
             "off",
             None,
+            ("failed", "model_error"),
             False,
             False,
             id="live-failure",
         ),
         pytest.param(
-            "live", LEVEL_PHOTO, None, "on", None, True, False, id="publish-on"
+            "live",
+            LEVEL_PHOTO,
+            None,
+            "on",
+            None,
+            KNEE_RESULT,
+            True,
+            False,
+            id="publish-on",
         ),
         # None: the publish read raises.
         pytest.param(
-            "live", LEVEL_PHOTO, None, None, None, True, False, id="publish-unreadable"
+            "live",
+            LEVEL_PHOTO,
+            None,
+            None,
+            None,
+            KNEE_RESULT,
+            True,
+            False,
+            id="publish-unreadable",
         ),
         pytest.param(
-            "live", LEVEL_PHOTO, None, "off", "on", True, False, id="set-mid-run"
+            "live",
+            LEVEL_PHOTO,
+            None,
+            "off",
+            "on",
+            KNEE_RESULT,
+            True,
+            False,
+            id="set-mid-run",
         ),
         pytest.param(
-            "live", LEVEL_PHOTO, None, "on", "off", True, True, id="cleared-mid-run"
+            "live",
+            LEVEL_PHOTO,
+            None,
+            "on",
+            "off",
+            KNEE_RESULT,
+            True,
+            True,
+            id="cleared-mid-run",
         ),
     ],
 )
 def test_publish_rules(
-    aws, fake, monkeypatch, mode, photo, judged, before, during, read, pinned
+    aws, fake, monkeypatch, mode, photo, judged, before, during, final, read, pinned
 ):
     # Review Focus 4: only a live or demo level is published, and only while the
     # switch reads "off" when its result is written. `during` sets the switch while
     # Muse Spark answers. The switch is read only for a result that could be pinned.
+    # `final` pins each case's result, so a case that expects no pin can't pass by
+    # not reaching its level.
     if judged is not None:
         fake.answer = judged
     failing = set()
@@ -662,7 +748,7 @@ def test_publish_rules(
         )
     seed(aws, photo=photo, mode={"S": mode})
     assert handler.handler(message(), None) == NO_FAILURES
-    assert report(aws)["status"]["S"] in ("done", "refused", "failed")
+    assert result(aws) == final
     expected = {"published": {"BOOL": True}, "feedPart": {"S": mode}} if pinned else {}
     assert published(aws) == expected
     assert [r["Name"] for r in reads] == ([SWITCH, PUBLISH] if read else [SWITCH])
@@ -706,6 +792,42 @@ def test_failed_publish_read_never_retries(aws, fake, monkeypatch, caplog):
     # The code and status only: the error's message carries an ARN.
     assert "arn:" not in caplog.text
     assert "not authorized" not in caplog.text
+
+
+def test_publish_read_has_its_own_bounded_client(aws, fake, monkeypatch, caplog):
+    # The publish read comes after the paid run, inside the run's 30 s margin, so a
+    # hung SSM call mustn't outlast it and make a redelivery pay again. Its client
+    # has 2 s timeouts and 2 retries. The model-calls read before the claim keeps
+    # the shared client. A timeout is a failed read: the result is written
+    # unpublished, never retried (Review Focus 3).
+    config = handler._post_run_ssm().meta.config
+    assert (config.connect_timeout, config.read_timeout) == (2, 2)
+    # botocore stores Config's max_attempts, a count of retries, as total attempts.
+    assert config.retries["total_max_attempts"] == 2 + 1
+    assert handler._post_run_ssm() is handler._post_run_ssm()  # made once
+    shared = handler._client("ssm")
+    shared_get = shared.get_parameter
+    shared_reads, post_run_reads = [], []
+
+    def read(**kwargs):
+        shared_reads.append(kwargs["Name"])
+        return shared_get(**kwargs)
+
+    def timed_out(**kwargs):
+        post_run_reads.append(kwargs["Name"])
+        raise ReadTimeoutError(endpoint_url="https://ssm.ap-southeast-1.amazonaws.com/")
+
+    monkeypatch.setattr(shared, "get_parameter", read)
+    monkeypatch.setattr(handler._post_run_ssm(), "get_parameter", timed_out)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
+    assert (shared_reads, post_run_reads) == ([SWITCH], [PUBLISH])
+    (line,) = report_lines(caplog)
+    assert line["publish_switch"] == {"error": "ReadTimeoutError"}
+    assert "Read timeout" not in caplog.text  # the class name only
 
 
 def test_demo_photo_goes_under_demo(aws, fake):
@@ -1241,13 +1363,24 @@ def test_b3_on_a_real_saved_run(prompts):
 
 def test_importing_the_handler_loads_no_cv2_or_model():
     # The Lambda's init hit its 10 s limit, so the handler's import loads nothing
-    # heavy: no OpenCV, no face_blur (the only module that builds YuNet) and no
-    # pipeline. A new interpreter, since this test process has loaded cv2 already.
+    # heavy: no OpenCV, no face_blur (the only module that builds YuNet), no
+    # pipeline, and none of the Meta client or what it brings in. A new interpreter,
+    # since this test process has loaded them already.
+    heavy = {
+        "cv2",
+        "numpy",
+        "openai",
+        "httpx",
+        "meta_sam_parser",
+        "lusot_analysis.meta_client",
+        "lusot_analysis.face_blur",
+        "lusot_analysis.pipeline",
+    }
     code = (
         "import sys\n"
         "import lusot_analysis.handler\n"
-        "heavy = {'cv2', 'lusot_analysis.face_blur', 'lusot_analysis.pipeline'}\n"
-        "loaded = sorted(heavy & set(sys.modules))\n"
+        f"heavy = {sorted(heavy)!r}\n"
+        "loaded = sorted(set(heavy) & set(sys.modules))\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run(

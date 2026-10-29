@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import unquote_plus
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from lusot_analysis.prompts import PromptSpec, load_prompt
@@ -60,6 +61,11 @@ _NOT_FOUND_VISIBILITY_S = 10  # a report not yet in the index retries this soon 
 # worker's live lease (C89).
 _RETRY_OUTCOMES = frozenset({"error", "model_key_rejected", "lease_held"})
 _PUBLISHED_MODES = frozenset({"live", "demo"})  # the modes that pin (C516)
+# SSM after the paid run: 2 s timeouts and 2 retries (3 tries), so a hung call ends
+# well inside DEADLINE_MARGIN_S and can't make a redelivery pay again.
+_POST_RUN_SSM_CONFIG = Config(
+    connect_timeout=2, read_timeout=2, retries={"max_attempts": 2}
+)
 
 logger = logging.getLogger("lusot.analysis")
 logger.setLevel(logging.INFO)  # Lambda's text log format otherwise drops INFO
@@ -93,6 +99,16 @@ def _error_fields(exc: Exception) -> dict:
 def _client(service: str):
     """One client per service and process, made on first use."""
     return boto3.client(service)
+
+
+@functools.cache
+def _post_run_ssm():
+    """The SSM client for every call after the paid run, made on first use.
+
+    Its short timeouts bound the call inside the run's margin. The reads before the
+    claim keep `_client("ssm")`.
+    """
+    return boto3.client("ssm", config=_POST_RUN_SSM_CONFIG)
 
 
 def MetaClient(*, api_key: str) -> meta_client.MetaClient:
@@ -152,10 +168,11 @@ def _model_calls_switch() -> str:
 def _publish_switch() -> str:
     """The publish stop switch's value, read for each result that could be pinned.
 
-    Uncached, as the model-calls switch is, so a change acts on the next result.
+    Uncached, as the model-calls switch is, so a change acts on the next result. It
+    comes after the paid run, so it goes through the bounded `_post_run_ssm`.
     """
     name = os.environ["STOP_PARAM_PREFIX"] + "publish"
-    return _client("ssm").get_parameter(Name=name)["Parameter"]["Value"]
+    return _post_run_ssm().get_parameter(Name=name)["Parameter"]["Value"]
 
 
 def analyse(
