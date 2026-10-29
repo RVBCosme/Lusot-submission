@@ -37,7 +37,8 @@ Resources:
               SSEAlgorithm: AES256
       CorsConfiguration:
         CorsRules:
-          - AllowedMethods: [POST]
+          # GET lets the app fetch a report's layersUrl (MS5's N14).
+          - AllowedMethods: [GET, POST]
             AllowedOrigins: !Ref AppOrigins
       LifecycleConfiguration:
         Rules:
@@ -53,6 +54,12 @@ Resources:
             Status: Enabled
             Prefix: overlay/
             ExpirationInDays: 7
+          # A backstop for demo pins' photos: demo_pins.py refuses an --until more than 53
+          # days ahead. No rule covers samples/, kept while the sample button exists (MS4-Q11).
+          - Id: demo-60-days
+            Status: Enabled
+            Prefix: demo/
+            ExpirationInDays: 60
       NotificationConfiguration:
         QueueConfigurations:
           - Event: "s3:ObjectCreated:*"
@@ -68,6 +75,8 @@ Resources:
     Properties:
       # At least 6x the analysis function's 180 s timeout.
       VisibilityTimeout: 1080
+      # SQS's default 4 days, written down; shorter than the dead-letter queue's (C525).
+      MessageRetentionPeriod: 345600
       SqsManagedSseEnabled: true
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
@@ -76,8 +85,10 @@ Resources:
   DeadLetterQueue:
     Type: AWS::SQS::Queue
     Properties:
-      # 7 days, not the MS1 plan's first 14 days: each message is an S3 event record with the uploader's IP.
-      MessageRetentionPeriod: 604800
+      # 6 days (C525): each message is an S3 event record with the uploader's IP. A message
+      # expires by its first enqueue time, which the move here keeps, and a redrive sends a
+      # new message, so a day before the move plus 6 days after it stays within 7.
+      MessageRetentionPeriod: 518400
       SqsManagedSseEnabled: true
 
   UploadQueuePolicy:
@@ -111,12 +122,16 @@ Resources:
           AttributeType: S
         - AttributeName: reportId
           AttributeType: S
+        - AttributeName: feedPart
+          AttributeType: S
+        - AttributeName: visibleUntil
+          AttributeType: N
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      # 15 read and 10 write units in all, inside the free 25 (plan Table 3).
+      # With the limits table, 19 read and 14 write units in all, inside the free 25 (plan Table 3).
       ProvisionedThroughput:
         ReadCapacityUnits: 10
         WriteCapacityUnits: 5
@@ -130,6 +145,57 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 5
             WriteCapacityUnits: 5
+        # The map and the feed (C517, C519). Sparse: only items with a feedPart appear.
+        # It projects the public pin fields alone, with the keys, so each write to it
+        # stays one unit (MS4 spec §4.4).
+        - IndexName: feed-index
+          KeySchema:
+            - AttributeName: feedPart
+              KeyType: HASH
+            - AttributeName: visibleUntil
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - reportId
+              - lat
+              - lng
+              - gpsAccuracyM
+              - capturedAt
+              - mode
+              - level
+              - landmark
+              - passability
+              - levelIsFloor
+              - basis
+              - flags
+              - credit
+              - place
+              - event
+              - depthInMin
+              - depthInMax
+          ProvisionedThroughput:
+            ReadCapacityUnits: 2
+            WriteCapacityUnits: 2
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
+  # Device and global counters per UTC clock hour, and flag records (C508, C511). Keys
+  # hold only SHA-256 hashes of device ids (C520), and every item has an expiresAt.
+  LimitsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
       TimeToLiveSpecification:
         AttributeName: expiresAt
         Enabled: true
@@ -149,10 +215,29 @@ Resources:
         x-amazon-apigateway-cors:
           allowOrigins: !Ref AppOrigins
           allowMethods: [GET, POST]
-          allowHeaders: [content-type]
+          # The app's random device id (C508), and a 429's Retry-After (C522).
+          allowHeaders: [content-type, x-lusot-device]
+          exposeHeaders: [retry-after]
       DefaultRouteSettings:
         ThrottlingRateLimit: 10
         ThrottlingBurstLimit: 20
+      # The result poll's own limit (C508): in W16's rush, 50 phones polling every 2 s make 25 a second.
+      RouteSettings:
+        "GET /reports/{id}":
+          ThrottlingRateLimit: 30
+          ThrottlingBurstLimit: 60
+
+  # The public feed's own read-only API, which any site may load (C521). Its origin is a
+  # literal, so CorsConfiguration works here. GET only, no credentials, no access logs.
+  FeedApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: ["*"]
+        AllowMethods: [GET]
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 5
+        ThrottlingBurstLimit: 10
 
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -174,6 +259,10 @@ Resources:
           BUCKET_NAME: !Ref UploadBucket
           STOP_PARAM_PREFIX: /lusot/stop/
           NODE_OPTIONS: --enable-source-maps
+          LIMITS_TABLE_NAME: !Ref LimitsTable
+          FEED_INDEX_NAME: feed-index
+          # A literal, never a parameter (C515): MS6's post-gate commit sets it to "true".
+          INCHES_SHOWN: "false"
       Events:
         CreateUpload:
           Type: HttpApi
@@ -187,6 +276,42 @@ Resources:
             ApiId: !Ref HttpApi
             Method: GET
             Path: /reports/{id}
+        ListNearby:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /reports
+        MapPins:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /map/pins
+        FlagReport:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /reports/{id}/flag
+        ListSamples:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /samples
+        RunSample:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /samples/{sampleId}
+        Feed:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref FeedApi
+            Method: GET
+            Path: /pins.geojson
 
   # Explicit roles (R19). SAM's generated roles would add AWSLambdaBasicExecutionRole (logs on *)
   # and, for an SQS event, AWSLambdaSQSQueueExecutionRole (SQS on *). With Role set, SAM adds nothing.
@@ -211,16 +336,45 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !GetAtt ApiLogGroup.Arn
+              # Reports and the limits table's counters. A flag's TransactWriteItems puts its
+              # record in limits and updates the report, each part governed by these two.
               - Effect: Allow
-                Action: dynamodb:PutItem
-                Resource: !GetAtt ReportsTable.Arn
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt ReportsTable.Arn
+                  - !GetAtt LimitsTable.Arn
+              # Nearby queries the table, the pin detail reportId-index, and the map and the feed feed-index.
               - Effect: Allow
                 Action: dynamodb:Query
-                Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"
+                Resource:
+                  - !GetAtt ReportsTable.Arn
+                  - !Sub "${ReportsTable.Arn}/index/reportId-index"
+                  - !Sub "${ReportsTable.Arn}/index/feed-index"
               # The presigned POST is signed with this role, so the role must be able to write the key.
+              # A sample run copies its stored photo to raw/ as well.
               - Effect: Allow
                 Action: s3:PutObject
                 Resource: !Sub "${UploadBucket.Arn}/raw/*"
+              # The pin detail's photo, overlay and layers links are signed with this role, and a
+              # sample run reads the manifest and copies a stored sample.
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub "${UploadBucket.Arn}/blurred/*"
+                  - !Sub "${UploadBucket.Arn}/overlay/*"
+                  - !Sub "${UploadBucket.Arn}/demo/*"
+                  - !Sub "${UploadBucket.Arn}/samples/*"
+              # So that a missing manifest or sample photo reads as 404 NoSuchKey, not 403
+              # AccessDenied, as MS3a Task 16 recorded under the analysis role's raw/-limited
+              # grant (R93). Only NoSuchKey reads as missing, and AccessDenied answers 500.
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt UploadBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix: "samples/*"
               - Effect: Allow
                 Action: ssm:GetParameter
                 Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
@@ -280,12 +434,13 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !GetAtt AnalysisLogGroup.Arn
-              # What the SQS event source mapping polls with, on this queue only.
+              # The SQS event source mapping and the handler use this queue, and only this queue.
               - Effect: Allow
                 Action:
                   - sqs:ReceiveMessage
                   - sqs:DeleteMessage
                   - sqs:GetQueueAttributes
+                  # The handler's ReportNotFound retry makes a message visible again in 10 s (R92).
                   - sqs:ChangeMessageVisibility
                 Resource: !GetAtt UploadQueue.Arn
               - Effect: Allow
@@ -293,11 +448,15 @@ Resources:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub "${UploadBucket.Arn}/raw/*"
+              # The stored photo and overlay: blurred/ and overlay/, or demo/ for a demo pin.
               - Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:DeleteObject
-                Resource: !Sub "${UploadBucket.Arn}/blurred/*"
+                Resource:
+                  - !Sub "${UploadBucket.Arn}/blurred/*"
+                  - !Sub "${UploadBucket.Arn}/overlay/*"
+                  - !Sub "${UploadBucket.Arn}/demo/*"
               # So that a missing raw photo reads as 404 NoSuchKey, not 403 AccessDenied. MS3a
               # Task 16 recorded NoSuchKey under this raw/-limited grant, so the handler's
               # missing-photo rule holds only NoSuchKey and AccessDenied retries (MS3a spec
@@ -383,10 +542,55 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmTopic
+      # So Rene also hears when it clears.
+      OKActions:
+        - !Ref AlarmTopic
+
+  # Spend alarms (MS4 spec §4.7): the Meta credits probably lapse during judging, and later
+  # calls are billed to the card. Both stay inside the free plan's 10 alarms.
+  AnalysisInvocationsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The analysis function ran more than 100 times in an hour.
+      Namespace: AWS/Lambda
+      MetricName: Invocations
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref AnalysisFunction
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  # 5,000 until Ask Lusot's spec sizes it. The feed's and the map's calls count too.
+  ApiInvocationsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The API function ran more than 5,000 times in an hour.
+      Namespace: AWS/Lambda
+      MetricName: Invocations
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 5000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
 
 Outputs:
   ApiUrl:
     Value: !GetAtt HttpApi.ApiEndpoint
+  # The public feed is at <FeedApiUrl>/pins.geojson.
+  FeedApiUrl:
+    Value: !GetAtt FeedApi.ApiEndpoint
   BucketName:
     Value: !Ref UploadBucket
   TableName:
