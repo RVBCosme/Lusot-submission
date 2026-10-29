@@ -1,7 +1,10 @@
 """Tests for the level scale and Table 8's reading rules (eval/rules.md §1 and §6)."""
 
+import json
+import math
 import subprocess
 import sys
+from importlib.resources import files
 
 import pytest
 
@@ -9,16 +12,34 @@ from lusot_analysis.rules import (
     ABOVE_LOWEST_MARK,
     BODY_AT_OR_BELOW_SILL,
     BODY_ROWS,
+    GEOMETRY_ONLY_TYPES,
     HIDDEN_WHEEL,
     LEVELS,
     PASSABILITY,
     PEOPLE_ROWS,
     READING_TYPES,
+    TIRE_CODES_VERSION,
     WHEEL_ROWS,
     Reading,
+    TireCode,
     disagree,
+    level_for_inches,
     level_index,
+    round_out,
+    tire_codes,
 )
+
+SEDAN_CODES = ["175/65R14", "185/55R15", "185/60R15", "195/55R16"]
+SUV_CODES = [
+    "205/55R16",
+    "205/55R17",
+    "185/65R15",
+    "195/60R16",
+    "205/65R16",
+    "205/60R17",
+    "215/55R17",
+]
+VAN_CODES = ["215/70R16C"]
 
 
 def exact(level: str) -> Reading:
@@ -135,6 +156,113 @@ def test_body_rows_and_sets():
 def test_disagree_follows_c54(readings, expected):
     assert disagree(readings) is expected
     assert disagree(iter(readings)) is expected  # any iterable, read once
+
+
+@pytest.mark.parametrize(
+    ("depth", "level"),
+    [
+        (0.1, "below_gutter"),
+        (5.0, "below_gutter"),
+        (5.01, "gutter"),
+        (8.0, "gutter"),
+        (8.01, "half_knee"),
+        (10.0, "half_knee"),
+        (13.0, "half_tire"),
+        (13.01, "knee"),
+        (19.0, "knee"),
+        (26.0, "tire"),
+        (37.0, "waist"),
+        (45.0, "chest"),
+        (45.01, "above_chest"),
+    ],
+)
+def test_level_for_inches_follows_the_level_rule(depth, level):
+    # The shallowest level whose upper limit is at or above the depth (eval/rules.md
+    # §1), so every in-between depth rounds deeper.
+    assert level_for_inches(depth) == level
+
+
+@pytest.mark.parametrize("depth", [0.0, -1.0, math.nan, math.inf])
+def test_level_for_inches_rejects_impossible_depths(depth):
+    with pytest.raises(ValueError):
+        level_for_inches(depth)
+
+
+@pytest.mark.parametrize(
+    ("depths", "stored"),
+    [
+        ((8.291619, 8.793869), (8.2, 8.8)),
+        ((8.3, 8.3), (8.3, 8.3)),  # a tenth stays as it is
+        ((7.0, 7.96), (7.0, 8.0)),
+        ((0.05, 0.05), (0.0, 0.1)),
+        # 5.0 alone would be below_gutter, where the depth is gutter (M1).
+        ((5.00000001, 5.00000001), (5.0, 5.1)),
+        # A positive depth that rounds to 0.0 would have no level at all.
+        ((1e-9, 1e-9), (0.0, 0.1)),
+    ],
+)
+def test_round_out(depths, stored):
+    # C308: min down and max up, to 0.1 in.
+    assert round_out(*depths) == stored
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [4.96, 5.0, 5.00000001, 7.96, 8.0, 12.95, 13.0, 13.00000001, 18.99, 44.99],
+)
+def test_a_rebuild_never_lands_shallower(depth):
+    # C308: a level rebuilt from the stored max is the unrounded depth's level.
+    assert level_for_inches(round_out(depth, depth)[1]) == level_for_inches(depth)
+
+
+def test_tire_codes_match_the_spec():
+    # Spec §4's table (C304), in its order. unknown runs every code, without repeats.
+    assert [c.code for c in tire_codes("sedan_hatch")] == SEDAN_CODES
+    assert [c.code for c in tire_codes("suv_mpv")] == SUV_CODES
+    assert [c.code for c in tire_codes("van")] == VAN_CODES
+    every = tire_codes("unknown")
+    assert [c.code for c in every] == SEDAN_CODES + SUV_CODES + VAN_CODES
+    assert len(every) == 12
+    assert every == tuple(TireCode.parse(c.code) for c in every)
+    for vehicle_type in ("pickup", "jeepney", "tricycle", "motorcycle", "bus_truck"):
+        assert tire_codes(vehicle_type) == ()
+
+
+def test_tire_sizes_match_table_7():
+    assert TireCode.parse("175/65R14").radius_in == pytest.approx(11.4783, abs=1e-4)
+    assert TireCode.parse("215/70R16C").radius_in == pytest.approx(13.9252, abs=1e-4)
+    assert TireCode.parse("215/70R16C") == TireCode("215/70R16C", 215, 70, 16)
+    diameters = {
+        "sedan_hatch": (23.0, 24.4),
+        "suv_mpv": (24.5, 26.7),
+        "van": (27.9, 27.9),
+        "unknown": (23.0, 27.9),
+    }
+    for vehicle_type, expected in diameters.items():
+        sizes = [2 * c.radius_in for c in tire_codes(vehicle_type)]
+        assert (round(min(sizes), 1), round(max(sizes), 1)) == expected
+    for code in ("265/60R18X", "7.50-16", "175/65R14\n", "175/65 R14"):
+        with pytest.raises(ValueError):
+            TireCode.parse(code)
+
+
+def test_every_code_names_its_source():
+    # The data file as the package ships it, read the way rules.py reads it.
+    text = files("lusot_analysis").joinpath("tire_codes.json").read_text("utf-8")
+    data = json.loads(text)
+    assert data["version"] == TIRE_CODES_VERSION == "tire-codes-v1"
+    assert list(data["types"]) == ["sedan_hatch", "suv_mpv", "van"]
+    for entries in data["types"].values():
+        for entry in entries:
+            assert set(entry) == {"code", "vehicle", "source"}
+            assert entry["vehicle"].strip()
+            assert entry["source"].strip()
+
+
+def test_geometry_only_types():
+    # The types with codes, less the ones Table 8's wheel rows read (C318).
+    assert GEOMETRY_ONLY_TYPES == {"van", "unknown"}
+    assert isinstance(GEOMETRY_ONLY_TYPES, frozenset)
 
 
 def test_rules_load_without_the_meta_client():

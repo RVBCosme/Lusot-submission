@@ -23,10 +23,12 @@ from lusot_analysis.meta_client import SamInstance, SamResult
 from lusot_analysis.pipeline.segment import box_xyxy, link_wheels
 from lusot_analysis.pipeline.types import ModelAnswerError, Outcome
 from lusot_analysis.prompts import validator_class
+from lusot_analysis.tuning import TUNING
 
-MIN_WHEEL_SIDE_PX = 40  # on the longer side of a wheel's SAM box (C56, P2)
-MAX_VEHICLES = 6  # both caps are provisional (C70, P6)
-MAX_PEOPLE = 6
+# From the tuning module, checked on Manila photos and never swept (C310).
+MIN_WHEEL_SIDE_PX = TUNING.min_wheel_side_px  # a wheel SAM box's longer side (C56, P2)
+MAX_VEHICLES = TUNING.max_vehicles  # both caps are provisional (C70, P6)
+MAX_PEOPLE = TUNING.max_people
 
 
 @dataclass(frozen=True)
