@@ -12,6 +12,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import formats
 import guards
 import numpy as np
 import pytest
@@ -116,6 +117,121 @@ def a_neg_row(**cells: str) -> dict[str, str]:
     }
     row.update(cells)
     return row
+
+
+# split_inputs' photos: each one's number, date, spot word and whether its alert states
+# NPLV. Set A's events are Task 10's golden input once A007 and A009 join A001 as its
+# copies: each of the three is logged at its own spot, so only their bytes join them
+# (Task 13's addition 9). Every other event has a spot word of its own.
+_SET_A_PHOTOS = (
+    (1, "2026-08-09", "Alfa", False),  # E01, with A007 and A009
+    (2, "2026-08-09", "Bravo", True),  # E02
+    (3, "2026-08-09", "Bravo", True),
+    (4, "2026-08-09", "Charlie", False),  # E03
+    (5, "2026-08-09", "Charlie", False),
+    (6, "2026-08-09", "Delta", True),  # E04
+    (7, "2026-08-10", "Echo", False),  # A001's bytes
+    (8, "2026-08-09", "Delta", True),
+    (9, "2026-08-10", "Foxtrot", False),  # A001 re-encoded
+    (10, "2026-08-09", "Golf", False),  # E05
+    (11, "2026-08-09", "Golf", False),
+    (12, "2026-08-09", "Hotel", True),  # E06
+    (13, "2026-08-09", "Hotel", True),
+    (14, "2026-08-10", "India", False),  # E07
+    (15, "2026-08-10", "India", False),
+    (16, "2026-08-10", "Juliett", False),  # E08
+    (17, "2026-08-10", "Kilo", True),  # E09
+    (18, "2026-08-10", "Lima", False),  # E10
+    (19, "2026-08-10", "Mike", True),  # E11
+    (20, "2026-08-10", "November", False),  # E12
+)
+_A_NEG_PHOTOS = (
+    (1, "2026-10-27", "Oscar"),  # E01
+    (2, "2026-10-27", "Oscar"),
+    (3, "2026-10-27", "Papa"),  # E02
+    (4, "2026-10-27", "Papa"),
+    (5, "2026-10-27", "Quebec"),  # E03
+    (6, "2026-10-28", "Romeo"),  # E04
+    (7, "2026-10-28", "Sierra"),  # E05
+    (8, "2026-10-28", "Tango"),  # E06
+)
+
+
+def split_inputs(root: Path) -> dict[str, Path]:
+    """Lay out a synthetic data folder like lusot-data under root, as Rene leaves it
+    for the split, and return each of the split's flags with its path.
+
+    Set A has 20 photos, A001 to A020, each on one same-post row of its log, in 12
+    events of 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1 and 1 photos over two dates. The 2nd,
+    4th, 6th, 9th and 11th events are deep: their alerts state NPLV. A007 holds A001's
+    bytes and A009 is A001 re-encoded, so they join A001's event as its copies. A-neg
+    has 8 photos, N001 to N008, in 6 events of 2, 2, 1, 1, 1 and 1. M8 gives each Set A
+    photo its photo row. The outputs don't exist yet, but the archive's folder, named
+    sealed, does, and the record lies outside it.
+    """
+    # Imported here, as in jpeg, so the decode cap photos.py sets holds (R25).
+    import cv2
+
+    set_a = root / "set_a"
+    a_neg = root / "a_neg"
+    paths = {
+        "--set-a-log": write_csv(
+            set_a / "set_a_log.csv",
+            formats.TEMPLATES["set_a_log.csv"],
+            [
+                set_a_row(
+                    candidate_id=f"A{number:03d}",
+                    post_time_pht=f"{date} 08:{number:02d}",
+                    spot_text=f"{spot} St.",
+                    passability_raw="NPLV" if deep else "PATV",
+                )
+                for number, date, spot, deep in _SET_A_PHOTOS
+            ],
+        ),
+        "--set-a-photos": set_a / "raw",
+        "--a-neg-log": write_csv(
+            a_neg / "a_neg_log.csv",
+            formats.TEMPLATES["a_neg_log.csv"],
+            [
+                a_neg_row(
+                    candidate_id=f"N{number:03d}",
+                    post_time_pht=f"{date} 16:{number:02d}",
+                    spot_text=f"{spot} St.",
+                )
+                for number, date, spot in _A_NEG_PHOTOS
+            ],
+        ),
+        "--a-neg-photos": a_neg / "raw",
+        "--m8": write_csv(
+            set_a / "m8_labels.csv",
+            formats.M8_COLUMNS,
+            [
+                {
+                    "photo_id": f"A{number:03d}",
+                    "ref_id": "P1",
+                    "kind": "photo",
+                    "quality": "ok",
+                }
+                for number, *_ in _SET_A_PHOTOS
+            ],
+        ),
+        "--set-a-dev": set_a / "dev",
+        "--a-neg-dev": a_neg / "dev",
+        "--archive": root / "sealed" / "lusot-sealed.7z",
+        "--record": root / "records" / "split.json",
+    }
+    for folder in (set_a / "raw", a_neg / "raw", root / "sealed"):
+        folder.mkdir(parents=True)
+    photos = {f"A{number:03d}": jpeg(number) for number, *_ in _SET_A_PHOTOS}
+    image = cv2.imdecode(np.frombuffer(photos["A001"], np.uint8), cv2.IMREAD_COLOR)
+    photos["A007"] = photos["A001"]
+    reencoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 70])[1]
+    photos["A009"] = reencoded.tobytes()
+    for photo_id, data in photos.items():
+        (set_a / "raw" / f"{photo_id}.jpg").write_bytes(data)
+    for number, *_ in _A_NEG_PHOTOS:
+        (a_neg / "raw" / f"N{number:03d}.jpg").write_bytes(jpeg(100 + number))
+    return paths
 
 
 def console(monkeypatch: pytest.MonkeyPatch) -> None:

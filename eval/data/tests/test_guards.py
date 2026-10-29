@@ -176,6 +176,37 @@ def test_password_typed_twice(monkeypatch, capsys):
     assert capsys.readouterr().err == "refused: empty password\n"
 
 
+def test_password_utf16_cant_encode_is_refused(monkeypatch, capsys):
+    """Windows getpass gives an emoji as two lone surrogates, which UTF-16-LE, the
+    encoding 7z derives its key from, can't encode (Task 13's addition 3). The refusal
+    comes before the second prompt, prints no part of the password, and holds no
+    exception that does."""
+    surrogate = chr(0xD83D)  # as getpass reads an emoji's first UTF-16 unit
+    phrase = f"test phrase {surrogate} for synthetic archives"
+    prompts = []
+
+    def record(prompt):
+        prompts.append(prompt)
+        return phrase
+
+    with pytest.raises(SystemExit) as stop:
+        guards.ask_password(ask=record)
+    assert stop.value.code == 2
+    assert (stop.value.__cause__, stop.value.__context__) == (None, None)
+    assert prompts == ["Archive password: "]
+    out, err = capsys.readouterr()
+    assert (out, err) == ("", "refused: the password can't be encoded\n")
+
+    synth.typed(monkeypatch, phrase, phrase)
+    with pytest.raises(SystemExit) as stop:
+        guards.ask_password()
+    assert stop.value.code == 2
+    out, err = capsys.readouterr()
+    assert err == "refused: the password can't be encoded\n"
+    assert surrogate not in out + err
+    assert "test phrase" not in out + err
+
+
 def test_confirm_needs_yes(monkeypatch, capsys):
     for answer in ("yes", " yes "):
         synth.typed(monkeypatch, answer)

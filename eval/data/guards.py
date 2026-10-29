@@ -79,7 +79,9 @@ def require_console() -> None:
 
 
 def ask_password(*, ask: Callable[[str], str] | None = None) -> str:
-    """Read the archive password, typed twice (C206). An empty one is refused.
+    """Read the archive password, typed twice (C206). An empty one is refused, and so is
+    one UTF-16-LE can't encode, as with the lone surrogates Windows getpass gives for an
+    emoji, since 7z derives its key from that encoding.
 
     ask defaults to getpass.getpass, looked up at each call so tests can replace it.
     """
@@ -89,10 +91,23 @@ def ask_password(*, ask: Callable[[str], str] | None = None) -> str:
     if not password:
         print("refused: empty password", file=sys.stderr)
         sys.exit(2)
+    if not _encodes(password):
+        print("refused: the password can't be encoded", file=sys.stderr)
+        sys.exit(2)
     if ask("Type it again: ") != password:
         print("refused: the two entries differ; nothing was written", file=sys.stderr)
         sys.exit(2)
     return password
+
+
+def _encodes(password: str) -> bool:
+    """True when UTF-16-LE can encode the password. The encoding error holds the
+    password, so it ends here, and the refusal is raised outside its handler."""
+    try:
+        password.encode("utf-16-le")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def confirm(summary: str, *, ask: Callable[[str], str] | None = None) -> None:
