@@ -44,10 +44,9 @@ In order, it checks that:
    finished, and prints it too if a check from 2 to 6 fails after one did: the Meta
    calls in their log lines, how many ended on a 504 or a 413 from SAM or judge, and
    the estimated cost at spend.py's prices, from SAM's calls and Muse Spark's billed
-   usage, never from a token count. It adds that cost to the Meta spend counter as
-   smoke (C527). A write that fails prints spend_error with the amount, for the
-   tracker to add once by hand (docs/operations.md), and the run ends with exit 1
-   once its other checks have run.
+   usage, never from a token count, for the ledger. It adds nothing to the Meta spend
+   counter: the analysis Lambda analyses every photo and counts its cost itself
+   (C527), so a second record would count the run twice.
 7. a report whose photo never came ends failed/photo_missing within 60 s (spec §3.6):
    the queue gets one S3-shaped notification for it, and the run prints the log
    line's S3 error code and HTTP status, NoSuchKey (404) since MS3a Task 16 (R93)
@@ -87,9 +86,8 @@ needs the CRT. HTTP goes over IPv4 only, since IPv6 doesn't connect on the home 
 (Oct 28 log).
 
 Usage: uv run backend/scripts/smoke_upload.py [--fallback] [--phase-a]
-Exit codes: 0 every check passed, 1 a check failed or the run's spend didn't reach the
-counter, 3 every other check passed but no photo gave a level. After B1, C71 then
-applies; after --fallback, B1 is partly met.
+Exit codes: 0 every check passed, 1 a check failed, 3 every other check passed but no
+photo gave a level. After B1, C71 then applies; after --fallback, B1 is partly met.
 """
 
 from __future__ import annotations
@@ -117,7 +115,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from ops_common import REGION, STACK, lusot_session, stack_outputs
 from spend_loader import load_spend
 
-# backend/analysis's spend.py, by path (Task 7a): the Lambda's prices and its counter.
+# backend/analysis's spend.py, by path (Task 7a): the Lambda's own prices.
 spend = load_spend()
 
 # MS7's OUTSIDE_POINT, in Laguna de Bay: outside Metro Manila, so private (C513).
@@ -152,7 +150,6 @@ PRIVATE_FOR_S = 10  # and for how long, through the report index's 404s
 NEARBY_RADIUS_M = 300  # nearby's largest radius (C509)
 # A level body's fields that only Task 14 and MS3b add, which --phase-a waives.
 PHASE_B_KEYS = ("readings", "overlayUrl", "layersUrl", "levelFrom")
-NOT_RECORDED = "spend_error: this run's spend isn't on the counter (see above)"
 
 
 class CheckFailed(Exception):
@@ -291,7 +288,6 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     """
     check_preflight(http, stack.api_url)
     sent: list[Sent] = []
-    recorded = True
     try:
         reused = False
         for n, data in enumerate(jpegs, 1):
@@ -319,20 +315,17 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     finally:
         # Even when a check fails: whatever was sent is paid for.
         if sent:
-            recorded = say_spend(stack, sent)
+            say_spend(sent)
     check_missing_photo(http, stack)
     check_png_refused(http, stack.api_url)
     check_key_loaded(stack.session)
     check_stop_switch(stack.session, http, stack.api_url)
-    if not recorded:
-        raise CheckFailed(NOT_RECORDED)
     return level
 
 
 def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     """C71's fallback: checks 2, 5 and 6 on the photos, sent up to the first level."""
     sent: list[Sent] = []
-    recorded = True
     try:
         for n, data in enumerate(jpegs, 1):
             label = f"fallback photo {n}/{len(jpegs)}"
@@ -349,9 +342,7 @@ def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bo
     finally:
         # Even when a check fails: whatever was sent is paid for.
         if sent:
-            recorded = say_spend(stack, sent)
-    if not recorded:
-        raise CheckFailed(NOT_RECORDED)
+            say_spend(sent)
     return level
 
 
@@ -944,15 +935,12 @@ def run_summary(lines: Iterable[dict]) -> dict:
     return {"calls": calls, "ended_on": ended_on, "billed_tokens": billed, "usd": usd}
 
 
-def say_spend(stack: Stack, items: Sequence[Sent]) -> bool:
-    """Print the run's spend, add it to the Meta spend counter as smoke (C527), and
-    return whether the counter took it.
+def say_spend(items: Sequence[Sent]) -> None:
+    """Print the run's spend at spend.py's prices, for the ledger.
 
-    It goes through spend.py's record_spend, with its client settings, into the
-    stack's limits table. A run with nothing billed records nothing, as the handler
-    does. A write that fails prints spend_error with the amount, rounded up as the
-    counter records it, for the tracker to add once by hand (docs/operations.md).
-    Nothing here raises for it, so a check's own failure still ends the run.
+    It records nothing: the analysis Lambda analysed each photo and added its cost to
+    the Meta spend counter itself (handler.py's _record_spend, C527), so a record from
+    here would count the run twice.
     """
     summary = run_summary(line for item in items for line in item.lines)
     calls, ended = summary["calls"], summary["ended_on"]
@@ -964,21 +952,6 @@ def say_spend(stack: Stack, items: Sequence[Sent]) -> bool:
         f" {ended['judge'][413]}; billed {billed['input']:,} input and"
         f" {billed['output']:,} output tokens, estimated ${summary['usd']:.4f}"
     )
-    if summary["usd"] == 0:
-        return True
-    usd = spend.rounded_up(summary["usd"])
-    try:
-        ddb = stack.session.client("dynamodb", config=spend.SPEND_CONFIG)
-        table = spend.deployed_limits_table(stack.session)
-        total = spend.record_spend(summary["usd"], "smoke", ddb=ddb, table=table)
-    except (BotoCoreError, ClientError) as exc:
-        say(
-            f"spend_error: usd {usd:f} from this run isn't on the spend counter"
-            f" ({spend.aws_error(exc)}); add it once by hand (docs/operations.md)"
-        )
-        return False
-    say(f"spend recorded: ${usd:f} as smoke, counter total ${total:f}")
-    return True
 
 
 def check_missing_photo(http: httpx.Client, stack: Stack) -> None:

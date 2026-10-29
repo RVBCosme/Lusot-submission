@@ -62,7 +62,6 @@ SAM_MS = {phrase: 900 for phrase in (*PHRASES, "license plate")}  # 7 SAM calls
 SPOT = {"lat": 14.35, "lng": 121.25}  # MS7's OUTSIDE_POINT, in Laguna de Bay
 MANILA = {"lat": 14.6095, "lng": 120.9894}  # MS1's old spot, inside Metro Manila
 DEVICE_HEADERS = "content-type,x-lusot-device"  # what the preflight asks for
-LIMITS_TABLE = "lusot-limits-test"
 LINKS = "https://links.test.invalid/"  # a presigned link is LINKS + its object key
 
 # A reading as GET /reports/{id} gives it while INCHES_SHOWN is "false" (C507, C515).
@@ -206,8 +205,8 @@ class FakeCloud:
     reach S3, and its report shows processing for `processing_s` more. With `phase_a`,
     it is a stack without Task 14 and MS3b: no level holds PHASE_B's fields, and no
     overlay is stored. Nearby and the map list `nearby` and `on_map`, by report id.
-    The spend counter starts at a seeded $1. Each name in `faults` breaks one step, as
-    its method says. `trail` records what happened, in order.
+    Each name in `faults` breaks one step, as its method says. `trail` records what
+    happened, in order.
     """
 
     def __init__(
@@ -232,8 +231,7 @@ class FakeCloud:
         self.asked_headers = []  # each preflight's Access-Control-Request-Headers
         self.nearby = [OTHER]  # the pins near the spot, by report id
         self.on_map = [OTHER]  # the map's pins, by report id
-        self.spent = []  # each ADD to the spend counter, in micro-dollars
-        self.micro_total = 1_000_000  # the counter, seeded at $1
+        self.updates = []  # each DynamoDB UpdateItem's parameters
         self.stopped = False
 
     def transport(self, **kwargs):
@@ -422,44 +420,14 @@ class FakeCloud:
     def cloudformation_describe_stack_resource(self, StackName, LogicalResourceId):
         assert StackName == "lusot"
         self.lookups.append(LogicalResourceId)
-        ids = {
-            "AnalysisFunction": FUNCTION,
-            "AnalysisLogGroup": LOG_GROUP,
-            "LimitsTable": LIMITS_TABLE,
-        }
+        ids = {"AnalysisFunction": FUNCTION, "AnalysisLogGroup": LOG_GROUP}
         return {"StackResourceDetail": {"PhysicalResourceId": ids[LogicalResourceId]}}
 
-    def dynamodb_update_item(
-        self,
-        TableName,
-        Key,
-        UpdateExpression,
-        ExpressionAttributeNames,
-        ExpressionAttributeValues,
-        ReturnValues,
-    ):
-        """spend.py's record_spend: one atomic ADD to the Meta spend counter (C527).
-
-        Fault: spend_write_fails refuses it as IAM would, with an ARN in the message.
-        """
-        assert (TableName, Key, UpdateExpression) == (
-            LIMITS_TABLE,
-            {"pk": {"S": "spend#meta"}},
-            "ADD #micro :n",
-        )
-        assert (ExpressionAttributeNames, ReturnValues) == (
-            {"#micro": "micro_usd"},
-            "UPDATED_NEW",
-        )
-        if "spend_write_fails" in self.faults:
-            arn = f"arn:aws:iam::{'9' * 12}:user/rene-dev"
-            error = {"Code": "AccessDeniedException", "Message": f"{arn} is denied"}
-            meta = {"HTTPStatusCode": 400}
-            raise ClientError({"Error": error, "ResponseMetadata": meta}, "UpdateItem")
-        micro = int(ExpressionAttributeValues[":n"]["N"])
-        self.spent.append(micro)
-        self.micro_total += micro
-        return {"Attributes": {"micro_usd": {"N": str(self.micro_total)}}}
+    def dynamodb_update_item(self, **params):
+        """Any UpdateItem, such as spend.py's ADD to the Meta spend counter, is only
+        recorded: the smoke run must make none (C527)."""
+        self.updates.append(params)
+        return {}
 
     def lambda_get_function(self, FunctionName):
         assert FunctionName == FUNCTION
@@ -978,8 +946,6 @@ def run_smoke(tmp_path, monkeypatch, cloud, *argv, credited=True):
     credit = "{} by A. Photographer, CC BY 2.0" if credited else ""
     write_credits(folder, {name: credit.format(name) for name in NAMES})
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
-    # spend.py takes LIMITS_TABLE_NAME over the stack's LimitsTable.
-    monkeypatch.delenv("LIMITS_TABLE_NAME", raising=False)
     monkeypatch.setattr(
         smoke_upload.boto3, "Session", lambda **kw: FakeSession(cloud, **kw)
     )
@@ -1059,7 +1025,6 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
     assert cloud.asked_headers == [DEVICE_HEADERS] * 2
     [device] = set(cloud.devices)
     assert len(cloud.devices) == 9 and uuid.UUID(device).version == 4
-    assert cloud.spent == [185_000]  # the run's $0.185, in micro-dollars
     assert printed(capsys, tmp_path, cloud) == [
         "photos: 5 of positions 0 to 4 in C87's order, 0 skipped without a credit line",
         (
@@ -1089,7 +1054,6 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
             " on 413: SAM 0, judge 0; billed 10,000 input and 20,000 output tokens,"
             " estimated $0.1850"
         ),
-        "spend recorded: $0.185 as smoke, counter total $1.185",
         (
             "missing photo: failed/photo_missing N s after its notification, S3 said"
             " NoSuchKey (HTTP 404)"
@@ -1319,15 +1283,12 @@ def test_failed_checks_end_the_run_with_their_reason(
 def test_a_run_that_fails_after_paying_still_prints_the_spend(
     tmp_path, monkeypatch, capsys, argv, calls, reason
 ):
-    # B4 fails once the photos are paid for, and the spend is printed and recorded
-    # before the end.
+    # B4 fails once the photos are paid for, and the spend is printed before the end.
     cloud = FakeCloud([NO_REFERENCE, LEVEL, *HAPPY], faults={"keep_raw"})
     assert run_smoke(tmp_path, monkeypatch, cloud, *argv) == 1
     lines = printed(capsys, tmp_path, cloud)
-    assert lines[-3].startswith(f"spend: {calls} Meta calls")
-    assert lines[-2].startswith("spend recorded: $")
+    assert lines[-2].startswith(f"spend: {calls} Meta calls")
     assert lines[-1] == f"SMOKE FAILED: {reason}"
-    assert len(cloud.spent) == 1
 
 
 def test_an_unreadable_photo_stops_the_run_before_any_upload(
@@ -1399,7 +1360,6 @@ def test_fallback_stops_at_the_first_level(
         line.startswith("stored photos: no raw photo left for") for line in lines
     )
     assert any(line.startswith(f"spend: {8 * sent} Meta calls") for line in lines)
-    assert any(line.startswith("spend recorded: $") for line in lines)
     assert lines[-1] == last
 
 
@@ -1591,7 +1551,7 @@ def test_smoke_guards_are_the_shared_ones(tmp_path, monkeypatch, capsys):
     assert patterns == []
 
 
-def test_smoke_records_its_spend(tmp_path, monkeypatch, capsys):
+def test_smoke_prints_its_cost_and_records_nothing(tmp_path, monkeypatch, capsys):
     spend = load_spend()
     # The prices are spend.py's, the Lambda's own (C527), and none of its own.
     assert smoke_upload.spend is spend
@@ -1606,50 +1566,33 @@ def test_smoke_records_its_spend(tmp_path, monkeypatch, capsys):
         # 7 SAM images at $1, and Muse Spark's 2,000 and 4,000 billed tokens.
         summary = smoke_upload.run_summary([paid("done/level")])
         assert summary["usd"] == Decimal("7.0195")
-    # After the run, its billed cost goes on the Meta spend counter, once, as smoke,
-    # through a client with spend.py's settings.
-    cloud = FakeCloud(HAPPY)
-    assert run_smoke(tmp_path, monkeypatch, cloud) == 0
-    assert cloud.spent == [185_000]  # $0.185: SAM's 35 images and the billed tokens
-    assert cloud.client_settings["dynamodb"] == {"config": spend.SPEND_CONFIG}
-    assert "LimitsTable" in cloud.lookups
-    assert "spend recorded: $0.185 as smoke, counter total $1.185" in printed(
-        capsys, tmp_path, cloud
+
+    # The Lambda counted every photo's cost itself, so the smoke run only prints the
+    # run's billed cost, for the ledger: it never records it, by any client.
+    def never(*args, **kwargs):
+        raise AssertionError("the smoke run called record_spend")
+
+    monkeypatch.setattr(spend, "record_spend", never)
+    cost = (
+        "spend: 40 Meta calls (SAM 35, judge 5); ended on 504: SAM 0, judge 0;"
+        " on 413: SAM 0, judge 0; billed 10,000 input and 20,000 output tokens,"
+        " estimated $0.1850"
     )
-    # A failed write prints spend_error with the amount, for the tracker to add by
-    # hand, and the run ends nonzero once its other checks have run.
-    error = (
-        "spend_error: usd 0.185 from this run isn't on the spend counter (AWS error in"
-        " UpdateItem: AccessDeniedException (HTTP 400)); add it once by hand"
-        " (docs/operations.md)"
-    )
-    cloud = FakeCloud(HAPPY, faults={"spend_write_fails"})
-    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
-    lines = printed(capsys, tmp_path, cloud)
-    assert error in lines
-    assert not any("arn:" in line for line in lines)
-    assert lines[-2:] == [
-        "stop switch: 503 uploads_paused while on, then set back to off",
-        "SMOKE FAILED: spend_error: this run's spend isn't on the counter (see above)",
-    ]
-    # So does a fallback run.
-    cloud = FakeCloud([LEVEL], faults={"spend_write_fails"})
-    assert run_smoke(tmp_path, monkeypatch, cloud, "--fallback") == 1
-    lines = printed(capsys, tmp_path, cloud)
-    assert any(line.startswith("spend_error: usd 0.") for line in lines)
-    assert lines[-1] == (
-        "SMOKE FAILED: spend_error: this run's spend isn't on the counter (see above)"
-    )
-    # A check that fails after paying keeps its own reason, and still prints the
-    # spend_error line.
-    cloud = FakeCloud(HAPPY, faults={"spend_write_fails", "keep_raw"})
-    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
-    lines = printed(capsys, tmp_path, cloud)
-    assert error in lines
-    assert lines[-1] == "SMOKE FAILED: photo 2/5: its raw photo is still in the bucket"
-    # Nothing billed, nothing recorded, as the handler does.
-    cloud = FakeCloud([TOO_DARK] * 5)
-    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
-    lines = printed(capsys, tmp_path, cloud)
-    assert cloud.spent == []
-    assert not any(line.startswith(("spend recorded", "spend_error")) for line in lines)
+    # A run that passes, a run whose check fails after paying, and a fallback run.
+    for setup, argv, code in (
+        ({}, (), 0),
+        ({"faults": {"keep_raw"}}, (), 1),
+        ({}, ("--fallback",), 0),
+    ):
+        outcomes = [LEVEL] if argv else HAPPY
+        cloud = FakeCloud(outcomes, **setup)
+        assert run_smoke(tmp_path, monkeypatch, cloud, *argv) == code
+        lines = printed(capsys, tmp_path, cloud)
+        if argv:
+            assert any(line.startswith("spend: 8 Meta calls") for line in lines)
+        else:
+            assert cost in lines
+        # No UpdateItem reaches the limits table, and the table isn't looked up.
+        assert cloud.updates == []
+        assert "LimitsTable" not in cloud.lookups
+        assert not any("spend_error" in line or "recorded" in line for line in lines)
