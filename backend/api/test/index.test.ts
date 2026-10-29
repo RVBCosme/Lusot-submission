@@ -6,6 +6,7 @@ import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand } from 
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type Deps, route } from "../src/index";
+import { createFeed, createMapPins } from "../src/pins";
 import { createStopSwitch } from "../src/stopSwitch";
 
 const ID = "r_0123456789abcdef0123456789abcdef";
@@ -20,16 +21,19 @@ const ssmMock = mockClient(ssm);
 mockClient(s3);
 
 function deps(): Deps {
-  return {
+  const base = {
     ddb,
     s3,
     isStopped: createStopSwitch(ssm, "/lusot/stop/"),
     tableName: "reports",
     limitsTableName: "limits",
     indexName: "reportId-index",
+    feedIndexName: "feed-index",
     bucketName: "lusot-test01-uploads",
+    inchesShown: false,
     now: () => Date.parse(NOW_ISO),
   };
+  return { ...base, mapPins: createMapPins(base), feed: createFeed(base) };
 }
 
 beforeEach(() => {
