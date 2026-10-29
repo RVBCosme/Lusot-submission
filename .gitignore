@@ -40,3 +40,7 @@ Thumbs.db
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# MS6: Rene's review sheets hold his notes, and the Playwright plugin's scratch
+eval/**/review.csv
+.playwright-mcp/

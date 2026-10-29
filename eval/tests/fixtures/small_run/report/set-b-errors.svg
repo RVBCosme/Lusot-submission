@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="320" viewBox="0 0 560 320" role="img" aria-labelledby="title desc">
+<title id="title">Set B: depth error per measured wheel (geometry)</title>
+<desc id="desc">Each measured wheel's depth error in inches, smallest first, with the release gate's 3 in target as a solid line and the median marked.</desc>
+<style>
+svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7; --dot: #2a78d6; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.surface { fill: var(--surface); }
+text { font-size: 12px; }
+.tick { fill: var(--muted); }
+.label { fill: var(--ink-2); }
+.end { text-anchor: end; }
+.mid { text-anchor: middle; }
+.grid { stroke: var(--grid); stroke-width: 1px; }
+.axis { stroke: var(--axis); stroke-width: 1px; }
+.target { stroke: var(--ink-2); stroke-width: 1px; }
+.median { stroke: var(--ink); stroke-width: 2px; }
+.dot { fill: var(--dot); stroke: var(--surface); stroke-width: 4px; paint-order: stroke; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835; --dot: #3987e5; }
+}
+</style>
+<rect class="surface" width="560" height="320"/>
+<line class="axis" x1="64" y1="272" x2="480" y2="272"/>
+<text class="tick end" x="56" y="276">0</text>
+<line class="grid" x1="64" y1="190.67" x2="480" y2="190.67"/>
+<text class="tick end" x="56" y="194.67">1</text>
+<line class="grid" x1="64" y1="109.33" x2="480" y2="109.33"/>
+<text class="tick end" x="56" y="113.33">2</text>
+<line class="grid" x1="64" y1="28" x2="480" y2="28"/>
+<text class="tick end" x="56" y="32">3</text>
+<line class="target" x1="64" y1="28" x2="480" y2="28"/>
+<circle class="dot" cx="93.71" cy="251.67" r="4"><title>wheel 1: 0.25 in</title></circle>
+<circle class="dot" cx="153.14" cy="251.67" r="4"><title>wheel 2: 0.25 in</title></circle>
+<circle class="dot" cx="212.57" cy="231.33" r="4"><title>wheel 3: 0.50 in</title></circle>
+<circle class="dot" cx="272" cy="211" r="4"><title>wheel 4: 0.75 in</title></circle>
+<circle class="dot" cx="331.43" cy="190.67" r="4"><title>wheel 5: 1.00 in</title></circle>
+<circle class="dot" cx="390.86" cy="150" r="4"><title>wheel 6: 1.50 in</title></circle>
+<circle class="dot" cx="450.29" cy="48.33" r="4"><title>wheel 7: 2.75 in</title></circle>
+<line class="median" x1="484" y1="211" x2="496" y2="211"/>
+<text class="label" x="500" y="215">median</text>
+<text class="label" x="68" y="22">release-gate target: 3 in</text>
+<text class="label mid" x="20" y="150" transform="rotate(-90 20 150)">Error (inches)</text>
+<text class="label mid" x="272" y="308">Measured wheels, smallest error first</text>
+</svg>
