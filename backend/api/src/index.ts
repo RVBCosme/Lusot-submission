@@ -3,6 +3,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { SSMClient } from "@aws-sdk/client-ssm";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
+import { type FlagDeps, flagReport } from "./flags";
 import { json, type JsonResponse } from "./http";
 import { logError } from "./log";
 import { createFeed, createMapPins, nearby, type PinDeps } from "./pins";
@@ -12,7 +13,8 @@ import { createUpload, type UploadDeps } from "./uploads";
 
 export type Deps = UploadDeps &
   ReportDeps &
-  PinDeps & {
+  PinDeps &
+  FlagDeps & {
     // Built once per container from the deps, so their memos persist (T9).
     mapPins: () => Promise<JsonResponse>;
     feed: () => Promise<JsonResponse>;
@@ -36,6 +38,8 @@ export async function route(event: RouteEvent, deps: Deps): Promise<JsonResponse
       return deps.mapPins();
     case "GET /pins.geojson":
       return deps.feed();
+    case "POST /reports/{id}/flag":
+      return flagReport(event.pathParameters?.id, deviceHeader(event), deps);
     default:
       return json(404, { error: "not_found" });
   }

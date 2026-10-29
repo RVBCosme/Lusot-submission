@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type Deps, route } from "../src/index";
@@ -91,5 +91,26 @@ describe("route", () => {
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).status).toBe("pending");
+  });
+
+  it("sends POST /reports/{id}/flag to the flag handler, with X-Lusot-Device", async () => {
+    const device = "device-0123456789abcdef";
+    // A live published pin, visible 3 h and kept 7 days after capture, from ISO strings (F3).
+    const visibleUntil = Date.parse("2026-10-30T13:05:12Z") / 1000;
+    const expiresAt = Date.parse("2026-11-06T10:05:12Z") / 1000;
+    const pin = { pk: "GEO#wdw515", sk: `2026-10-30T10:05:12Z#${ID}`, reportId: ID, mode: "live", published: true, flags: 0, visibleUntil, expiresAt };
+    ddbMock.on(QueryCommand).resolves({ Items: [pin] });
+    ddbMock.on(TransactWriteCommand).resolves({});
+
+    const res = await route(
+      { routeKey: "POST /reports/{id}/flag", pathParameters: { id: ID }, headers: { "x-lusot-device": device }, isBase64Encoded: false },
+      deps(),
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ flags: 1 });
+    const [transaction] = ddbMock.commandCalls(TransactWriteCommand);
+    const hash = createHash("sha256").update(device).digest("hex");
+    expect(transaction.args[0].input.TransactItems?.[0].Put?.Item?.pk).toBe(`flag#${ID}#${hash}`);
   });
 });
