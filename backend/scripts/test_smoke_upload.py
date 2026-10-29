@@ -14,6 +14,7 @@ repo root (R5's pattern):
 """
 
 import csv
+import hashlib
 import json
 import random
 import re
@@ -242,10 +243,11 @@ class FakeCloud:
         """The API and S3's form posts. Faults: no_cors_link and no_cors_form drop
         the allow-origin header, no_device_cors drops x-lusot-device from the
         preflight's allow-headers, repost_403 refuses a form posted after its report
-        is final, not_private makes every report live, published shows every report
-        published, index_lag answers a report's first 2 reads with 404 and
-        never_indexed all of them, pin_found puts the run's first report on the map,
-        and map_down answers the map with 503."""
+        is final, not_private makes every report live, live_when_final shows a report
+        live once it is past pending, published shows every report published,
+        index_lag answers a report's first 2 reads with 404 and never_indexed all of
+        them, pin_found puts the run's first report on the map, map_down answers the
+        map with 503, and paused_not_json answers a paused upload with text."""
         origin = request.headers.get("origin")
         cors = {"access-control-allow-origin": origin} if origin else {}
         url = str(request.url)
@@ -263,6 +265,8 @@ class FakeCloud:
             self.devices.append(request.headers.get("x-lusot-device"))
             if self.stopped:
                 self.trail.append(("paused",))
+                if "paused_not_json" in self.faults:
+                    return httpx.Response(503, text="Service Unavailable")
                 return httpx.Response(503, json={"error": "uploads_paused"})
             spot = json.loads(request.content)
             report_id = f"r_{len(self.reports):032x}"
@@ -318,10 +322,13 @@ class FakeCloud:
                 report = {"status": "processing"}
             if report["status"] == "pending":
                 self.trail.append(("pending", report_id))
+            mode = self.modes[report_id]
+            if "live_when_final" in self.faults and report["status"] != "pending":
+                mode = "live"
             body = {
                 "reportId": report_id,
                 "capturedAt": CAPTURED,
-                "mode": self.modes[report_id],
+                "mode": mode,
                 "published": "published" in self.faults,
             }
             return httpx.Response(200, json=body | report)
@@ -351,8 +358,8 @@ class FakeCloud:
 
         Faults: reuse_pays, no_already_finished and repost_keeps_raw change a
         delivery after the result; missing_bad_file the missing photo's end;
-        keep_raw, blurred_always, no_blurred, overlay_always, no_overlay and silent a
-        photo's first delivery.
+        keep_raw, blurred_always, no_blurred, overlay_always, no_overlay, no_layers
+        (the overlay without its layers file) and silent a photo's first delivery.
         """
         report_id = key.removeprefix("raw/").removesuffix(".jpg")
         report = self.reports[report_id]
@@ -391,6 +398,8 @@ class FakeCloud:
             "overlay_always" in self.faults
         ):
             self.objects |= {f"overlay/{report_id}.jpg", f"overlay/{report_id}.json"}
+        if "no_layers" in self.faults:
+            self.objects.discard(f"overlay/{report_id}.json")
         if "silent" not in self.faults:
             self.log(report_id, **line)
         if "keep_raw" not in self.faults:
@@ -967,10 +976,19 @@ def printed(capsys, tmp_path, cloud, *, timings=False):
     """The run's printed lines, with each timing as N unless `timings` is True.
 
     It never prints a photo's name, a path, a report id, or a URL of the API, the
-    forms or the queue.
+    forms or the queue, nor a device id or the SHA-256 the API stores for one.
     """
     out = capsys.readouterr().out
-    for private in (str(tmp_path), "Flood_in_Manila", "test.invalid", *cloud.reports):
+    devices = [device for device in cloud.devices if device]
+    hashes = [hashlib.sha256(device.encode()).hexdigest() for device in devices]
+    for private in (
+        str(tmp_path),
+        "Flood_in_Manila",
+        "test.invalid",
+        *cloud.reports,
+        *devices,
+        *hashes,
+    ):
         assert private not in out
     return (out if timings else re.sub(r"\b\d+\.\d s\b", "N s", out)).splitlines()
 
@@ -1246,10 +1264,36 @@ FAILURES = {
         "photo 2/5: a stored overlay but no level (B4)",
         None,
     ),
+    "level without its layers file": (
+        {"faults": {"no_layers"}},
+        "photo 1/5: a level but no layers file (B4)",
+        None,
+    ),
     "preflight without the device header": (
         {"faults": {"no_device_cors"}},
         "preflight from https://localhost: allow-headers 'content-type', expected"
         " x-lusot-device",
+        None,
+    ),
+    "paused reply not JSON": (
+        {"faults": {"paused_not_json"}},
+        "POST /uploads with the switch on: HTTP 503, not a JSON object",
+        None,
+    ),
+    # --phase-a waives only the later fields and the overlay, never these.
+    "phase A: level without a blurred photo": (
+        {"faults": {"no_blurred"}, "phase_a": True},
+        "photo 1/5: a level but no blurred photo (B4)",
+        None,
+    ),
+    "phase A: published": (
+        {"faults": {"published"}, "phase_a": True},
+        "photo 1/5: published is true, expected false",
+        None,
+    ),
+    "phase A: pin found": (
+        {"faults": {"pin_found"}, "phase_a": True},
+        "no pin: photo 1/5 found on the map (S1)",
         None,
     ),
 }
@@ -1261,8 +1305,10 @@ def test_failed_checks_end_the_run_with_their_reason(
 ):
     setup = dict(setup)
     credited = setup.pop("credited", True)
+    # A Phase A stack is checked with --phase-a.
+    argv = ("--phase-a",) if setup.get("phase_a") else ()
     cloud = FakeCloud(setup.pop("outcomes", HAPPY), **setup)
-    assert run_smoke(tmp_path, monkeypatch, cloud, credited=credited) == 1
+    assert run_smoke(tmp_path, monkeypatch, cloud, *argv, credited=credited) == 1
     assert printed(capsys, tmp_path, cloud)[-1] == f"SMOKE FAILED: {reason}"
     if slept is not None:
         assert cloud.time.slept == slept
@@ -1596,3 +1642,49 @@ def test_smoke_prints_its_cost_and_records_nothing(tmp_path, monkeypatch, capsys
         assert cloud.updates == []
         assert "LimitsTable" not in cloud.lookups
         assert not any("spend_error" in line or "recorded" in line for line in lines)
+
+
+def test_a_bad_200_ends_as_a_check_failure():
+    # A 200 whose body isn't a JSON object ends the run with a reason, never a
+    # traceback: not JSON, a list, or a string.
+    for content in (b"<html>oops</html>", b"[]", b'"private"'):
+        http = httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _, c=content: httpx.Response(200, content=c)
+            )
+        )
+        reason = "^GET /reports: HTTP 200, not a JSON object$"
+        with pytest.raises(CheckFailed, match=reason):
+            smoke_upload.confirm_private(http, API, RID)
+        with pytest.raises(CheckFailed, match=reason):
+            smoke_upload.wait_final(
+                http, API, RID, since=0.0, clock=lambda: 0.0, sleep=lambda _: None
+            )
+
+
+def test_a_paid_report_failing_the_private_checks_is_in_the_spend(
+    tmp_path, monkeypatch, capsys
+):
+    # Photo 1 was analysed, so it was paid for, whatever its final body says: the
+    # spend line counts it before the run ends.
+    for fault, reason in (
+        ("published", "photo 1/5: published is true, expected false"),
+        ("live_when_final", "photo 1/5: mode 'live', expected private"),
+    ):
+        cloud = FakeCloud(HAPPY, faults={fault})
+        assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+        assert printed(capsys, tmp_path, cloud)[-2:] == [
+            (
+                "spend: 8 Meta calls (SAM 7, judge 1); ended on 504: SAM 0, judge 0;"
+                " on 413: SAM 0, judge 0; billed 2,000 input and 4,000 output tokens,"
+                " estimated $0.0370"
+            ),
+            f"SMOKE FAILED: {reason}",
+        ]
+    # A body that fails its shape check is left out, as before: its outcome, and so
+    # its log line, can't be read from it.
+    cloud = FakeCloud([({"status": "done"}, paid("done/level"))])
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+    lines = printed(capsys, tmp_path, cloud)
+    assert lines[-1].startswith("SMOKE FAILED: photo 1/5: report body (done):")
+    assert not any(line.startswith("spend:") for line in lines)

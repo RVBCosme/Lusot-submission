@@ -41,12 +41,13 @@ In order, it checks that:
 6. no raw photo is left for any report, and blurred/{id}.jpg, the overlay
    overlay/{id}.jpg and its layers overlay/{id}.json exist for each level report and
    for no other (B4, Task 14). It then prints the spend of the photos whose reports
-   finished, and prints it too if a check from 2 to 6 fails after one did: the Meta
-   calls in their log lines, how many ended on a 504 or a 413 from SAM or judge, and
-   the estimated cost at spend.py's prices, from SAM's calls and Muse Spark's billed
-   usage, never from a token count, for the ledger. It adds nothing to the Meta spend
-   counter: the analysis Lambda analyses every photo and counts its cost itself
-   (C527), so a second record would count the run twice.
+   finished, a report that failed the private checks of check 5 included, and prints
+   it too if a check from 2 to 6 fails after one did: the Meta calls in their log
+   lines, how many ended on a 504 or a 413 from SAM or judge, and the estimated cost
+   at spend.py's prices, from SAM's calls and Muse Spark's billed usage, never from a
+   token count, for the ledger. It adds nothing to the Meta spend counter: the
+   analysis Lambda analyses every photo and counts its cost itself (C527), so a second
+   record would count the run twice.
 7. a report whose photo never came ends failed/photo_missing within 60 s (spec §3.6):
    the queue gets one S3-shaped notification for it, and the run prints the log
    line's S3 error code and HTTP status, NoSuchKey (404) since MS3a Task 16 (R93)
@@ -77,8 +78,10 @@ It prints results, counts and timings only. It never prints a photo's name, a pa
 a report id, the API's, a form's or the queue's URL, the account ID, an ARN or an
 image URI. An AWS error shows its code and HTTP status, any other error only its
 class name, and every printed line passes through the scripts' shared output mask
-(guards.py), which replaces any run of 12 digits with <account>. Log lines are read,
-never printed. A sealed path is refused by guards.py's rule too.
+(guards.py), which replaces each run of 12 digits with <account>, except inside a
+standalone report id, which passes whole (and which this run never prints). Log lines
+are read, never printed, and so is a device id. A sealed path is refused by
+guards.py's rule too.
 
 It always uses the lusot profile, never AWS_PROFILE. boto3 comes with its CRT extra:
 that profile signs in with `aws login`, and botocore's provider for those credentials
@@ -291,7 +294,7 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     try:
         reused = False
         for n, data in enumerate(jpegs, 1):
-            sent.append(upload_photo(http, stack, f"photo {n}/{len(jpegs)}", data))
+            upload_photo(http, stack, f"photo {n}/{len(jpegs)}", data, sent=sent)
             # B5 runs on the first report that paid Meta, before the next upload,
             # while its form is still good.
             if not reused and meta_calls(sent[-1].lines):
@@ -303,9 +306,7 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
             )
         b1 = list(sent)
         dark = dark_jpeg()
-        sent.append(
-            upload_photo(http, stack, "the dark photo", dark, origin=APP_ORIGIN)
-        )
+        upload_photo(http, stack, "the dark photo", dark, sent=sent, origin=APP_ORIGIN)
         check_dark(sent[-1])
         level = any("level" in item.body for item in b1)
         if not level:
@@ -329,7 +330,7 @@ def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bo
     try:
         for n, data in enumerate(jpegs, 1):
             label = f"fallback photo {n}/{len(jpegs)}"
-            sent.append(upload_photo(http, stack, label, data))
+            upload_photo(http, stack, label, data, sent=sent)
             if "level" in sent[-1].body:
                 break
         level = "level" in sent[-1].body
@@ -446,13 +447,26 @@ def upload_photo(
     label: str,
     data: bytes,
     *,
+    sent: list[Sent],
     origin: str | None = None,
 ) -> Sent:
-    """Send one photo, wait for its report to be final, and print how it ended."""
+    """Send one photo, wait for its report to be final, print how it ended, and add it
+    to `sent`, whose spend the run prints.
+
+    A photo whose report fails the private checks (mode private, published false)
+    joins `sent` too, with its log lines, since its analysis was paid (check 6). One
+    whose body fails its shape check stays out: its log line can't be found from it.
+    """
     item = send(http, stack, label, data, origin=origin)
-    item.body, item.lines, final_s = await_report(
-        http, stack, label, item.report_id, since=item.uploaded
-    )
+    try:
+        item.body, item.lines, final_s = await_report(
+            http, stack, label, item.report_id, since=item.uploaded, paid=item.lines
+        )
+    except CheckFailed:
+        if item.lines:  # read before the private checks failed: a paid report
+            sent.append(item)
+        raise
+    sent.append(item)
     say(
         f"{label}: {result_text(item.body)} {final_s:.1f} s after its upload,"
         f" {meta_calls(item.lines)} Meta calls"
@@ -505,7 +519,7 @@ def confirm_private(http: httpx.Client, api_url: str, report_id: str) -> None:
     while True:
         response = http.get(f"{api_url}/reports/{report_id}")
         if response.status_code == 200:
-            mode = response.json().get("mode")
+            mode = json_object(response, "GET /reports").get("mode")
             if mode != "private":
                 raise CheckFailed(
                     f"the report reads mode {mode!r}, not private, so its photo"
@@ -542,22 +556,27 @@ def await_report(
     *,
     since: float,
     bound_s: float = POLL_FOR_S,
+    paid: list[dict] | None = None,
 ) -> tuple[dict, list[dict], float]:
     """A report's final body (C68), its log lines, and its seconds from `since`.
 
     The body must have C67's shape, read mode private and published false (S1), and
-    the log must hold the line of how it ended.
+    the log must hold the line of how it ended. The log lines are read once the shape
+    passes, and also go into `paid` before the private checks, so a paid report that
+    fails them can still be counted in the spend.
     """
     try:
         body = wait_final(http, stack.api_url, report_id, since=since, bound_s=bound_s)
         final_s = time.monotonic() - since
         check_report_body(body, phase_a=stack.phase_a)
+        outcome = outcome_of(body)
+        lines = log_lines(stack, report_id, until=outcome)
+        if paid is not None:
+            paid.extend(lines)
         if body["mode"] != "private":
             raise CheckFailed(f"mode {body['mode']!r}, expected private")
         if body["published"]:
             raise CheckFailed("published is true, expected false")
-        outcome = outcome_of(body)
-        lines = log_lines(stack, report_id, until=outcome)
         if not any(line.get("outcome") == outcome for line in lines):
             raise CheckFailed(f"no {outcome} line in the analysis log")
     except CheckFailed as exc:
@@ -589,7 +608,9 @@ def wait_final(
         if response.status_code not in (200, 404):
             raise CheckFailed(f"GET /reports: {got(response)}")
         report = (
-            response.json() if response.status_code == 200 else {"status": "not_found"}
+            json_object(response, "GET /reports")
+            if response.status_code == 200
+            else {"status": "not_found"}
         )
         if report.get("status") in FINAL_STATUSES:
             return report
@@ -861,7 +882,7 @@ def check_no_pin(http: httpx.Client, stack: Stack, items: Sequence[Sent]) -> Non
 def check_stored_photos(stack: Stack, items: Sequence[Sent]) -> None:
     """B4 (W25, C61): no raw photo is left, and only a level keeps its stored copies.
 
-    Those are blurred/{id}.jpg and, but on a Phase A stack, Task 14's overlay
+    Those are blurred/{id}.jpg and, except on a Phase A stack, Task 14's overlay
     overlay/{id}.jpg and its layers overlay/{id}.json: each present for every level
     report and for no other.
     """
@@ -1101,7 +1122,8 @@ def check_stop_switch(session: boto3.Session, http: httpx.Client, api_url: str) 
         ssm.put_parameter(Name=STOP_UPLOADS, Value="on", Type="String", Overwrite=True)
         time.sleep(SWITCH_WAIT_S)
         response = request_upload(http, api_url, expect=503)
-        if response.json().get("error") != "uploads_paused":
+        paused = json_object(response, "POST /uploads with the switch on")
+        if paused.get("error") != "uploads_paused":
             raise CheckFailed(
                 f"POST /uploads with the switch on: {got(response)},"
                 " expected uploads_paused"
@@ -1168,6 +1190,18 @@ def request_upload(
     if response.status_code != expect:
         raise CheckFailed(f"POST /uploads: {got(response)}, expected {expect}")
     return response
+
+
+def json_object(response: httpx.Response, what: str) -> dict:
+    """An API reply's body as a JSON object, or CheckFailed naming `what` and the
+    status: any other body would end the run in a traceback, not SMOKE FAILED."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise CheckFailed(f"{what}: HTTP {response.status_code}, not a JSON object")
+    return body
 
 
 def got(response: httpx.Response) -> str:
