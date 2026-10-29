@@ -127,6 +127,31 @@ def test_say_masks_twelve_digit_runs(capsys):
         f"{report_id}: done, <account>"
     )
     assert guards.mask(f"x{report_id[2:]}") == "xfbee9945140b<account>65abe84c"
+    # Only a standalone id is exempt (review, Important 1). An id run straight into
+    # digits, and an r_ inside a word before 32 hex, keep their 12-digit run masked.
+    straddle = "r_" + "a" * 26 + twelve + ": x"
+    assert guards.mask(straddle) == "r_" + "a" * 26 + "<account>: x"
+    embedded = "for_" + twelve + "abcdef0123456789abcd"
+    assert guards.mask(embedded) == "for_<account>abcdef0123456789abcd"
+
+
+def test_a_photo_named_as_sealed_is_refused(tmp_path, monkeypatch):
+    # Review, Minor 2: each photo path is checked before its Source exists, so a base
+    # name Windows opens as the sealed folder exits 2. No photo file is written: the
+    # rows carry no _photo, so nothing named this way is made on disk.
+    open_one = open_row("OL001", filename="sealed.")
+    consented = consent_row("S001", file="sealed::$INDEX_ALLOCATION")
+    for row in (open_one, consented):
+        row.pop("_photo")
+    data = data_folder(
+        tmp_path / "data", open_rows=[open_one], consent_rows=[consented]
+    )
+    monkeypatch.setenv("LUSOT_DATA_DIR", str(data))
+    for source_id in ("OL001", "S001"):
+        with pytest.raises(SystemExit) as exc:
+            guards.allowed_sources([source_id], frozenset({"M9-v4"}))
+        assert exc.value.code == 2
+    assert not [p for p in data.rglob("*") if p.name.lower().startswith("sealed")]
 
 
 @pytest.mark.parametrize(

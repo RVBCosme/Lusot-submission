@@ -22,16 +22,13 @@ not a live or demo pin).
 from __future__ import annotations
 
 import argparse
-import re
 import time
 from collections.abc import Callable, Sequence
 
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-from guards import failure, items_by_id, say, stack_outputs
+from guards import say
+from ops_common import REPORT_ID, guarded, items_by_id, lusot_session, stack_outputs
 
-REGION = "ap-southeast-1"
-REPORT_ID = re.compile(r"r_[0-9a-f]{32}")  # C32
 PIN_MODES = ("live", "demo")
 
 
@@ -43,43 +40,46 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("id", help="the pin's report id")
-    try:
+
+    def command() -> int:
         args = parser.parse_args(argv)
-    except SystemExit as exc:
-        return exc.code
-    if REPORT_ID.fullmatch(args.id) is None:
+        return hide(args.id, session, clock)
+
+    return guarded(command, errors=(BotoCoreError, ClientError))
+
+
+def hide(report_id: str, session, clock) -> int:
+    if REPORT_ID.fullmatch(report_id) is None:
         say("refused: that isn't a report id")
         return 2
-    try:
-        session = session or boto3.Session(profile_name="lusot", region_name=REGION)
-        table = stack_outputs(session).get("TableName")
-        if table is None:
-            say("failed: the stack has no TableName output")
-            return 1
-        ddb = session.client("dynamodb")
-        items = items_by_id(ddb, table, args.id)
-        if not items:
-            say(f"{args.id}: not found")
-            return 1
-        modes = sorted({item["mode"]["S"] for item in items})
-        if any(mode not in PIN_MODES for mode in modes):
-            say(f"refused: {args.id} is a {modes[0]} report, not a live or demo pin")
-            return 2
-        now = int(clock())
-        for item in items:
-            ddb.update_item(
-                TableName=table,
-                Key={"pk": item["pk"], "sk": item["sk"]},
-                UpdateExpression="SET #visibleUntil = :now",
-                # Never a new item from a key that has gone meanwhile.
-                ConditionExpression="attribute_exists(#pk)",
-                ExpressionAttributeNames={"#visibleUntil": "visibleUntil", "#pk": "pk"},
-                ExpressionAttributeValues={":now": {"N": str(now)}},
-            )
-    except (BotoCoreError, ClientError) as exc:
-        say(f"failed: {failure(exc)}")
+    session = session or lusot_session()
+    table = stack_outputs(session).get("TableName")
+    if table is None:
+        say("failed: the stack has no TableName output")
         return 1
-    say(f"{args.id}: hidden ({modes[0]}), visibleUntil set to now; nothing deleted")
+    ddb = session.client("dynamodb")
+    items = items_by_id(ddb, table, report_id)
+    if not items:
+        say(f"{report_id}: not found")
+        return 1
+    modes = {item["mode"]["S"] for item in items}
+    others = sorted(modes - set(PIN_MODES))
+    if others:  # named, so a demo id with a private item reads as private
+        say(f"refused: {report_id} is a {others[0]} report, not a live or demo pin")
+        return 2
+    now = int(clock())
+    for item in items:
+        ddb.update_item(
+            TableName=table,
+            Key={"pk": item["pk"], "sk": item["sk"]},
+            UpdateExpression="SET #visibleUntil = :now",
+            # Never a new item from a key that has gone meanwhile.
+            ConditionExpression="attribute_exists(#pk)",
+            ExpressionAttributeNames={"#visibleUntil": "visibleUntil", "#pk": "pk"},
+            ExpressionAttributeValues={":now": {"N": str(now)}},
+        )
+    shown = "/".join(sorted(modes))
+    say(f"{report_id}: hidden ({shown}), visibleUntil set to now; nothing deleted")
     return 0
 
 

@@ -38,11 +38,10 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Literal
 
-import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-from guards import counts, failure, say, stack_outputs
+from guards import say
+from ops_common import counts, guarded, lusot_session, stack_outputs
 
-REGION = "ap-southeast-1"
 REDRIVEN = "lusot-redriven"  # the mark a moved message carries
 MAX_AGE_S = 24 * 60 * 60  # the raw/ prefix's 1-day rule
 VISIBILITY_S = 60
@@ -75,27 +74,27 @@ def main(
     parser.add_argument(
         "--dry-run", action="store_true", help="print what it would do, change nothing"
     )
-    try:
+
+    def command() -> int:
         args = parser.parse_args(argv)
-    except SystemExit as exc:
-        return exc.code
-    try:
-        session = session or boto3.Session(profile_name="lusot", region_name=REGION)
-        outputs = stack_outputs(session)
-        names = [outputs.get(n) for n in ("DeadLetterQueueName", "QueueName")]
-        if None in names:
-            say("failed: the stack lacks a queue output")
-            return 1
-        sqs = session.client("sqs")
-        dead, upload = (sqs.get_queue_url(QueueName=n)["QueueUrl"] for n in names)
-        found = drain(sqs, dead, upload, dry_run=args.dry_run, clock=clock)
-    except (BotoCoreError, ClientError) as exc:
-        say(f"failed: {failure(exc)}")
+        return redrive(args.dry_run, session or lusot_session(), clock)
+
+    return guarded(command, errors=(BotoCoreError, ClientError))
+
+
+def redrive(dry_run: bool, session, clock) -> int:
+    outputs = stack_outputs(session)
+    names = [outputs.get(n) for n in ("DeadLetterQueueName", "QueueName")]
+    if None in names:
+        say("failed: the stack lacks a queue output")
         return 1
+    sqs = session.client("sqs")
+    dead, upload = (sqs.get_queue_url(QueueName=n)["QueueUrl"] for n in names)
+    found = drain(sqs, dead, upload, dry_run=dry_run, clock=clock)
     moves = found.pop("move", 0)
     deletes = sum(found.values())
     detail = f": {counts(found)}" if found else ""
-    if args.dry_run:
+    if dry_run:
         say(f"dry run: would move {moves}, would delete {deletes}{detail}")
     else:
         say(f"moved {moves}, deleted {deletes}{detail}")

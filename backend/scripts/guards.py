@@ -1,4 +1,4 @@
-"""The operator scripts' shared guards and helpers (MS4 spec §4.5, §4.7, C66; Task 8).
+"""The operator scripts' shared guards (MS4 spec §4.5 and §4.7, C66; plan Task 8).
 
 - **The sealed-path rule,** in one copy: a path with a part naming `sealed`, in any
   case and in the forms Windows opens as that folder (R156), as written (made
@@ -13,9 +13,8 @@
   rows in the same log, so no code changes. Set A photos never become either: no
   function here reads a Set A or A-neg folder.
 
-Beside them, the few helpers every script shares: the stack's outputs, the reports by
-id, and how an error and a count are printed. Standard library only, and AWS clients
-come in as arguments, so a script that imports it keeps its own header and lock.
+The scripts' other shared helpers are in ops_common.py. Standard library only, so a
+script that imports this keeps its own header and lock.
 """
 
 from __future__ import annotations
@@ -31,8 +30,8 @@ from datetime import datetime
 from pathlib import Path, PureWindowsPath
 from typing import Literal
 
-STACK = "lusot"  # samconfig's stack_name
-INDEX_NAME = "reportId-index"  # the reports table's, in the template
+from ops_common import REPORT_ID
+
 DATA_DIR = r"C:\Systems\Lusot\lusot-data"  # when LUSOT_DATA_DIR is unset
 # MS2's formats module, which imports only the standard library (C218).
 FORMATS_PY = Path(__file__).resolve().parents[2] / "eval" / "data" / "formats.py"
@@ -50,7 +49,7 @@ CHANGE_NOTE = "Faces and plates blurred, and outlines drawn, by Lusot."
 CONSENT_CREDIT = "Photo used with its owner's permission."
 CONSENT_LICENSE = "used with permission"  # the exact value MS5's getSamples keeps
 _ACCOUNT_ID = re.compile(r"[0-9]{12}")
-_REPORT_ID = re.compile(r"(r_[0-9a-f]{32})")
+_ID_TOKEN = re.compile(f"({REPORT_ID.pattern})")  # captured, so split keeps the ids
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
@@ -84,10 +83,11 @@ def refuse_sealed(*paths: Path) -> None:
 def mask(line: str) -> str:
     """`line` with each run of 12 digits, an account ID's length, as <account>.
 
-    Report ids (C32's `r_` and 32 hex digits) pass whole: they are random, so about 1
-    in 14 holds a 12-digit run, and the scripts print them for the operator to use.
+    A standalone report id (ops_common.REPORT_ID, anchored) passes whole: ids are
+    random, so about 1 in 14 holds a 12-digit run, and the scripts print them for the
+    operator to use. An id run into more digits, or an r_ inside a word, isn't one.
     """
-    parts = _REPORT_ID.split(line)  # the ids at odd places
+    parts = _ID_TOKEN.split(line)  # the ids at odd places
     return "".join(
         part if n % 2 else _ACCOUNT_ID.sub("<account>", part)
         for n, part in enumerate(parts)
@@ -98,51 +98,8 @@ def say(line: str) -> None:
     print(mask(line), flush=True)
 
 
-def failure(exc: BaseException) -> str:
-    """An error as the scripts print it: an AWS error's code and HTTP status, or the
-    class name. Never a message, which can hold an ARN, a path or a URL."""
-    response = getattr(exc, "response", None)
-    if isinstance(response, dict) and "Error" in response:
-        code = response["Error"].get("Code")
-        status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        return f"AWS error in {exc.operation_name}: {code} (HTTP {status})"
-    return type(exc).__name__
-
-
 def data_dir() -> Path:
     return Path(os.environ.get("LUSOT_DATA_DIR") or DATA_DIR)
-
-
-def stack_outputs(session) -> dict[str, str]:
-    """The lusot stack's outputs, by key: names and the API's URL, never a queue URL."""
-    cloudformation = session.client("cloudformation")
-    [stack] = cloudformation.describe_stacks(StackName=STACK)["Stacks"]
-    return {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
-
-
-def items_by_id(ddb, table: str, report_id: str) -> list[dict]:
-    """Every item with this report id, from reportId-index, every page.
-
-    A global secondary index is eventually consistent only (Context7, DynamoDB's
-    developer guide), so it can lag a write by a moment.
-    """
-    pages = ddb.get_paginator("query").paginate(
-        TableName=table,
-        IndexName=INDEX_NAME,
-        KeyConditionExpression="#reportId = :id",
-        ExpressionAttributeNames={"#reportId": "reportId"},
-        ExpressionAttributeValues={":id": {"S": report_id}},
-    )
-    return [item for page in pages for item in page["Items"]]
-
-
-def counts(counter: Counter) -> str:
-    """A counter as the scripts print it: "1 a, 2 b", by name."""
-    return ", ".join(f"{n} {name}" for name, n in sorted(counter.items()))
-
-
-def yes(flag: bool) -> str:
-    return "yes" if flag else "no"
 
 
 def open_licence_ok(row: dict[str, str]) -> bool:
@@ -249,7 +206,8 @@ def allowed_sources(
     not_on_allow_list (in neither file, or failing its row rule), consent_not_approved
     (a four-use reply whose version Rene hasn't approved) and no_credit (an
     open-licensed row without the credit line CC BY needs). A photo is opened by its
-    listed file's base name beside its file, so no path from a data file is trusted.
+    listed file's base name beside its file, so no path from a data file is trusted,
+    and each photo's path is refused (exit 2) if sealed before its Source exists.
     """
     base = data_dir()
     open_path, consent_path = base.joinpath(*OPEN_MANIFEST), base.joinpath(*CONSENT_LOG)
@@ -268,11 +226,13 @@ def allowed_sources(
                 refused["no_credit"] += 1
             else:
                 photo = open_path.parent / PureWindowsPath(row["filename"]).name
+                refuse_sealed(photo)  # a base name such as "sealed." (R156)
                 found[source_id] = Source(source_id, "open", photo, row)
         elif source_id in consented:
             row = consented[source_id]
             if consent_ok(row, approved):
                 photo = consent_path.parent / PureWindowsPath(row["file"]).name
+                refuse_sealed(photo)
                 found[source_id] = Source(source_id, "consented", photo, row)
             elif consent_ok(row, FOUR_USE_VERSIONS):
                 refused["consent_not_approved"] += 1

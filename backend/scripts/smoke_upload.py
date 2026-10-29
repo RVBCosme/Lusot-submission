@@ -89,10 +89,8 @@ import cv2
 import httpx
 import numpy as np
 from botocore.exceptions import BotoCoreError, ClientError
-from guards import stack_outputs
+from ops_common import REGION, STACK, lusot_session, stack_outputs
 
-STACK = "lusot"
-REGION = "ap-southeast-1"
 SPOT = {"lat": 14.6095, "lng": 120.9894}  # the plan §12 example
 APP_ORIGIN = "https://localhost"  # the Capacitor app
 ORIGINS = (APP_ORIGIN, "http://localhost:4173")  # and the Vite preview server
@@ -209,7 +207,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Every photo is read before the first upload, so an unreadable one stops the
         # run before anything is paid.
         jpegs = [as_app_jpeg(photo) for photo in photos]
-        session = boto3.Session(profile_name="lusot", region_name=REGION)
+        session = lusot_session()
         deployed = load_stack(session)
         # IPv4 only: IPv6 doesn't connect on the home Wi-Fi (Oct 28 log).
         transport = httpx.HTTPTransport(local_address="0.0.0.0")

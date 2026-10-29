@@ -13,6 +13,7 @@ import json
 import re
 
 import guards
+import httpx
 import pytest
 import samples
 from fake_aws import (
@@ -221,17 +222,58 @@ def test_remove_one_sample(data, capsys):
     cloud = ScriptCloud([LEVEL, NO_FLOOD])
     assert run(cloud, "seed", "--ids", "OL001", "OL002") == 0
     one, two = samples.sample_id("OL001"), samples.sample_id("OL002")
+    assert noted(data) == [one, two]
     assert run(cloud, "remove", one) == 0
     assert cloud.keys("samples/") == sorted(
         [f"samples/{two}.jpg", "samples/manifest.json"]
     )
     assert [e["sampleId"] for e in cloud.manifest()["samples"]] == [two]
+    # A donor's withdrawal takes the source note too (review, Minor 6).
+    assert noted(data) == [two]
     assert run(cloud, "remove", one) == 1  # already gone
     assert run(cloud, "remove", "../x") == 2
-    # With no id, every samples/ object goes, the manifest with them.
+    # With no id, every samples/ object goes, the manifest and every note with them.
     assert run(cloud, "remove") == 0
     assert cloud.keys("samples/") == []
+    assert noted(data) == []
     assert lines(capsys)[-1] == "removed 2 samples/ objects, the manifest among them"
+
+
+def noted(data):
+    """The sample ids in lusot-data's sample_sources.csv."""
+    with (data / "samples" / "sample_sources.csv").open(encoding="utf-8-sig") as file:
+        return [row["sampleId"] for row in csv.DictReader(file)]
+
+
+def test_unexpected_data_ends_in_a_failed_line(data, capsys):
+    # Review, Minor 8: a corrupt manifest or a non-JSON 201 is one failed: line, with
+    # no traceback.
+    cloud = ScriptCloud([LEVEL])
+    assert run(cloud, "seed", "--ids", "OL001") == 0
+    cloud.objects["samples/manifest.json"] = b"{not json"
+    assert run(cloud, "remove", samples.sample_id("OL001")) == 1
+    out, err = capsys.readouterr()
+    assert out.splitlines()[-1] == "failed: JSONDecodeError" and err == ""
+    cloud.objects["samples/manifest.json"] = json.dumps(
+        {"version": 1, "samples": [{"sampleId": samples.sample_id("OL001")}]}
+    ).encode()
+    cloud.run_sample = lambda sample_id, request: httpx.Response(201, text="oops")
+    assert run(cloud, "check", "--run") == 1
+    out, err = capsys.readouterr()
+    assert out.splitlines()[-1] == "failed: JSONDecodeError" and err == ""
+
+
+def test_a_photo_named_as_sealed_exits_2_not_unreadable(tmp_path, monkeypatch, capsys):
+    # Review, Minor 2. The row carries no _photo, so nothing is written under the name.
+    row = open_row("OL009", filename="sealed.")
+    row.pop("_photo")
+    monkeypatch.setenv(
+        "LUSOT_DATA_DIR", str(data_folder(tmp_path / "data", open_rows=[row]))
+    )
+    cloud = ScriptCloud([LEVEL])
+    assert run(cloud, "seed", "--ids", "OL009") == 2
+    assert cloud.called("dynamodb_put_item") == cloud.called("s3_put_object") == []
+    assert "unreadable" not in capsys.readouterr().out
 
 
 def test_check_counts_working_photos_and_runs_one(data, capsys):

@@ -57,3 +57,14 @@ def test_hide_pin_live_and_demo(capsys):
     cloud.calls.clear()
     assert run(cloud, "not-an-id") == 2
     assert cloud.calls == []
+
+
+def test_a_refusal_names_the_mode_that_isnt_a_pin(capsys):
+    # Review, Minor 5: one id with a demo item and a private one names "private".
+    cloud = a_cloud()
+    cloud.put(pk="GEO#wdw515", sk=f"x#{DEMO}", reportId=DEMO, mode="private")
+    assert run(cloud, DEMO) == 2
+    assert cloud.called("dynamodb_update_item") == []
+    assert capsys.readouterr().out.splitlines() == [
+        f"refused: {DEMO} is a private report, not a live or demo pin"
+    ]

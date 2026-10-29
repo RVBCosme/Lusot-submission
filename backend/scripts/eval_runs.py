@@ -51,13 +51,12 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 
-import boto3
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
-from guards import counts, data_dir, failure, refuse_sealed, say
+from guards import data_dir, refuse_sealed, say
+from ops_common import WAIT_S, counts, guarded, lusot_session
 from smoke_upload import (
     FINAL_STATUSES,
-    REGION,
     CheckFailed,
     Stack,
     as_app_jpeg,
@@ -75,7 +74,7 @@ from smoke_upload import (
 CASES = ("duplicate", "race", "dead-holder", "paused")
 # Seconds from the photo to a final report: the visibility timeout, the run and a margin
 # for dead-holder; the brief's 180 s otherwise.
-BOUND_S = {"duplicate": 180, "race": 180, "dead-holder": 1500, "paused": 180}
+BOUND_S = {"duplicate": WAIT_S, "race": WAIT_S, "dead-holder": 1500, "paused": WAIT_S}
 STOP_MODEL_CALLS = "/lusot/stop/model-calls"
 RETAIN_S = 7 * 24 * 60 * 60  # Table 14: an item is deleted 7 days after it is made
 POLL_S = 2
@@ -171,17 +170,18 @@ def main(
     parser.add_argument(
         "--position", type=int, required=True, help="the photo's place in C87's order"
     )
-    try:
+
+    def command() -> int:
         args = parser.parse_args(argv)
         refuse_sealed(data_dir())
         return run(args, session, http, clock, sleep)
-    except SystemExit as exc:  # a guard's refusal, or argparse's
-        return exc.code
-    except CheckFailed as exc:
-        say(f"EVAL FAILED: {exc}")
-    except (BotoCoreError, ClientError, httpx.HTTPError, OSError) as exc:
-        say(f"EVAL FAILED: {failure(exc)}")
-    return 1
+
+    return guarded(
+        command,
+        label="EVAL FAILED",
+        shown=(CheckFailed,),
+        errors=(BotoCoreError, ClientError, httpx.HTTPError),
+    )
 
 
 def run(args, session, http, clock, sleep) -> int:
@@ -196,8 +196,7 @@ def run(args, session, http, clock, sleep) -> int:
             f"the photo at position {args.position} has no credit line (R102)"
         )
     jpeg = as_app_jpeg(photos[0])
-    if session is None:
-        session = boto3.Session(profile_name="lusot", region_name=REGION)
+    session = session or lusot_session()
     stack = load_stack(session)
     if args.case == "paused":
         ssm = session.client("ssm")

@@ -13,6 +13,7 @@ from datetime import datetime
 
 import demo_pins
 import guards
+import httpx
 import pytest
 from fake_aws import (
     BAGUIO,
@@ -276,3 +277,88 @@ def test_check_prints_no_location(data, capsys):
     del cloud.objects[f"demo/overlay/{pin}.json"]
     assert run(cloud, "check", pin) == 1
     assert "links: photo 200, overlay 200, layers 403" in lines(capsys)
+
+
+def test_check_refuses_a_pin_that_isnt_demo_before_any_request(data, capsys):
+    # Review, Minor 1: a live id typed by mistake is never flagged.
+    cloud = ScriptCloud()
+    live, eval_id = "r_" + "a" * 32, "r_" + "b" * 32
+    cloud.put(
+        pk="GEO#wdw515",
+        sk=f"x#{live}",
+        reportId=live,
+        mode="live",
+        status="pending",
+        published=True,
+        lat=14.6095,
+        lng=120.9894,
+        capturedAt="2026-10-29T03:30:00Z",
+        visibleUntil=END,
+        expiresAt=END,
+    )
+    cloud.put(pk="EVAL", sk=f"x#{eval_id}", reportId=eval_id, mode="eval")
+    for report_id in (live, eval_id):
+        assert run(cloud, "check", report_id) == 2
+    assert cloud.requests == []
+    assert lines(capsys)[-1] == f"refused: {eval_id} isn't a demo pin"
+
+
+def test_check_needs_exactly_404_from_the_flag(data, capsys):
+    cloud = ScriptCloud([LEVEL])
+    pin = demo_pins.demo_report_id("S001")
+    assert run(cloud, "seed", "--until", UNTIL, "--ids", "S001") == 0
+    capsys.readouterr()
+    cloud.flag = lambda report_id, request: httpx.Response(429, json={})
+    assert run(cloud, "check", pin) == 1
+    assert "flag refused: no (HTTP 429)" in lines(capsys)
+
+
+def test_check_of_a_demo_item_without_a_spot_doesnt_raise(data, capsys):
+    cloud = ScriptCloud()
+    pin = "r_" + "c" * 32
+    cloud.put(
+        pk="GEO#wdw515",
+        sk=f"2026-10-20T06:30:00Z#{pin}",
+        reportId=pin,
+        mode="demo",
+        status="refused",
+        refusalReason="no_usable_reference",
+        capturedAt="2026-10-20T06:30:00Z",
+        visibleUntil=END,
+        expiresAt=END + 604_800,
+    )
+    assert run(cloud, "check", pin) == 1
+    out = lines(capsys)
+    assert "nearby at its rounded spot: no" in out and out[-1] == "check: failed"
+    assert not [r for r in cloud.requests if "/reports?" in r[1]]
+
+
+def test_a_photo_named_as_sealed_exits_2_not_unreadable(tmp_path, monkeypatch, capsys):
+    # Review, Minor 2: the refusal is never counted as unreadable.
+    row = consent_row("S009", file="sealed::$INDEX_ALLOCATION")
+    row.pop("_photo")  # nothing is written under this name
+    base = data_folder(tmp_path / "data", consent_rows=[row])
+    monkeypatch.setenv("LUSOT_DATA_DIR", str(base))
+    approved = formats_py(tmp_path / "formats.py", {"M9-v4"})
+    monkeypatch.setattr(guards, "FORMATS_PY", approved)
+    cloud = ScriptCloud([LEVEL])
+    assert run(cloud, "seed", "--until", UNTIL, "--ids", "S009") == 2
+    assert cloud.called("dynamodb_put_item") == cloud.called("s3_put_object") == []
+    assert "unreadable" not in capsys.readouterr().out
+
+
+def test_a_seed_that_times_out_is_left_for_remove(data, capsys):
+    # Review, Minor 3: the handler may still be writing, so nothing is cleared.
+    cloud = ScriptCloud([LEVEL], processing_s=200)
+    pin = demo_pins.demo_report_id("S001")
+    assert run(cloud, "seed", "--until", UNTIL, "--ids", "S001") == 1
+    assert cloud.called("dynamodb_delete_item") == []
+    assert [i["reportId"]["S"] for i in demo_items(cloud)] == [pin]
+    assert lines(capsys) == [
+        (
+            f"{pin}: not pinned, still processing after 180 s; run"
+            f" `demo_pins.py remove {pin}` once it has ended"
+        ),
+        "timed_out: 1",
+        "seed: 1 given, 0 pinned",
+    ]

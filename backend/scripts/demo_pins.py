@@ -17,12 +17,15 @@
   (an open-licensed photo has none, so it is a sample only: MS4-Q9), lies outside
   Metro Manila, or has no capture time. A pin is visible to the end of the --until day
   in Manila and kept 7 days more. Only a published level is kept: any other result
-  has its item and demo/ keys deleted and is counted under not_level. A re-seed of a
+  has its item and demo/ keys deleted and is counted under not_level. A seed still
+  running after 180 s is left alone, since the handler may still be writing, and
+  counted under timed_out, for a `remove <id>` once it has ended. A re-seed of a
   source first deletes its pin, found by its id, which the source fixes.
 - `remove [id]`: one pin and its three demo/ keys or, with no id, every demo item (a
   filtered scan of the table, run only from Rene's laptop) and every object under
   demo/, so it also deletes whatever an interrupted run left.
-- `check <id>`: whether the pin is in nearby at its rounded spot and on the map,
+- `check <id>`: for a demo pin only (any other mode exits 2 before any request, so a
+  live pin is never flagged), whether it is in nearby at its rounded spot and on the map,
   whether its three links answer 200, its mode, whether it stays visible past capture
   plus 3 h, and whether a flag is refused (S1, S4). The spot is never printed.
 
@@ -48,34 +51,35 @@ import time
 import uuid
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
-import boto3
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from eval_runs import api_client, iso_seconds, item_outcome, wait_item
 from guards import (
     allowed_sources,
     approved_m9_versions,
-    counts,
     data_dir,
-    failure,
-    items_by_id,
     refuse_sealed,
     say,
-    yes,
 )
 from metro_manila import geohash6, in_metro_manila
-from smoke_upload import REGION, CheckFailed, as_app_jpeg, load_stack
+from ops_common import (
+    PHT,
+    REPORT_ID,
+    WAIT_S,
+    counts,
+    guarded,
+    items_by_id,
+    lusot_session,
+    yes,
+)
+from smoke_upload import CheckFailed, as_app_jpeg, load_stack
 
-# Manila's fixed offset: Windows has no tzdata, and the scripts don't install it (F15).
-PHT = timezone(timedelta(hours=8))
 STOP_PUBLISH = "/lusot/stop/publish"
 MAX_AHEAD_S = 53 * 24 * 60 * 60  # the demo/ backstop is 60 days
 VISIBLE_S = 3 * 60 * 60  # a live pin's 3 h, which a demo pin must outlast (S4)
 RETAIN_S = 7 * 24 * 60 * 60
-WAIT_S = 180  # for a seed's final status
-REPORT_ID = re.compile(r"r_[0-9a-f]{32}")
 DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 LINKS = ("photo", "overlay", "layers")
 
@@ -155,26 +159,20 @@ def main(
     remove.add_argument("id", nargs="?")
     check = commands.add_parser("check", help="check one pin as the app sees it")
     check.add_argument("id")
-    try:
+
+    def command() -> int:
         args = parser.parse_args(argv)
         if args.command == "seed":
             return seed_pins(args, session, clock, sleep)
         if args.command == "remove":
             return remove_pins(args, session)
         return check_pin(args, session, http)
-    except SystemExit as exc:  # a guard's refusal, or argparse's
-        return exc.code
-    except CheckFailed as exc:
-        say(f"failed: {exc}")
-    except (BotoCoreError, ClientError, httpx.HTTPError, OSError) as exc:
-        say(f"failed: {failure(exc)}")
-    return 1
 
-
-def lusot_session(session):
-    """`session`, or the lusot profile's: a stray AWS_PROFILE could reach another
-    account."""
-    return session or boto3.Session(profile_name="lusot", region_name=REGION)
+    return guarded(
+        command,
+        shown=(CheckFailed,),
+        errors=(BotoCoreError, ClientError, httpx.HTTPError),
+    )
 
 
 def seed_pins(args, session, clock, sleep) -> int:
@@ -184,7 +182,7 @@ def seed_pins(args, session, clock, sleep) -> int:
     except ValueError as exc:
         say(f"refused: {exc}")
         return 2
-    session = lusot_session(session)
+    session = session or lusot_session()
     stack = load_stack(session)
     publish = session.client("ssm").get_parameter(Name=STOP_PUBLISH)["Parameter"]
     if publish["Value"] != "off":  # only an explicit "off" publishes (C516)
@@ -194,7 +192,7 @@ def seed_pins(args, session, clock, sleep) -> int:
     ddb, s3 = session.client("dynamodb"), session.client("s3")
     table = stack.output("TableName")
     not_level: Counter = Counter()
-    pinned = 0
+    pinned = timed_out = 0
     for source in sources.values():
         found = spot(source.row) if source.kind == "consented" else None
         captured_s = taken_epoch(source.row.get("taken_pht") or "")
@@ -249,6 +247,15 @@ def seed_pins(args, session, clock, sleep) -> int:
             pinned += 1
             say(f"{report_id}: pinned, {outcome}")
             continue
+        if outcome.startswith("still "):
+            # The handler may still be writing: a clear now could leave its photo
+            # behind (review, Minor 3), so the pin is left for a later remove.
+            timed_out += 1
+            say(
+                f"{report_id}: not pinned, {outcome} after {WAIT_S} s; run"
+                f" `demo_pins.py remove {report_id}` once it has ended"
+            )
+            continue
         if outcome == "done/level":  # the publish switch changed during the run
             outcome += " unpublished"
         clear(ddb, s3, table, stack.bucket, report_id)
@@ -258,6 +265,8 @@ def seed_pins(args, session, clock, sleep) -> int:
         say(f"refused: {counts(refused)}")
     if not_level:
         say(f"not_level: {counts(not_level)}")
+    if timed_out:
+        say(f"timed_out: {timed_out}")
     say(f"seed: {len(args.ids)} given, {pinned} pinned")
     return 0 if pinned else 1
 
@@ -276,7 +285,7 @@ def remove_pins(args, session) -> int:
     if args.id is not None and REPORT_ID.fullmatch(args.id) is None:
         say("refused: that isn't a report id")
         return 2
-    session = lusot_session(session)
+    session = session or lusot_session()
     stack = load_stack(session)
     ddb, s3 = session.client("dynamodb"), session.client("s3")
     table = stack.output("TableName")
@@ -311,15 +320,18 @@ def check_pin(args, session, http) -> int:
     if REPORT_ID.fullmatch(args.id) is None:
         say("refused: that isn't a report id")
         return 2
-    session = lusot_session(session)
+    session = session or lusot_session()
     stack = load_stack(session)
     items = items_by_id(session.client("dynamodb"), stack.output("TableName"), args.id)
     if not items:
         say(f"{args.id}: not found")
         return 1
+    # Before any request: a live pin typed by mistake must never get a real flag.
+    if {item.get("mode", {}).get("S") for item in items} != {"demo"}:
+        say(f"refused: {args.id} isn't a demo pin")
+        return 2
     item = items[0]
-    # C514: nearby is asked at the spot as pins show it, rounded to 4 places.
-    lat, lng = (round(float(item[name]["N"]), 4) for name in ("lat", "lng"))
+    spot_shown = rounded_spot(item)
     api = stack.api_url
     with api_client(http) as client:
         report = client.get(f"{api}/reports/{args.id}")
@@ -327,15 +339,17 @@ def check_pin(args, session, http) -> int:
             say(f"{args.id}: GET /reports/{{id}} answered HTTP {report.status_code}")
             return 1
         body = report.json()
-        spot_query = {"lat": lat, "lng": lng, "radius": 300}
-        in_nearby = has_pin(client.get(f"{api}/reports", params=spot_query), args.id)
+        in_nearby = False
+        if spot_shown is not None:
+            query = {"lat": spot_shown[0], "lng": spot_shown[1], "radius": 300}
+            in_nearby = has_pin(client.get(f"{api}/reports", params=query), args.id)
         on_map = has_pin(client.get(f"{api}/map/pins"), args.id)
         links = {name: link_status(client, body.get(f"{name}Url")) for name in LINKS}
         device = {"X-Lusot-Device": str(uuid.uuid4())}  # never the shared none bucket
         flag = client.post(f"{api}/reports/{args.id}/flag", headers=device)
     captured_s = datetime.fromisoformat(item["capturedAt"]["S"]).timestamp()
     outlasts = int(item["visibleUntil"]["N"]) > captured_s + VISIBLE_S
-    flag_refused = flag.status_code != 200  # C511: a demo pin can't be flagged
+    flag_refused = flag.status_code == 404  # C511, flags.ts: a demo pin's flag is 404
     say(f"{args.id}: mode {body.get('mode')}")
     say(f"nearby at its rounded spot: {yes(in_nearby)}")
     say(f"on the map: {yes(on_map)}")
@@ -352,6 +366,14 @@ def check_pin(args, session, http) -> int:
     )
     say(f"check: {'passed' if passed else 'failed'}")
     return 0 if passed else 1
+
+
+def rounded_spot(item: dict) -> tuple[float, float] | None:
+    """The item's spot as pins show it, rounded to 4 places (C514), or None."""
+    try:
+        return tuple(round(float(item[name]["N"]), 4) for name in ("lat", "lng"))
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def has_pin(response: httpx.Response, report_id: str) -> bool:

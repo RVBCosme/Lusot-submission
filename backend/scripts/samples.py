@@ -20,8 +20,9 @@
   refused seed is skipped under refused, a failed one under failed, and one without a
   copy under no_copy. Its last line gives how many candidates it was given and how
   many qualified. Set A photos never become samples.
-- `remove [sampleId]`: one sample's manifest entry and photo, as when a donor
-  withdraws (MS10's P6), or with no id every samples/ object, the manifest included.
+- `remove [sampleId]`: one sample's manifest entry, photo and source note, as when a
+  donor withdraws (MS10's P6), or with no id every samples/ object, the manifest
+  included, and every source note.
 - `check [--run]`: counts the listed samples whose photoUrl answers 200. With --run it
   runs the first through POST /samples/{id}, with a fresh uuid4 in X-Lusot-Device so
   it never uses the shared none bucket, and prints its mode, its outcome and whether
@@ -49,9 +50,9 @@ import time
 import uuid
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from pathlib import Path
 
-import boto3
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from eval_runs import api_client, eval_item, item_outcome, new_report_id, wait_item
@@ -59,15 +60,12 @@ from guards import (
     Source,
     allowed_sources,
     approved_m9_versions,
-    counts,
     data_dir,
-    failure,
     refuse_sealed,
     say,
-    yes,
 )
+from ops_common import PHT, WAIT_S, counts, guarded, lusot_session, yes
 from smoke_upload import (
-    REGION,
     CheckFailed,
     as_app_jpeg,
     load_stack,
@@ -75,11 +73,10 @@ from smoke_upload import (
     wait_final,
 )
 
-PHT = timezone(timedelta(hours=8))  # Manila's fixed offset (F15)
 MANIFEST_KEY = "samples/manifest.json"
 SOURCES_CSV = ("samples", "sample_sources.csv")
+NOTE_COLUMNS = ["sampleId", "source_id", "note"]
 SAMPLE_ID = re.compile(r"s[0-9a-f]{10}")
-WAIT_S = 180  # for a seed's final status
 LEVEL_FIELDS = {
     "level": "S",
     "landmark": "S",
@@ -111,31 +108,25 @@ def main(
     remove.add_argument("sample_id", nargs="?")
     check = commands.add_parser("check", help="check the samples as the app sees them")
     check.add_argument("--run", action="store_true", help="run the first sample")
-    try:
+
+    def command() -> int:
         args = parser.parse_args(argv)
         if args.command == "seed":
             return seed_samples(args, session, clock, sleep)
         if args.command == "remove":
             return remove_samples(args, session)
         return check_samples(args, session, http, clock, sleep)
-    except SystemExit as exc:  # a guard's refusal, or argparse's
-        return exc.code
-    except CheckFailed as exc:
-        say(f"failed: {exc}")
-    except (BotoCoreError, ClientError, httpx.HTTPError, OSError) as exc:
-        say(f"failed: {failure(exc)}")
-    return 1
 
-
-def lusot_session(session):
-    """`session`, or the lusot profile's: a stray AWS_PROFILE could reach another
-    account."""
-    return session or boto3.Session(profile_name="lusot", region_name=REGION)
+    return guarded(
+        command,
+        shown=(CheckFailed,),
+        errors=(BotoCoreError, ClientError, httpx.HTTPError),
+    )
 
 
 def seed_samples(args, session, clock, sleep) -> int:
     refuse_sealed(data_dir())
-    session = lusot_session(session)
+    session = session or lusot_session()
     stack = load_stack(session)
     sources, refused = allowed_sources(args.ids, approved_m9_versions())
     ddb, s3 = session.client("dynamodb"), session.client("s3")
@@ -250,20 +241,45 @@ def write_manifest(s3, bucket: str, manifest: dict) -> None:
     )
 
 
-def write_note(sid: str, source: Source) -> None:
-    """The sample's private source note, in lusot-data only, one row per sample."""
+def notes_path() -> Path:
+    """lusot-data's sample_sources.csv, refused if sealed."""
     path = data_dir().joinpath(*SOURCES_CSV)
     refuse_sealed(path)
-    rows: dict[str, dict[str, str]] = {}
-    if path.is_file():
-        with path.open(encoding="utf-8-sig", newline="") as file:
-            rows = {row["sampleId"]: row for row in csv.DictReader(file)}
-    rows[sid] = {"sampleId": sid, "source_id": source.source_id, "note": source.note}
+    return path
+
+
+def read_notes(path: Path) -> dict[str, dict[str, str]]:
+    if not path.is_file():
+        return {}
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        return {row["sampleId"]: row for row in csv.DictReader(file)}
+
+
+def write_notes(path: Path, rows: dict[str, dict[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, ["sampleId", "source_id", "note"])
+        writer = csv.DictWriter(file, NOTE_COLUMNS)
         writer.writeheader()
         writer.writerows(rows.values())
+
+
+def write_note(sid: str, source: Source) -> None:
+    """The sample's private source note, in lusot-data only, one row per sample."""
+    path = notes_path()
+    rows = read_notes(path)
+    rows[sid] = {"sampleId": sid, "source_id": source.source_id, "note": source.note}
+    write_notes(path, rows)
+
+
+def drop_notes(sid: str | None) -> None:
+    """Drop one sample's source note or, with None, every one: a donor's withdrawal
+    takes the note with the photo (MS10's P6), since it can name the donor."""
+    path = notes_path()
+    if not path.is_file():
+        return
+    kept = {} if sid is None else read_notes(path)
+    kept.pop(sid, None)
+    write_notes(path, kept)
 
 
 def remove_samples(args, session) -> int:
@@ -271,7 +287,8 @@ def remove_samples(args, session) -> int:
     if sid is not None and SAMPLE_ID.fullmatch(sid) is None:
         say("refused: that isn't a sample id")
         return 2
-    session = lusot_session(session)
+    refuse_sealed(data_dir())  # its source notes are in lusot-data
+    session = session or lusot_session()
     stack = load_stack(session)
     s3 = session.client("s3")
     if sid is not None:
@@ -282,6 +299,7 @@ def remove_samples(args, session) -> int:
         if listed:
             write_manifest(s3, stack.bucket, {"version": 1, "samples": kept})
         s3.delete_object(Bucket=stack.bucket, Key=f"samples/{sid}.jpg")
+        drop_notes(sid)
         if listed:
             say(f"removed {sid}: its photo and its manifest entry")
             return 0
@@ -293,13 +311,14 @@ def remove_samples(args, session) -> int:
     keys = [entry["Key"] for page in pages for entry in page.get("Contents", [])]
     for key in keys:
         s3.delete_object(Bucket=stack.bucket, Key=key)
+    drop_notes(None)
     among = ", the manifest among them" if MANIFEST_KEY in keys else ""
     say(f"removed {len(keys)} samples/ objects{among}")
     return 0
 
 
 def check_samples(args, session, http, clock, sleep) -> int:
-    session = lusot_session(session)
+    session = session or lusot_session()
     stack = load_stack(session)
     api = stack.api_url
     with api_client(http) as client:
