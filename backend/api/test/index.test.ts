@@ -1,13 +1,15 @@
+import { createHash } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type Deps, route } from "../src/index";
 import { createStopSwitch } from "../src/stopSwitch";
 
 const ID = "r_0123456789abcdef0123456789abcdef";
+const NOW_ISO = "2026-10-30T10:06:40Z";
 const UPLOAD = JSON.stringify({ lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedAt: "2026-10-30T10:05:12Z" });
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "ap-southeast-1" }));
@@ -23,9 +25,10 @@ function deps(): Deps {
     s3,
     isStopped: createStopSwitch(ssm, "/lusot/stop/"),
     tableName: "reports",
+    limitsTableName: "limits",
     indexName: "reportId-index",
     bucketName: "lusot-test01-uploads",
-    now: () => Date.parse("2026-10-30T10:06:40Z"),
+    now: () => Date.parse(NOW_ISO),
   };
 }
 
@@ -34,6 +37,7 @@ beforeEach(() => {
   ssmMock.reset();
   ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: "off" } });
   ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
 });
 
 describe("route", () => {
@@ -50,6 +54,20 @@ describe("route", () => {
 
     expect(res.statusCode).toBe(201);
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
+  });
+
+  it("passes X-Lusot-Device to the limits", async () => {
+    const device = "device-0123456789abcdef";
+    const headers = { "x-lusot-device": device };
+
+    const res = await route({ routeKey: "POST /uploads", headers, body: UPLOAD, isBase64Encoded: false }, deps());
+
+    expect(res.statusCode).toBe(201);
+    // The hour comes from the clock's ISO string, so a clock passed in milliseconds fails here (F3).
+    const hour = NOW_ISO.slice(0, 13);
+    const keys = ddbMock.commandCalls(UpdateCommand).map((call) => call.args[0].input.Key?.pk);
+    const hash = createHash("sha256").update(device).digest("hex");
+    expect(keys).toEqual([`upload#${hash}#${hour}`, `upload#ALL#${hour}`]);
   });
 
   it("decodes a base64 body", async () => {

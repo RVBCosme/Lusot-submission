@@ -10,12 +10,17 @@ import { createStopSwitch } from "./stopSwitch";
 import { createUpload, type UploadDeps } from "./uploads";
 
 export type Deps = UploadDeps & ReportDeps;
-type RouteEvent = Pick<APIGatewayProxyEventV2, "routeKey" | "pathParameters" | "body" | "isBase64Encoded">;
+// The tests' events often carry no headers, so they are optional here.
+type RouteEvent = Pick<
+  APIGatewayProxyEventV2,
+  "routeKey" | "pathParameters" | "queryStringParameters" | "body" | "isBase64Encoded"
+> &
+  Partial<Pick<APIGatewayProxyEventV2, "headers">>;
 
 export async function route(event: RouteEvent, deps: Deps): Promise<JsonResponse> {
   switch (event.routeKey) {
     case "POST /uploads":
-      return createUpload(readBody(event), deps);
+      return createUpload(readBody(event), deviceHeader(event), deps);
     case "GET /reports/{id}":
       return getReport(event.pathParameters?.id, deps);
     default:
@@ -29,6 +34,11 @@ function readBody(event: RouteEvent): string | undefined {
   return Buffer.from(event.body, "base64").toString("utf8");
 }
 
+// The app's random device id (C508). HTTP APIs lowercase header names in payload 2.0.
+function deviceHeader(event: RouteEvent): string | undefined {
+  return event.headers?.["x-lusot-device"];
+}
+
 // Built on the first request and kept for the container's life, so the stop switch cache persists.
 let live: Deps | undefined;
 
@@ -38,6 +48,7 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<JsonRespon
     s3: new S3Client({}),
     isStopped: createStopSwitch(new SSMClient({}), env("STOP_PARAM_PREFIX")),
     tableName: env("TABLE_NAME"),
+    limitsTableName: env("LIMITS_TABLE_NAME"),
     indexName: env("INDEX_NAME"),
     bucketName: env("BUCKET_NAME"),
     now: Date.now,

@@ -17,6 +17,9 @@ beforeAll(() => {
   vi.stubEnv("INDEX_NAME", "reportId-index");
   vi.stubEnv("BUCKET_NAME", "lusot-test01-uploads");
   vi.stubEnv("STOP_PARAM_PREFIX", "/lusot/stop/");
+  vi.stubEnv("LIMITS_TABLE_NAME", "limits");
+  vi.stubEnv("FEED_INDEX_NAME", "feed-index");
+  vi.stubEnv("INCHES_SHOWN", "false");
 });
 
 afterEach(() => {
