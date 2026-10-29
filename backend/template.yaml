@@ -401,6 +401,8 @@ Resources:
           BUCKET_NAME: !Ref UploadBucket
           STOP_PARAM_PREFIX: /lusot/stop/
           MODEL_KEY_PARAM: /lusot/meta/model-api-key
+          # The Meta spend counter's table (C527).
+          LIMITS_TABLE_NAME: !Ref LimitsTable
       Events:
         Upload:
           Type: SQS
@@ -473,6 +475,12 @@ Resources:
               - Effect: Allow
                 Action: dynamodb:UpdateItem
                 Resource: !GetAtt ReportsTable.Arn
+              # The Meta spend counter (C527): read before each run, added to after it.
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt LimitsTable.Arn
               # The key is a SecureString under the AWS managed aws/ssm key, which lets every
               # principal in the account decrypt through SSM, so no kms:Decrypt grant is needed.
               - Effect: Allow
@@ -480,6 +488,11 @@ Resources:
                 Resource:
                   - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
                   - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/meta/model-api-key"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/spend/stop-usd"
+              # The spend stop sets the model-calls switch "on" (C527), and nothing else.
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/model-calls"
 
   # Created before their functions, so no invocation can make an unmanaged group first.
   ApiLogGroup:
@@ -512,6 +525,60 @@ Resources:
       Name: /lusot/stop/model-calls
       Type: String
       Value: "off"
+
+  # The Meta spend stop in USD (C527, C528): a literal, like INCHES_SHOWN, never a parameter.
+  # $60 while building; set_spend_stop.py raises it to $140 at the submission deploy on Nov 4,
+  # and again after any later deploy that puts it back to 60 (docs/operations.md).
+  SpendStopParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /lusot/spend/stop-usd
+      Type: String
+      Value: "60"
+
+  # The AWS credits (C528): one budget, which with the account-setup $5 budget (C25) stays
+  # inside AWS's two free ones. A year from Oct 1, 2026 (epoch seconds, UTC), so it doesn't
+  # reset on Nov 1. Credits and refunds are left out of the cost, so it measures the credits
+  # being used up.
+  MetaAndAwsBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetType: COST
+        BudgetLimit:
+          Amount: 150
+          Unit: USD
+        TimeUnit: ANNUALLY
+        TimePeriod:
+          Start: "1790812800"
+        CostTypes:
+          IncludeCredit: false
+          IncludeRefund: false
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: ABSOLUTE_VALUE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlarmEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: ABSOLUTE_VALUE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlarmEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 140
+            ThresholdType: ABSOLUTE_VALUE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlarmEmail
 
   # Unencrypted on purpose: CloudWatch can't publish to a topic under the AWS managed SNS key,
   # and a customer managed key isn't free.
@@ -581,6 +648,63 @@ Resources:
       EvaluationPeriods: 1
       Threshold: 5000
       ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  # Every spend pause (C527): the handler logs spend_stop or spend_error on each flip of the
+  # model-calls switch. Term patterns, since Lambda's text log format puts a prefix before
+  # each JSON line. Ask Lusot adds a second filter on ApiLogGroup to the same metric.
+  SpendPauseFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AnalysisLogGroup
+      FilterPattern: '?"spend_error" ?"spend_stop"'
+      MetricTransformations:
+        - MetricNamespace: Lusot
+          MetricName: SpendPauses
+          MetricValue: "1"
+
+  # No OKActions: the alarm clearing doesn't clear the switch.
+  SpendPauseAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Meta model calls were paused at the spend stop or on a lost spend write. The model-calls switch stays on until cleared; see docs/operations.md.
+      Namespace: Lusot
+      MetricName: SpendPauses
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  # A failed publish switch read (C516): the handler adds publish_switch to the report's line
+  # only then, and writes the result unpublished. A lasting fault would empty the map and the
+  # feed without a sound.
+  PublishReadFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AnalysisLogGroup
+      FilterPattern: '"publish_switch"'
+      MetricTransformations:
+        - MetricNamespace: Lusot
+          MetricName: PublishReadErrors
+          MetricValue: "1"
+
+  PublishReadAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: A publish switch read failed, so a live or demo result was written unpublished.
+      Namespace: Lusot
+      MetricName: PublishReadErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmTopic

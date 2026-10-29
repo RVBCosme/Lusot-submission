@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import time
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote_plus
@@ -27,24 +28,42 @@ from fakes import (
     REPO_PROMPTS,
     FakeClient,
     answer,
+    create_limits_table,
     create_reports_table,
+    fail_attempts,
     flat_jpeg,
     level_case,
     meta_error,
+    no_backoff,
 )
 from moto import mock_aws
 
-from lusot_analysis import handler
+from lusot_analysis import handler, spend
 from lusot_analysis.face_blur import blur_for_meta, decode_image
-from lusot_analysis.meta_client import SAM_PHRASES, MetaClient
+from lusot_analysis.meta_client import (
+    SAM_PHRASES,
+    MetaApiError,
+    MetaClient,
+    ModelRefused,
+)
 from lusot_analysis.pipeline.publish import publish_jpeg
 from lusot_analysis.pipeline.saved import SavedOutputsClient
 
 BUCKET = "lusot-test-uploads"
 TABLE = "lusot-test-reports"
+LIMITS = "lusot-test-limits"
 KEY_PARAM = "/lusot/meta/model-api-key"
 SWITCH = "/lusot/stop/model-calls"
 PUBLISH = "/lusot/stop/publish"
+SPEND_STOP = "/lusot/spend/stop-usd"
+SPEND_KEY = {"pk": {"S": "spend#meta"}}
+# The level case's cost: 7 SAM images at $0.0025, and Muse Spark's 1,000 input and 200
+# output tokens at $1.25 and $4.25 a million.
+SAM_COST = Decimal("0.0175")
+RUN_COST = Decimal("0.0196")
+UNREPORTED_COST = Decimal("0.042")  # SPARK_TOKENS_IF_UNREPORTED: 20,000 and 4,000
+# The one flip of the model-calls switch the handler makes (C527).
+FLIP = {"Name": SWITCH, "Value": "on", "Type": "String", "Overwrite": True}
 FAKE_KEY = "fake-model-key-" + "0" * 33  # 48 characters, like the real key (spec A8)
 REPORT_ID = "r_" + "0123456789abcdef" * 2
 RAW_KEY = f"raw/{REPORT_ID}.jpg"
@@ -124,7 +143,8 @@ def aws(monkeypatch, prompts):
     """Moto's S3, DynamoDB and SSM, set up as the template sets up the real ones.
 
     Each test starts cold: new AWS clients inside the mock, no Meta client, and the
-    prompt not yet read. The claim's clock reads NOW_S.
+    prompt not yet read. The claim's clock reads NOW_S. The spend stop is the
+    template's $60, and nothing has been spent: the counter's item doesn't exist.
     """
     monkeypatch.delenv("AWS_PROFILE", raising=False)
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
@@ -135,11 +155,13 @@ def aws(monkeypatch, prompts):
     monkeypatch.setenv("BUCKET_NAME", BUCKET)
     monkeypatch.setenv("STOP_PARAM_PREFIX", "/lusot/stop/")
     monkeypatch.setenv("MODEL_KEY_PARAM", KEY_PARAM)
+    monkeypatch.setenv("LIMITS_TABLE_NAME", LIMITS)
     monkeypatch.setattr(handler, "_META_CLIENT", None)
     monkeypatch.setattr(handler, "MetaClient", no_meta_client)
     monkeypatch.setattr(handler, "_now_s", lambda: NOW_S)
     handler._client.cache_clear()
     handler._post_run_ssm.cache_clear()
+    handler._spend_ddb.cache_clear()
     with mock_aws():
         s3, ddb, ssm = (boto3.client(name) for name in ("s3", "dynamodb", "ssm"))
         s3.create_bucket(
@@ -147,13 +169,16 @@ def aws(monkeypatch, prompts):
             CreateBucketConfiguration={"LocationConstraint": "ap-southeast-1"},
         )
         create_reports_table(ddb, TABLE)
+        create_limits_table(ddb, LIMITS)
         ssm.put_parameter(Name=SWITCH, Value="off", Type="String")
         ssm.put_parameter(Name=PUBLISH, Value="off", Type="String")
         ssm.put_parameter(Name=KEY_PARAM, Value=FAKE_KEY, Type="SecureString")
+        ssm.put_parameter(Name=SPEND_STOP, Value="60", Type="String")
         yield SimpleNamespace(s3=s3, ddb=ddb, ssm=ssm)
     # Their clients belong to the mock that just ended.
     handler._client.cache_clear()
     handler._post_run_ssm.cache_clear()
+    handler._spend_ddb.cache_clear()
 
 
 @pytest.fixture
@@ -552,8 +577,9 @@ def test_publish_switch_is_read_once_after_the_result(aws, fake, monkeypatch):
     token = item["claimToken"]["S"]
     assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
     assert keys(aws) == [PHOTO_KEY]
-    assert [read["Name"] for read in reads] == [SWITCH, PUBLISH]
-    assert at_judge == [[SWITCH]]  # so the publish read came after the judge call
+    assert [read["Name"] for read in reads] == [SWITCH, SPEND_STOP, PUBLISH]
+    # So the publish read came after the judge call, and the spend stop's before it.
+    assert at_judge == [[SWITCH, SPEND_STOP]]
 
 
 @pytest.mark.parametrize(
@@ -751,7 +777,9 @@ def test_publish_rules(
     assert result(aws) == final
     expected = {"published": {"BOOL": True}, "feedPart": {"S": mode}} if pinned else {}
     assert published(aws) == expected
-    assert [r["Name"] for r in reads] == ([SWITCH, PUBLISH] if read else [SWITCH])
+    # The spend stop is read for every claimed report whose switch reads "off".
+    before_run = [SWITCH, SPEND_STOP]
+    assert [r["Name"] for r in reads] == before_run + ([PUBLISH] if read else [])
 
 
 def test_mode_is_read_from_the_item(aws, fake):
@@ -782,7 +810,7 @@ def test_failed_publish_read_never_retries(aws, fake, monkeypatch, caplog):
     assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
     assert keys(aws) == [PHOTO_KEY]
     assert len(fake.calls) == 8
-    assert [read["Name"] for read in reads] == [SWITCH, PUBLISH]  # read once
+    assert [read["Name"] for read in reads] == [SWITCH, SPEND_STOP, PUBLISH]  # once
     (line,) = report_lines(caplog)
     assert line["outcome"] == "done/level"
     assert line["publish_switch"] == {
@@ -797,9 +825,9 @@ def test_failed_publish_read_never_retries(aws, fake, monkeypatch, caplog):
 def test_publish_read_has_its_own_bounded_client(aws, fake, monkeypatch, caplog):
     # The publish read comes after the paid run, inside the run's 30 s margin, so a
     # hung SSM call mustn't outlast it and make a redelivery pay again. Its client
-    # has 2 s timeouts and 2 retries. The model-calls read before the claim keeps
-    # the shared client. A timeout is a failed read: the result is written
-    # unpublished, never retried (Review Focus 3).
+    # has 2 s timeouts and 2 retries. The model-calls read before the claim, and the
+    # spend stop's before the run, keep the shared client. A timeout is a failed
+    # read: the result is written unpublished, never retried (Review Focus 3).
     config = handler._post_run_ssm().meta.config
     assert (config.connect_timeout, config.read_timeout) == (2, 2)
     # botocore stores Config's max_attempts, a count of retries, as total attempts.
@@ -824,7 +852,7 @@ def test_publish_read_has_its_own_bounded_client(aws, fake, monkeypatch, caplog)
     item = report(aws)
     token = item["claimToken"]["S"]
     assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
-    assert (shared_reads, post_run_reads) == ([SWITCH], [PUBLISH])
+    assert (shared_reads, post_run_reads) == ([SWITCH, SPEND_STOP], [PUBLISH])
     (line,) = report_lines(caplog)
     assert line["publish_switch"] == {"error": "ReadTimeoutError"}
     assert "Read timeout" not in caplog.text  # the class name only
@@ -1245,6 +1273,516 @@ def test_aws_error_after_meta_calls_retries(aws, fake, monkeypatch, caplog):
         500,
     )
     assert line["meta_calls"] == 8
+
+
+# The Meta spend stop (C527, C528)
+
+
+def spent(aws) -> Decimal | None:
+    """The spend counter's total in USD, or None when its item doesn't exist."""
+    item = aws.ddb.get_item(TableName=LIMITS, Key=SPEND_KEY).get("Item")
+    return None if item is None else Decimal(item["micro_usd"]["N"]) / 1_000_000
+
+
+def set_spent(aws, usd: Decimal) -> None:
+    micro = str(spend.to_micro(usd))
+    aws.ddb.put_item(TableName=LIMITS, Item=SPEND_KEY | {"micro_usd": {"N": micro}})
+
+
+def set_stop(aws, value: str) -> None:
+    aws.ssm.put_parameter(Name=SPEND_STOP, Value=value, Type="String", Overwrite=True)
+
+
+def switch(aws) -> str:
+    return aws.ssm.get_parameter(Name=SWITCH)["Parameter"]["Value"]
+
+
+def spy_puts(monkeypatch) -> list[dict]:
+    """Record each PutParameter the handler makes, by its keywords.
+
+    Every flip goes through the bounded SSM client, so the shared one fails a test
+    that puts through it.
+    """
+    puts = []
+    bounded = handler._post_run_ssm()
+    put_parameter = bounded.put_parameter
+
+    def put(**kwargs):
+        puts.append(kwargs)
+        return put_parameter(**kwargs)
+
+    def shared_put(**kwargs):
+        raise AssertionError("a flip went through the shared SSM client")
+
+    monkeypatch.setattr(bounded, "put_parameter", put)
+    monkeypatch.setattr(handler._client("ssm"), "put_parameter", shared_put)
+    return puts
+
+
+def spend_lines(caplog) -> list[dict]:
+    return [
+        json.loads(r.getMessage()) for r in caplog.records if r.name == "lusot.spend"
+    ]
+
+
+SPEND_FIELDS = ("spend_stop", "spend_error", "spend_estimated")
+
+
+@pytest.mark.parametrize("stop", ["60", "140"])
+@pytest.mark.parametrize(
+    ("offset", "paused"),
+    [("0", True), ("0.01", True), ("-0.000001", False)],
+    ids=["at-the-stop", "over-it", "a-micro-dollar-under"],
+)
+def test_spend_at_the_threshold_pauses_before_any_meta_call(
+    aws, fake, monkeypatch, caplog, stop, offset, paused
+):
+    # C527: at the claim, a total at or over the stop pauses model calls: 60 while
+    # building, 140 once set_spend_stop.py raises it (C528).
+    set_stop(aws, stop)
+    total = Decimal(stop) + Decimal(offset)
+    set_spent(aws, total)
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    (line,) = report_lines(caplog)
+    if not paused:
+        # It runs. Its own cost then crosses the stop, so the switch flips after it.
+        assert result(aws) == KNEE_RESULT
+        assert len(fake.calls) == 8
+        assert spent(aws) == total + RUN_COST
+        assert (switch(aws), puts) == ("on", [FLIP])
+        crossed = {"total_usd": str(total + RUN_COST), "stop_usd": stop}
+        assert line["spend_stop"] == crossed
+        return
+    assert status(aws) == ("failed", "model_calls_paused")
+    assert fake.calls == []
+    assert keys(aws) == []
+    assert (switch(aws), puts) == ("on", [FLIP])
+    assert line["outcome"] == "failed/model_calls_paused"
+    assert line["spend_stop"] == {"total_usd": str(total), "stop_usd": stop}
+    assert spent(aws) == total  # nothing paid, so nothing recorded
+    # The next photo meets the switch itself: it pays nothing and flips nothing, so
+    # the alarm counts the one flip.
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert status(aws) == ("failed", "model_calls_paused")
+    assert (fake.calls, puts) == ([], [FLIP])
+    assert "spend_stop" not in report_lines(caplog)[-1]
+
+
+def remove_stop(aws, monkeypatch) -> None:
+    aws.ssm.delete_parameter(Name=SPEND_STOP)
+
+
+def unset_table(aws, monkeypatch) -> None:
+    monkeypatch.delenv("LIMITS_TABLE_NAME")
+
+
+def deny_counter(aws, monkeypatch) -> None:
+    fail_attempts(handler._spend_ddb(), "GetItem", "AccessDeniedException", 400)
+
+
+@pytest.mark.parametrize(
+    ("break_it", "error"),
+    [
+        pytest.param(
+            remove_stop,
+            {"error": "ParameterNotFound", "http_status": 400},
+            id="no-stop",
+        ),
+        pytest.param(
+            lambda aws, mp: set_stop(aws, "sixty"),
+            {"error": "InvalidOperation"},
+            id="not-a-number",
+        ),
+        pytest.param(
+            lambda aws, mp: set_stop(aws, "Infinity"),
+            {"error": "ValueError"},
+            id="infinite",
+        ),
+        pytest.param(
+            lambda aws, mp: set_stop(aws, "NaN"), {"error": "ValueError"}, id="nan"
+        ),
+        pytest.param(
+            deny_counter,
+            {"error": "AccessDeniedException", "http_status": 400},
+            id="counter-denied",
+        ),
+        pytest.param(unset_table, {"error": "KeyError"}, id="no-table-name"),
+    ],
+)
+def test_unreadable_spend_pauses(aws, fake, monkeypatch, caplog, break_it, error):
+    # Fail closed, as an unreadable switch is: a stop or a total that can't be read
+    # pauses model calls instead of letting them through.
+    break_it(aws, monkeypatch)
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert status(aws) == ("failed", "model_calls_paused")
+    assert fake.calls == []
+    assert (switch(aws), puts) == ("on", [FLIP])
+    (line,) = report_lines(caplog)
+    assert line["spend_stop"] == {"unreadable": error}
+    assert spent(aws) is None
+    assert "arn:" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("photo", "judged", "final", "cost"),
+    [
+        pytest.param(LEVEL_PHOTO, None, KNEE_RESULT, RUN_COST, id="level"),
+        pytest.param(
+            LEVEL_PHOTO,
+            answer(standing_water="no"),
+            ("done", None),
+            RUN_COST,
+            id="no-flood-seen",
+        ),
+        # No Meta call, so nothing is recorded: the counter's item isn't even made.
+        pytest.param(flat_jpeg(10), None, ("refused", "too_dark"), None, id="too-dark"),
+        pytest.param(
+            b"\xff\xd8\xff" + b"not a jpeg",
+            None,
+            ("failed", "bad_file"),
+            None,
+            id="bad-file",
+        ),
+    ],
+)
+def test_a_run_records_its_cost(
+    aws, fake, monkeypatch, caplog, photo, judged, final, cost
+):
+    if judged is not None:
+        fake.answer = judged
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=photo)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert result(aws) == final
+    assert spent(aws) == cost
+    assert (switch(aws), puts) == ("off", [])
+    (line,) = report_lines(caplog)
+    assert not set(SPEND_FIELDS) & set(line)
+    expected = (
+        []
+        if cost is None
+        else [
+            {
+                "spend_source": "analysis",
+                "spend_usd": str(cost),
+                "spend_total_usd": str(cost),
+            }
+        ]
+    )
+    assert spend_lines(caplog) == expected
+
+
+@pytest.mark.parametrize("stop", ["60", "140"])
+def test_crossing_the_threshold_flips_the_switch_after_the_run(
+    aws, fake, monkeypatch, caplog, stop
+):
+    # The run that crosses the stop is paid for, so its result is written as usual,
+    # and the switch flips at once, through the bounded post-run client.
+    set_stop(aws, stop)
+    before = Decimal(stop) - Decimal("0.01")
+    set_spent(aws, before)
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert result(aws) == KNEE_RESULT
+    assert published(aws) == {"published": {"BOOL": True}, "feedPart": {"S": "live"}}
+    assert keys(aws) == [PHOTO_KEY]
+    assert spent(aws) == before + RUN_COST
+    assert (switch(aws), puts) == ("on", [FLIP])
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["spend_stop"] == {"total_usd": str(before + RUN_COST), "stop_usd": stop}
+    # The next photo pays nothing.
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert status(aws) == ("failed", "model_calls_paused")
+    assert len(fake.calls) == 8
+
+
+@pytest.mark.parametrize(
+    "code", ["ProvisionedThroughputExceededException", "ThrottlingException"]
+)
+def test_throttled_spend_write_retries_and_counts_once(
+    aws, fake, monkeypatch, caplog, code
+):
+    # DynamoDB never applied the throttled ADD, so botocore's retry adds it once.
+    no_backoff(monkeypatch)
+    attempts = fail_attempts(handler._spend_ddb(), "UpdateItem", code, 400, times=1)
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert attempts == ["failed", "sent"]
+    assert spent(aws) == RUN_COST
+    assert (switch(aws), puts) == ("off", [])
+    assert result(aws) == KNEE_RESULT
+    (line,) = report_lines(caplog)
+    assert not set(SPEND_FIELDS) & set(line)
+
+
+@pytest.mark.parametrize(
+    "code", ["ProvisionedThroughputExceededException", "ThrottlingException"]
+)
+def test_spend_write_still_throttled_flips_the_stop(
+    aws, fake, monkeypatch, caplog, code
+):
+    # SPEND_CONFIG's 5 attempts, then the write is lost: the result is still written,
+    # since the run is paid, and the switch fails closed, so an unseen gap can't let
+    # the stop trip late.
+    no_backoff(monkeypatch)
+    attempts = fail_attempts(handler._spend_ddb(), "UpdateItem", code, 400)
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert attempts == ["failed"] * 5
+    assert result(aws) == KNEE_RESULT
+    assert keys(aws) == [PHOTO_KEY]
+    assert spent(aws) is None
+    assert (switch(aws), puts) == ("on", [FLIP])
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    # The amount, so docs/operations.md's step 3 can add it once by hand.
+    assert line["spend_error"] == {"usd": "0.0196", "error": code, "http_status": 400}
+
+
+def test_failed_spend_write_keeps_the_result_and_pauses(aws, fake, monkeypatch, caplog):
+    # An error that isn't retried: one attempt, then the same fail-closed flip.
+    no_backoff(monkeypatch)
+    attempts = fail_attempts(
+        handler._spend_ddb(), "UpdateItem", "AccessDeniedException", 400
+    )
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert attempts == ["failed"]
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | KNEE
+    assert (switch(aws), puts) == ("on", [FLIP])
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["spend_error"] == {
+        "usd": "0.0196",
+        "error": "AccessDeniedException",
+        "http_status": 400,
+    }
+    assert "arn:" not in caplog.text
+    assert "not authorized" not in caplog.text
+
+
+def test_hung_spend_write_is_bounded(aws, fake, monkeypatch, caplog):
+    # A timeout is retried too, at most 5 attempts of 1 s each, inside the run's 30 s
+    # margin, and then fails closed.
+    no_backoff(monkeypatch)
+    attempts = []
+
+    def timed_out(request, **kwargs):
+        attempts.append(None)
+        raise ReadTimeoutError(endpoint_url=request.url)
+
+    handler._spend_ddb().meta.events.register_first(
+        "before-send.dynamodb.UpdateItem", timed_out
+    )
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert len(attempts) == 5
+    assert result(aws) == KNEE_RESULT
+    assert switch(aws) == "on"
+    (line,) = report_lines(caplog)
+    assert line["spend_error"] == {"usd": "0.0196", "error": "ReadTimeoutError"}
+
+
+@pytest.mark.parametrize("when", ["before-the-run", "after-the-run"])
+def test_failed_flip_is_logged_and_the_report_still_ends(
+    aws, fake, monkeypatch, caplog, when
+):
+    # A flip that fails still logs its spend_stop or spend_error line, so the alarm
+    # hears it, and the report ends as it would have.
+    def denied(**kwargs):
+        raise aws_error("AccessDeniedException", 400, "PutParameter")
+
+    monkeypatch.setattr(handler._post_run_ssm(), "put_parameter", denied)
+    if when == "before-the-run":
+        set_spent(aws, Decimal(60))
+    else:
+        fail_attempts(handler._spend_ddb(), "UpdateItem", "AccessDeniedException", 400)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    (line,) = report_lines(caplog)
+    denied_fields = {"error": "AccessDeniedException", "http_status": 400}
+    if when == "before-the-run":
+        assert status(aws) == ("failed", "model_calls_paused")
+        assert fake.calls == []
+        assert line["spend_stop"]["switch"] == denied_fields
+    else:
+        assert result(aws) == KNEE_RESULT
+        assert line["spend_error"]["switch"] == denied_fields
+    assert switch(aws) == "off"
+    assert "arn:" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("tokens", "cost"),
+    [
+        ((None, None), SAM_COST + UNREPORTED_COST),
+        ((1000, None), SAM_COST + Decimal("0.00125") + Decimal("0.017")),
+        ((None, 200), SAM_COST + Decimal("0.025") + Decimal("0.00085")),
+    ],
+    ids=["neither", "no-output", "no-input"],
+)
+def test_unreported_tokens_are_charged_the_fallback(
+    aws, fake, monkeypatch, caplog, tokens, cost
+):
+    # SPARK_TOKENS_IF_UNREPORTED stands in for a count Meta didn't report, so the
+    # counter runs over, never under.
+    judge = fake.judge
+    input_tokens, output_tokens = tokens
+
+    def unreported(*args, **kwargs):
+        reported = judge(*args, **kwargs)
+        return dataclasses.replace(
+            reported, input_tokens=input_tokens, output_tokens=output_tokens
+        )
+
+    monkeypatch.setattr(fake, "judge", unreported)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert result(aws) == KNEE_RESULT
+    assert spent(aws) == cost
+    (line,) = report_lines(caplog)
+    assert line["spend_estimated"] is True
+    assert (line["input_tokens"], line["output_tokens"]) == tokens  # the pipeline's
+
+
+def raise_after_two_calls(data, client, *, deadline=None):
+    """An analyse() that pays for two SAM calls and then fails outside the pipeline."""
+    image = object()
+    client.segment(image, "vehicle", deadline=deadline)
+    client.segment(image, "wheel", deadline=deadline)
+    raise RuntimeError("after two paid calls")
+
+
+def fail_photo_put(aws, fake, monkeypatch) -> None:
+    s3 = handler._client("s3")
+    put_object = s3.put_object
+
+    def put(**kwargs):
+        if kwargs["Key"] == PHOTO_KEY:
+            raise aws_error("InternalError", 500, "PutObject")
+        return put_object(**kwargs)
+
+    monkeypatch.setattr(s3, "put_object", put)
+
+
+@pytest.mark.parametrize(
+    ("set_up", "delivered", "outcome", "cost", "estimated"),
+    [
+        pytest.param(
+            lambda aws, fake, mp: setattr(fake, "answer", meta_error(401)),
+            RETRY,
+            "model_key_rejected",
+            SAM_COST,  # the judge's 401 isn't billed
+            False,
+            id="key-rejected",
+        ),
+        pytest.param(
+            lambda aws, fake, mp: setattr(fake, "answer", meta_error(500)),
+            NO_FAILURES,
+            "failed/model_error",
+            SAM_COST,
+            False,
+            id="meta-error",
+        ),
+        pytest.param(
+            lambda aws, fake, mp: setattr(fake, "answer", ModelRefused("refused")),
+            NO_FAILURES,
+            "refused/model_declined",
+            SAM_COST + UNREPORTED_COST,  # a refusal is an answer, and may be billed
+            True,
+            id="refused",
+        ),
+        pytest.param(
+            fail_photo_put, RETRY, "error", RUN_COST, False, id="write-failed"
+        ),
+        pytest.param(
+            lambda aws, fake, mp: mp.setattr(handler, "analyse", raise_after_two_calls),
+            RETRY,
+            "error",
+            Decimal("0.005"),
+            False,
+            id="raised-after-calls",
+        ),
+    ],
+)
+def test_failed_runs_record_their_calls(
+    aws, fake, monkeypatch, caplog, set_up, delivered, outcome, cost, estimated
+):
+    # Every path that made Meta calls records them, before its final write or its
+    # error return, so a retried message's first attempt is counted too.
+    set_up(aws, fake, monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == delivered
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == outcome
+    assert spent(aws) == cost
+    assert line.get("spend_estimated", False) is estimated
+    assert switch(aws) == "off"
+
+
+@pytest.mark.parametrize(
+    ("error", "charged"),
+    [
+        pytest.param(meta_error(500), False, id="meta-answered-500"),
+        pytest.param(meta_error(401), False, id="meta-answered-401"),
+        pytest.param(
+            MetaApiError("connection failed or timed out"), True, id="timeout"
+        ),
+        pytest.param(
+            MetaApiError("Muse Spark's answer ended incomplete"), True, id="unfinished"
+        ),
+        pytest.param(ModelRefused("refused"), True, id="refused"),
+        pytest.param(json.JSONDecodeError("not JSON", "{", 0), True, id="not-json"),
+    ],
+)
+def test_counted_client_charges_what_meta_may_have_billed(error, charged):
+    # A call that returned is charged by what it used. One that raised is charged
+    # too, unless Meta answered it with an HTTP error, so the count never runs under.
+    _, sam, given = level_case()
+    image = object()
+    fake = FakeClient(sam, given)
+    counted = handler._CountedClient(fake)
+    assert counted.segment(image, "vehicle", deadline=None) is sam["vehicle"]
+    judged = counted.judge(
+        image, prompt="p", schema={}, schema_name="s", reasoning_effort="low"
+    )
+    assert judged.data == given
+    assert fake.keywords == [
+        {"deadline": None},
+        {"deadline": None, "reasoning_effort": "low"},
+    ]
+    returned = spend.cost_of(
+        sam_images=1, spark_input_tokens=1000, spark_output_tokens=200
+    )
+    assert (counted.cost(), counted.estimated) == (returned, False)
+
+    def fail(phrase):
+        raise error
+
+    fake.on_segment = fail
+    fake.answer = error
+    with pytest.raises(type(error)):
+        counted.segment(image, "wheel")
+    with pytest.raises(type(error)):
+        counted.judge(image, prompt="p", schema={}, schema_name="s")
+    guessed = spend.cost_of(
+        sam_images=1, spark_input_tokens=20_000, spark_output_tokens=4_000
+    )
+    assert counted.cost() == returned + (guessed if charged else 0)
+    assert counted.estimated is charged
 
 
 # Logs (§3.6, C62)

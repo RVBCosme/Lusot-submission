@@ -16,6 +16,12 @@ to claim the report again if that worker crashes (C89).
 A report's mode, read from its item, sets where its photo is stored (C510), and a
 live or demo level is published only while the publish switch reads "off" (C516).
 
+The Meta spend stop (C527): before any Meta call, a spend counter at or over the stop
+in /lusot/spend/stop-usd, or either one unreadable, sets the model-calls switch "on"
+and ends the report paused. After the run, its cost goes to the counter, and a total
+that reaches the stop, or a write that is lost, sets the switch too. Each flip logs
+spend_stop or spend_error, which the SpendPauseAlarm counts.
+
 The Meta client and the pipeline are imported where they are first used, not at
 import: with OpenCV beside them, the Lambda's init reached its 10 s limit (the cold
 start, Oct 29). The first delivery in each container pays for them inside its invoke.
@@ -28,8 +34,10 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import unquote_plus
@@ -40,6 +48,15 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from lusot_analysis.prompts import PromptSpec, load_prompt
 from lusot_analysis.report_store import claim, write_result
+from lusot_analysis.spend import (
+    SPARK_TOKENS_IF_UNREPORTED,
+    SPEND_CONFIG,
+    SPEND_STOP_PARAM,
+    cost_of,
+    record_spend,
+    rounded_up,
+    spend_total,
+)
 
 if TYPE_CHECKING:  # annotations only: each loads where it is used
     from lusot_analysis import meta_client
@@ -105,10 +122,102 @@ def _client(service: str):
 def _post_run_ssm():
     """The SSM client for every call after the paid run, made on first use.
 
-    Its short timeouts bound the call inside the run's margin. The reads before the
-    claim keep `_client("ssm")`.
+    Its short timeouts bound the call inside the run's margin. Every flip of the
+    model-calls switch uses it too, before the run or after it (C527). The reads
+    before the run keep `_client("ssm")`.
     """
     return boto3.client("ssm", config=_POST_RUN_SSM_CONFIG)
+
+
+@functools.cache
+def _spend_ddb():
+    """The spend counter's DynamoDB client, made on first use, with SPEND_CONFIG.
+
+    Its 1 s timeouts and 5 attempts bound the write after the paid run inside the
+    run's margin, and ride out a throttle on the shared 2-unit limits table (C527).
+    """
+    return boto3.client("dynamodb", config=SPEND_CONFIG)
+
+
+class _CountedClient:
+    """The Meta client, with a tally of what its calls may have cost (C527).
+
+    A thin wrapper in the handler, so no module on the measuring path changes. Each
+    SAM call that returns counts as one image, and each judge answer adds its tokens,
+    or SPARK_TOKENS_IF_UNREPORTED for a count Meta didn't report. A call that raised
+    is charged the same, unless Meta answered it with an HTTP error, which isn't
+    billed: a timeout, an unfinished or unreadable answer, or a refusal may have
+    been. Either guess sets `estimated`, so the count runs over, never under. SAM's
+    phrases run in parallel threads, so the tally takes a lock.
+    """
+
+    def __init__(self, client: ModelClient) -> None:
+        self._client = client
+        self._lock = threading.Lock()
+        self._sam_images = 0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self.estimated = False
+
+    def segment(self, image: object, phrase: str, **kwargs: object):
+        try:
+            result = self._client.segment(image, phrase, **kwargs)
+        except Exception as exc:
+            if _maybe_billed(exc):
+                self._add(images=1, estimated=True)
+            raise
+        self._add(images=1)
+        return result
+
+    def judge(self, image: object, **kwargs: object):
+        try:
+            answer = self._client.judge(image, **kwargs)
+        except Exception as exc:
+            if _maybe_billed(exc):
+                self._add(tokens=SPARK_TOKENS_IF_UNREPORTED, estimated=True)
+            raise
+        reported = (answer.input_tokens, answer.output_tokens)
+        tokens = tuple(
+            fallback if count is None else count
+            for count, fallback in zip(
+                reported, SPARK_TOKENS_IF_UNREPORTED, strict=True
+            )
+        )
+        self._add(tokens=tokens, estimated=None in reported)
+        return answer
+
+    def cost(self) -> Decimal:
+        """What the calls so far cost, in USD, at spend.PRICES."""
+        with self._lock:
+            return cost_of(
+                sam_images=self._sam_images,
+                spark_input_tokens=self._input_tokens,
+                spark_output_tokens=self._output_tokens,
+            )
+
+    def _add(
+        self,
+        *,
+        images: int = 0,
+        tokens: tuple[int, int] = (0, 0),
+        estimated: bool = False,
+    ) -> None:
+        with self._lock:
+            self._sam_images += images
+            self._input_tokens += tokens[0]
+            self._output_tokens += tokens[1]
+            self.estimated = self.estimated or estimated
+
+
+def _maybe_billed(exc: Exception) -> bool:
+    """Whether a Meta call that raised `exc` may still have been billed.
+
+    Only Meta's own HTTP error answer, a MetaApiError with a status, wasn't. The
+    client's module is loaded by now: its client made the call.
+    """
+    from lusot_analysis.meta_client import MetaApiError
+
+    return not (isinstance(exc, MetaApiError) and exc.status is not None)
 
 
 def MetaClient(*, api_key: str) -> meta_client.MetaClient:
@@ -173,6 +282,81 @@ def _publish_switch() -> str:
     """
     name = os.environ["STOP_PARAM_PREFIX"] + "publish"
     return _post_run_ssm().get_parameter(Name=name)["Parameter"]["Value"]
+
+
+def _spend_stop_usd() -> Decimal:
+    """The spend stop in USD, read before each run. Anything but a number raises."""
+    value = _client("ssm").get_parameter(Name=SPEND_STOP_PARAM)["Parameter"]["Value"]
+    stop = Decimal(value)  # InvalidOperation for text that isn't a number
+    if not stop.is_finite():
+        raise ValueError("the spend stop isn't a finite number")
+    return stop
+
+
+def _spend_check(line: dict) -> Decimal | None:
+    """The stop to hold the run's cost to, or None once model calls are paused.
+
+    Read after the claim and before any Meta call (C527). A total at or over the
+    stop, or either of them unreadable (fail closed, as for the switch), sets the
+    model-calls switch "on" and adds `spend_stop` to `line`.
+    """
+    try:
+        stop = _spend_stop_usd()
+        total = spend_total(ddb=_spend_ddb())
+    except Exception as exc:  # noqa: BLE001
+        line["spend_stop"] = {"unreadable": _error_fields(exc)}
+        _pause_model_calls(line["spend_stop"])
+        return None
+    if total >= stop:
+        line["spend_stop"] = {"total_usd": str(total), "stop_usd": str(stop)}
+        _pause_model_calls(line["spend_stop"])
+        return None
+    return stop
+
+
+def _record_spend(counted: _CountedClient, stop: Decimal, line: dict) -> None:
+    """Add the run's Meta cost to the counter, after the run and before its write.
+
+    The one guard after the paid run: nothing here raises, so no fault in it can
+    return the message to claim and pay again (Review Focus 3). A run with nothing
+    billed records nothing. A total at or over the stop pauses model calls at once
+    (`spend_stop`). A write that still fails after SPEND_CONFIG's retries logs
+    `spend_error` with the amount, for docs/operations.md, and fails closed: it
+    pauses model calls too, so an unseen gap can't let the stop trip late. The
+    handler adds no retries of its own.
+    """
+    cost = counted.cost()
+    if cost == 0:
+        return
+    if counted.estimated:
+        line["spend_estimated"] = True
+    try:
+        total = record_spend(cost, "analysis", ddb=_spend_ddb())
+    except Exception as exc:  # noqa: BLE001
+        line["spend_error"] = {"usd": str(rounded_up(cost)), **_error_fields(exc)}
+        _pause_model_calls(line["spend_error"])
+        return
+    if total >= stop:
+        line["spend_stop"] = {"total_usd": str(total), "stop_usd": str(stop)}
+        _pause_model_calls(line["spend_stop"])
+
+
+def _pause_model_calls(fields: dict) -> None:
+    """Set the model-calls switch "on", so no later run pays (C527).
+
+    Every flip goes through the bounded `_post_run_ssm`, so one after the paid run
+    ends inside the run's margin. A failed put adds its error to `fields` as
+    `switch`: the line's spend_stop or spend_error still reaches the alarm.
+    """
+    try:
+        _post_run_ssm().put_parameter(
+            Name=os.environ["STOP_PARAM_PREFIX"] + "model-calls",
+            Value="on",
+            Type="String",
+            Overwrite=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        fields["switch"] = _error_fields(exc)
 
 
 def analyse(
@@ -278,8 +462,13 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     for stored in _photo_keys(report):
         _delete(stored)
 
-    # Step 5: only an explicit "off" lets model calls through (C60).
+    # Step 5: only an explicit "off" lets model calls through (C60), and only below the
+    # spend stop (C527).
     if switch != "off":
+        paused = Outcome.failed("model_calls_paused")
+        return _finish(report, key, token, paused, line=line)
+    stop = _spend_check(line)
+    if stop is None:
         paused = Outcome.failed("model_calls_paused")
         return _finish(report, key, token, paused, line=line)
 
@@ -298,15 +487,20 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     if not data.startswith(_JPEG_MAGIC):  # before any decoder sees it (C83)
         return _finish(report, key, token, Outcome.failed("bad_file"), line=line)
 
-    # Step 7: the pipeline.
+    # Step 7: the pipeline, its Meta calls counted (C527).
+    counted = _CountedClient(client)
     try:
-        run = analyse(data, client, deadline=_deadline(context))
+        run = analyse(data, counted, deadline=_deadline(context))
     except ModelKeyRejected as exc:
         # The key or the account, not the photo (C73). The report stays processing
         # until a redelivery claims it again, and that delivery reads the key again.
         _META_CLIENT = None
         line["meta_status"] = exc.status
         return "model_key_rejected"
+    finally:
+        # However the run ends, before its final write or its error return, so a
+        # retried message's paid attempt is counted too.
+        _record_spend(counted, stop, line)
     line.update(run.log)
 
     # Step 8: publish.

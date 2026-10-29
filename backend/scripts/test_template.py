@@ -9,17 +9,19 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
 """
 
 import re
+from datetime import UTC, datetime
 
 from cfn_template import TEMPLATE, load_template, raw_lines
 
 T = load_template()
 RES = T["Resources"]
-REPORT_STORE = (
-    TEMPLATE.parent / "analysis" / "src" / "lusot_analysis" / "report_store.py"
-)
+ANALYSIS_SRC = TEMPLATE.parent / "analysis" / "src" / "lusot_analysis"
+REPORT_STORE = ANALYSIS_SRC / "report_store.py"
+SPEND = ANALYSIS_SRC / "spend.py"
 API_ROUTER = TEMPLATE.parent / "api" / "src" / "index.ts"
 ALARM_TOPIC = [{"Ref": "AlarmTopic"}]
 APP_ORIGINS = {"Ref": "AppOrigins"}
+SSM_ARN = "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter"
 
 
 def resource(name):
@@ -126,6 +128,19 @@ def test_api_environment():
     assert env["INCHES_SHOWN"] == "false"
     assert isinstance(env["INCHES_SHOWN"], str)
     assert not [name for name in T["Parameters"] if "inches" in name.lower()]
+
+
+def test_analysis_environment():
+    """MS3a's four, plus the limits table that holds the spend counter (C527)."""
+    env = props("AnalysisFunction")["Environment"]["Variables"]
+    assert set(env) == {
+        "TABLE_NAME",
+        "BUCKET_NAME",
+        "STOP_PARAM_PREFIX",
+        "MODEL_KEY_PARAM",
+        "LIMITS_TABLE_NAME",
+    }
+    assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
 
 
 def test_free_plan_units():
@@ -273,6 +288,8 @@ def test_lease_fits_the_timeouts():
     assert timeout < lease < visibility
     assert visibility >= 6 * timeout
     assert queue["RedrivePolicy"]["maxReceiveCount"] == 5
+    # The values themselves (C525, C801): nothing else guards AnalysisFunction's.
+    assert (timeout, lease, visibility) == (180, 900, 1080)
 
 
 def test_alarms():
@@ -322,6 +339,29 @@ def test_roles():
         "sqs:GetQueueAttributes",
         "sqs:ReceiveMessage",
     ]
+    # The spend stop (C527): the counter in limits, read at the claim and added to
+    # after a run; the stop read; and only the model-calls switch put.
+    assert granted("AnalysisRole", "dynamodb:GetItem") == {"${LimitsTable.Arn}"}
+    assert granted("AnalysisRole", "dynamodb:UpdateItem") == {
+        "${ReportsTable.Arn}",
+        "${LimitsTable.Arn}",
+    }
+    assert granted("AnalysisRole", "ssm:GetParameter") == {
+        f"{SSM_ARN}/lusot/stop/*",
+        f"{SSM_ARN}/lusot/meta/model-api-key",
+        f"{SSM_ARN}/lusot/spend/stop-usd",
+    }
+    assert granted("AnalysisRole", "ssm:PutParameter") == {
+        f"{SSM_ARN}/lusot/stop/model-calls"
+    }
+    analysis_actions = {
+        action for s in statements("AnalysisRole") for action in as_list(s["Action"])
+    }
+    assert {a for a in analysis_actions if a.startswith("ssm:")} == {
+        "ssm:GetParameter",
+        "ssm:PutParameter",
+    }
+    assert not granted("ApiRole", "ssm:PutParameter")
 
     # The API role: presigned links and the sample copy's source; uploads to raw/ only.
     assert granted("ApiRole", "s3:GetObject") == bucket_paths(
@@ -355,10 +395,117 @@ def test_roles():
     assert dynamodb == {"dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"}
 
     for role in of_type("AWS::IAM::Role"):
+        # A managed policy would bring grants this test never sees.
+        assert "ManagedPolicyArns" not in props(role), role
         for s in statements(role):
             assert "*" not in as_list(s["Resource"]), role
             actions = as_list(s["Action"])
-            assert not {"*", "dynamodb:*", "dynamodb:Scan"} & set(actions), role
+            assert not [action for action in actions if "*" in action], role
+            assert "dynamodb:Scan" not in actions, role
+
+
+def test_spend_stop_parameter():
+    """C527, C528: the build phase's $60, a literal like INCHES_SHOWN."""
+    assert resource("SpendStopParameter")["Type"] == "AWS::SSM::Parameter"
+    p = props("SpendStopParameter")
+    assert p == {"Name": "/lusot/spend/stop-usd", "Type": "String", "Value": "60"}
+    assert isinstance(p["Value"], str)  # YAML's bare 60 would be a number
+    # The name the handler and the scripts read.
+    source = SPEND.read_text(encoding="utf-8")
+    match = re.search(r'^SPEND_STOP_PARAM\s*=\s*"([^"]+)"', source, re.MULTILINE)
+    assert match, "SPEND_STOP_PARAM not found in spend.py"
+    assert match.group(1) == p["Name"]
+    assert not [name for name in T["Parameters"] if "spend" in name.lower()]
+
+
+def test_budget():
+    """C528: one $150 cost budget, credits and refunds left out, alerts at 50, 100, 140."""
+    budgets = of_type("AWS::Budgets::Budget")
+    assert list(budgets) == ["MetaAndAwsBudget"]
+    p = props("MetaAndAwsBudget")
+    budget = p["Budget"]
+    assert budget["BudgetType"] == "COST"
+    assert budget["BudgetLimit"] == {"Amount": 150, "Unit": "USD"}
+    # It doesn't reset on Nov 1: one year from Oct 1, 2026, 00:00 UTC.
+    assert budget["TimeUnit"] == "ANNUALLY"
+    start = budget["TimePeriod"]["Start"]
+    assert isinstance(start, str)
+    assert datetime.fromtimestamp(int(start), UTC) == datetime(2026, 10, 1, tzinfo=UTC)
+    assert "End" not in budget["TimePeriod"]
+    # So it measures the credits being used up, not the bill after them.
+    assert budget["CostTypes"] == {"IncludeCredit": False, "IncludeRefund": False}
+    notifications = p["NotificationsWithSubscribers"]
+    assert [n["Notification"] for n in notifications] == [
+        {
+            "NotificationType": "ACTUAL",
+            "ComparisonOperator": "GREATER_THAN",
+            "Threshold": threshold,
+            "ThresholdType": "ABSOLUTE_VALUE",
+        }
+        for threshold in (50, 100, 140)
+    ]
+    for n in notifications:
+        assert n["Subscribers"] == [
+            {"SubscriptionType": "EMAIL", "Address": {"Ref": "AlarmEmail"}}
+        ]
+
+
+def check_count_alarm(filter_name, pattern, metric, alarm_name):
+    """A log filter that counts each matching line as 1, and its alarm at 1 in 5 min."""
+    assert resource(filter_name)["Type"] == "AWS::Logs::MetricFilter"
+    f = props(filter_name)
+    assert f["LogGroupName"] == {"Ref": "AnalysisLogGroup"}
+    assert f["FilterPattern"] == pattern
+    # No DefaultValue: a quiet period publishes nothing, which notBreaching reads.
+    assert f["MetricTransformations"] == [
+        {"MetricNamespace": "Lusot", "MetricName": metric, "MetricValue": "1"}
+    ]
+    assert resource(alarm_name)["Type"] == "AWS::CloudWatch::Alarm"
+    a = props(alarm_name)
+    assert (a["Namespace"], a["MetricName"]) == ("Lusot", metric)
+    assert "Dimensions" not in a
+    assert a["Statistic"] == "Sum"
+    assert (a["Period"], a["EvaluationPeriods"], a["Threshold"]) == (300, 1, 1)
+    assert a["ComparisonOperator"] == "GreaterThanOrEqualToThreshold"
+    assert a["TreatMissingData"] == "notBreaching"
+    assert a["AlarmActions"] == ALARM_TOPIC
+    assert "OKActions" not in a  # the alarm clearing doesn't clear what it reports
+    return a
+
+
+def test_spend_pause_alarm():
+    """Every spend pause emails (C527): a lost write or a stop reached sets the switch."""
+    alarm = check_count_alarm(
+        "SpendPauseFilter",
+        '?"spend_error" ?"spend_stop"',
+        "SpendPauses",
+        "SpendPauseAlarm",
+    )
+    description = alarm["AlarmDescription"]
+    assert "until" in description and "cleared" in description
+    assert "docs/operations.md" in description
+    assert len(of_type("AWS::CloudWatch::Alarm")) <= 10
+
+
+def test_publish_read_alarm():
+    """Task 7's Minor 4: a failed publish read leaves live and demo results unpinned."""
+    check_count_alarm(
+        "PublishReadFilter", '"publish_switch"', "PublishReadErrors", "PublishReadAlarm"
+    )
+    assert set(of_type("AWS::CloudWatch::Alarm")) == {
+        "DeadLetterAlarm",
+        "AnalysisInvocationsAlarm",
+        "ApiInvocationsAlarm",
+        "SpendPauseAlarm",
+        "PublishReadAlarm",
+    }
+    # Two custom metrics, inside the free tier's 10.
+    metrics = {
+        (t["MetricNamespace"], t["MetricName"])
+        for f in of_type("AWS::Logs::MetricFilter").values()
+        for t in f["Properties"]["MetricTransformations"]
+    }
+    assert metrics == {("Lusot", "SpendPauses"), ("Lusot", "PublishReadErrors")}
 
 
 def test_visibility_grant_comment():

@@ -3,6 +3,7 @@
 pytest doesn't collect this module, because its name doesn't start with `test_`.
 """
 
+import io
 import json
 import math
 import threading
@@ -12,6 +13,8 @@ from typing import NoReturn
 
 import cv2
 import numpy as np
+from botocore.awsrequest import AWSResponse
+from botocore.retries.standard import ExponentialBackoff
 
 from lusot_analysis.face_blur import BlurredImage
 from lusot_analysis.meta_client import (
@@ -51,6 +54,71 @@ def create_reports_table(ddb, name: str) -> None:
         ],
         ProvisionedThroughput={"ReadCapacityUnits": 10, "WriteCapacityUnits": 5},
     )
+
+
+def create_limits_table(ddb, name: str) -> None:
+    """The limits table, as in the template: one key, `pk`."""
+    ddb.create_table(
+        TableName=name,
+        AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}],
+        KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}],
+        ProvisionedThroughput={"ReadCapacityUnits": 2, "WriteCapacityUnits": 2},
+    )
+
+
+class _Body(io.BytesIO):
+    """A response body as botocore reads one: `stream()` yields its bytes."""
+
+    def stream(self, **kwargs: object):
+        chunk = self.read()
+        while chunk:
+            yield chunk
+            chunk = self.read()
+
+
+def fail_attempts(
+    client, operation: str, code: str, status: int, times: int | None = None
+) -> list[str]:
+    """Answer the client's next `times` attempts at `operation` with AWS error `code`.
+
+    Every attempt fails when `times` is None. The answer comes at botocore's
+    before-send event, registered first, ahead of moto's own hook, so botocore's own
+    retry handler reads it as the service's answer. botocore still calls every
+    before-send handler, moto's too, so a failed attempt's request is also pointed at
+    a host moto serves nothing at: moto never applies it, as the service never applies
+    a throttled or refused write. botocore makes a new request for each retry, so the
+    next attempt goes to moto unchanged. An attempt past `times` goes on to moto.
+    Returns a list that gains each attempt's fate, "failed" or "sent", in order. The
+    error's message holds an ARN, as AccessDenied messages do. The body is AWS's JSON
+    protocol, as DynamoDB uses.
+    """
+    attempts: list[str] = []
+    service = client.meta.service_model.service_id.hyphenize()
+
+    def answer(request, **kwargs):
+        if times is not None and len(attempts) >= times:
+            attempts.append("sent")
+            return None
+        attempts.append("failed")
+        url, request.url = request.url, "https://never-applied.invalid/"
+        body = {
+            "__type": code,
+            "message": "User: arn:aws:sts::account-id:assumed-role/lusot-role/s"
+            " is not authorized to perform this action",
+        }
+        headers = {
+            "x-amzn-ErrorType": code,
+            "Content-Type": "application/x-amz-json-1.0",
+        }
+        return AWSResponse(url, status, headers, _Body(json.dumps(body).encode()))
+
+    client.meta.events.register_first(f"before-send.{service}.{operation}", answer)
+    return attempts
+
+
+def no_backoff(monkeypatch) -> None:
+    """botocore's standard-mode retries wait 0 s, not their backoff, in this test."""
+    monkeypatch.setattr(ExponentialBackoff, "delay_amount", lambda self, context: 0)
 
 
 def noise_jpeg(width: int = 640, height: int = 480, seed: int = 0) -> bytes:
