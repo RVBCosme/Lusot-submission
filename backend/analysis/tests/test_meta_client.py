@@ -7,6 +7,7 @@ names its source in its docstring.
 import base64
 import email.policy
 import email.utils
+import inspect
 import json
 import logging
 import time
@@ -18,6 +19,8 @@ import cv2
 import httpx
 import numpy as np
 import pytest
+from fakes import FakeClient
+from meta_sam_parser._mask_codec import _encode_raster
 
 from lusot_analysis import face_blur
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta
@@ -27,11 +30,14 @@ from lusot_analysis.meta_client import (
     SAM_PHRASES,
     SPARK_MODEL,
     TRANSCRIBE_MODEL,
+    DeadlineExceeded,
     MetaApiError,
     MetaClient,
     MissingApiKey,
+    ModelRefused,
     SparkResult,
 )
+from lusot_analysis.pipeline.types import ModelClient
 
 FIXTURES = Path(__file__).parent / "fixtures" / "meta"
 FAKE_KEY = "fake-model-key-" + "0" * 33  # 48 characters, like the real key (spec A8)
@@ -104,6 +110,45 @@ def photo() -> BlurredImage:
     return blur_for_meta(cv2.imencode(".jpg", bgr)[1].tobytes())
 
 
+def gradient(width: int, height: int) -> BlurredImage:
+    """A face-free photo of `width` x `height`, built as the `photo` fixture is."""
+    row = np.linspace(0, 255, width).astype(np.uint8)
+    bgr = np.dstack([np.tile(row, (height, 1))] * 3)
+    return blur_for_meta(cv2.imencode(".jpg", bgr)[1].tobytes())
+
+
+@pytest.fixture(scope="module")
+def wide_photo() -> BlurredImage:
+    """A face-free 1600 x 1000 photo, the size of the one whose floodwater mask came
+    scaled to a 1024 px side (MS3a Task 16)."""
+    return gradient(1600, 1000)
+
+
+@pytest.fixture(scope="module")
+def square_photo() -> BlurredImage:
+    """A face-free 1100 x 1100 photo, for a square box with sides over 1024 px."""
+    return gradient(1100, 1100)
+
+
+def mask_text(
+    box: tuple[int, int, int, int], raster: np.ndarray, frame: tuple[int, int]
+) -> str:
+    """SAM's text for one match: `box` is (x1, y1, x2, y2), inclusive as SAM sends it,
+    in a (w, h) frame, and `raster` (rows x columns of 0 and 1) is its one_bit mask.
+
+    meta-sam-parser has no public encoder, so this uses its private one,
+    _mask_codec._encode_raster, which its decoder re-runs to check each payload.
+    """
+    rows, cols = raster.shape
+    payload = _encode_raster(raster.astype(np.uint8).ravel().tolist(), cols, rows)
+    x1, y1, x2, y2 = box
+    w, h = frame
+    return (
+        f"<0f>0<|box;x1={x1};y1={y1};x2={x2};y2={y2};w={w};h={h}|>"
+        f"<|mask;x=0;y=0;data={rows},{cols},{payload}|>\n"
+    )
+
+
 class FakeMeta:
     """Stands in for api.meta.ai: answers each request with the next scripted one."""
 
@@ -125,6 +170,34 @@ def client(meta, **kwargs) -> tuple[MetaClient, list[float]]:
     transport = httpx.MockTransport(meta)
     c = MetaClient(FAKE_KEY, transport=transport, sleep=sleeps.append, **kwargs)
     return c, sleeps
+
+
+class FakeClock:
+    """A monotonic clock that moves only when the client sleeps, so no test waits."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def timed_client(
+    meta, clock: FakeClock | None = None, **kwargs
+) -> tuple[MetaClient, FakeClock]:
+    """A client on `meta` that reads its deadlines on a FakeClock (C84)."""
+    if clock is None:
+        clock = FakeClock()
+    transport = httpx.MockTransport(meta)
+    c = MetaClient(
+        FAKE_KEY, transport=transport, sleep=clock.sleep, clock=clock, **kwargs
+    )
+    return c, clock
 
 
 def fixture(name: str) -> httpx.Response:
@@ -187,12 +260,21 @@ def background(status: str) -> httpx.Response:
     return httpx.Response(200, json=body)
 
 
+def deleted() -> httpx.Response:
+    """A delete's answer, as on https://dev.meta.ai/docs/features/responses
+    ("DELETE /v1/responses/{response_id}"), for the background response's id."""
+    body = {"id": "resp_abc123", "object": "response", "deleted": True}
+    return httpx.Response(200, json=body)
+
+
 def data_url(image: BlurredImage) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(image.jpeg).decode()
 
 
-def judge(c: MetaClient, image) -> SparkResult:
-    return c.judge(image, prompt=PROMPT, schema=ADDRESS_SCHEMA, schema_name="address")
+def judge(c: MetaClient, image, **kwargs) -> SparkResult:
+    return c.judge(
+        image, prompt=PROMPT, schema=ADDRESS_SCHEMA, schema_name="address", **kwargs
+    )
 
 
 def image_calls(c: MetaClient, image) -> list:
@@ -202,6 +284,18 @@ def image_calls(c: MetaClient, image) -> list:
         lambda: judge(c, image),
         lambda: c.count_input_tokens(image, prompt=PROMPT),
     ]
+
+
+def answered(kind: str) -> httpx.Response:
+    """A good answer to `kind`: the documented Muse Spark answer, or a SAM stream."""
+    return fixture("spark_response.json") if kind == "judge" else sam_stream(DOC_TEXT)
+
+
+def call(c: MetaClient, kind: str, image, **kwargs):
+    """`judge`, or `segment` for "wheel", on `image`, passing `kwargs` on."""
+    if kind == "judge":
+        return judge(c, image, **kwargs)
+    return c.segment(image, "wheel", **kwargs)
 
 
 def request_json(request: httpx.Request) -> dict:
@@ -410,6 +504,80 @@ def test_judge_non_json_raises_json_decode_error(photo):
         judge(c, photo)
 
 
+def test_judge_sends_reasoning_effort_and_records_reasoning_tokens(photo, caplog):
+    """The usage is in the shape of "Response Usage" on
+    https://dev.meta.ai/docs/api-reference/responses/schemas, with 1,234 reasoning
+    tokens. The documented example's usage has no breakdown."""
+    caplog.set_level(logging.INFO)
+    answer = json.loads((FIXTURES / "spark_response.json").read_text())
+    answer["usage"] = {
+        "input_tokens": 69,
+        "input_tokens_details": {"cached_tokens": 0},
+        "output_tokens": 1397,
+        "output_tokens_details": {"reasoning_tokens": 1234},
+        "total_tokens": 1466,
+    }
+    meta = FakeMeta(httpx.Response(200, json=answer), fixture("spark_response.json"))
+    c, _ = client(meta)
+    result = judge(c, photo, reasoning_effort="low")
+    assert request_json(meta.requests[0])["reasoning"] == {"effort": "low"}
+    assert result.reasoning_tokens == 1234
+    [line] = [r for r in caplog.records if r.name == "lusot.meta"]
+    assert json.loads(line.getMessage())["reasoning_tokens"] == 1234
+    plain = judge(c, photo)
+    assert "reasoning" not in request_json(meta.requests[1])
+    assert plain.reasoning_tokens is None
+
+
+def test_judge_raises_model_refused_on_a_refusal_part(photo, caplog):
+    """The refusal is a RefusalContent part, {"type": "refusal", "refusal": ...}, on
+    https://dev.meta.ai/docs/api-reference/responses/schemas, in place of the
+    documented answer's output_text part (C86)."""
+    caplog.set_level(logging.DEBUG)
+    words = "REFUSAL-MARKER-86: I can't help with that."
+    refusal = {"type": "refusal", "refusal": words}
+    answer = json.loads((FIXTURES / "spark_response.json").read_text())
+    answer["output"][0]["content"] = [refusal]
+    meta = FakeMeta(httpx.Response(200, json=answer))
+    c, _ = client(meta)
+    with pytest.raises(ModelRefused) as exc:
+        judge(c, photo)
+    assert not isinstance(exc.value, MetaApiError)  # it ends refused, not failed
+    assert words not in str(exc.value)
+    assert words not in caplog.text
+    # An incomplete answer stays a model error, cut-off JSON and refusal alike.
+    cut_off = {"type": "output_text", "text": '{"street": "1 Hack', "annotations": []}
+    for part in (cut_off, refusal):
+        answer["output"][0] |= {"status": "incomplete", "content": [part]}
+        incomplete = answer | {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+        }
+        meta = FakeMeta(httpx.Response(200, json=incomplete))
+        c, _ = client(meta)
+        with pytest.raises(MetaApiError) as exc:
+            judge(c, photo)
+        assert exc.value.status is None
+    assert words not in caplog.text
+
+
+def test_judge_reads_only_a_finished_answer(photo):
+    # R104: Meta's schema makes `status` optional, so an answer without one is read,
+    # but any status other than completed is a model error, before the refusal check.
+    answer = json.loads((FIXTURES / "spark_response.json").read_text())
+    del answer["status"]
+    meta = FakeMeta(httpx.Response(200, json=answer))
+    c, _ = client(meta)
+    assert judge(c, photo).data["city"] == "Menlo Park"
+    answer["output"][0]["content"] = [{"type": "refusal", "refusal": "No."}]
+    for status in ("failed", "cancelled", "queued", "in_progress"):
+        meta = FakeMeta(httpx.Response(200, json=answer | {"status": status}))
+        c, _ = client(meta)
+        with pytest.raises(MetaApiError) as exc:
+            judge(c, photo)
+        assert exc.value.status is None
+
+
 def test_count_input_tokens(photo):
     """The count is the response on https://dev.meta.ai/docs/token-counting, its
     integer filled in."""
@@ -448,7 +616,7 @@ def test_segment_parses_masks_and_empty_result(photo):
     assert body["model"] == "sam-3.1"
     assert body["stream"] is True
     assert body["metadata"] == {"include_confidence": "true"}  # R77
-    assert "store" not in body  # Meta's SAM pages never show `store` (R76)
+    assert body["store"] is False  # C85 found that the stream accepts it (C88)
     assert body["input"][0]["content"] == [
         {"type": "input_text", "text": "wheel"},
         {"type": "input_image", "image_url": data_url(photo)},
@@ -456,6 +624,30 @@ def test_segment_parses_masks_and_empty_result(photo):
     empty = c.segment(photo, "floodwater")
     assert empty.instances == []
     assert empty.raw == LIVE_NO_MATCH.decode()
+
+
+def test_sam_store_goes_on_the_stream_only(photo):
+    # C88: SAM's stream accepts store: false, so it is the default. Meta's background
+    # mode refuses it with a 400, so the 504 fallback sends no store at all.
+    meta = FakeMeta(
+        sam_stream(DOC_TEXT),
+        error(504),
+        background("queued"),
+        background("completed"),
+        deleted(),
+    )
+    c, _ = client(meta)
+    c.segment(photo, "wheel")
+    c.segment(photo, "wheel")  # a 504, then the background path
+    streamed, gateway, submitted = (request_json(r) for r in meta.requests[:3])
+    assert streamed["store"] is False
+    assert gateway["store"] is False
+    assert "store" not in submitted
+    assert submitted["background"] is True
+    meta = FakeMeta(sam_stream(DOC_TEXT))
+    c, _ = client(meta, sam_store=None)
+    c.segment(photo, "wheel")
+    assert "store" not in request_json(meta.requests[0])  # as MS1 sent it
 
 
 def test_segment_box_is_half_open_in_sent_pixels(photo):
@@ -626,13 +818,14 @@ def test_segment_dropped_stream_raises_without_retry(photo):
         # A mask payload that doesn't decode
         "<0f>0<|box;x1=1;y1=1;x2=2;y2=2;w=320;h=334|><|mask;x=0;y=0;data=2,2,~bad|>\n",
         # The 5 x 5 mask on https://github.com/meta-models/meta-sam (protocol/sam3.md),
-        # on a 4 x 4 box, then on a box past the 320 px wide photo
+        # on a 4 x 4 box, then on a 5 x 5 box one pixel past the 320 px wide photo, in
+        # the photo's frame: meta-sam-parser refuses that box (invalid_box)
         (
             "<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|>"
             "<|mask;x=0;y=0;data=5,5,!!!!!(QO(0lu8?|>\n"
         ),
         (
-            "<0f>0<|box;x1=316;y1=20;x2=320;y2=24;w=400;h=334|>"
+            "<0f>0<|box;x1=316;y1=20;x2=320;y2=24;w=320;h=334|>"
             "<|mask;x=0;y=0;data=5,5,!!!!!(QO(0lu8?|>\n"
         ),
     ],
@@ -647,12 +840,112 @@ def test_segment_output_it_cannot_place_raises(photo, text):
     assert len(meta.requests) == 1
 
 
+def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):
+    """MS3a Task 16: on a 1600 x 1000 photo, SAM sent the box
+    x1=0;y1=300;x2=1599;y2=999 (700 x 1600) with a 448 x 1024 mask, scaled by 0.64 so
+    its longer side is 1024 px. The client scales it up to the box, center-aligned."""
+    raster = np.zeros((448, 1024), np.uint8)
+    # Edges that a row and a column of the box map to exactly
+    raster[:152, :296] = 1
+    text = mask_text((0, 300, 1599, 999), raster, (1600, 1000))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(wide_photo, "floodwater").instances
+    assert instance.box == (0.0, 300.0, 1600.0, 1000.0)
+    assert instance.mask.shape == (1000, 1600)
+    assert not instance.mask[:300].any()  # the rows above the box
+    inside = instance.mask[300:]
+    # Row i takes source row floor((i + 0.5) * 448 / 700): 236 takes 151.36 -> 151,
+    # and 237 takes exactly 152. Column j takes floor((j + 0.5) * 1024 / 1600): 461
+    # takes 295.36 -> 295, and 462 takes exactly 296.
+    assert inside[0, 0] and inside[236, 461]
+    assert not inside[237, 461] and not inside[236, 462]
+    # Plain nearest, and OpenCV's INTER_NEAREST_EXACT at the exact edges, give 238 x 463
+    assert instance.mask.sum() == 237 * 462
+
+
+def test_segment_places_a_tall_mask_scaled_to_a_1024_px_side():
+    # A 1200 x 50 box in a 1000 x 1600 portrait photo comes as 1024 rows by
+    # round(50 * 1024 / 1200) = 43 columns.
+    raster = np.zeros((1024, 43), np.uint8)
+    raster[:303] = 1
+    text = mask_text((300, 100, 349, 1299), raster, (1000, 1600))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(gradient(1000, 1600), "person").instances
+    assert instance.box == (300.0, 100.0, 350.0, 1300.0)
+    inside = instance.mask[100:1300, 300:350]
+    # Row i takes floor((i + 0.5) * 1024 / 1200): 354 takes 302, 355 takes 303.
+    assert inside[354].all() and not inside[355].any()
+    assert instance.mask.sum() == inside.sum() == 355 * 50
+
+
+@pytest.mark.parametrize("rows", [19, 21])
+def test_segment_allows_a_scaled_short_side_1_px_off(wide_photo, rows):
+    # SAM's rounding is unknown: a 32 x 1600 box scales to 20.48 rows at 1024 px.
+    raster = np.ones((rows, 1024), np.uint8)
+    meta = FakeMeta(sam_stream(mask_text((0, 0, 1599, 31), raster, (1600, 1000))))
+    c, _ = client(meta)
+    (instance,) = c.segment(wide_photo, "floodwater").instances
+    assert instance.mask.sum() == instance.mask[:32].sum() == 32 * 1600
+
+
+@pytest.mark.parametrize(
+    ("box", "size"),
+    [
+        # Rasters smaller than a box with no side over 1024 px: scaled by 0.64, as a
+        # whole-frame scale would, and 1024 px wide but a row short of its box
+        ((0, 0, 999, 24), (16, 640)),
+        ((0, 0, 1023, 19), (19, 1024)),
+        # A 32 x 1600 box (20.48 rows at 1024 px): a long side of 1000, a long side
+        # 1 px short or over, a short side 2 px off either way, and the scaled sides
+        # swapped
+        ((0, 0, 1599, 31), (20, 1000)),
+        ((0, 0, 1599, 31), (20, 1023)),
+        ((0, 0, 1599, 31), (20, 1025)),
+        ((0, 0, 1599, 31), (22, 1024)),
+        ((0, 0, 1599, 31), (18, 1024)),
+        ((0, 0, 1599, 31), (1024, 20)),
+        # A 34 x 1600 box scales to 21.76 rows: 20 is 2 px off round's 22, though
+        # only 1 px off floor's 21
+        ((0, 0, 1599, 33), (20, 1024)),
+        # Rasters larger than their box: 33 x 1600 on 32 x 1600, and 6 x 1024 on
+        # 5 x 1100, though 6 is within 1 px of round(5 * 1024 / 1100) = 5
+        ((0, 0, 1599, 31), (33, 1600)),
+        ((0, 0, 1099, 4), (6, 1024)),
+    ],
+)
+def test_segment_mask_scaled_any_other_way_raises(wide_photo, box, size):
+    # Only a mask scaled to a 1024 px side is placed; any other size must not read as
+    # a match or as no match (R63).
+    text = mask_text(box, np.ones(size, np.uint8), (1600, 1000))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(wide_photo, "floodwater")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+@pytest.mark.parametrize("size", [(1023, 1024), (1024, 1023)])
+def test_segment_square_mask_needs_both_sides_scaled_to_1024(square_photo, size):
+    # Both sides of a square box are its longer side, so both must be 1024 px.
+    text = mask_text((0, 0, 1099, 1099), np.ones(size, np.uint8), (1100, 1100))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(square_photo, "floodwater")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
 def test_segment_504_falls_back_to_background_polling(photo):
     meta = FakeMeta(
         error(504),
         background("queued"),
         background("in_progress"),
         background("completed"),
+        deleted(),
     )
     c, sleeps = client(meta)
     result = c.segment(photo, "wheel")
@@ -661,6 +954,7 @@ def test_segment_504_falls_back_to_background_polling(photo):
         ("POST", BASE_URL + "/responses"),
         ("GET", BASE_URL + "/responses/resp_abc123"),
         ("GET", BASE_URL + "/responses/resp_abc123"),
+        ("DELETE", BASE_URL + "/responses/resp_abc123"),  # once read (C88)
     ]
     streamed, submitted = (request_json(r) for r in meta.requests[:2])
     assert streamed["stream"] is True
@@ -690,12 +984,13 @@ def test_background_413_raises_after_one_call(photo):
 
 @pytest.mark.parametrize("status", ["failed", "incomplete", "cancelled"])
 def test_background_response_that_does_not_complete_raises(photo, status):
-    meta = FakeMeta(error(504), background("queued"), background(status))
+    meta = FakeMeta(error(504), background("queued"), background(status), deleted())
     c, _ = client(meta)
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
     assert exc.value.status is None
-    assert len(meta.requests) == 3  # no further poll
+    assert len(meta.requests) == 4  # no further poll, then the delete (R106)
+    assert meta.requests[-1].method == "DELETE"
 
 
 @pytest.mark.parametrize(
@@ -709,7 +1004,7 @@ def test_background_response_that_does_not_complete_raises(photo, status):
 )
 def test_background_reads_only_a_finished_output_text_part(photo, output, matches):
     done = httpx.Response(200, json={**COMPLETED, "background": True, "output": output})
-    meta = FakeMeta(error(504), background("queued"), done)
+    meta = FakeMeta(error(504), background("queued"), done, deleted())
     c, _ = client(meta)
     if matches is None:
         with pytest.raises(MetaApiError) as exc:
@@ -717,19 +1012,97 @@ def test_background_reads_only_a_finished_output_text_part(photo, output, matche
         assert exc.value.status is None
     else:
         assert len(c.segment(photo, "wheel").instances) == matches
-    assert len(meta.requests) == 3
+    assert len(meta.requests) == 4  # the last deletes the response it read (C88)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "status"),
+    [(deleted(), 200), (error(404), 404), (httpx.ConnectError("refused"), None)],
+    ids=["deleted", "not-found", "no-connection"],
+)
+def test_background_response_is_deleted_once_read(photo, caplog, outcome, status):
+    # C88: background jobs must be stored to be polled, so the client deletes one
+    # once it has read it. The delete is best effort: a failure is logged by its
+    # status alone and never changes the result.
+    caplog.set_level(logging.INFO)
+    script = FakeMeta(error(504), background("queued"), background("completed"))
+    deletes = []
+
+    def meta(request):
+        if request.method != "DELETE":
+            return script(request)
+        deletes.append(request)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    c, _ = client(meta)
+    assert len(c.segment(photo, "wheel").instances) == 2
+    [delete] = deletes
+    assert str(delete.url) == BASE_URL + "/responses/resp_abc123"
+    lines = [
+        json.loads(r.getMessage()) for r in caplog.records if r.name == "lusot.meta"
+    ]
+    [line] = [line for line in lines if line.get("delete")]
+    assert line.keys() == {"model", "phrase", "delete", "status", "ms"}
+    assert line["status"] == status
 
 
 def test_background_polling_is_bounded(photo):
     meta = FakeMeta(
-        error(504), background("queued"), *(background("in_progress") for _ in range(3))
+        error(504),
+        background("queued"),
+        *(background("in_progress") for _ in range(3)),
+        deleted(),
     )
     c, sleeps = client(meta, timeout_s=3.0)
     with pytest.raises(MetaApiError) as exc:
         c.segment(photo, "wheel")
     assert exc.value.status is None
     assert sum(sleeps) == 3.0
-    assert len(meta.requests) == 5
+    assert len(meta.requests) == 6  # the last deletes the abandoned job (R106)
+    assert meta.requests[-1].method == "DELETE"
+
+
+@pytest.mark.parametrize("delete_fails", [False, True], ids=["deleted", "not-deleted"])
+@pytest.mark.parametrize(
+    ("ending", "raised", "message"),
+    [
+        ("deadline", DeadlineExceeded, "wait leaves too little time"),
+        ("poll bound", MetaApiError, "timed out after 3 s"),
+        ("failed", MetaApiError, "ended failed"),
+    ],
+)
+def test_abandoned_background_job_is_still_deleted(
+    photo, ending, raised, message, delete_fails
+):
+    # R106: once Meta has stored the job, the client tries once to delete it however
+    # the polling ends, and the delete never changes or masks the error raised.
+    status = "failed" if ending == "failed" else "in_progress"
+    script = FakeMeta(
+        error(504), background("queued"), *(background(status) for _ in range(20))
+    )
+    deletes = []
+
+    def meta(request):
+        if request.method != "DELETE":
+            return script(request)
+        deletes.append(request)
+        if delete_fails:
+            raise httpx.ConnectError("refused")
+        return deleted()
+
+    if ending == "deadline":
+        c, clock = timed_client(meta)
+        kwargs = {"deadline": clock.now + 8}
+    else:
+        c, _ = client(meta, timeout_s=3.0)
+        kwargs = {}
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel", **kwargs)
+    assert type(exc.value) is raised  # the polling's own error, not the delete's
+    assert message in str(exc.value)
+    assert [str(r.url) for r in deletes] == [BASE_URL + "/responses/resp_abc123"]
 
 
 def test_segment_runs_in_parallel_on_one_client(photo):
@@ -748,6 +1121,204 @@ def test_segment_runs_in_parallel_on_one_client(photo):
     assert [[i.id for i in result.instances] for result in results] == [
         [2 * n, 2 * n + 1] for n in range(len(SAM_PHRASES))
     ]
+
+
+TIMEOUT_KEYS = ("connect", "read", "write", "pool")
+
+
+@pytest.mark.parametrize("kind", ["judge", "segment"])
+def test_retry_after_past_the_deadline_stops(photo, kind):
+    # Meta's overload replies ask for 60 s. The client never retries early, so with
+    # 5 s left it stops instead of waiting (C84).
+    meta = FakeMeta(error(503, {"Retry-After": "60"}))
+    c, clock = timed_client(meta)
+    with pytest.raises(DeadlineExceeded) as exc:
+        call(c, kind, photo, deadline=clock.now + 5)
+    assert isinstance(exc.value, MetaApiError)  # so it ends failed/model_error
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+    assert clock.sleeps == []
+
+
+@pytest.mark.parametrize("kind", ["judge", "segment"])
+def test_retry_after_within_the_deadline_is_honoured(photo, kind):
+    meta = FakeMeta(error(503, {"Retry-After": "2"}), answered(kind))
+    c, clock = timed_client(meta, rng=lambda: 0.0)
+    result = call(c, kind, photo, deadline=clock.now + 30)
+    assert result.raw  # the parsed answer
+    assert clock.sleeps == [2.0]  # Retry-After, not the 0.5 s backoff
+    # Each try's timeouts are the time left when it starts (a SAM stream's read is also
+    # capped at 20 s, so the connect timeout shows it for both).
+    assert [r.extensions["timeout"]["connect"] for r in meta.requests] == [30.0, 28.0]
+
+
+@pytest.mark.parametrize("kind", ["judge", "segment"])
+@pytest.mark.parametrize(("left", "sent"), [(0.0, 0), (4.0, 0), (5.0, 1)])
+def test_no_try_starts_with_under_5_s_left(photo, kind, left, sent):
+    # R106 (C88): a try with under 5 s left can't finish but may still be billed, so
+    # not even the first one is sent.
+    meta = FakeMeta(answered(kind))
+    c, clock = timed_client(meta)
+    if sent:
+        assert call(c, kind, photo, deadline=clock.now + left).raw
+    else:
+        with pytest.raises(DeadlineExceeded):
+            call(c, kind, photo, deadline=clock.now + left)
+    assert len(meta.requests) == sent
+
+
+@pytest.mark.parametrize(("left", "retried"), [(5.4, False), (5.5, True)])
+def test_no_retry_starts_with_under_5_s_left(photo, left, retried):
+    # R104 (C88): a try with under 5 s left can't finish but may still be billed. The
+    # 503's backoff is 0.5 s, so 4.9 s or 5.0 s would be left for the retry.
+    meta = FakeMeta(error(503), fixture("spark_response.json"))
+    c, clock = timed_client(meta, rng=lambda: 0.0)
+    if retried:
+        judge(c, photo, deadline=clock.now + left)
+        assert clock.sleeps == [0.5]
+    else:
+        with pytest.raises(DeadlineExceeded):
+            judge(c, photo, deadline=clock.now + left)
+        assert clock.sleeps == []
+    assert len(meta.requests) == (2 if retried else 1)
+
+
+def test_background_poll_stops_at_the_deadline(photo):
+    never = (background("in_progress") for _ in range(3))
+    meta = FakeMeta(error(504), background("queued"), *never, deleted())
+    c, clock = timed_client(meta)
+    deadline = clock.now + 8
+    with pytest.raises(DeadlineExceeded) as exc:
+        c.segment(photo, "wheel", deadline=deadline)
+    assert exc.value.status is None
+    assert clock.now <= deadline  # no wait ran past it
+    # Each poll is a try, so a fourth wait, which would leave 4 s, isn't started.
+    assert clock.sleeps == [1.0] * 3
+    # The stream, the submit, 3 polls, then the delete of the abandoned job (R106).
+    assert [r.method for r in meta.requests] == ["POST"] * 2 + ["GET"] * 3 + ["DELETE"]
+
+
+class Chunks(httpx.SyncByteStream):
+    """A response body served in `chunks`. Before each chunk after the first, the
+    clock moves `gap` seconds; a chunk that is an exception is raised instead."""
+
+    def __init__(self, chunks: list, clock: FakeClock, gap: float = 0.0) -> None:
+        self.chunks = chunks
+        self.clock = clock
+        self.gap = gap
+        self.closed = False
+
+    def __iter__(self):
+        for n, chunk in enumerate(self.chunks):
+            if n:
+                self.clock.now += self.gap
+            if isinstance(chunk, Exception):
+                raise chunk
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def chunked(body: Chunks) -> httpx.Response:
+    return httpx.Response(
+        200, headers={"content-type": "text/event-stream"}, stream=body
+    )
+
+
+def stalls(clock: FakeClock, wait: float) -> Chunks:
+    """A SAM stream that sends one chunk, then stalls: its next read waits `wait`
+    seconds, its read timeout, and times out."""
+    return Chunks(
+        [SAM_STREAM[:200], httpx.ReadTimeout("no event in time")], clock, gap=wait
+    )
+
+
+def test_stream_read_timeout_shrinks_to_the_time_left(photo):
+    # With 6 s left (R106 sends nothing under 5 s), every timeout is at most 6 s.
+    clock = FakeClock()
+    stalled = stalls(clock, 6.0)
+    meta = FakeMeta(sam_stream(DOC_TEXT), chunked(stalled))
+    c, _ = timed_client(meta, clock)
+    assert len(c.segment(photo, "wheel", deadline=clock.now + 6).instances) == 2
+    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 6.0)
+    # The read timeout is the time left, so a read that times out is at the deadline.
+    with pytest.raises(DeadlineExceeded) as exc:
+        c.segment(photo, "wheel", deadline=clock.now + 6)
+    assert exc.value.status is None
+    assert stalled.closed  # its connection isn't left open
+    assert len(meta.requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("left", "read", "raised"),
+    [
+        (None, 90.0, MetaApiError),  # no deadline: MS1's read timeout, uncapped
+        (150.0, 20.0, MetaApiError),  # a stall well before the deadline
+        (60.0, 20.0, MetaApiError),  # cut by the cap, yet still before the deadline
+        (5.0, 5.0, DeadlineExceeded),  # the time left is shorter, so it ends at it
+    ],
+)
+def test_stream_idle_wait_is_capped_under_a_deadline(photo, left, read, raised):
+    # R103 (C88): under a deadline a SAM stream read waits at most 20 s for its next
+    # event, and a timeout is DeadlineExceeded only at or after the deadline.
+    clock = FakeClock()
+    stalled = stalls(clock, read)
+    meta = FakeMeta(chunked(stalled))
+    c, _ = timed_client(meta, clock)
+    deadline = None if left is None else clock.now + left
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(photo, "wheel", deadline=deadline)
+    assert type(exc.value) is raised
+    assert exc.value.status is None
+    timeout = meta.requests[0].extensions["timeout"]
+    assert timeout["read"] == read
+    assert timeout["connect"] == min(90.0, left or 90.0)  # only the read is capped
+    assert stalled.closed
+
+
+@pytest.mark.parametrize(("left", "stops"), [(5.0, True), (30.0, False)])
+def test_stream_kept_open_past_the_deadline_stops(photo, left, stops):
+    # httpx sets one read timeout per request, and keepalive events can hold a SAM
+    # stream open, so the client also checks the clock as each chunk arrives (R101).
+    clock = FakeClock()
+    body = Chunks([SAM_STREAM[:200], SAM_STREAM[200:]], clock, gap=10.0)
+    meta = FakeMeta(chunked(body))
+    c, _ = timed_client(meta, clock)
+    if stops:
+        with pytest.raises(DeadlineExceeded) as exc:
+            c.segment(photo, "wheel", deadline=clock.now + left)
+        assert exc.value.status is None
+    else:
+        assert len(c.segment(photo, "wheel", deadline=clock.now + left).instances) == 2
+    assert body.closed
+    assert len(meta.requests) == 1
+
+
+def test_judge_timeout_shrinks_to_the_time_left(photo):
+    # With 6 s left (R106 sends nothing under 5 s), every timeout is at most 6 s.
+    meta = FakeMeta(fixture("spark_response.json"))
+    c, clock = timed_client(meta)
+    judge(c, photo, deadline=clock.now + 6)
+    assert meta.requests[0].extensions["timeout"] == dict.fromkeys(TIMEOUT_KEYS, 6.0)
+    sent = []
+    clock = FakeClock()
+
+    def times_out(request):
+        sent.append(request)
+        clock.now += request.extensions["timeout"]["read"]  # it waits it out
+        raise httpx.ReadTimeout("no answer in time")
+
+    c, _ = timed_client(times_out, clock)
+    with pytest.raises(DeadlineExceeded) as exc:  # the timeout was the time left
+        judge(c, photo, deadline=clock.now + 6)
+    assert exc.value.status is None
+    # With more time left than timeout_s, a timeout is the client's own, as in MS1.
+    with pytest.raises(MetaApiError) as exc:
+        judge(c, photo, deadline=clock.now + 300)
+    assert type(exc.value) is MetaApiError
+    assert sent[1].extensions["timeout"]["read"] == 90.0
+    assert len(sent) == 2  # neither timeout is retried
 
 
 def form_parts(request: httpx.Request) -> dict[str, tuple[str, bytes]]:
@@ -796,6 +1367,27 @@ def test_contributor_model_is_refused():
         MetaClient._check_model("muse-spark-1.3-contributor")
     for model in (SAM_MODEL, SPARK_MODEL, TRANSCRIBE_MODEL):
         MetaClient._check_model(model)
+
+
+def test_protocol_and_fake_take_the_clients_arguments():
+    # The pipeline is typed against ModelClient and tested with FakeClient, and no
+    # type checker runs, so this keeps both in step with the client (C84).
+    def arguments(function) -> list[tuple]:
+        parameters = inspect.signature(function).parameters.values()
+        return [(p.name, p.kind, p.default) for p in parameters]
+
+    keyword_only = inspect.Parameter.KEYWORD_ONLY
+    for method, added in [
+        ("segment", {"deadline"}),
+        ("judge", {"deadline", "reasoning_effort"}),
+    ]:
+        real = arguments(getattr(MetaClient, method))
+        keywords = {
+            name: default for name, kind, default in real if kind == keyword_only
+        }
+        assert all(keywords.get(name, "missing") is None for name in added)
+        assert arguments(getattr(ModelClient, method)) == real
+        assert arguments(getattr(FakeClient, method)) == real
 
 
 @pytest.mark.parametrize(
