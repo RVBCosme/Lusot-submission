@@ -1199,7 +1199,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - It writes, exclusively, with `write_record`: a record that starts from `base_record(...)` for the tool `eval/data/freeze_record.py` (`tool`, `git`, `date` and `python`) and adds `{"files": {rel: sha256}, "records": {name: {"sha256", "archive"}}, "generator_version", "looks"}`. `generator_version` is read from `set_b/dev/generated/truth.csv` when that file is listed, and `looks` holds each look record's content.
   - It prints the file count and the record's SHA-256.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_coverage`, with exact fractions; `test_crop_pass_is_inclusive` (exactly a quarter passes)
   - `test_look_passes_at_three_quarters`: 3 of 4 passes, 2 of 4 fails.
   - `test_missing_sam_result_fails_the_crop`
@@ -1210,10 +1210,18 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_freeze_record_holds_the_hashes`: each file's SHA-256 equals hashlib's, the records' archive blocks are copied, and the looks are included.
   - `test_freeze_record_refuses_sealed_paths`; `test_freeze_record_never_overwrites`
   - `test_freeze_record_holds_no_ids`: the synthetic files' ids appear nowhere in the record.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "water_check or freeze_record"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'water_check'`.
-- [ ] **Step 3:** Implement, then lock both scripts.
-- [ ] **Step 4:** Run the tests again. Expected: all pass. Both scripts' `--help` exit 0.
-- [ ] **Step 5:** Commit `feat(data): add Set B's freeze check and the freeze record`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "water_check or freeze_record"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'water_check'`.
+- [x] **Step 3:** Implement, then lock both scripts.
+- [x] **Step 4:** Run the tests again. Expected: all pass. Both scripts' `--help` exit 0.
+- [x] **Step 5:** Commit `feat(data): add Set B's freeze check and the freeze record`.
+
+*Evidence (Task 17, Oct 30):*
+- **Commits:** ca43339 and 196d60b.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 932 passed. Both `water_check.py --help` and `freeze_record.py --help` exit 0.
+- **Checks:** ruff format and check, the plan-leak check (272 files), the account-ID scan (229 files), gitleaks and the banned-forms check are clean.
+- **RED:** the expected `ModuleNotFoundError` for `water_check` and `freeze_record`.
+- **The review held:** exact Fraction pass rules (a crop at exactly a quarter, a look at exactly three quarters) and the four causes; `stale_result` compared as `set_b_masks` writes it; no truth cell steers a path; looks numbered by name, created exclusively, a fourth refused; the freeze record's hashes, archive blocks, version and looks, with an id-shaped name refused before anything is written. `water_check` prints no score before its look is written.
+- **One fix round (S-R30),** checked by the controller (the diff read; a mutant removing the blank-version stop fails 2 tests): a mis-cased `truth.csv` path, repeated `--record` or `--look` names, and a blank generator version are refused instead of passing silently.
 
 ### Task 18: Set D's seal (C217)
 
