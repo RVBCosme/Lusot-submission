@@ -15,8 +15,8 @@ not exist yet: a manifest is created once and never rewritten, so a rerun needs 
 path.
 
 The walk is the one folder listing MS2's tools make (spec §5.2). It goes top-down,
-follows no link, and never descends a folder whose name guards.is_sealed_name calls
-sealed, the rule the path guard applies. A folder it can't read stops the run before
+descends no symbolic link, and never descends a folder whose name guards.is_sealed_name
+calls sealed, the rule the path guard applies. A folder it can't read stops the run before
 --out is written. An image (.jpg, .jpeg or .png, in any case) gets a row when a folder
 below --root named Level0 to Level4, in any case, holds it, and the nearest such
 folder sets its level. Every other file counts as skipped. The rows, sorted by path,
