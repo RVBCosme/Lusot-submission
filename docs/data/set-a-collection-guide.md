@@ -37,7 +37,7 @@ Skip a photo if any of these is true:
 ## Whose pages count
 
 - MMDA's own Facebook page and X account.
-- A city government's own page, or the official page of one of its offices, such as its disaster office (DRRMO) or its information office. Counting city offices is MS2-Q4's default, which waits for your OK.
+- A city government's own page, or the official page of one of its offices, such as its disaster office (DRRMO) or its information office. Counting city offices is MS2-Q4's answer (a), approved on Oct 29 by Claude, under your delegation.
 - **Not these:** barangay pages, officials' personal pages, and police or fire pages. If you log one by mistake, the tools count its poster as `other`, and the photo is left out (`eval/rules.md` §9).
 - **Skip a photo the post credits to someone else,** such as a resident or a news outlet, and don't log it. Its poster is still MMDA or the city, so no tool can catch it.
 
@@ -213,6 +213,7 @@ Set B tests the wheel geometry where the depth is known: you photograph dry park
 - **Numbering (C210):** number the cars `B01`, `B02`… in the order you photograph them. Odd numbers are development cars, in `C:\Systems\Lusot\lusot-data\set_b\dev\`. Even numbers are final cars, in `set_b\sealed\`, and Claude never sees them.
 - **Files:** each of those two folders holds its own `cars.csv`, made from `eval/templates/set_b_cars.csv`, with one row per photo, and the photos in `photos\` beside it: `B01-1.jpg`, `B01-2.jpg`… (the car, then the photo's number).
 - **The owner's OK:** save each owner's OK (a screenshot is fine) beside `cars.csv`, name it in `consent_file`, and put the version of the text it answered in `consent_version`. Window 4 drafts the text (`docs/drafts/set-b-and-m11-permission-draft.md`, on its branch until it merges). A car without its OK is never sent to Meta. The final cars' OKs go into the Set B archive with the rest, so keep a copy outside `set_b\sealed\` if you want them at hand after the archive test.
+- **Row numbers:** for the final cars, `generate.py --final` and `set_b_masks.py --final` name each problem by its row in `cars.csv`, as in `row 3 view: not_in_list`, never by a car id, so no final car id is printed. They count data rows: data row n is spreadsheet row n + 1.
 
 | Column | What to put |
 |---|---|
@@ -253,6 +254,7 @@ Flood photos and clips that friends, relatives or community groups give you, for
 - **Ask with the donor message you approve.** Window 4 drafts it in `docs/drafts/m9-donor-message-draft.md`, on its branch until it merges; its approved version is `M9-v4` (approved on Oct 29 by Claude, under your delegation), and only a v4 reply counts. It replaces the draft message this guide used to hold. The written OK must cover every use, because the rules require us to hold the rights to everything we submit, so a chat "sure" isn't enough.
 - **Files:** each item in `C:\Systems\Lusot\lusot-data\consented\`, with `consented_log.csv` beside it, made from `eval/templates/consented_log.csv`, and each written OK (a screenshot of the reply is fine) there too.
 - **Where and when** matter: each demo pin sits at its photo's real spot.
+- **One row per item:** each item has its own `item_id`, because the demo pins are keyed by it. A row that repeats an earlier row's id gives `<id> item_id: duplicate`, such as `S002 item_id: duplicate`, once for that id; give the second item the next free id.
 
 | Column | What to put |
 |---|---|
@@ -273,7 +275,7 @@ Flood photos and clips that friends, relatives or community groups give you, for
 Set D is final only: it is sealed, and Claude never sees it. If it rains, find standing water next to a parked car, read its depth there with a ruler, and photograph it; aim for 5 or more such photos. Stay on a dry curb in boots the whole time: never wade into the water or walk onto the road.
 
 - **Files:** the photos in `C:\Systems\Lusot\lusot-data\set_d\sealed\photos\`, and `set_d_log.csv` in `set_d\sealed\`, made from `eval/templates/set_d_log.csv`.
-- **Then** you run `seal_set_d` yourself, test its archive in 7-Zip, close Excel, and empty `set_d\sealed\` (C217, C219).
+- **Then** you run `seal_set_d` yourself, test its archive in 7-Zip, close Excel, and empty `set_d\sealed\` (C217, C219). `seal_set_d` comes with MS2's Task 18, after MS5's core screens; until it is merged, keep the photos and the log in `set_d\sealed\`.
 
 | Column | What to put |
 |---|---|
