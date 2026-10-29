@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "copy:review": "vitest run src/i18n/review.test.ts",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
