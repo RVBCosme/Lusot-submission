@@ -81,7 +81,7 @@ def write_result(
     table: str,
     key: Mapping[str, dict],
     token: str,
-    fields: Mapping[str, str | bool | int | Mapping[str, int]],
+    fields: Mapping[str, str | bool | int | float | Mapping[str, int]],
 ) -> bool:
     """Set every field in one conditional write, under this worker's claim.
 
@@ -118,12 +118,17 @@ def write_result(
     return True
 
 
-def _attribute_value(value: str | bool | int | Mapping[str, int]) -> dict:
-    """The field's typed DynamoDB value. A mapping's counts are typed the same way."""
+def _attribute_value(value: str | bool | float | Mapping[str, int]) -> dict:
+    """The field's typed DynamoDB value. A mapping's counts are typed the same way.
+
+    A float, such as a geometry level's inches, is a number too (C308).
+    """
     if isinstance(value, str):
         return {"S": value}
     if isinstance(value, bool):  # before int, because a bool is an int
         return {"BOOL": value}
     if isinstance(value, int):
+        return {"N": str(value)}
+    if isinstance(value, float):
         return {"N": str(value)}
     return {"M": {name: _attribute_value(count) for name, count in value.items()}}

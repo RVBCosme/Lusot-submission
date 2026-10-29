@@ -14,8 +14,9 @@ In order, it checks that:
 2. B1's photos go through end to end: positions 0 to 4 of C87's order, less any
    without a credit line (R102), then one synthetic dark JPEG, each through POST
    /uploads and its presigned form, as the app sends it. Each report is final (done,
-   refused or failed) within 120 s of its photo's 204 (C68). The dark photo goes from
-   the Capacitor origin, and both its calls answer with that allow-origin header.
+   refused or failed) within 120 s of its photo's 204 (C68), or --bound's seconds
+   (R119). The dark photo goes from the Capacitor origin, and both its calls answer
+   with that allow-origin header.
 3. a reused upload link pays nothing (B5). As soon as a photo's report is final and
    its log shows Meta calls, before the next upload, its form is posted again with
    the same bytes, at most 280 s after POST /uploads returned it: the form lasts
@@ -47,6 +48,17 @@ With --fallback (C71), it sends the credited photos at positions 5 to 19 of C87'
 order instead, one at a time up to the first level, runs checks 2, 5 and 6 on them,
 and prints how many it sent.
 
+With --geometry N (MS3b's D1, R135), it sends only the photo at position N of C87's
+order, as the app sends it. A photo without a credit line stops the run before any
+upload. Its report must be final within the bound and have C67's shape, and the log
+line of how it ended must show geometry_in_level on (the deployed function loaded
+the setting) and at least one wheel measured. It prints the outcome, level_from,
+wheels_measured, geometry_checks and the spend. It has no exit 3.
+
+--bound S is each uploaded photo's wait for its final status: 120 s by default, B1's
+bound (C68). MS3b's runs pass 180, since geometry adds time (R119). The missing photo
+keeps its own 60 s (spec §3.6).
+
 C87's folder, LUSOT_DATA_DIR\\set_c\\commons-ph-floods, is outside every repo. It holds
 the photo list and attribution.csv, and the photos sit in its images folder (R116).
 Every photo is read before the first upload, so an unreadable one stops the run
@@ -64,7 +76,7 @@ that profile signs in with `aws login`, and botocore's provider for those creden
 needs the CRT. HTTP goes over IPv4 only, since IPv6 doesn't connect on the home Wi-Fi
 (Oct 28 log).
 
-Usage: uv run backend/scripts/smoke_upload.py [--fallback]
+Usage: uv run backend/scripts/smoke_upload.py [--fallback | --geometry N] [--bound S]
 Exit codes: 0 every check passed, 1 a check failed, 3 every other check passed but no
 photo gave a level. After B1, C71 then applies; after --fallback, B1 is partly met.
 """
@@ -159,24 +171,52 @@ def say(line: str) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
+    runs = parser.add_mutually_exclusive_group()
+    runs.add_argument(
         "--fallback",
         action="store_true",
         help="C71: send positions 5 to 19 of C87's order, up to the first level",
+    )
+    runs.add_argument(
+        "--geometry",
+        type=int,
+        metavar="N",
+        help="D1: send only position N of C87's order and check its wheel geometry",
+    )
+    parser.add_argument(
+        "--bound",
+        type=float,
+        default=POLL_FOR_S,
+        metavar="S",
+        help="R119: each uploaded photo's seconds to a final status (default 120)",
     )
     args = parser.parse_args(argv)
     started = time.monotonic()
     try:
         folder = photo_folder()
-        positions = FALLBACK_POSITIONS if args.fallback else B1_POSITIONS
-        photos, skipped = credited(folder, seeded_photo_order(folder)[positions])
-        say(
-            f"photos: {len(photos)} of positions {positions.start} to"
-            f" {positions.stop - 1} in C87's order, {skipped} skipped without a"
-            " credit line"
-        )
-        if not photos:
-            raise CheckFailed("no credited photo to send")
+        order = seeded_photo_order(folder)
+        if args.geometry is not None:
+            n = args.geometry
+            if not 0 <= n < len(order):
+                raise CheckFailed(
+                    f"no position {n} in C87's order of {len(order)} photos"
+                )
+            photos, skipped = credited(folder, order[n : n + 1])
+            if skipped:
+                raise CheckFailed(
+                    f"position {n} has no credit line, so it isn't sent (R102)"
+                )
+            say(f"photos: position {n} of C87's order, which has a credit line")
+        else:
+            positions = FALLBACK_POSITIONS if args.fallback else B1_POSITIONS
+            photos, skipped = credited(folder, order[positions])
+            say(
+                f"photos: {len(photos)} of positions {positions.start} to"
+                f" {positions.stop - 1} in C87's order, {skipped} skipped without a"
+                " credit line"
+            )
+            if not photos:
+                raise CheckFailed("no credited photo to send")
         # Every photo is read before the first upload, so an unreadable one stops the
         # run before anything is paid.
         jpegs = [as_app_jpeg(photo) for photo in photos]
@@ -199,8 +239,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         # IPv4 only: IPv6 doesn't connect on the home Wi-Fi (Oct 28 log).
         transport = httpx.HTTPTransport(local_address="0.0.0.0")
         with httpx.Client(timeout=30, transport=transport) as http:
-            run = run_fallback if args.fallback else run_b1
-            level = run(http, deployed, jpegs)
+            if args.geometry is not None:
+                run_geometry(http, deployed, jpegs[0], bound_s=args.bound)
+                level = True  # no exit 3: a measured wheel is its check, not a level
+            else:
+                run = run_fallback if args.fallback else run_b1
+                level = run(http, deployed, jpegs, bound_s=args.bound)
     except CheckFailed as exc:
         say(f"SMOKE FAILED: {exc}")
         return 1
@@ -228,17 +272,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
+def run_b1(
+    http: httpx.Client, stack: Stack, jpegs: Sequence[bytes], *, bound_s: float
+) -> bool:
     """The B1 run's checks on the photos' JPEGs, in the module docstring's order.
 
-    Returns whether a photo gave a level.
+    Each uploaded photo's report has `bound_s` to be final. Returns whether a photo
+    gave a level.
     """
     check_preflight(http, stack.api_url)
     sent: list[Sent] = []
     try:
         reused = False
         for n, data in enumerate(jpegs, 1):
-            sent.append(upload_photo(http, stack, f"photo {n}/{len(jpegs)}", data))
+            label = f"photo {n}/{len(jpegs)}"
+            sent.append(upload_photo(http, stack, label, data, bound_s=bound_s))
             # B5 runs on the first report that paid Meta, before the next upload,
             # while its form is still good.
             if not reused and meta_calls(sent[-1].lines):
@@ -251,7 +299,9 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
         b1 = list(sent)
         dark = dark_jpeg()
         sent.append(
-            upload_photo(http, stack, "the dark photo", dark, origin=APP_ORIGIN)
+            upload_photo(
+                http, stack, "the dark photo", dark, origin=APP_ORIGIN, bound_s=bound_s
+            )
         )
         check_dark(sent[-1])
         level = any("level" in item.body for item in b1)
@@ -269,13 +319,18 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     return level
 
 
-def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
-    """C71's fallback: checks 2, 5 and 6 on the photos, sent up to the first level."""
+def run_fallback(
+    http: httpx.Client, stack: Stack, jpegs: Sequence[bytes], *, bound_s: float
+) -> bool:
+    """C71's fallback: checks 2, 5 and 6 on the photos, sent up to the first level.
+
+    Each report has `bound_s` to be final.
+    """
     sent: list[Sent] = []
     try:
         for n, data in enumerate(jpegs, 1):
             label = f"fallback photo {n}/{len(jpegs)}"
-            sent.append(upload_photo(http, stack, label, data))
+            sent.append(upload_photo(http, stack, label, data, bound_s=bound_s))
             if "level" in sent[-1].body:
                 break
         level = "level" in sent[-1].body
@@ -289,6 +344,39 @@ def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bo
         if sent:
             say_spend(sent)
     return level
+
+
+def run_geometry(
+    http: httpx.Client, stack: Stack, jpeg: bytes, *, bound_s: float
+) -> None:
+    """--geometry's checks on one photo (D1): its report, then its geometry.
+
+    The report has `bound_s` to be final, and its body C67's shape. The log line of
+    how it ended must show geometry_in_level on, so the deployed function loaded the
+    setting, and then pass check_geometry_line. Its geometry fields print before the
+    checks, and the spend whatever happens.
+    """
+    sent: list[Sent] = []
+    try:
+        label = "the geometry photo"
+        sent.append(upload_photo(http, stack, label, jpeg, bound_s=bound_s))
+        outcome = outcome_of(sent[-1].body)
+        # await_report found this line, or it would have failed.
+        line = next(line for line in sent[-1].lines if line.get("outcome") == outcome)
+        setting = line.get("geometry_in_level")
+        checks = json.dumps(line.get("geometry_checks"), sort_keys=True)
+        say(
+            f"geometry: geometry_in_level {setting}, level_from"
+            f" {line.get('level_from')}, wheels_measured {line.get('wheels_measured')},"
+            f" geometry_checks {checks}"
+        )
+        if setting != "on":
+            raise CheckFailed(f"geometry_in_level {setting!r}, expected 'on'")
+        check_geometry_line(line)
+    finally:
+        # Even when a check fails: the photo was paid for.
+        if sent:
+            say_spend(sent)
 
 
 def photo_folder() -> Path:
@@ -306,11 +394,18 @@ def refuse_sealed(path: Path) -> None:
 
     The offline runner's rule, run before the path is opened or listed: the path is
     checked first as written, made absolute, so a path that names the folder never
-    reaches the disk, then resolved, so `..` and links can't hide the folder.
+    reaches the disk, then resolved, so `..` and links can't hide the folder. Each
+    part is read as Windows reads a name: in any case, by its name before any ":",
+    and without trailing dots and spaces. So the NTFS stream
+    `sealed::$INDEX_ALLOCATION`, `sealed.` and `sealed ` all count (R156), as in
+    MS2's is_sealed_name.
     """
 
     def inside(checked: Path) -> bool:
-        return "sealed" in (part.lower() for part in checked.parts)
+        return any(
+            part.split(":", 1)[0].rstrip(". ").casefold() == "sealed"
+            for part in checked.parts
+        )
 
     if inside(path.absolute()) or inside(path.resolve()):
         raise CheckFailed("refused: a path inside a folder named sealed")
@@ -397,11 +492,16 @@ def upload_photo(
     data: bytes,
     *,
     origin: str | None = None,
+    bound_s: float = POLL_FOR_S,
 ) -> Sent:
-    """Send one photo, wait for its report to be final, and print how it ended."""
+    """Send one photo, wait for its report to be final, and print how it ended.
+
+    The report has `bound_s` from the photo's 204 to be final: B1's 120 s (C68), or
+    --bound's (R119).
+    """
     item = send(http, stack, label, data, origin=origin)
     item.body, item.lines, final_s = await_report(
-        http, stack, label, item.report_id, since=item.uploaded
+        http, stack, label, item.report_id, since=item.uploaded, bound_s=bound_s
     )
     say(
         f"{label}: {result_text(item.body)} {final_s:.1f} s after its upload,"
@@ -554,6 +654,17 @@ def check_report_body(body: dict) -> None:
         wrong.append("basis")
     if wrong:
         raise CheckFailed(f"report body ({status}): wrong {sorted(set(wrong))}")
+
+
+def check_geometry_line(line: dict) -> None:
+    """D1: the report's log line shows at least one wheel measured by rim geometry.
+
+    wheels_measured is logged once geometry's checks run (C316), so a line without
+    it, as on a gate result, fails too. A count is an int, never a bool.
+    """
+    count = line.get("wheels_measured")
+    if type(count) is not int or count < 1:
+        raise CheckFailed("no wheel measured")
 
 
 def outcome_of(body: dict) -> str:

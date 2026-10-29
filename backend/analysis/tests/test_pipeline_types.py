@@ -21,6 +21,17 @@ LEVEL = {
     "passability": "NPLV",
     "basis": {"vehicles": 1, "people": 1},
 }
+# A level geometry set, with its unrounded inches (C307, C308).
+GEOMETRY = {
+    "status": "done",
+    "level": "half_knee",
+    "landmark": "rim_quarter",
+    "passability": "PATV",
+    "basis": {"vehicles": 1, "people": 0},
+    "level_from": "geometry",
+    "depth_in_min": 8.291619,
+    "depth_in_max": 8.793869,
+}
 NO_FLOOD = {"status": "done", "no_flood_seen": True}
 REFUSED = {"status": "refused", "reason": "too_dark"}
 FAILED = {"status": "failed", "reason": "model_error"}
@@ -77,6 +88,7 @@ def test_outcome_item_fields():
         "passability": "NPLV",
         "levelIsFloor": False,
         "basis": {"vehicles": 1, "people": 1},
+        "levelFrom": "landmark",
     }
     assert Outcome.no_flood().item_fields() == {"status": "done", "noFloodSeen": True}
     assert Outcome.refused("too_dark").item_fields() == {
@@ -145,6 +157,77 @@ def test_outcome_item_fields():
     ],
 )
 def test_outcome_rejects_bad_shapes(fields):
+    with pytest.raises(ValueError):
+        Outcome(**fields)
+
+
+def test_landmark_results_record_their_source():
+    # C320: every level result says what set it. MS3a's direct construction keeps
+    # working, and becomes a landmark result.
+    built = Outcome.level_result(
+        "knee", "rim_three_quarters", False, {"vehicles": 1, "people": 1}
+    )
+    direct = Outcome(**LEVEL)
+    for outcome in (built, direct):
+        assert outcome.level_from == "landmark"
+        assert (outcome.depth_in_min, outcome.depth_in_max) == (None, None)
+
+
+def test_geometry_result_stores_rounded_inches():
+    # C308: stored rounded outward to 0.1 in, min down and max up.
+    geometry = Outcome.level_result(
+        "half_knee",
+        "rim_quarter",
+        False,
+        {"vehicles": 1, "people": 0},
+        level_from="geometry",
+        depth_in=(8.291619, 8.793869),
+    )
+    assert geometry == Outcome(**GEOMETRY)
+    assert geometry.item_fields() == {
+        "status": "done",
+        "noFloodSeen": False,
+        "level": "half_knee",
+        "landmark": "rim_quarter",
+        "passability": "PATV",
+        "levelIsFloor": False,
+        "basis": {"vehicles": 1, "people": 0},
+        "levelFrom": "geometry",
+        "depthInMin": 8.2,
+        "depthInMax": 8.8,
+    }
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        # The inches come exactly when geometry set the level, both of them.
+        pytest.param(GEOMETRY | {"level_from": "landmark"}, id="landmark-with-inches"),
+        pytest.param(
+            GEOMETRY | {"depth_in_min": None, "depth_in_max": None},
+            id="geometry-without-inches",
+        ),
+        pytest.param(GEOMETRY | {"depth_in_min": None}, id="geometry-without-min"),
+        pytest.param(GEOMETRY | {"depth_in_max": None}, id="geometry-without-max"),
+        pytest.param(LEVEL | {"level_from": "sam"}, id="unknown-source"),
+        # 0 < min <= max, both finite, and the level is the max's.
+        pytest.param(GEOMETRY | {"depth_in_min": 8.9}, id="min-above-max"),
+        pytest.param(GEOMETRY | {"depth_in_min": 0.0}, id="min-of-0"),
+        pytest.param(GEOMETRY | {"depth_in_min": float("nan")}, id="min-not-finite"),
+        pytest.param(GEOMETRY | {"depth_in_max": float("inf")}, id="max-not-finite"),
+        pytest.param(
+            GEOMETRY | {"level": "knee", "passability": "NPLV", "depth_in_max": 8.8},
+            id="knee-with-a-half-knee-max",
+        ),
+        # Only a level result carries a source or inches.
+        pytest.param(
+            REFUSED | {"depth_in_min": 8.2, "depth_in_max": 8.8},
+            id="refused-with-inches",
+        ),
+        pytest.param(NO_FLOOD | {"level_from": "landmark"}, id="no-flood-with-source"),
+    ],
+)
+def test_outcome_rejects_bad_inch_shapes(fields):
     with pytest.raises(ValueError):
         Outcome(**fields)
 

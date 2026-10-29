@@ -22,10 +22,11 @@ import pytest
 from fakes import FakeClient
 from meta_sam_parser._mask_codec import _encode_raster
 
-from lusot_analysis import face_blur
+from lusot_analysis import face_blur, meta_client
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta
 from lusot_analysis.meta_client import (
     BASE_URL,
+    REASONING_EFFORTS,
     SAM_MODEL,
     SAM_PHRASES,
     SPARK_MODEL,
@@ -529,6 +530,26 @@ def test_judge_sends_reasoning_effort_and_records_reasoning_tokens(photo, caplog
     assert plain.reasoning_tokens is None
 
 
+def test_judge_refuses_an_unknown_effort(photo):
+    """The efforts listed on https://dev.meta.ai/docs/reasoning, read Oct 30, 2026
+    (P15). Its "none" is "Not supported by Muse Wonder or Muse Spark" (HTTP 400), so
+    it is refused before a request is sent, like a value the page doesn't list."""
+    assert REASONING_EFFORTS == ("minimal", "low", "medium", "high", "xhigh", "max")
+    meta = FakeMeta()  # no scripted response: a request would fail the test
+    c, _ = client(meta)
+    for effort in ("none", "turbo"):
+        with pytest.raises(ValueError):
+            judge(c, photo, reasoning_effort=effort)
+    assert meta.requests == []
+    # Each listed effort is sent as given.
+    meta = FakeMeta(*(fixture("spark_response.json") for _ in REASONING_EFFORTS))
+    c, _ = client(meta)
+    for effort in REASONING_EFFORTS:
+        judge(c, photo, reasoning_effort=effort)
+    sent = [request_json(request)["reasoning"] for request in meta.requests]
+    assert sent == [{"effort": effort} for effort in REASONING_EFFORTS]
+
+
 def test_judge_raises_model_refused_on_a_refusal_part(photo, caplog):
     """The refusal is a RefusalContent part, {"type": "refusal", "refusal": ...}, on
     https://dev.meta.ai/docs/api-reference/responses/schemas, in place of the
@@ -838,6 +859,90 @@ def test_segment_output_it_cannot_place_raises(photo, text):
         c.segment(photo, "wheel")
     assert exc.value.status is None
     assert len(meta.requests) == 1
+
+
+def parser_reached():
+    raise AssertionError("parser reached")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        "data=335,320",
+        "data=334,321",
+        "data=100000,100000",
+        # The parser trims JavaScript's whitespace, U+FEFF among it, from keys and
+        # values, so these claim 335 rows to it too
+        "data=﻿335,320",
+        "﻿data=335,320",
+        # Past Python's 4,300-digit limit for int()
+        "data=" + "1" * 5000 + ",320",
+    ],
+    ids=[
+        "a-row-too-tall",
+        "a-column-too-wide",
+        "far-too-large",
+        "bom-before-the-value",
+        "bom-before-the-key",
+        "past-the-int-digit-limit",
+    ],
+)
+def test_segment_mask_larger_than_the_image_raises_before_parsing(
+    photo, monkeypatch, data
+):
+    # C330: meta-sam-parser allocates rows x columns bytes from the size SAM claims,
+    # while it reads the mask, so a size larger than the 320 x 334 photo is refused
+    # before the parser runs. The box sits inside the photo.
+    monkeypatch.setattr(meta_client, "image_segmentation_format", parser_reached)
+    text = (
+        "<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|>"
+        f"<|mask;x=0;y=0;{data},!!!!!(QO(0lu8?|>\n"
+    )
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    message = "a SAM mask is larger than the image"
+    with pytest.raises(MetaApiError, match=message) as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+def test_segment_mask_at_the_image_size_passes_the_size_check(photo):
+    # A mask as large as the photo, on a full-frame box, isn't larger than it.
+    raster = np.ones((334, 320), np.uint8)
+    text = mask_text((0, 0, 319, 333), raster, (320, 334))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(photo, "wheel").instances
+    assert instance.box == (0.0, 0.0, 320.0, 334.0)
+    assert instance.mask.shape == (334, 320)
+    assert instance.mask.all()
+
+
+@pytest.mark.parametrize(
+    "fields", ["x=0;y=0;data=abc", "x=0;y=0"], ids=["not-a-size", "no-data"]
+)
+def test_segment_mask_with_no_size_is_left_to_the_parser(photo, fields):
+    # A `data` that doesn't start with two integers, or none at all, gets past the
+    # size check, and the parser reports the record.
+    text = f"<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|><|mask;{fields}|>\n"
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError, match="SAM's output couldn't be read") as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+def test_segment_reads_a_frame_trimmed_as_the_parser_trims_it(photo):
+    # The parser accepts a frame width written with U+FEFF before it, and the frame
+    # check reads it the same way, as 320.
+    raster = np.ones((4, 4), np.uint8)
+    text = mask_text((10, 20, 13, 23), raster, (320, 334)).replace("w=", "w=﻿")
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(photo, "wheel").instances
+    assert instance.box == (10.0, 20.0, 14.0, 24.0)
 
 
 def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):

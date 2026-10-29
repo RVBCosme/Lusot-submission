@@ -17,6 +17,7 @@ from lusot_analysis.annotate import (
     check_ids_per_item,
     draw_numbered_boxes,
     number_boxes,
+    outline_corners,
 )
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta, detect_faces
 from lusot_analysis.meta_client import SamInstance, SamResult
@@ -108,6 +109,47 @@ def test_draw_numbered_boxes_keeps_blur_provenance():
         inside = away[y0:y1, x0:x1]
         assert inside.mean() > 0.3
         assert diff[y0:y1, x0:x1][inside].mean() < 3
+
+
+def test_drawing_v2_leaves_the_wheels_edge_clear():
+    # C325, §D6: boxes-v1's outline covers a wheel box's lowest two rows and the row
+    # below, where the water meets the wheel. boxes-v2 draws it outside the box.
+    box = (100, 100, 160, 160)
+    assert outline_corners(box, "boxes-v1") == ((100, 100), (159, 159))
+    assert outline_corners(box, "boxes-v2") == ((96, 96), (163, 163))
+    with pytest.raises(ValueError):
+        outline_corners(box, "boxes-v3")
+    # Drawn as draw_numbered_boxes draws it, before any JPEG encoding, and read across
+    # the box's columns.
+    ink = {}
+    for drawing in ("boxes-v1", "boxes-v2"):
+        blank = np.zeros((480, 640), np.uint8)
+        cv2.rectangle(blank, *outline_corners(box, drawing), 255, 2)
+        ink[drawing] = blank[:, 100:160] > 0
+    assert ink["boxes-v1"][158:161].all()
+    assert not ink["boxes-v2"][157:162].any()
+    assert ink["boxes-v2"][162:165].all()
+
+    base = blur_for_meta(jpeg(texture(640, 480)))
+    out = draw_numbered_boxes(base, [NumberedBox(1, "wheel", box)], drawing="boxes-v2")
+    assert type(out) is BlurredImage
+    assert (out.faces, out.blur_version) == (base.faces, base.blur_version)
+    assert (out.width, out.height) == (base.width, base.height)
+
+    # And draw_numbered_boxes draws each its own way, through derive's JPEG: on black,
+    # a wheel box's rows y1 - 2 to y1 against rows y1 + 2 to y1 + 4.
+    black = blur_for_meta(jpeg(np.zeros((480, 640, 3), np.uint8)))
+    wheel_box = NumberedBox(1, "wheel", (96, 288, 208, 400))
+
+    def bands(drawing: str) -> tuple[float, float]:
+        drawn = draw_numbered_boxes(black, [wheel_box], drawing=drawing)
+        bright = drawn.bgr().max(axis=2)
+        return bright[398:401, 110:190].mean(), bright[402:405, 110:190].mean()
+
+    edge, below = bands("boxes-v1")
+    assert edge > 200 and below < 50
+    edge, below = bands("boxes-v2")
+    assert edge < 50 and below > 200
 
 
 def label_strokes(

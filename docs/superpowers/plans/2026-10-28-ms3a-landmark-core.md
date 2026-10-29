@@ -1153,4 +1153,10 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - C90's 1600 px testing note
 
     None is applied until Rene approves.
-- [ ] **Step 6:** Commit `docs: record MS3a results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3a-landmark-core` into `main` and push to the private repo (D16).
+- [x] **Step 6:** Commit `docs: record MS3a results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3a-landmark-core` into `main` and push to the private repo (D16).
+  - Evidence:
+    - **Commit:** `00f2fdd` (10:40 PM, Oct 29).
+    - **Merge:** with the tracker's OK (10:46 PM), merged `--no-ff` into `main` as **`96c2f11`** (10:47 PM). The merged tree is identical to `00f2fdd` (`git diff --stat ms3a-landmark-core main` is empty), and `npm run check` had passed on that tree at 10:40 PM.
+    - **Push:** `origin/main` moved from `98e8266` to `96c2f11`, and the branch was pushed too.
+    - **CI on `96c2f11`:** run 40895026307 completed with success at 10:49 PM: `check:node`, `check:py` and `check:secrets` all succeeded.
+    - **Handoff:** `ms3a.md` reads `STATUS: DONE 96c2f11`.

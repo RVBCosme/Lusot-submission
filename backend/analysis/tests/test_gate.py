@@ -14,6 +14,7 @@ from lusot_analysis.meta_client import SamResult
 from lusot_analysis.pipeline.references import (
     Layout,
     gate,
+    instances_by_id,
     layout,
     prepare_boxes,
     water_found,
@@ -51,6 +52,33 @@ def test_layout_maps_positions_to_ids():
         wheel_vehicle={3: 2, 4: 1, 5: 2},
         small_wheel_vehicles=frozenset({2}),
     )
+
+
+def test_instances_by_id_follows_the_numbering():
+    # Each box id names its own SAM instance. SAM's second wheel is small, so it is
+    # cut before numbering and has no id; its third becomes box 3 (C69).
+    sam = sam_results(
+        {
+            "vehicle": [(20, 100, 300, 300)],
+            "wheel": [
+                around(100, 260, 60, 60),
+                around(160, 270, 30, 30),
+                around(220, 260, 60, 60),
+            ],
+            "person": [(300, 20, 320, 90)],
+        }
+    )
+    prepared = prepare_boxes(sam)
+    instances = instances_by_id(prepared, layout(prepared, number_boxes(prepared.sam)))
+    wheels = sam["wheel"].instances
+    expected = [
+        *sam["vehicle"].instances,
+        wheels[0],
+        wheels[2],
+        *sam["person"].instances,
+    ]
+    assert list(instances) == [1, 2, 3, 4]
+    assert all(instances[i] is inst for i, inst in enumerate(expected, start=1))
 
 
 def no_water(*, vehicles=(), wheels=(), people=()) -> dict:
