@@ -13,7 +13,7 @@
 | Simplification | Douglas-Peucker at a tolerance of 0.00005° (Shapely 2.2.0's `simplify` with `preserve_topology=True`). The simplified border is at most 5.5 m from the clipped one (Hausdorff distance, measured in UTM zone 51N). Every S2 point keeps its side. |
 | Rounding | Every coordinate is rounded to 6 decimal places (about 0.1 m), then repeated points are dropped and rings are oriented as RFC 7946 asks. Longer floats would put 12-digit runs in the file, which the account-ID scan fails (F4). |
 | Result | A GeoJSON `MultiPolygon` of 2 polygons and 1,889 points: 43,100 bytes, SHA-256 `3716aea4de458881c14c82383bd1d2ce4081519749052f0b2d870a4c06a2a1f2`. |
-| Tools | A one-off Python 3.13 script with Shapely 2.2.0 (BSD-3-Clause) and pyproj 3.8.0 (MIT), run outside the repo. Neither is a dependency of Lusot. The raw downloads stay in `lusot-data/osm/`, outside every repo. |
+| Tools | Python 3.13 with Shapely 2.2.0 (BSD-3-Clause) and pyproj 3.8.0 (MIT). Neither is a dependency of Lusot. The scripts sit beside the raw downloads, outside every repo. `lusot-data\osm\clip.py` clips the relation, and `lusot-data\osm\build_ncr.py` simplifies, rounds and writes `ncr.json`, using `assemble.py` and `cities.py` beside them. `lusot-data\osm\s2_fixture.py` writes `s2-points.json`. Rerun from those files on Oct 30, 2026, they rebuild `ncr.json` byte for byte. |
 
 ## S2's test points
 

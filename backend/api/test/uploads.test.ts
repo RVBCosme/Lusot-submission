@@ -246,9 +246,17 @@ describe("POST /uploads", () => {
     refuseLimits({ device: true, all: true });
     const bad = await createUpload(body({ lat: 91 }), DEVICE, deps());
     expect(bad.statusCode).toBe(400);
-    const coarse = await createUpload(body({ gpsAccuracyM: 51 }), DEVICE, deps());
-    expect(JSON.parse(coarse.body)).toEqual({ error: "gps_too_coarse" });
     expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+    for (const [raw, error] of [
+      [capturedAgo(16 * 60_000), "capture_too_old"],
+      [capturedAgo(-3 * 60_000), "capture_in_future"],
+      [body({ gpsAccuracyM: 51 }), "gps_too_coarse"],
+      [body({ nudgeM: 100.5 }), "nudge_too_far"],
+    ]) {
+      const res = await createUpload(raw, DEVICE, deps());
+      expect({ status: res.statusCode, body: JSON.parse(res.body) }).toEqual({ status: 422, body: { error } });
+      expect(ddbMock.commandCalls(UpdateCommand)).toHaveLength(0);
+    }
 
     // The device comes before the hour's cap, which it never reaches.
     const device = await createUpload(body(), DEVICE, deps());

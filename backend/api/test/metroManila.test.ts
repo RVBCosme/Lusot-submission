@@ -16,7 +16,7 @@ interface S2Point {
 
 const S2: S2Point[] = JSON.parse(readFileSync(S2_JSON, "utf8"));
 
-// A 0.01-degree square around MS1's point, with a hole in its north-east quarter.
+// A square 0.02 degrees on a side around MS1's point, with a hole in its north-east quarter.
 const SQUARE = [
   [120.98, 14.6],
   [121.0, 14.6],
