@@ -22,7 +22,7 @@ import pytest
 from fakes import FakeClient
 from meta_sam_parser._mask_codec import _encode_raster
 
-from lusot_analysis import face_blur
+from lusot_analysis import face_blur, meta_client
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta
 from lusot_analysis.meta_client import (
     BASE_URL,
@@ -859,6 +859,47 @@ def test_segment_output_it_cannot_place_raises(photo, text):
         c.segment(photo, "wheel")
     assert exc.value.status is None
     assert len(meta.requests) == 1
+
+
+def parser_reached():
+    raise AssertionError("parser reached")
+
+
+@pytest.mark.parametrize(
+    "size",
+    ["335,320", "334,321", "100000,100000"],
+    ids=["a-row-too-tall", "a-column-too-wide", "far-too-large"],
+)
+def test_segment_mask_larger_than_the_image_raises_before_parsing(
+    photo, monkeypatch, size
+):
+    # C330: meta-sam-parser allocates rows x columns bytes from the size SAM claims,
+    # while it reads the mask, so a size larger than the 320 x 334 photo is refused
+    # before the parser runs. The box sits inside the photo.
+    monkeypatch.setattr(meta_client, "image_segmentation_format", parser_reached)
+    text = (
+        "<0f>0<|box;x1=10;y1=20;x2=13;y2=23;w=320;h=334|>"
+        f"<|mask;x=0;y=0;data={size},!!!!!(QO(0lu8?|>\n"
+    )
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    message = "a SAM mask is larger than the image"
+    with pytest.raises(MetaApiError, match=message) as exc:
+        c.segment(photo, "wheel")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+def test_segment_mask_at_the_image_size_passes_the_size_check(photo):
+    # A mask as large as the photo, on a full-frame box, isn't larger than it.
+    raster = np.ones((334, 320), np.uint8)
+    text = mask_text((0, 0, 319, 333), raster, (320, 334))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    (instance,) = c.segment(photo, "wheel").instances
+    assert instance.box == (0.0, 0.0, 320.0, 334.0)
+    assert instance.mask.shape == (334, 320)
+    assert instance.mask.all()
 
 
 def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):

@@ -70,6 +70,9 @@ _STREAM_FAILURES = frozenset(
     {"response.failed", "response.incomplete", "response.refusal.done", "error"}
 )
 _BOX_TOKEN = re.compile(r"<\|box;([^|]*)\|>")  # a box token's fields hold no `|`
+# A mask token's fields hold none either: its base85 payload's alphabet has no `|`.
+_MASK_TOKEN = re.compile(r"<\|mask;([^|]*)\|>")
+_MASK_SIZE = re.compile(r"([0-9]+),([0-9]+),")  # data=rows,columns,payload
 
 _R = TypeVar("_R")
 
@@ -713,7 +716,14 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
     raise MetaApiError: a lost or misplaced record must not read as no match. A mask
     whose box has a side over SAM_MASK_SIDE may come scaled down so its longer side is
     SAM_MASK_SIDE, and is scaled back up to fill its box (_scaled_down has the rule).
+    A mask whose claimed size is taller or wider than the image raises MetaApiError
+    before the parser runs, since the parser allocates that size as it reads (C330).
     """
+    # A `data` that doesn't start with two integers is left for the parser to report.
+    for body in _MASK_TOKEN.findall(text):
+        size = _MASK_SIZE.match(_token_fields(body).get("data", ""))
+        if size and (int(size[1]) > image.height or int(size[2]) > image.width):
+            raise MetaApiError("a SAM mask is larger than the image")
     parser = image_segmentation_format().create_parser()
     parser.push(text)
     result = parser.finish(CompletedOutcome()).result
