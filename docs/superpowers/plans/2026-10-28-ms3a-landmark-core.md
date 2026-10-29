@@ -1036,15 +1036,27 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - Consumes: Tasks 10 to 15
 - Produces: the deployed MS3a stack, and the evidence for B1, B3 (real data), B4 and B5 in the task report, as counts and timings only
 
-- [ ] **Step 1:** Check the preconditions, then post two lines in `ms3a.md`:
+- [x] **Step 1:** Check the preconditions, then post two lines in `ms3a.md`:
+  - Evidence (Oct 29, 9:47 PM): the heads-up and `DEPLOY RUNNING 9:47 PM` were posted in `ms3a.md` and sent to the tracker. A6 had passed (M14, Oct 28). There was no java or Gradle process, 4.3 GB was free, the tree was clean, and the `ends_with(Arn, 'user/rene-dev')` check printed `true`. Docker Desktop started with engine 29.9.2. `DEPLOY DONE` was posted at 9:58 PM. A second, short deploy for R93 (RUNNING 10:12 PM, DONE 10:16 PM) followed the same checks.
   - **A heads-up:** after this deploy, a photo from MS1's APK goes through SAM and Muse Spark, its final text changes, and the smoke run turns uploads off for about a minute. Check whether Rene has done the phone test (A6, M14); if not, note it under "Waiting on Rene".
   - `DOCKER/DEPLOY RUNNING <time>` before Step 2, and `DOCKER/DEPLOY DONE <time>` after the last smoke run.
   - Expect exit 3 and C71's fallback (C75). The worst case is about $0.67, plus about $0.16 per re-run of the 6 photos.
   - Docker is running, and no Gradle build is
   - `git status` is clean
   - `aws sts get-caller-identity --profile lusot --region ap-southeast-1 --no-cli-pager | sed -E 's/[0-9]{12}/<account>/g'` answers. Rene's `aws login` lasts 12 hours.
-- [ ] **Step 2:** From PowerShell, with PATH refreshed: `npm run deploy`. Expected: `Successfully created/updated stack - lusot`, then `lifecycle: keep 3`. If the first deploy fails on IAM propagation, re-run it once before changing anything.
-- [ ] **Step 3:** Run `uv run backend/scripts/smoke_upload.py`. Expected: `SMOKE OK`. Record:
+- [x] **Step 2:** From PowerShell, with PATH refreshed: `npm run deploy`. Expected: `Successfully created/updated stack - lusot`, then `lifecycle: keep 3`. If the first deploy fails on IAM propagation, re-run it once before changing anything.
+  - Evidence:
+    - **Image check first,** as CLAUDE.md asks: `sam build --parallel` exited 0. The image `analysisfunction:ms1`, run with `--network none`, imports the handler and the Meta client, holds C90's code, and has both prompt files in `/var/task/prompts`.
+    - **First deploy (9:51 PM):** exit 0 in 131 s, `Successfully created/updated stack - lusot`, then `lifecycle: keep 3`.
+    - **R93's redeploy (10:15 PM):** exit 0 in 93 s. Its image's missing-photo codes read `['NoSuchKey']`.
+- [x] **Step 3:** Run `uv run backend/scripts/smoke_upload.py`. Expected: `SMOKE OK`. Record:
+  - Evidence (9:57 PM): **`SMOKE OK in 353.6 s`**, exit 0.
+    - **B1:** 2 levels (below gutter, PATV), 1 no flood seen, and 2 refused (`photo_unusable`, `no_usable_reference`). Upload to final took 27.0, 35.6, 41.8, 43.5 and 63.2 s.
+    - **Dark JPEG:** `refused/too_dark` with 0 Meta calls.
+    - **Reused link:** 204, the raw photo gone in 2.4 s, and `already_finished` with no Meta call.
+    - **B4:** no raw photo left for 6 reports, and a blurred photo only for the 2 levels.
+    - **Missing photo:** `failed/photo_missing` in 2.1 s, **`NoSuchKey` (404)**. So the R93 follow-up ran (`d32ddf6`, with its delta review's notes in `5262f5d`): `AccessDenied` retries now, `test_missing_photo_codes` became `test_missing_photo_code` plus an `AccessDenied` case in `test_other_s3_errors_retry`, and spec §3.1 step 6, its error and outcome tables, §3.6 and both comments cite MS3a Task 16. After the redeploy, the same check gave `NoSuchKey` again (10:15 PM, no Meta call).
+    - **Spot and bound:** the test spot and the 120 s bound were unchanged (R118, R119).
   - each report's outcome and seconds to a final status
   - the dark JPEG's `meta_calls 0`
   - the reused-link result
@@ -1057,7 +1069,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - the B4 checks
 
   Exit 1 → debug, fix, re-run. A re-run sends the same 6 photos again: it adds cost, not new photos. Exit 3 → Step 4.
-- [ ] **Step 4: C71's fallback** (only after exit 3):
+- [x] **Step 4: C71's fallback** (only after exit 3):
+  - Evidence: not needed. Step 3 exited 0 with 2 levels, so no fallback photo was sent.
   1. **The diagnosis, with no Meta call (C75):** read B1's 5 photos' log lines from Step 3, and record each photo's outcome and drop causes as counts. This shows why the 5 gave no level. Nothing is replayed.
   2. Run `uv run backend/scripts/smoke_upload.py --fallback`. It sends up to 15 more photos, positions 5 to 19 of C87's order, and stops at the first level.
   3. If there is still no level, B1 is partly met, with the drop causes as the reason. 3a then closes on B2 to B5 and the other cloud checks, and the cloud proof of a level moves to the first Manila photos. Record that for Task 17.
@@ -1068,7 +1081,11 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
     - **First run (9:00 PM):** `failed/model_error`, with `meta_status` null. SAM sent a water mask over 1024 px wide scaled to a 1024 px side, and the client refused it. Fixed by C90 (`044fdad`, `14ad29b`, reviewed).
     - **Re-run on `044fdad` (9:19 PM):** exit 0, `refused/photo_unusable`, 6 Meta calls in 18 s. The `-k b3` command on that run gave **2 passed, 0 skipped**.
     - **Cost:** the two runs plus one diagnostic SAM call came to about $0.037, against the step's $0.01 estimate. The estimate predates C87's 1600 px photos and Muse Spark's measured cost.
-- [ ] **Step 6:** Add up the spend: the Meta calls made (8 per cloud photo that reached SAM, plus 6 for Step 5), and the estimated cost from the token counts in the log lines. Record it.
+- [x] **Step 6:** Add up the spend: the Meta calls made (8 per cloud photo that reached SAM, plus 6 for Step 5), and the estimated cost from the token counts in the log lines. Record it.
+  - Evidence: **52 Meta calls, about $0.19 in all,** within the plan's worst case of about $0.67 ([results note](../../research/2026-10-29-ms3a-results.md) §7).
+    - **Smoke run:** 40 calls (SAM 35, Muse Spark 5), billed 12,747 input and 12,621 output tokens, about $0.157.
+    - **Step 5:** two runs plus one diagnostic SAM call, 12 calls (SAM 11, Muse Spark 1), about $0.037.
+    - No call ended on a 504 or a 413.
   - A failed run's spend line is a lower bound. It counts only photos whose reports finished, so add up to 8 calls for each photo that timed out, or read that report's lines in CloudWatch (Task 15's re-review).
 
 ### Task 17: Results note and milestone close (Claude)
@@ -1077,7 +1094,8 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
 - Create: `docs/research/2026-10-29-ms3a-results.md`
 - Modify: the spec's §2 table, this plan's boxes, `docs/PROGRESS.md`, and `docs/log/2026-10-29.md` (create it if it doesn't exist yet)
 
-- [ ] **Step 1:** Write the results note, with counts and timings only:
+- [x] **Step 1:** Write the results note, with counts and timings only:
+  - Evidence: [`docs/research/2026-10-29-ms3a-results.md`](../../research/2026-10-29-ms3a-results.md) covers C90's bug, B1 to B5, the missing-photo code, spend, P2 to P6 and what stays open. It holds counts and timings only, with no image, photo name, path, key or account ID (the plan-leak and account-ID scans are clean).
   - **B1:**
     - reports by outcome: how many of B1's 5 Commons photos gave a level, refusals by reason, and failures
     - the photos' licences as counts (CC BY, public domain), with a pointer to the attribution kept beside them; no photo name or path
@@ -1093,9 +1111,21 @@ The rule tables use the value names in spec §3.3. Task 3's `test_rules_cover_ev
   - what the run shows for P2, P3, P4 and P6, and what stays open
 
   It holds no images, photo names or paths, key, or account ID. It links to the MS1 probe note for the dataset and its attribution.
-- [ ] **Step 2:** Tick the spec's done-checks: add a column "Result (Oct 29)" to spec §2, with ✅ or "partly met" and the evidence line for each of B1 to B5.
-- [ ] **Step 3:** Tick this plan's boxes with their evidence. Update `docs/PROGRESS.md` (the MS3a row) and the day's log, including every ruling made during execution.
-- [ ] **Step 4:** Run the checks. Expected: all clean.
+- [x] **Step 2:** Tick the spec's done-checks: add a column "Result (Oct 29)" to spec §2, with ✅ or "partly met" and the evidence line for each of B1 to B5.
+  - Evidence: spec §2 has the column, with ✅ and an evidence line for each of B1 to B5. None is partly met: B1 got 2 levels without C71's fallback.
+- [x] **Step 3:** Tick this plan's boxes with their evidence. Update `docs/PROGRESS.md` (the MS3a row) and the day's log, including every ruling made during execution.
+  - Evidence:
+    - Tasks 1 to 16 are ticked (f28be11 for Tasks 1 to 15 and 7a; this commit for Task 16). Task 7a Step 5, the optional latency pre-test, stays unticked: it was skipped, and MS3b's C312 measures the effort instead.
+    - `docs/PROGRESS.md`'s MS3 row and W25 are updated.
+    - The rulings are recorded:
+      - R80 to R119 are listed by range in the [Oct 28 log](../../log/2026-10-28.md). Each one's reason and its cost if wrong are in Window 3's SDD ledger.
+      - R120, R121, R122, C90 and R93's application are in the [Oct 29 log](../../log/2026-10-29.md).
+- [x] **Step 4:** Run the checks. Expected: all clean.
+  - Evidence (Oct 29, 10:18 to 10:21 PM, at 5262f5d plus this commit's docs):
+    - `npm run check` exited 0 in 88 s: app 40, API 41, Node scripts 14, analysis 535 passed with 1 skipped (B3's real-run test, which runs only with a saved run), and `backend/scripts` 65.
+    - gitleaks found no leaks. The plan-leak check was clean over 193 files, and the 12-digit account-ID scan, which skips lockfiles, was clean over 158.
+    - **Whole-word "safe"** over the 61 files that differ from `main`, plus the results note: every hit is a rule banning the word, the CSS class `safe-area`, or Python's `quote_plus(safe="/")`. None is about flood conditions.
+    - **Strict form:** the extra substring hits are all "safety line", the required disclaimer, or the banned-word test, and each was judged.
   - `npm run check`
   - the 12-digit grep, skipping lockfiles (R15)
   - `python scripts/check_no_plan_leak.py`
