@@ -290,7 +290,8 @@ class FakeClient:
     """A ModelClient that answers from fixed results and records each call.
 
     `segment` returns `sam[phrase]`. `judge` returns `answer` as Muse Spark's answer,
-    or raises it when it is an exception. Each runs its hook first, if set, as
+    or raises it when it is an exception. The answer's reasoning token count is
+    `reasoning_tokens` (C312). Each runs its hook first, if set, as
     `on_segment(phrase)` or `on_judge()`: a hook can wait, or raise to fail the call
     before it is recorded. `calls` holds (method, phrase or schema_name, image type)
     for each call, added behind a lock, because the phrases run in parallel.
@@ -305,11 +306,13 @@ class FakeClient:
         *,
         on_segment: Callable[[str], object] | None = None,
         on_judge: Callable[[], object] | None = None,
+        reasoning_tokens: int | None = None,
     ) -> None:
         self.sam = sam
         self.answer = answer
         self.on_segment = on_segment
         self.on_judge = on_judge
+        self.reasoning_tokens = reasoning_tokens
         self.calls: list[tuple[str, str, type]] = []
         self.keywords: list[dict[str, object]] = []
         self._lock = threading.Lock()
@@ -349,6 +352,7 @@ class FakeClient:
             output_tokens=200,
             elapsed_s=1.5,
             raw=json.dumps(self.answer),
+            reasoning_tokens=self.reasoning_tokens,
         )
 
     def count_input_tokens(self, *args: object, **kwargs: object) -> NoReturn:

@@ -1,14 +1,16 @@
 """Tests for the tuning module: the cutoffs, their start values and the change log (C310).
 
 Expected numbers come from START, never the live TUNING, so a later tuning can't break
-them. Three tests read TUNING, and none has a number of its own: each untuned name
-still equals START's value, MS3a's five constants equal TUNING's values, and the change
-log names TUNING's version.
+them. Four tests read TUNING, and none has a number of its own: each untuned name
+still equals START's value, MS3a's five constants equal TUNING's values, the change
+log names TUNING's version, and TUNING's effort and drawing are known values.
 """
 
 from dataclasses import asdict, fields, replace
 
 from lusot_analysis import tuning
+from lusot_analysis.annotate import DRAWINGS
+from lusot_analysis.meta_client import REASONING_EFFORTS
 from lusot_analysis.pipeline import quality, references
 from lusot_analysis.pipeline.quality import QualityScores, quality_refusal
 from lusot_analysis.tuning import START, TUNING, Tuning
@@ -68,3 +70,11 @@ def test_ms3a_cutoffs_read_the_tuning_module():
 
 def test_change_log_names_the_version():
     assert TUNING.version in tuning.__doc__
+
+
+def test_tuning_effort_and_drawing_are_known_values():
+    # What the Lambda and the offline runner send Muse Spark (C312, C325): no effort,
+    # or one Muse Spark takes, and a drawing annotate knows.
+    effort = TUNING.reasoning_effort
+    assert effort is None or effort in REASONING_EFFORTS
+    assert TUNING.drawing in DRAWINGS

@@ -102,7 +102,9 @@ def run_pipeline(
     `geometry_in_level` puts rim geometry in the level path (C309). Off is MS3a's
     rules plus step 3, so vans and `unknown` are dropped by type and no geometry is
     computed. `tuning` gives the cutoffs: the quality gate's, step 3's and the
-    geometry checks' (C310). Step 3 runs either way, after the gate (C317).
+    geometry checks' (C310). Step 3 runs either way, after the gate (C317). It also
+    gives what Muse Spark is sent: its reasoning effort and the boxes' drawing (C312,
+    C325). The handler and the offline runner take the default, TUNING.
 
     Errors end as outcomes (C59), checked in this order:
     - Muse Spark refused to answer: refused, model_declined (C86).
@@ -116,8 +118,11 @@ def run_pipeline(
     `meta_calls` counts the segment and judge calls made, failed ones included. A
     failure adds the error's class name and, for a MetaApiError, its status, never
     its message. Muse Spark's reason never reaches the log (C62). C316's fields:
-    - from step 2 on: `geometry_in_level` ("on" or "off"), `tuning_version` and
-      `rim_edge_k`, k
+    - from step 2 on: `geometry_in_level` ("on" or "off"), `tuning_version`,
+      `rim_edge_k`, k, `reasoning_effort` (the tuning's, or "default" when none is
+      sent) and `drawing_version`
+    - once Muse Spark has answered: `reasoning_tokens`, or None when Meta doesn't
+      report it
     - with geometry on, once its checks run: `wheels_measured` and `geometry_checks`,
       each failed check counted by cause
     - on a level result: `level_from`, and `depth_in` when it is "geometry": the
@@ -189,6 +194,8 @@ def _run_steps(
         "geometry_in_level": "on" if geometry_in_level else "off",  # C309, C316
         "tuning_version": tuning.version,
         "rim_edge_k": tuning.rim_edge_k,
+        "reasoning_effort": tuning.reasoning_effort or "default",  # C312
+        "drawing_version": tuning.drawing,  # C325
         "meta_calls": len(phrases),
     }
     sam = segment_all(client, image, phrases, deadline=deadline)
@@ -213,7 +220,7 @@ def _run_steps(
         "wheels": kinds["wheel"],
         "people": kinds["person"],
     }
-    drawn = draw_numbered_boxes(image, boxes)
+    drawn = draw_numbered_boxes(image, boxes, drawing=tuning.drawing)
     log["meta_calls"] = len(phrases) + 1
     try:  # one paid answer, never asked for again (C47)
         spark = client.judge(
@@ -222,6 +229,7 @@ def _run_steps(
             schema=prompt.schema,
             schema_name=prompt.schema_name,
             deadline=deadline,
+            reasoning_effort=tuning.reasoning_effort,
         )
     except json.JSONDecodeError as exc:  # judge's own json.loads (R62)
         raise ModelAnswerError("Muse Spark's answer isn't JSON") from exc
@@ -229,6 +237,7 @@ def _run_steps(
         "spark_ms": _ms(spark.elapsed_s),
         "input_tokens": spark.input_tokens,
         "output_tokens": spark.output_tokens,
+        "reasoning_tokens": spark.reasoning_tokens,
     }
     validate_answer(spark.data, prompt.schema)
     answer, id_drops = check_ids_per_item(spark.data, boxes)

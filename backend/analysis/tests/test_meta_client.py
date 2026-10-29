@@ -26,6 +26,7 @@ from lusot_analysis import face_blur
 from lusot_analysis.face_blur import BlurredImage, blur_for_meta
 from lusot_analysis.meta_client import (
     BASE_URL,
+    REASONING_EFFORTS,
     SAM_MODEL,
     SAM_PHRASES,
     SPARK_MODEL,
@@ -527,6 +528,26 @@ def test_judge_sends_reasoning_effort_and_records_reasoning_tokens(photo, caplog
     plain = judge(c, photo)
     assert "reasoning" not in request_json(meta.requests[1])
     assert plain.reasoning_tokens is None
+
+
+def test_judge_refuses_an_unknown_effort(photo):
+    """The efforts listed on https://dev.meta.ai/docs/reasoning, read Oct 30, 2026
+    (P15). Its "none" is "Not supported by Muse Wonder or Muse Spark" (HTTP 400), so
+    it is refused before a request is sent, like a value the page doesn't list."""
+    assert REASONING_EFFORTS == ("minimal", "low", "medium", "high", "xhigh", "max")
+    meta = FakeMeta()  # no scripted response: a request would fail the test
+    c, _ = client(meta)
+    for effort in ("none", "turbo"):
+        with pytest.raises(ValueError):
+            judge(c, photo, reasoning_effort=effort)
+    assert meta.requests == []
+    # Each listed effort is sent as given.
+    meta = FakeMeta(*(fixture("spark_response.json") for _ in REASONING_EFFORTS))
+    c, _ = client(meta)
+    for effort in REASONING_EFFORTS:
+        judge(c, photo, reasoning_effort=effort)
+    sent = [request_json(request)["reasoning"] for request in meta.requests]
+    assert sent == [{"effort": effort} for effort in REASONING_EFFORTS]
 
 
 def test_judge_raises_model_refused_on_a_refusal_part(photo, caplog):

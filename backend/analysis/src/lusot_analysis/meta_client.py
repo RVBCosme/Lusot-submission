@@ -39,6 +39,10 @@ BASE_URL = "https://api.meta.ai/v1"
 SAM_MODEL = "sam-3.1"
 SPARK_MODEL = "muse-spark-1.3"
 TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
+# Muse Spark's reasoning.effort values, as https://dev.meta.ai/docs/reasoning lists them
+# (read Oct 30, 2026; P15). The page's "none" is "Not supported by Muse Wonder or Muse
+# Spark" (HTTP 400). With no effort sent, the model picks its own level.
+REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
 # What SAM is asked to find, one request per phrase (plan §7 step 2).
 SAM_PHRASES = (
     "floodwater",
@@ -272,7 +276,8 @@ class MetaClient:
         `schema_name` names the schema and is logged as the prompt version. The
         response isn't stored at Meta (store: false, R76). `deadline` bounds the call
         as in `segment` (C84). `reasoning_effort` is sent as reasoning.effort when
-        set; otherwise Meta's default applies.
+        set; otherwise Meta's default applies. A value not in REASONING_EFFORTS
+        raises ValueError before any request (C312).
 
         Before any parsing, an answer with a status other than completed raises
         MetaApiError (C86, R104), and one that holds a refusal part raises
@@ -288,6 +293,10 @@ class MetaClient:
             "schema": schema,
             "strict": True,
         }
+        if reasoning_effort is not None and reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(
+                f"reasoning effort {reasoning_effort!r} isn't one Muse Spark takes"
+            )
         options = {}
         if reasoning_effort is not None:
             options["reasoning"] = {"effort": reasoning_effort}

@@ -25,6 +25,7 @@ from fakes import (
     wheel,
 )
 
+from lusot_analysis.annotate import draw_numbered_boxes
 from lusot_analysis.face_blur import (
     FACE_BLUR_VERSION,
     BlurredImage,
@@ -43,7 +44,7 @@ from lusot_analysis.pipeline.publish import publish_jpeg
 from lusot_analysis.pipeline.quality import quality_scores
 from lusot_analysis.pipeline.types import ModelKeyRejected, Outcome
 from lusot_analysis.prompts import PROMPT_VERSION, load_prompt
-from lusot_analysis.tuning import START
+from lusot_analysis.tuning import START, TUNING
 
 # The level case's result: knee from wheel 2, at rim_three_quarters.
 KNEE = Outcome.level_result(
@@ -104,6 +105,8 @@ def test_level_result_end_to_end(prompt):
         "geometry_in_level": "off",
         "tuning_version": "tuning-v1",
         "rim_edge_k": 1.0,
+        "reasoning_effort": "default",
+        "drawing_version": "boxes-v1",
         "sam_ms": dict.fromkeys(SAM_PHRASES, 500),
         "instances": {
             "floodwater": 1,
@@ -119,6 +122,7 @@ def test_level_result_end_to_end(prompt):
         "spark_ms": 1500,
         "input_tokens": 1000,
         "output_tokens": 200,
+        "reasoning_tokens": None,
         "deciding": "wheel",
         "level_from": "landmark",
     }
@@ -553,6 +557,9 @@ def test_geometry_result_end_to_end(prompt):
         "geometry_in_level": "on",
         "tuning_version": "tuning-v1",
         "rim_edge_k": 1.0,
+        "reasoning_effort": "default",
+        "drawing_version": "boxes-v1",
+        "reasoning_tokens": None,
         "wheels_measured": 1,
         "geometry_checks": {},
         "level_from": "geometry",
@@ -756,6 +763,9 @@ MS3B_LOG_KEYS = {
     "geometry_in_level",
     "tuning_version",
     "rim_edge_k",
+    "reasoning_effort",
+    "drawing_version",
+    "reasoning_tokens",
     "wheels_measured",
     "geometry_checks",
     "level_from",
@@ -783,3 +793,61 @@ def test_log_keys_are_the_known_set(prompt, case, judged, geometry_in_level):
     )
     assert set(run.log) <= MS3A_LOG_KEYS | MS3B_LOG_KEYS
     json.dumps(run.log)  # an array or a mask would raise TypeError
+
+
+# MS3b: what Muse Spark is sent, its reasoning effort and the boxes' drawing (C312, C325)
+
+
+def judged_efforts(client: FakeClient) -> list[object]:
+    """The reasoning effort of each judge call the fake recorded."""
+    return [
+        keywords["reasoning_effort"]
+        for (kind, _, _), keywords in zip(client.calls, client.keywords, strict=True)
+        if kind == "judge"
+    ]
+
+
+def test_reasoning_effort_and_drawing_reach_judge(prompt, monkeypatch):
+    # run_pipeline sends its tuning's effort, draws the boxes its tuning's way, and
+    # logs both from step 2 on (C316).
+    drawings = []
+
+    def spy(image, boxes, *, drawing):
+        drawings.append(drawing)
+        return draw_numbered_boxes(image, boxes, drawing=drawing)
+
+    monkeypatch.setattr("lusot_analysis.pipeline.draw_numbered_boxes", spy)
+    photo, sam, given = level_case()
+    tuning = dataclasses.replace(START, reasoning_effort="low", drawing="boxes-v2")
+    client = FakeClient(sam, given)
+    run = run_pipeline(photo, client, prompt, tuning=tuning)
+    assert run.outcome == KNEE
+    assert judged_efforts(client) == ["low"]
+    assert drawings == ["boxes-v2"]
+    logged = (run.log["reasoning_effort"], run.log["drawing_version"])
+    assert logged == ("low", "boxes-v2")
+    # The live TUNING, which the handler and the offline runner take by default. The
+    # checks read its fields, not their start values, so a later tuning can't break
+    # them (R128).
+    client = FakeClient(sam, given)
+    run = run_pipeline(photo, client, prompt)
+    assert judged_efforts(client) == [TUNING.reasoning_effort]
+    assert drawings == ["boxes-v2", TUNING.drawing]
+    logged = (run.log["reasoning_effort"], run.log["drawing_version"])
+    assert logged == (TUNING.reasoning_effort or "default", TUNING.drawing)
+
+
+def test_reasoning_tokens_are_logged(prompt):
+    # C312, C316: once Muse Spark has answered, its reasoning tokens, or None when
+    # Meta doesn't report them, as its documented example doesn't.
+    photo, sam, given = level_case()
+    client = FakeClient(sam, given, reasoning_tokens=180)
+    run = run_pipeline(photo, client, prompt, tuning=START)
+    assert run.log["reasoning_tokens"] == 180
+    run = run_pipeline(photo, FakeClient(sam, given), prompt, tuning=START)
+    assert run.log["reasoning_tokens"] is None
+    # A failed answer has no count, but the effort and the drawing are still logged.
+    run = run_pipeline(photo, FakeClient(sam, meta_error(500)), prompt, tuning=START)
+    assert "reasoning_tokens" not in run.log
+    logged = (run.log["reasoning_effort"], run.log["drawing_version"])
+    assert logged == ("default", "boxes-v1")
