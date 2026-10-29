@@ -68,7 +68,10 @@ class FakeSession:
         cloud.session_kwargs = kwargs
         self._cloud = cloud
 
-    def client(self, service):
+    def client(self, service, **settings):
+        # A client's settings, such as spend.py's SPEND_CONFIG, by service, for the
+        # tests: they change nothing here.
+        vars(self._cloud).setdefault("client_settings", {})[service] = settings
         return FakeAws(self._cloud, service)
 
 

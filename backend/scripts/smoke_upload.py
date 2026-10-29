@@ -9,13 +9,21 @@
 # ///
 """Cloud smoke test of the deployed `lusot` stack (MS3a spec B1, B4, B5; plan Task 15).
 
+Every upload comes from SPOT, MS7's OUTSIDE_POINT in Laguna de Bay, outside Metro
+Manila, so every report the run makes is `private` and none can pin (MS4 C513, S1).
+
 In order, it checks that:
-1. the API's CORS preflight for POST /uploads allows the app's origins
+1. the API's CORS preflight for POST /uploads allows the app's origins and the
+   X-Lusot-Device header
 2. B1's photos go through end to end: positions 0 to 4 of C87's order, less any
    without a credit line (R102), then one synthetic dark JPEG, each through POST
-   /uploads and its presigned form, as the app sends it. Each report is final (done,
-   refused or failed) within 120 s of its photo's 204 (C68). The dark photo goes from
-   the Capacitor origin, and both its calls answer with that allow-origin header.
+   /uploads and its presigned form, as the app sends it. Each POST /uploads carries
+   the run's X-Lusot-Device id, a new uuid4 per run, renewed after every 10 uploads
+   (C508's device limit). No photo goes until GET /reports/{id} reads mode private,
+   polled every 1 s through 404s for up to 10 s, since the report index can lag a new
+   report. Each report is final (done, refused or failed) within 120 s of its photo's
+   204 (C68). The dark photo goes from the Capacitor origin, and both its calls answer
+   with that allow-origin header.
 3. a reused upload link pays nothing (B5). As soon as a photo's report is final and
    its log shows Meta calls, before the next upload, its form is posted again with
    the same bytes, at most 280 s after POST /uploads returned it: the form lasts
@@ -23,14 +31,23 @@ In order, it checks that:
    within 60 s, and the log has an already_finished line and still exactly one line
    with Meta calls.
 4. the dark photo ends refused/too_dark, and its log shows no Meta call
-5. every report body has C67's shape. If no photo gave a level, it prints their
-   outcomes and drop causes (C75) and carries on, and the run ends with exit 3 (C71).
-6. no raw photo is left for any report, and blurred/{id}.jpg exists for each level
-   report and for no other (B4). It then prints the spend of the photos whose
-   reports finished, and prints it too if a check from 2 to 6 fails after one did:
-   the Meta calls in their log lines, how many ended on a 504 or a 413 from SAM or
-   judge, and the estimated cost, from SAM's calls and Muse Spark's billed usage,
-   never from a token count.
+5. every report body has C67's shape as MS4 extends it: mode and published on each,
+   and a level's levelFrom, readings, gpsAccuracyM and its photo, overlay and layers
+   links, but never the inches, a reading's inches, or a demo pin's credit, place or
+   event. Each reads mode private and published false, and none of the reports is in
+   nearby at the spot or on the map (S1's no pin). If no photo gave a level, it
+   prints their outcomes and drop causes (C75) and carries on, and the run ends with
+   exit 3 (C71).
+6. no raw photo is left for any report, and blurred/{id}.jpg, the overlay
+   overlay/{id}.jpg and its layers overlay/{id}.json exist for each level report and
+   for no other (B4, Task 14). It then prints the spend of the photos whose reports
+   finished, and prints it too if a check from 2 to 6 fails after one did: the Meta
+   calls in their log lines, how many ended on a 504 or a 413 from SAM or judge, and
+   the estimated cost at spend.py's prices, from SAM's calls and Muse Spark's billed
+   usage, never from a token count. It adds that cost to the Meta spend counter as
+   smoke (C527). A write that fails prints spend_error with the amount, for the
+   tracker to add once by hand (docs/operations.md), and the run ends with exit 1
+   once its other checks have run.
 7. a report whose photo never came ends failed/photo_missing within 60 s (spec §3.6):
    the queue gets one S3-shaped notification for it, and the run prints the log
    line's S3 error code and HTTP status, NoSuchKey (404) since MS3a Task 16 (R93)
@@ -47,6 +64,10 @@ With --fallback (C71), it sends the credited photos at positions 5 to 19 of C87'
 order instead, one at a time up to the first level, runs checks 2, 5 and 6 on them,
 and prints how many it sent.
 
+With --phase-a, it checks a stack without Task 14 and MS3b (Task 10a's deploy): a
+level body need not hold readings, overlayUrl, layersUrl or levelFrom, and check 6
+doesn't look for the overlay. Every other check stands.
+
 C87's folder, LUSOT_DATA_DIR\\set_c\\commons-ph-floods, is outside every repo. It holds
 the photo list and attribution.csv, and the photos sit in its images folder (R116).
 Every photo is read before the first upload, so an unreadable one stops the run
@@ -56,17 +77,19 @@ anything is read.
 It prints results, counts and timings only. It never prints a photo's name, a path,
 a report id, the API's, a form's or the queue's URL, the account ID, an ARN or an
 image URI. An AWS error shows its code and HTTP status, any other error only its
-class name, and every printed line passes through a mask that replaces any run of 12
-digits with <account>. Log lines are read, never printed.
+class name, and every printed line passes through the scripts' shared output mask
+(guards.py), which replaces any run of 12 digits with <account>. Log lines are read,
+never printed. A sealed path is refused by guards.py's rule too.
 
 It always uses the lusot profile, never AWS_PROFILE. boto3 comes with its CRT extra:
 that profile signs in with `aws login`, and botocore's provider for those credentials
 needs the CRT. HTTP goes over IPv4 only, since IPv6 doesn't connect on the home Wi-Fi
 (Oct 28 log).
 
-Usage: uv run backend/scripts/smoke_upload.py [--fallback]
-Exit codes: 0 every check passed, 1 a check failed, 3 every other check passed but no
-photo gave a level. After B1, C71 then applies; after --fallback, B1 is partly met.
+Usage: uv run backend/scripts/smoke_upload.py [--fallback] [--phase-a]
+Exit codes: 0 every check passed, 1 a check failed or the run's spend didn't reach the
+counter, 3 every other check passed but no photo gave a level. After B1, C71 then
+applies; after --fallback, B1 is partly met.
 """
 
 from __future__ import annotations
@@ -78,6 +101,7 @@ import os
 import random
 import re
 import time
+import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -86,12 +110,18 @@ from pathlib import Path, PureWindowsPath
 
 import boto3
 import cv2
+import guards
 import httpx
 import numpy as np
 from botocore.exceptions import BotoCoreError, ClientError
 from ops_common import REGION, STACK, lusot_session, stack_outputs
+from spend_loader import load_spend
 
-SPOT = {"lat": 14.6095, "lng": 120.9894}  # the plan §12 example
+# backend/analysis's spend.py, by path (Task 7a): the Lambda's prices and its counter.
+spend = load_spend()
+
+# MS7's OUTSIDE_POINT, in Laguna de Bay: outside Metro Manila, so private (C513).
+SPOT = {"lat": 14.35, "lng": 121.25}
 APP_ORIGIN = "https://localhost"  # the Capacitor app
 ORIGINS = (APP_ORIGIN, "http://localhost:4173")  # and the Vite preview server
 STOP_UPLOADS = "/lusot/stop/uploads"
@@ -115,11 +145,14 @@ FORM_FRESH_S = 280  # C27's 300 s upload form, less a margin
 LOG_WAIT_S = 30  # log events can take a few seconds to become searchable
 LOG_POLL_S = 5
 LOG_SKEW_S = 300  # log searches start this long before the run, for clock skew
-# Prices from docs/research/2026-10-26-verification-notes.md (dev.meta.ai, Oct 26).
-SAM_USD_PER_IMAGE = 2.50 / 1000
-SPARK_USD_PER_INPUT_TOKEN = 1.25 / 1e6
-SPARK_USD_PER_OUTPUT_TOKEN = 4.25 / 1e6
-_ACCOUNT_ID = re.compile(r"[0-9]{12}")
+DEVICE_HEADER = "X-Lusot-Device"  # the app's random device id (C508)
+DEVICE_UPLOADS = 10  # C508's uploads per device per hour: a new id after these
+PRIVATE_EVERY_S = 1  # how often a new report is read until it reads private
+PRIVATE_FOR_S = 10  # and for how long, through the report index's 404s
+NEARBY_RADIUS_M = 300  # nearby's largest radius (C509)
+# A level body's fields that only Task 14 and MS3b add, which --phase-a waives.
+PHASE_B_KEYS = ("readings", "overlayUrl", "layersUrl", "levelFrom")
+NOT_RECORDED = "spend_error: this run's spend isn't on the counter (see above)"
 
 
 class CheckFailed(Exception):
@@ -137,6 +170,7 @@ class Stack:
     log_group: str  # the analysis function's, looked up once
     since_ms: int  # where log searches start: the run's start, less LOG_SKEW_S
     outputs: Mapping[str, str] = field(default_factory=dict)  # every stack output
+    phase_a: bool = False  # --phase-a: deployed without Task 14 and MS3b
 
     def output(self, name: str) -> str:
         """One of the stack's outputs, such as TableName, or CheckFailed."""
@@ -145,10 +179,11 @@ class Stack:
         return self.outputs[name]
 
 
-def load_stack(session: boto3.Session) -> Stack:
+def load_stack(session: boto3.Session, *, phase_a: bool = False) -> Stack:
     """The deployed stack as the checks use it: its outputs, and its analysis log group.
 
-    Log searches start LOG_SKEW_S before now, for clock skew.
+    Log searches start LOG_SKEW_S before now, for clock skew. `phase_a` says the stack
+    was deployed without Task 14 and MS3b.
     """
     outputs = stack_outputs(session)
     log_group = session.client("cloudformation").describe_stack_resource(
@@ -163,6 +198,7 @@ def load_stack(session: boto3.Session) -> Stack:
         log_group=log_group,
         since_ms=int((time.time() - LOG_SKEW_S) * 1000),
         outputs=outputs,
+        phase_a=phase_a,
     )
 
 
@@ -181,7 +217,8 @@ class Sent:
 
 
 def say(line: str) -> None:
-    print(_ACCOUNT_ID.sub("<account>", line), flush=True)
+    """Print `line` through the scripts' one output mask (guards.mask, T1)."""
+    guards.say(line)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -191,8 +228,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="C71: send positions 5 to 19 of C87's order, up to the first level",
     )
+    parser.add_argument(
+        "--phase-a",
+        action="store_true",
+        help="check a stack deployed without Task 14 and MS3b (Task 10a)",
+    )
     args = parser.parse_args(argv)
     started = time.monotonic()
+    new_device()  # each run starts its own device id
     try:
         folder = photo_folder()
         positions = FALLBACK_POSITIONS if args.fallback else B1_POSITIONS
@@ -208,7 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # run before anything is paid.
         jpegs = [as_app_jpeg(photo) for photo in photos]
         session = lusot_session()
-        deployed = load_stack(session)
+        deployed = load_stack(session, phase_a=args.phase_a)
         # IPv4 only: IPv6 doesn't connect on the home Wi-Fi (Oct 28 log).
         transport = httpx.HTTPTransport(local_address="0.0.0.0")
         with httpx.Client(timeout=30, transport=transport) as http:
@@ -248,6 +291,7 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     """
     check_preflight(http, stack.api_url)
     sent: list[Sent] = []
+    recorded = True
     try:
         reused = False
         for n, data in enumerate(jpegs, 1):
@@ -270,21 +314,25 @@ def run_b1(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
         level = any("level" in item.body for item in b1)
         if not level:
             say_no_level(b1)
+        check_no_pin(http, stack, sent)
         check_stored_photos(stack, sent)
     finally:
         # Even when a check fails: whatever was sent is paid for.
         if sent:
-            say_spend(sent)
+            recorded = say_spend(stack, sent)
     check_missing_photo(http, stack)
     check_png_refused(http, stack.api_url)
     check_key_loaded(stack.session)
     check_stop_switch(stack.session, http, stack.api_url)
+    if not recorded:
+        raise CheckFailed(NOT_RECORDED)
     return level
 
 
 def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bool:
     """C71's fallback: checks 2, 5 and 6 on the photos, sent up to the first level."""
     sent: list[Sent] = []
+    recorded = True
     try:
         for n, data in enumerate(jpegs, 1):
             label = f"fallback photo {n}/{len(jpegs)}"
@@ -296,11 +344,14 @@ def run_fallback(http: httpx.Client, stack: Stack, jpegs: Sequence[bytes]) -> bo
         say(f"fallback: sent {len(sent)} of {len(jpegs)} photos, {end}")
         if not level:
             say_no_level(sent)
+        check_no_pin(http, stack, sent)
         check_stored_photos(stack, sent)
     finally:
         # Even when a check fails: whatever was sent is paid for.
         if sent:
-            say_spend(sent)
+            recorded = say_spend(stack, sent)
+    if not recorded:
+        raise CheckFailed(NOT_RECORDED)
     return level
 
 
@@ -315,17 +366,12 @@ def photo_folder() -> Path:
 
 
 def refuse_sealed(path: Path) -> None:
-    """Refuse a path inside a folder named sealed, in any case (CLAUDE.md, C66).
+    """Refuse a path inside a folder named sealed (CLAUDE.md, C66), before the path is
+    opened or listed, by the scripts' one rule, guards.is_sealed (R156, T1).
 
-    The offline runner's rule, run before the path is opened or listed: the path is
-    checked first as written, made absolute, so a path that names the folder never
-    reaches the disk, then resolved, so `..` and links can't hide the folder.
+    CheckFailed is this run's refusal; the other scripts exit 2 instead.
     """
-
-    def inside(checked: Path) -> bool:
-        return "sealed" in (part.lower() for part in checked.parts)
-
-    if inside(path.absolute()) or inside(path.resolve()):
+    if guards.is_sealed(path):
         raise CheckFailed("refused: a path inside a folder named sealed")
 
 
@@ -433,14 +479,19 @@ def send(
 ) -> Sent:
     """POST /uploads, then the photo through its presigned form, as the app does.
 
-    With `origin`, both calls carry it and must answer with the app's allow-origin
-    header (MS1's checks).
+    The photo goes only once its report reads private (S1, Review Focus 4). With
+    `origin`, both calls carry it and must answer with the app's allow-origin header
+    (MS1's checks).
     """
     created = request_upload(http, stack.api_url, origin=origin)
     issued = time.monotonic()
     if origin is not None:
         check_allow_origin(created, "POST /uploads")
     link = created.json()
+    try:
+        confirm_private(http, stack.api_url, link["reportId"])
+    except CheckFailed as exc:
+        raise CheckFailed(f"{label}: {exc}") from None
     posted = post_form(http, link["upload"], data, origin=origin)
     if posted.status_code != 204:
         raise CheckFailed(
@@ -450,6 +501,34 @@ def send(
     if origin is not None:
         check_allow_origin(posted, "the S3 form post")
     return Sent(label, link["reportId"], link["upload"], data, issued, time.monotonic())
+
+
+def confirm_private(http: httpx.Client, api_url: str, report_id: str) -> None:
+    """S1 (C513): a new report must read mode private before its photo is posted.
+
+    It reads GET /reports/{id} every 1 s through 404s, since the report index can lag
+    a new report, for up to 10 s. Any mode but private, a report not found by then,
+    or any other HTTP answer raises CheckFailed, so no photo is sent that could pin.
+    """
+    began = time.monotonic()
+    while True:
+        response = http.get(f"{api_url}/reports/{report_id}")
+        if response.status_code == 200:
+            mode = response.json().get("mode")
+            if mode != "private":
+                raise CheckFailed(
+                    f"the report reads mode {mode!r}, not private, so its photo"
+                    " wasn't sent"
+                )
+            return
+        if response.status_code != 404:
+            raise CheckFailed(f"GET /reports: {got(response)}")
+        if time.monotonic() - began >= PRIVATE_FOR_S:
+            raise CheckFailed(
+                f"the report wasn't found in {PRIVATE_FOR_S} s, so its photo wasn't"
+                " sent"
+            )
+        time.sleep(PRIVATE_EVERY_S)
 
 
 def post_form(
@@ -475,12 +554,17 @@ def await_report(
 ) -> tuple[dict, list[dict], float]:
     """A report's final body (C68), its log lines, and its seconds from `since`.
 
-    The body must have C67's shape, and the log must hold the line of how it ended.
+    The body must have C67's shape, read mode private and published false (S1), and
+    the log must hold the line of how it ended.
     """
     try:
         body = wait_final(http, stack.api_url, report_id, since=since, bound_s=bound_s)
         final_s = time.monotonic() - since
-        check_report_body(body)
+        check_report_body(body, phase_a=stack.phase_a)
+        if body["mode"] != "private":
+            raise CheckFailed(f"mode {body['mode']!r}, expected private")
+        if body["published"]:
+            raise CheckFailed("published is true, expected false")
         outcome = outcome_of(body)
         lines = log_lines(stack, report_id, until=outcome)
         if not any(line.get("outcome") == outcome for line in lines):
@@ -523,19 +607,30 @@ def wait_final(
         sleep(POLL_EVERY_S)
 
 
-def check_report_body(body: dict) -> None:
-    """GET /reports/{id}'s final body has C67's shape, and nothing more.
+def check_report_body(body: dict, *, phase_a: bool = False) -> None:
+    """GET /reports/{id}'s final body has C67's shape as MS4 extends it, and no more.
 
-    Every body has reportId, status and capturedAt. A refused or failed report adds
-    its refusalReason (C50). A done report adds noFloodSeen and, with a level, also
-    level, landmark, passability, basis as two counts, and levelIsFloor. Any other
-    key fails: the location, readings, photoKey and the claim never reach the app.
+    Every body has reportId, status, capturedAt, mode and published. A refused or
+    failed report adds its refusalReason (C50). A done report adds noFloodSeen and,
+    with a level, also level, landmark, passability, basis as two counts,
+    levelIsFloor, levelFrom (MS3b), readings as a list of objects, gpsAccuracyM as a
+    number, and the photoUrl, overlayUrl and layersUrl links. With `phase_a`, a stack
+    without Task 14 and MS3b, readings, overlayUrl, layersUrl and levelFrom may be
+    missing. Any other key fails: the location, a stored key, the claim, the inches
+    (depthInMin, depthInMax, or a reading's inches: the deployed INCHES_SHOWN is
+    "false"), and a demo pin's credit, place and event never reach a smoke report.
     The error names keys, never their values.
     """
     status = body.get("status")
     if status not in FINAL_STATUSES:
         raise CheckFailed(f"report body: status {status!r} isn't final")
-    keys = {"reportId": str, "status": str, "capturedAt": str}
+    keys: dict[str, type | tuple[type, ...]] = {
+        "reportId": str,
+        "status": str,
+        "capturedAt": str,
+        "mode": str,
+        "published": bool,
+    }
     if status != "done":
         keys["refusalReason"] = str
     else:
@@ -547,8 +642,16 @@ def check_report_body(body: dict) -> None:
                 "passability": str,
                 "basis": dict,
                 "levelIsFloor": bool,
+                "levelFrom": str,
+                "readings": list,
+                "gpsAccuracyM": (int, float),  # a JSON number, never a bool
+                "photoUrl": str,
+                "overlayUrl": str,
+                "layersUrl": str,
             }
-    extra, missing = sorted(body.keys() - keys), sorted(keys.keys() - body.keys())
+    waived = keys.keys() & set(PHASE_B_KEYS) if phase_a else set()
+    extra = sorted(body.keys() - keys.keys())
+    missing = sorted(keys.keys() - body.keys() - waived)
     if extra or missing:
         raise CheckFailed(
             f"report body ({status}): extra keys {extra}, missing keys {missing}"
@@ -557,7 +660,11 @@ def check_report_body(body: dict) -> None:
     wrong = [
         key
         for key, kind in keys.items()
-        if type(body[key]) is not kind or (kind is str and not body[key])
+        if key in body
+        and (
+            type(body[key]) not in (kind if isinstance(kind, tuple) else (kind,))
+            or (kind is str and not body[key])
+        )
     ]
     basis = body.get("basis")
     if type(basis) is dict and (
@@ -565,8 +672,13 @@ def check_report_body(body: dict) -> None:
         or any(type(count) is not int for count in basis.values())
     ):
         wrong.append("basis")
+    readings = body.get("readings")
+    if type(readings) is list and any(type(r) is not dict for r in readings):
+        wrong.append("readings")
     if wrong:
         raise CheckFailed(f"report body ({status}): wrong {sorted(set(wrong))}")
+    if type(readings) is list and any("inches" in reading for reading in readings):
+        raise CheckFailed(f"report body ({status}): extra reading keys ['inches']")
 
 
 def outcome_of(body: dict) -> str:
@@ -726,24 +838,63 @@ def say_no_level(items: Sequence[Sent]) -> None:
         say(f"{item.label} drops: {causes or 'none'}")
 
 
+def check_no_pin(http: httpx.Client, stack: Stack, items: Sequence[Sent]) -> None:
+    """S1's no pin (C513): none of the run's reports is in nearby or on the map.
+
+    Nearby is asked at the spot, where every report was made, with its largest
+    radius; the map lists every visible pin. A report found fails the check by its
+    label, never its id, and an answer that isn't a pins list fails too. Nearby reads
+    the table on each call, while the map's 30 s memo can lag a publish.
+    """
+    labels = {item.report_id: item.label for item in items}
+    for where, path, params in (
+        ("in nearby", "/reports", {**SPOT, "radius": NEARBY_RADIUS_M}),
+        ("on the map", "/map/pins", None),
+    ):
+        # The query holds the spot, so the errors name the path alone.
+        response = http.get(f"{stack.api_url}{path}", params=params)
+        if response.status_code != 200:
+            raise CheckFailed(f"no pin: GET {path}: {got(response)}")
+        try:
+            found = {pin["id"] for pin in response.json()["pins"]} & labels.keys()
+        except (ValueError, KeyError, TypeError):
+            raise CheckFailed(f"no pin: GET {path}: not a pins list") from None
+        if found:
+            named = " and ".join(
+                item.label for item in items if item.report_id in found
+            )
+            raise CheckFailed(f"no pin: {named} found {where} (S1)")
+    say(f"no pin: none of the {len(items)} reports is in nearby or on the map")
+
+
 def check_stored_photos(stack: Stack, items: Sequence[Sent]) -> None:
-    """B4 (W25, C61): no raw photo is left, and only a level keeps a blurred photo."""
+    """B4 (W25, C61): no raw photo is left, and only a level keeps its stored copies.
+
+    Those are blurred/{id}.jpg and, but on a Phase A stack, Task 14's overlay
+    overlay/{id}.jpg and its layers overlay/{id}.json: each present for every level
+    report and for no other.
+    """
+    kept = {"blurred photo": "blurred/{}.jpg"}
+    if not stack.phase_a:
+        kept |= {"stored overlay": "overlay/{}.jpg", "layers file": "overlay/{}.json"}
     s3 = stack.session.client("s3")
     for item in items:
         if object_exists(s3, stack.bucket, f"raw/{item.report_id}.jpg"):
             raise CheckFailed(f"{item.label}: its raw photo is still in the bucket")
         level = "level" in item.body
-        if object_exists(s3, stack.bucket, f"blurred/{item.report_id}.jpg") != level:
-            wrong = (
-                "a level but no blurred photo"
-                if level
-                else "a blurred photo but no level"
-            )
-            raise CheckFailed(f"{item.label}: {wrong} (B4)")
+        for what, key in kept.items():
+            if object_exists(s3, stack.bucket, key.format(item.report_id)) != level:
+                wrong = f"a level but no {what}" if level else f"a {what} but no level"
+                raise CheckFailed(f"{item.label}: {wrong} (B4)")
     levels = sum("level" in item.body for item in items)
+    copies = (
+        "a blurred photo only for the {} with a level (Phase A: no overlay checked)"
+        if stack.phase_a
+        else "a blurred photo, an overlay and its layers only for the {} with a level"
+    )
     say(
-        f"stored photos: no raw photo left for {len(items)} reports, and a blurred"
-        f" photo only for the {levels} with a level"
+        f"stored photos: no raw photo left for {len(items)} reports, and"
+        f" {copies.format(levels)}"
     )
 
 
@@ -767,9 +918,10 @@ def run_summary(lines: Iterable[dict]) -> dict:
     It reads the run's log lines. A line's SAM calls are its sam_ms timings, or all
     its meta_calls when SAM failed before they were logged; the rest are judge's. A
     meta_status is the error that ended its pipeline: judge's when SAM's timings are
-    in the line, else SAM's. The cost comes from SAM's calls at its price per image
-    and from Muse Spark's billed usage, the input_tokens and output_tokens of its
-    answers, never from a token count: counts aren't bills (MS1's probe note).
+    in the line, else SAM's. The cost, a Decimal in USD at spend.py's PRICES, comes
+    from SAM's calls at its price per image and from Muse Spark's billed usage, the
+    input_tokens and output_tokens of its answers, never from a token count: counts
+    aren't bills (MS1's probe note).
     """
     calls = {"sam": 0, "judge": 0}
     ended_on = {"sam": {504: 0, 413: 0}, "judge": {504: 0, 413: 0}}
@@ -784,24 +936,49 @@ def run_summary(lines: Iterable[dict]) -> dict:
             ended_on["judge" if "sam_ms" in line else "sam"][status] += 1
         billed["input"] += line.get("input_tokens") or 0
         billed["output"] += line.get("output_tokens") or 0
-    usd = (
-        calls["sam"] * SAM_USD_PER_IMAGE
-        + billed["input"] * SPARK_USD_PER_INPUT_TOKEN
-        + billed["output"] * SPARK_USD_PER_OUTPUT_TOKEN
+    usd = spend.cost_of(
+        sam_images=calls["sam"],
+        spark_input_tokens=billed["input"],
+        spark_output_tokens=billed["output"],
     )
     return {"calls": calls, "ended_on": ended_on, "billed_tokens": billed, "usd": usd}
 
 
-def say_spend(items: Sequence[Sent]) -> None:
-    spend = run_summary(line for item in items for line in item.lines)
-    calls, ended, billed = spend["calls"], spend["ended_on"], spend["billed_tokens"]
+def say_spend(stack: Stack, items: Sequence[Sent]) -> bool:
+    """Print the run's spend, add it to the Meta spend counter as smoke (C527), and
+    return whether the counter took it.
+
+    It goes through spend.py's record_spend, with its client settings, into the
+    stack's limits table. A run with nothing billed records nothing, as the handler
+    does. A write that fails prints spend_error with the amount, rounded up as the
+    counter records it, for the tracker to add once by hand (docs/operations.md).
+    Nothing here raises for it, so a check's own failure still ends the run.
+    """
+    summary = run_summary(line for item in items for line in item.lines)
+    calls, ended = summary["calls"], summary["ended_on"]
+    billed = summary["billed_tokens"]
     say(
         f"spend: {calls['sam'] + calls['judge']} Meta calls (SAM {calls['sam']},"
         f" judge {calls['judge']}); ended on 504: SAM {ended['sam'][504]}, judge"
         f" {ended['judge'][504]}; on 413: SAM {ended['sam'][413]}, judge"
         f" {ended['judge'][413]}; billed {billed['input']:,} input and"
-        f" {billed['output']:,} output tokens, estimated ${spend['usd']:.4f}"
+        f" {billed['output']:,} output tokens, estimated ${summary['usd']:.4f}"
     )
+    if summary["usd"] == 0:
+        return True
+    usd = spend.rounded_up(summary["usd"])
+    try:
+        ddb = stack.session.client("dynamodb", config=spend.SPEND_CONFIG)
+        table = spend.deployed_limits_table(stack.session)
+        total = spend.record_spend(summary["usd"], "smoke", ddb=ddb, table=table)
+    except (BotoCoreError, ClientError) as exc:
+        say(
+            f"spend_error: usd {usd:f} from this run isn't on the spend counter"
+            f" ({spend.aws_error(exc)}); add it once by hand (docs/operations.md)"
+        )
+        return False
+    say(f"spend recorded: ${usd:f} as smoke, counter total ${total:f}")
+    return True
 
 
 def check_missing_photo(http: httpx.Client, stack: Stack) -> None:
@@ -854,13 +1031,16 @@ def s3_notification(bucket: str, key: str) -> dict:
 
 
 def check_preflight(http: httpx.Client, api_url: str) -> None:
+    """MS1's CORS check: the preflight for POST /uploads allows each app origin, and
+    the X-Lusot-Device header the app sends with it (Task 2)."""
+    device = DEVICE_HEADER.lower()
     for origin in ORIGINS:
         response = http.options(
             f"{api_url}/uploads",
             headers={
                 "Origin": origin,
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "content-type",
+                "Access-Control-Request-Headers": f"content-type,{device}",
             },
         )
         allowed = response.headers.get("access-control-allow-origin")
@@ -869,7 +1049,15 @@ def check_preflight(http: httpx.Client, api_url: str) -> None:
                 f"preflight from {origin}: HTTP {response.status_code},"
                 f" allow-origin {allowed!r}"
             )
-    say(f"cors: the preflight for POST /uploads allows {' and '.join(ORIGINS)}")
+        headers = response.headers.get("access-control-allow-headers")
+        if device not in {name.strip().lower() for name in (headers or "").split(",")}:
+            raise CheckFailed(
+                f"preflight from {origin}: allow-headers {headers!r}, expected {device}"
+            )
+    say(
+        f"cors: the preflight for POST /uploads allows {' and '.join(ORIGINS)}, with"
+        f" the {device} header"
+    )
 
 
 def check_png_refused(http: httpx.Client, api_url: str) -> None:
@@ -972,17 +1160,38 @@ def failure_name(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+_device = {"id": "", "uploads": 0}  # this run's device id, and the uploads it sent
+
+
+def new_device() -> None:
+    """Start afresh, so the next POST /uploads takes a new device id. main() calls it,
+    so each run has its own."""
+    _device.update(id="", uploads=0)
+
+
+def device_header() -> dict[str, str]:
+    """X-Lusot-Device for one POST /uploads: the run's uuid4, renewed after every 10.
+
+    The API counts uploads per device per hour (C508), so the fallback's 15 photos
+    and a run's other uploads stay inside the limit.
+    """
+    if not _device["id"] or _device["uploads"] >= DEVICE_UPLOADS:
+        _device.update(id=str(uuid.uuid4()), uploads=0)
+    _device["uploads"] += 1
+    return {DEVICE_HEADER: _device["id"]}
+
+
 def request_upload(
     http: httpx.Client, api_url: str, origin: str | None = None, expect: int = 201
 ) -> httpx.Response:
+    """POST /uploads from SPOT, with the run's device id, as the app sends it."""
     body = {
         **SPOT,
         "gpsAccuracyM": 10,
         "capturedAt": datetime.now(UTC).isoformat(timespec="milliseconds"),
     }
-    response = http.post(
-        f"{api_url}/uploads", json=body, headers={"Origin": origin} if origin else {}
-    )
+    headers = device_header() | ({"Origin": origin} if origin else {})
+    response = http.post(f"{api_url}/uploads", json=body, headers=headers)
     if response.status_code != expect:
         raise CheckFailed(f"POST /uploads: {got(response)}, expected {expect}")
     return response
