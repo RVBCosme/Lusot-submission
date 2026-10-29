@@ -22,7 +22,7 @@
 
 **Tech Stack:** Python 3.13 through uv: OpenCV 4.14.0 (`findContours`, `fitEllipse`, `approxPolyDP`) and NumPy; pytest, moto and ruff. Node 22 and Vitest for one API test. AWS SAM CLI and Docker Desktop for the deploy.
 
-**Spec:** `docs/superpowers/specs/2026-10-28-ms3b-geometry-design.md` as amended on Oct 29 (C300 to C328, MS3b-Q1 to Q7), binding. These are read-only:
+**Spec:** `docs/superpowers/specs/2026-10-28-ms3b-geometry-design.md` as amended and approved on Oct 29, apart from Q3 and Q4 (C300 to C330, MS3b-Q1 to Q8), binding. These are read-only:
 - The row contract is MS6's draft spec §4.3, with its C415, C418, C420, C423 and C425 (`C:\Systems\Lusot\lusot-wt\w4\docs\superpowers\specs\2026-10-28-ms6-evaluation-design.md`).
 - MS2's formats are its spec's §5.9 (`C:\Systems\Lusot\lusot-wt\meta\docs\superpowers\specs\2026-10-28-ms2-data-tooling-design.md`), and MS2's win where the two differ, as MS6 says.
 - The evidence record answers MS4's C518 (MS4's spec on `ms4-backend-specs`, at `6c345b0`).
@@ -36,7 +36,12 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
 - Task 19 starts after Task 18 merges MS3b into `main`, on its own branch, and is due by Nov 2 (C329).
 
 **Timing (approved on Oct 29 at 10:36 PM by the tracker, under Rene's delegation; PDF item 55):**
-- **freeze-1** is tagged on `main` on **Nov 3**, just before the sealed run. Approving the freeze and the sealed run stay Rene's gate (item 43). freeze-2 is only for the disclosed rerun (C421).
+- **Rene's QA milestone** (10:57 PM, relayed by the tracker; `queue.md`, "QA milestone"):
+  - **End of Nov 2:** every Must task is code-complete and merged into `main`. For MS3b that includes Task 19.
+  - **Nov 3, by 12:00 PM:** QA-ready, with one integrated deploy from `main`.
+  - **Nov 3, afternoon:** Rene QA-tests the real app. Window 3 diagnoses and fixes any measurement issue he finds, before the freeze.
+  - **Nov 3, evening:** freeze-1 is tagged after QA's measuring-path fixes, once Rene approves the freeze (item 43). Then the sealed run. The date stays Nov 3 (item 55).
+  - **Nov 4:** any change to the measuring path needs freeze-2 and disclosure (C421).
 - **By the end of Nov 2, `main` holds:**
   - MS3b, through Task 18's merge
   - Task 19's `run_sealed.py`
@@ -49,7 +54,7 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
 **Rene's data inputs (Oct 29, about 10:45 PM, not clock-read; relayed by the tracker):**
 - **His review rule:** Claude annotates or compiles first, and Rene reviews before any use. Set A photo labels stay his, by the sealed rule.
 - **Set B:** fewer than 6 cars, or none, is accepted. MS3b-Q1's fallback then applies, and the results note says so.
-- **A-neg** comes from Wikimedia Commons: CC0, public domain or CC BY photos of dry Metro Manila streets, downloaded without anyone opening them, in place of his own photos. MS2's intake and `eval/rules.md` v0.7 carry the source line, and v0.7 stays Rene's to approve.
+- **A-neg** comes from Wikimedia Commons: CC0, public domain or CC BY photos of non-flooded (wet or dry) Metro Manila streets, downloaded without anyone opening them, in place of his own photos. MS2's intake and `eval/rules.md` v0.7 carry the source line, and v0.7 stays Rene's to approve.
 
 ## Global Constraints
 
@@ -108,6 +113,7 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
 
   - **Figures read from the harness's report:**
     - the release-gate targets (`eval/rules.md` §8: median error at most 3 in, at least 70% measured, envelope coverage at least 80%, no rise in underestimation)
+      - **Q1's consequence** (the tracker's approval check, Oct 29): with fewer than 2 sealed Set B cars there is no sealed Set B, so inches can't pass the gate (MS6's C407), and the app shows levels only.
     - C309's guards (coverage falls by no more than 10 points, passability by no more than 5)
     - C319's trigger (under 70% measured, or a median error above 3 in)
     - the replay's difference in within-one photos (MS6's C425), which guard 3 reads (C324)
@@ -754,6 +760,35 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - [ ] **Step 3:** Implement the store, the handler and the template.
 - [ ] **Step 4:** Run `uv run pytest -q` and `uv run ruff check .`. From `backend`, run `sam validate --lint --profile lusot --region ap-southeast-1` and `grep -n "GEOMETRY_IN_LEVEL" template.yaml`. Expected: PASS; clean; valid; one match, and no `GeometryInLevel` parameter.
 - [ ] **Step 5:** Commit `feat(analysis): store levelFrom and the inches, and read geometry_in_level from the template`.
+
+### Task 10a: SAM's claimed mask size, checked before parsing (C330, R123; tier Should)
+
+*Added on Oct 29 at 10:59 PM by Window 3, from MS3a's final review and the tracker's approval check. It comes before Task 11, so the deploy carries it. It must be in `main` by the end of Nov 2, before freeze-1.*
+
+**Files:**
+- Modify: `backend/analysis/src/lusot_analysis/meta_client.py` (`_instances`, beside `_BOX_TOKEN`)
+- Test: `backend/analysis/tests/test_meta_client.py`
+
+**Interfaces:**
+- No signature changes.
+- `_instances(text, image)` raises the same `MetaApiError` (status `None`) as its other refusals, with the message `a SAM mask is larger than the image`. It raises before `parser.push`.
+
+- [ ] **Step 1:** Write the tests (RED):
+  - **Parametrized `test_segment_mask_larger_than_the_image_raises_before_parsing`.** Each case is a one-record SAM text on the 320 × 334 `photo` whose mask token claims a size larger than the image:
+    - `data=335,320,…`: one row too tall
+    - `data=334,321,…`: one column too wide
+    - `data=100000,100000,…`: far too large
+    The box sits inside the image, and the payload is any short string.
+  - **What each case checks:** `MetaApiError`, `status is None`, and one request. To prove the check runs first, monkeypatch `meta_client.image_segmentation_format` with a function that raises `AssertionError("parser reached")`.
+  - **`test_segment_mask_at_the_image_size_passes_the_size_check`:** a full-frame record, with box `x1=0;y1=0;x2=319;y2=333;w=320;h=334` and a 334 × 320 raster built with the test file's `mask_text` helper, returns one instance.
+  - **The C90 tests** (scaled rasters) and `test_segment_output_it_cannot_place_raises` keep passing unchanged.
+- [ ] **Step 2:** Implement it:
+  - Add `_MASK_TOKEN = re.compile(r"<\|mask;([^|]*)\|>")` beside `_BOX_TOKEN`. A mask token's fields hold no `|`; its base85 payload never contains `|`, per the protocol's alphabet.
+  - At the top of `_instances`, read each token's `data` field with `_token_fields`. Take its first two comma-separated integers as rows and columns. Raise if rows > `image.height` or columns > `image.width`.
+  - A token whose `data` doesn't start with two integers is left for the parser to diagnose, as today.
+  - Update `_instances`' docstring with one sentence.
+- [ ] **Step 3:** Run `uv run pytest -q tests/test_meta_client.py`, then `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`. From the repo root, run `node scripts/check_account_ids.mjs`. Expected: all pass.
+- [ ] **Step 4:** Commit `fix(analysis): check SAM's claimed mask size before parsing (C330)`.
 
 ### Task 11: Deploy and the cloud geometry check (D1; spends Meta credits)
 
