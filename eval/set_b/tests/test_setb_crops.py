@@ -143,6 +143,31 @@ def test_plan_crops_draw_order(diameter, count):
     assert sum(plan.shrink for plan in plans) == 2
 
 
+class RecordingRandom(random.Random):
+    """A random.Random that records the bounds of every uniform(a, b) it draws."""
+
+    def __init__(self, seed: int) -> None:
+        super().__init__(seed)
+        self.bounds: list[tuple[float, float]] = []
+
+    def uniform(self, a: float, b: float) -> float:
+        self.bounds.append((a, b))
+        return super().uniform(a, b)
+
+
+@pytest.mark.parametrize("diameter", [DIAMETER, 20.0])
+def test_plan_crops_draw_bounds(diameter):
+    """S-R27: plan_crops draws each depth within its own band's limits, in crop order,
+    then each shrunk target from exactly 52.5 to 79.5 px. Nothing else draws from
+    uniform, since shuffle and sample don't."""
+    rng = RecordingRandom(3)
+    plans = crops.plan_crops("B01", 1, diameter, rng)
+    depth_bounds = [crops.band_limits(plan.band, diameter) for plan in plans]
+    target_bounds = [(52.5, 79.5)] * sum(plan.shrink for plan in plans)
+    assert len(target_bounds) == 2
+    assert rng.bounds == depth_bounds + target_bounds
+
+
 def test_small_crop_wheel_height():
     """Addition 5: over 200 photo names and 50 wheel sizes, every shrunk crop's smaller
     wheel, measured on the crop's own WheelGeom, is 50 to 80 px tall, so C56's 40 px
