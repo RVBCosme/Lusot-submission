@@ -904,12 +904,16 @@ def test_other_s3_errors_retry(aws, fake, monkeypatch, caplog, code, http_status
     assert status(aws) == ("processing", None)
     assert keys(aws) == [RAW_KEY]
     assert fake.calls == []
+    assert "arn:" not in caplog.text
     (line,) = report_lines(caplog)
-    assert (line["outcome"], line["error"], line["http_status"]) == (
-        "error",
-        code,
-        http_status,
-    )
+    assert line.pop("ms") >= 0
+    # Only the code and status, and no R92 visibility change: it comes back at 1,080 s.
+    assert line == {
+        "reportId": REPORT_ID,
+        "outcome": "error",
+        "error": code,
+        "http_status": http_status,
+    }
 
 
 def test_aws_error_after_meta_calls_retries(aws, fake, monkeypatch, caplog):

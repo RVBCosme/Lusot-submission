@@ -62,7 +62,7 @@ Every write after the claim requires `status = processing` and this worker's `cl
 | Any other Meta error that outlasts the client's own retries, or a Meta call that would pass the run's deadline (C84) | `failed/model_error` |
 | A Muse Spark answer that isn't valid JSON or fails the schema | `failed/model_error` (C47) |
 | Any other exception inside the pipeline | `failed/pipeline_error` |
-| An AWS error (S3, DynamoDB, SSM) other than the missing-photo codes | The message returns for an SQS retry. The lease expires before the queue redelivers it (C46). |
+| An AWS error (S3, DynamoDB, SSM) other than `NoSuchKey` on the raw photo | The message returns for an SQS retry. The lease expires before the queue redelivers it (C46). |
 
 ### 3.2 Pipeline (`lusot_analysis/pipeline/`, one module per step)
 

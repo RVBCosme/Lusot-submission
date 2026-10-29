@@ -33,7 +33,7 @@ In order, it checks that:
    never from a token count.
 7. a report whose photo never came ends failed/photo_missing within 60 s (spec §3.6):
    the queue gets one S3-shaped notification for it, and the run prints the log
-   line's S3 error code and HTTP status (R93)
+   line's S3 error code and HTTP status, NoSuchKey (404) since MS3a Task 16 (R93)
 8. MS1's checks:
    - S3 itself refuses a form whose Content-Type is image/png (403, Review Focus 1)
    - the analysis log shows the Meta key loaded at a cold start since the analysis
@@ -797,7 +797,8 @@ def check_missing_photo(http: httpx.Client, stack: Stack) -> None:
     POST /uploads makes the report, and no photo is sent. The queue then gets one
     S3-shaped notification for its raw key, through get_queue_url on the stack's
     QueueName; the URL holds the account ID, so it is never printed. The log line's
-    S3 error code and HTTP status are printed, for R93's follow-up.
+    S3 error code and HTTP status are printed. Since R93 only NoSuchKey ends a report
+    photo_missing, so a 403 under the raw/ grant fails this check at its bound.
     """
     report_id = request_upload(http, stack.api_url).json()["reportId"]
     sqs = stack.session.client("sqs")
