@@ -180,8 +180,10 @@ def check_cars(cars: Path, *, final: bool) -> tuple[list[str], dict[str, str]]:
     These print their row and exit 1, before any file is checked: a car_id that isn't
     B and two digits; a photo_file that isn't the car's own <car>-<n>.<jpg|jpeg|png> in
     any case, or whose stem another row has, in any case, since a photo's masks are
-    filed by its stem; and a consent_file that isn't a bare file name, or is cars.csv's
-    own. Without final, a consent path that names sealed is refused before its stat.
+    filed by its stem; and a consent_file that isn't a bare file name, as
+    eval/set_b/cars.py's bare_name has it (not "." or "..", and no "/", "\\" or ":", a
+    drive or an NTFS stream), or is cars.csv's own. Without final, a consent path that
+    names sealed is refused before its stat.
     """
     rows = _read_rows(cars, CARS_READ)
     problems = []
@@ -198,7 +200,9 @@ def check_cars(cars: Path, *, final: bool) -> tuple[list[str], dict[str, str]]:
             problems.append(f"{ref} photo_file: duplicate")
         stems.add(stem)
         if consent and (
-            Path(consent).name != consent or consent.casefold() == cars.name.casefold()
+            consent in (".", "..")
+            or any(mark in consent for mark in "/\\:")
+            or consent.casefold() == cars.name.casefold()
         ):
             problems.append(f"{ref} consent_file: bad_name")
     _stop_on(problems)

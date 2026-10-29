@@ -681,6 +681,25 @@ def test_consent_file_must_be_a_bare_name_beside_cars_csv(tmp_path, capsys):
 
 
 @pytest.mark.parametrize(
+    "consent",
+    ["cars.csv::$DATA", "B01.txt:x", "C:B01.txt", "..", "oks\\B01.txt", "oks/B01.txt"],
+)
+def test_consent_file_is_named_as_the_generator_takes_it(tmp_path, capsys, consent):
+    # eval/set_b/cars.py's bare_name: no "/", "\" or ":" (a drive, or an NTFS stream
+    # such as cars.csv::$DATA, which is cars.csv itself), and not "." or "..". So the
+    # Meta caller is at least as strict as the generator, on every system.
+    folder = tmp_path / "set_b" / "dev"
+    cars = car_set(folder, [("B01", "B01-1.jpg", "B01.txt")])
+    row = {"car_id": "B01", "photo_file": "B01-1.jpg", "consent_file": consent}
+    write_csv(cars, CARS_COLUMNS, [row | CAR_FACTS])
+    fake = FakeClient()
+    assert run(dev_argv(cars, folder / "masks"), fake) == 1
+    assert capsys.readouterr().out == "row 1 consent_file: bad_name\n"
+    assert fake.sent == []
+    assert not (folder / "masks").exists()
+
+
+@pytest.mark.parametrize(
     ("header", "row", "problem"),
     [
         ("car_id,photo_file,,consent_file", "B01,B01-1.jpg,x,B01.txt", "3: blank"),
