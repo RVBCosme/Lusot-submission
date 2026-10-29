@@ -10,7 +10,8 @@ at least $80 of the $150 credit for the demo, the video and judges' live runs. I
 runs on its own: a pause at $60 during the build waits for the tracker to ask Rene.
 
 It refuses a value above 140, or below what the counter already holds, and then
-writes nothing. Otherwise it puts the parameter with Overwrite=True and prints the old
+writes nothing. A counter not yet seeded has no total to compare with, so it prints
+`unseeded`, writes nothing and exits 1 (seed_spend.py comes first). Otherwise it puts the parameter with Overwrite=True and prints the old
 and new values. A deploy that updates the parameter puts it back to the template's 60,
 which only pauses spending sooner, so it runs again after any later deploy
 (docs/operations.md).
@@ -24,7 +25,8 @@ boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
 
 Usage, from the repo root: uv run backend/scripts/set_spend_stop.py --usd 140
-Exit codes: 0 set; 1 an AWS error; 2 refused, nothing written.
+Exit codes: 0 set; 1 an AWS error, or an unseeded counter and nothing written; 2
+refused, nothing written.
 """
 
 from __future__ import annotations
@@ -73,6 +75,9 @@ def main(argv: list[str] | None = None, *, session=None) -> int:
         )
     except (BotoCoreError, ClientError) as exc:
         print(spend.aws_error(exc), file=sys.stderr)
+        return 1
+    except spend.SpendUnseeded as exc:
+        print(f"{exc}; nothing written", file=sys.stderr)
         return 1
     print(f"{spend.SPEND_STOP_PARAM}: {old} -> {usd} (spent so far ${total})")
     return 0

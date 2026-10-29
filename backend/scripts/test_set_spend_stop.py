@@ -36,8 +36,10 @@ def session(monkeypatch):
 
 
 def spent(session, micro: int) -> None:
+    """A seeded counter holding `micro` micro-dollars."""
     session.client("dynamodb").put_item(
-        TableName=TABLE, Item=KEY | {"micro_usd": {"N": str(micro)}}
+        TableName=TABLE,
+        Item=KEY | {"micro_usd": {"N": str(micro)}, "seeded": {"BOOL": True}},
     )
 
 
@@ -50,12 +52,26 @@ def test_raises_the_stop_to_140(session, capsys):
     assert set_spend_stop.main(["--usd", "140"], session=session) == 0
     assert stop(session) == "140"
     assert capsys.readouterr().out == f"{STOP}: 60 -> 140 (spent so far $41.5)\n"
-    # With no counter yet, the total is 0, and a stop at the total is allowed.
-    session.client("dynamodb").delete_item(TableName=TABLE, Key=KEY)
-    assert set_spend_stop.main(["--usd", "60"], session=session) == 0
-    assert stop(session) == "60"
+    # A stop at the total is allowed.
     spent(session, 60_000_000)
     assert set_spend_stop.main(["--usd", "60"], session=session) == 0
+    assert stop(session) == "60"
+
+
+@pytest.mark.parametrize(
+    "counter",
+    [None, {"micro_usd": {"N": "19600"}}],
+    ids=["new-table", "a-run-before-the-seed"],
+)
+def test_refuses_on_an_unseeded_counter(session, capsys, counter):
+    # A new or re-created table has no total to hold the stop above (C527).
+    if counter is not None:
+        session.client("dynamodb").put_item(TableName=TABLE, Item=KEY | counter)
+    assert set_spend_stop.main(["--usd", "140"], session=session) == 1
+    assert stop(session) == "60"
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.startswith("unseeded")
 
 
 @pytest.mark.parametrize(

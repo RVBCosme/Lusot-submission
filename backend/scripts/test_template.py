@@ -170,6 +170,16 @@ def test_limits_table():
     assert "GlobalSecondaryIndexes" not in p
 
 
+def test_limits_table_is_retained():
+    # The spend counter lives here (C527). A deploy whose template leaves the table
+    # out, or replaces it, keeps the old table and its counter instead of deleting them.
+    table = resource("LimitsTable")
+    assert table.get("DeletionPolicy") == "Retain"
+    assert table.get("UpdateReplacePolicy") == "Retain"
+    # A generated name, so a table created again never collides with the retained one.
+    assert "TableName" not in props("LimitsTable")
+
+
 def test_feed_index():
     p = props("ReportsTable")
     indexes = {i["IndexName"]: i for i in p["GlobalSecondaryIndexes"]}

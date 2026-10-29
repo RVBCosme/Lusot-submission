@@ -5,6 +5,11 @@ micro-dollars rounded up, so the count runs over, never under. The analysis hand
 reads it before any Meta call and pauses model calls once it reaches the stop in
 /lusot/spend/stop-usd. The item has no expiresAt, so it never expires.
 
+Only a seeded counter is read. seed_spend.py adds the total spent before the counter
+existed and sets `seeded`, once. Until then spend_total raises SpendUnseeded, so a new
+or re-created table reads as unreadable, never as $0. A run's ADD before the seed may
+make the item, still unseeded.
+
 Standard library and boto3 only, so backend/scripts can load this file by path. Ask
 Lusot's spend.ts counts the same way, and both test against spend_contract.json.
 
@@ -15,7 +20,7 @@ profile's `aws login` credentials):
     uv run --directory backend/analysis --with "botocore[crt]==1.43.120"
         python -m lusot_analysis.spend add --usd 0.37 --source manual-<who>
     uv run ... python -m lusot_analysis.spend total
-Exit codes: 0 done; 1 an AWS error; 2 a bad --usd.
+Exit codes: 0 done; 1 an AWS error, or `total` on an unseeded counter; 2 a bad --usd.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 SPEND_PK = "spend#meta"  # the counter's key in the limits table
 SPEND_ATTR = "micro_usd"  # its total, in whole micro-dollars
+SPEND_SEEDED_ATTR = "seeded"  # set once by seed_spend.py; only a seeded total is read
 SPEND_STOP_PARAM = "/lusot/spend/stop-usd"  # the stop, in USD (the template's)
 STACK = "lusot"  # samconfig's stack_name
 REGION = "ap-southeast-1"
@@ -63,6 +69,10 @@ SPEND_CONFIG = Config(
 
 logger = logging.getLogger("lusot.spend")
 logger.setLevel(logging.INFO)  # Lambda's text log format otherwise drops INFO
+
+
+class SpendUnseeded(RuntimeError):
+    """The counter's item is missing or has no `seeded`: seed_spend.py hasn't run."""
 
 
 def cost_of(
@@ -128,17 +138,23 @@ def record_spend(
 
 
 def spend_total(*, ddb=None, table: str | None = None) -> Decimal:
-    """The counter's total in USD, read strongly consistent. A missing item is 0."""
+    """The counter's total in USD, read strongly consistent.
+
+    A missing item, or one with no `seeded`, raises SpendUnseeded: never $0.
+    """
     client = boto3.client("dynamodb", config=SPEND_CONFIG) if ddb is None else ddb
     item = client.get_item(
         TableName=_table(table),
         Key={"pk": {"S": SPEND_PK}},
-        ProjectionExpression="#micro",
-        ExpressionAttributeNames={"#micro": SPEND_ATTR},
+        ProjectionExpression="#micro, #seeded",
+        ExpressionAttributeNames={"#micro": SPEND_ATTR, "#seeded": SPEND_SEEDED_ATTR},
         ConsistentRead=True,
     ).get("Item")
-    if item is None or SPEND_ATTR not in item:
-        return Decimal(0)
+    if item is None or SPEND_SEEDED_ATTR not in item:
+        raise SpendUnseeded(
+            "unseeded: the Meta spend counter has no seed yet; run seed_spend.py"
+            " (docs/operations.md)"
+        )
     return _usd(item[SPEND_ATTR]["N"])
 
 
@@ -212,6 +228,9 @@ def main(argv: list[str] | None = None, *, session=None) -> int:
             print(f"total ${spend_total(ddb=ddb, table=table)}")
     except (BotoCoreError, ClientError) as exc:
         print(aws_error(exc), file=sys.stderr)
+        return 1
+    except SpendUnseeded as exc:
+        print(exc, file=sys.stderr)
         return 1
     return 0
 

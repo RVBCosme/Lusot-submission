@@ -17,10 +17,10 @@ A report's mode, read from its item, sets where its photo is stored (C510), and 
 live or demo level is published only while the publish switch reads "off" (C516).
 
 The Meta spend stop (C527): before any Meta call, a spend counter at or over the stop
-in /lusot/spend/stop-usd, or either one unreadable, sets the model-calls switch "on"
-and ends the report paused. After the run, its cost goes to the counter, and a total
-that reaches the stop, or a write that is lost, sets the switch too. Each flip logs
-spend_stop or spend_error, which the SpendPauseAlarm counts.
+in /lusot/spend/stop-usd, or either one unreadable or the counter not yet seeded, sets
+the model-calls switch "on" and ends the report paused. After the run, its cost goes
+to the counter, and a total that reaches the stop, or a write that is lost, sets the
+switch too. Each flip logs spend_stop or spend_error, which the SpendPauseAlarm counts.
 
 The Meta client and the pipeline are imported where they are first used, not at
 import: with OpenCV beside them, the Lambda's init reached its 10 s limit (the cold
@@ -52,6 +52,7 @@ from lusot_analysis.spend import (
     SPARK_TOKENS_IF_UNREPORTED,
     SPEND_CONFIG,
     SPEND_STOP_PARAM,
+    SpendUnseeded,
     cost_of,
     record_spend,
     rounded_up,
@@ -298,11 +299,16 @@ def _spend_check(line: dict) -> Decimal | None:
 
     Read after the claim and before any Meta call (C527). A total at or over the
     stop, or either of them unreadable (fail closed, as for the switch), sets the
-    model-calls switch "on" and adds `spend_stop` to `line`.
+    model-calls switch "on" and adds `spend_stop` to `line`. A counter not yet
+    seeded, as in a new or re-created table, is unreadable too, logged as `unseeded`.
     """
     try:
         stop = _spend_stop_usd()
         total = spend_total(ddb=_spend_ddb())
+    except SpendUnseeded:
+        line["spend_stop"] = {"unseeded": True}
+        _pause_model_calls(line["spend_stop"])
+        return None
     except Exception as exc:  # noqa: BLE001
         line["spend_stop"] = {"unreadable": _error_fields(exc)}
         _pause_model_calls(line["spend_stop"])

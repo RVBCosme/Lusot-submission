@@ -43,6 +43,17 @@ def stored(ddb) -> dict | None:
     return ddb.get_item(TableName=TABLE, Key=KEY).get("Item")
 
 
+def seed_counter(ddb) -> None:
+    """Seed the counter as seed_spend.py does, with nothing added to its total."""
+    ddb.update_item(
+        TableName=TABLE,
+        Key=KEY,
+        UpdateExpression="ADD #micro :zero SET #seeded = :true",
+        ExpressionAttributeNames={"#micro": "micro_usd", "#seeded": "seeded"},
+        ExpressionAttributeValues={":zero": {"N": "0"}, ":true": {"BOOL": True}},
+    )
+
+
 def test_contract_cases():
     assert (spend.SPEND_PK, spend.SPEND_ATTR) == (
         CONTRACT["key"],
@@ -117,7 +128,11 @@ def test_record_spend_never_undercounts(ddb):
     )
 
 
-def test_missing_item_totals_zero(ddb, monkeypatch):
+def test_missing_or_unseeded_counter_raises(ddb, monkeypatch):
+    # A new or re-created table reads as unreadable, never as $0, so the handler's
+    # check fails closed until seed_spend.py has run (C527).
+    assert spend.SPEND_SEEDED_ATTR == "seeded"
+    assert issubclass(spend.SpendUnseeded, RuntimeError)
     reads = []
     get_item = ddb.get_item
 
@@ -126,23 +141,31 @@ def test_missing_item_totals_zero(ddb, monkeypatch):
         return get_item(**kwargs)
 
     monkeypatch.setattr(ddb, "get_item", read)
-    assert spend.spend_total(ddb=ddb) == Decimal(0)
+    with pytest.raises(spend.SpendUnseeded, match="^unseeded"):
+        spend.spend_total(ddb=ddb)
     # Strongly consistent, so a check right after another run's ADD sees it.
     assert reads == [
         {
             "TableName": TABLE,
             "Key": KEY,
-            "ProjectionExpression": "#micro",
-            "ExpressionAttributeNames": {"#micro": "micro_usd"},
+            "ProjectionExpression": "#micro, #seeded",
+            "ExpressionAttributeNames": {"#micro": "micro_usd", "#seeded": "seeded"},
             "ConsistentRead": True,
         }
     ]
     assert stored(ddb) is None  # reading never makes the item
+    # A run's ADD before the seed makes the item, still unseeded.
     spend.record_spend(Decimal("0.37"), "test", ddb=ddb)
+    assert stored(ddb) == KEY | {"micro_usd": {"N": "370000"}}
+    with pytest.raises(spend.SpendUnseeded):
+        spend.spend_total(ddb=ddb, table=TABLE)
+    # Once seeded, it reads its total.
+    seed_counter(ddb)
     assert spend.spend_total(ddb=ddb, table=TABLE) == Decimal("0.37")
 
 
 def test_spend_config_bounds_each_attempt(ddb, monkeypatch):
+    seed_counter(ddb)
     config = spend.SPEND_CONFIG
     assert (config.connect_timeout, config.read_timeout) == (1, 1)
     # Five attempts in all, the first one included.
@@ -181,6 +204,12 @@ def test_spend_config_bounds_each_attempt(ddb, monkeypatch):
 
 def test_cli_add_and_total(ddb, capsys):
     session = boto3.Session(region_name="ap-southeast-1")
+    # A counter not yet seeded has no total to print (C527).
+    assert spend.main(["total"], session=session) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.startswith("unseeded")
+    seed_counter(ddb)
     add = ["add", "--usd", "0.37", "--source", "manual-test"]
     assert spend.main(add, session=session) == 0
     assert (

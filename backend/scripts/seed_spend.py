@@ -5,13 +5,14 @@
 """Seed the Meta spend counter once, with the total spent before it existed (C527).
 
 It runs right after the first deploy that carries the spend stop, with the recorded
-total the tracker sends just before that deploy. The put is conditional on the item not
-existing, so it seeds once and never resets the total: a counter that already exists,
-even one a run started between the deploy and the seed, is left as it is, and the
-script says so and exits 3. A missed amount then goes in with `spend add`
-(docs/operations.md), never a second seed.
+total the tracker sends just before that deploy. One UpdateItem adds that total and
+sets `seeded`, on the condition that `seeded` isn't set yet. So it adds the total once,
+whether or not a run's ADD made the item between the deploy and the seed, and never
+twice: a second seed changes nothing, says `already seeded` and exits 1. A missed
+amount then goes in with `spend add` (docs/operations.md), never a second seed. Until
+the seed, the handler reads the counter as unseeded and pauses model calls.
 
-The counter's key, attribute and client settings come from backend/analysis's
+The counter's key, attributes and client settings come from backend/analysis's
 spend.py, loaded by path through spend_loader.py, so the scripts and the Lambda share
 one definition. The table is LIMITS_TABLE_NAME, or else the lusot stack's LimitsTable.
 An AWS error is reported by its code and HTTP status only: its message can carry an
@@ -21,7 +22,8 @@ boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
 
 Usage, from the repo root: uv run backend/scripts/seed_spend.py --usd 0.42
-Exit codes: 0 seeded; 1 an AWS error; 2 a bad --usd; 3 already seeded, nothing written.
+Exit codes: 0 seeded; 1 an AWS error, or already seeded and nothing written; 2 a bad
+--usd.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ spend = load_spend()
 
 def main(argv: list[str] | None = None, *, session=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Seed the Meta spend counter once (C527); it never resets it."
+        description="Seed the Meta spend counter once (C527); it never adds twice."
     )
     parser.add_argument(
         "--usd", required=True, help="the total spent before the counter, such as 0.42"
@@ -52,26 +54,29 @@ def main(argv: list[str] | None = None, *, session=None) -> int:
         ddb = session.client("dynamodb", config=spend.SPEND_CONFIG)
         table = spend.deployed_limits_table(session)
         try:
-            ddb.put_item(
+            ddb.update_item(
                 TableName=table,
-                Item={
-                    "pk": {"S": spend.SPEND_PK},
-                    spend.SPEND_ATTR: {"N": str(spend.to_micro(usd))},
+                Key={"pk": {"S": spend.SPEND_PK}},
+                UpdateExpression="ADD #micro :n SET #seeded = :true",
+                ConditionExpression="attribute_not_exists(#seeded)",
+                ExpressionAttributeNames={
+                    "#micro": spend.SPEND_ATTR,
+                    "#seeded": spend.SPEND_SEEDED_ATTR,
                 },
-                ConditionExpression="attribute_not_exists(#pk)",
-                ExpressionAttributeNames={"#pk": "pk"},
+                ExpressionAttributeValues={
+                    ":n": {"N": str(spend.to_micro(usd))},
+                    ":true": {"BOOL": True},
+                },
             )
         except ClientError as exc:
             if exc.response["Error"]["Code"] != "ConditionalCheckFailedException":
                 raise
-            total = spend.spend_total(ddb=ddb, table=table)
             print(
-                f"the Meta spend counter already holds ${total}: nothing written."
-                " Add a missed amount with `spend add` (docs/operations.md), never"
-                " a second seed.",
+                "already seeded: nothing written. Add a missed amount with"
+                " `spend add` (docs/operations.md), never a second seed.",
                 file=sys.stderr,
             )
-            return 3
+            return 1
         total = spend.spend_total(ddb=ddb, table=table)
     except (BotoCoreError, ClientError) as exc:
         print(spend.aws_error(exc), file=sys.stderr)

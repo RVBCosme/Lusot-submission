@@ -182,9 +182,14 @@ Resources:
         Enabled: true
 
   # Device and global counters per UTC clock hour, and flag records (C508, C511). Keys
-  # hold only SHA-256 hashes of device ids (C520), and every item has an expiresAt.
+  # hold only SHA-256 hashes of device ids (C520). Every item has an expiresAt except
+  # the Meta spend counter (C527). A deploy whose template leaves this table out, or
+  # replaces it, keeps the old table and its counter (docs/operations.md). It has no
+  # TableName, so a table created again gets a new name.
   LimitsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       BillingMode: PROVISIONED
       AttributeDefinitions:

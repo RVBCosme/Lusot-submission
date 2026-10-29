@@ -57,6 +57,7 @@ SWITCH = "/lusot/stop/model-calls"
 PUBLISH = "/lusot/stop/publish"
 SPEND_STOP = "/lusot/spend/stop-usd"
 SPEND_KEY = {"pk": {"S": "spend#meta"}}
+SEEDED = {"seeded": {"BOOL": True}}  # what seed_spend.py sets once (C527)
 # The level case's cost: 7 SAM images at $0.0025, and Muse Spark's 1,000 input and 200
 # output tokens at $1.25 and $4.25 a million.
 SAM_COST = Decimal("0.0175")
@@ -144,7 +145,8 @@ def aws(monkeypatch, prompts):
 
     Each test starts cold: new AWS clients inside the mock, no Meta client, and the
     prompt not yet read. The claim's clock reads NOW_S. The spend stop is the
-    template's $60, and nothing has been spent: the counter's item doesn't exist.
+    template's $60, and nothing has been spent: the counter is seeded at $0, as
+    seed_spend.py leaves it after the first deploy.
     """
     monkeypatch.delenv("AWS_PROFILE", raising=False)
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
@@ -170,6 +172,9 @@ def aws(monkeypatch, prompts):
         )
         create_reports_table(ddb, TABLE)
         create_limits_table(ddb, LIMITS)
+        ddb.put_item(
+            TableName=LIMITS, Item=SPEND_KEY | {"micro_usd": {"N": "0"}} | SEEDED
+        )
         ssm.put_parameter(Name=SWITCH, Value="off", Type="String")
         ssm.put_parameter(Name=PUBLISH, Value="off", Type="String")
         ssm.put_parameter(Name=KEY_PARAM, Value=FAKE_KEY, Type="SecureString")
@@ -1286,7 +1291,9 @@ def spent(aws) -> Decimal | None:
 
 def set_spent(aws, usd: Decimal) -> None:
     micro = str(spend.to_micro(usd))
-    aws.ddb.put_item(TableName=LIMITS, Item=SPEND_KEY | {"micro_usd": {"N": micro}})
+    aws.ddb.put_item(
+        TableName=LIMITS, Item=SPEND_KEY | {"micro_usd": {"N": micro}} | SEEDED
+    )
 
 
 def set_stop(aws, value: str) -> None:
@@ -1424,8 +1431,35 @@ def test_unreadable_spend_pauses(aws, fake, monkeypatch, caplog, break_it, error
     assert (switch(aws), puts) == ("on", [FLIP])
     (line,) = report_lines(caplog)
     assert line["spend_stop"] == {"unreadable": error}
-    assert spent(aws) is None
+    assert spent(aws) == 0
     assert "arn:" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "counter",
+    [None, SPEND_KEY | {"micro_usd": {"N": "19600"}}],
+    ids=["new-table", "a-run-before-the-seed"],
+)
+def test_unseeded_counter_pauses_before_any_meta_call(
+    aws, fake, monkeypatch, caplog, counter
+):
+    # A new or re-created limits table before seed_spend.py, or one a run's ADD
+    # reached first: the counter reads as unreadable, never as $0 (C527).
+    aws.ddb.delete_item(TableName=LIMITS, Key=SPEND_KEY)
+    if counter is not None:
+        aws.ddb.put_item(TableName=LIMITS, Item=counter)
+    puts = spy_puts(monkeypatch)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert status(aws) == ("failed", "model_calls_paused")
+    assert fake.calls == []
+    assert keys(aws) == []
+    assert (switch(aws), puts) == ("on", [FLIP])
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "failed/model_calls_paused"
+    assert line["spend_stop"] == {"unseeded": True}
+    # Nothing paid, so nothing recorded, and the check never writes the counter.
+    assert aws.ddb.get_item(TableName=LIMITS, Key=SPEND_KEY).get("Item") == counter
 
 
 @pytest.mark.parametrize(
@@ -1439,13 +1473,15 @@ def test_unreadable_spend_pauses(aws, fake, monkeypatch, caplog, break_it, error
             RUN_COST,
             id="no-flood-seen",
         ),
-        # No Meta call, so nothing is recorded: the counter's item isn't even made.
-        pytest.param(flat_jpeg(10), None, ("refused", "too_dark"), None, id="too-dark"),
+        # No Meta call, so nothing is recorded: the counter stays at its seed's $0.
+        pytest.param(
+            flat_jpeg(10), None, ("refused", "too_dark"), Decimal(0), id="too-dark"
+        ),
         pytest.param(
             b"\xff\xd8\xff" + b"not a jpeg",
             None,
             ("failed", "bad_file"),
-            None,
+            Decimal(0),
             id="bad-file",
         ),
     ],
@@ -1465,7 +1501,7 @@ def test_a_run_records_its_cost(
     assert not set(SPEND_FIELDS) & set(line)
     expected = (
         []
-        if cost is None
+        if cost == 0
         else [
             {
                 "spend_source": "analysis",
@@ -1541,7 +1577,7 @@ def test_spend_write_still_throttled_flips_the_stop(
     assert attempts == ["failed"] * 5
     assert result(aws) == KNEE_RESULT
     assert keys(aws) == [PHOTO_KEY]
-    assert spent(aws) is None
+    assert spent(aws) == 0
     assert (switch(aws), puts) == ("on", [FLIP])
     (line,) = report_lines(caplog)
     assert line["outcome"] == "done/level"
