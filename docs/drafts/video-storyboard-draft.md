@@ -7,7 +7,7 @@
 > - **The whole system first:** it leads with the live map, MMDA's gauge, geometry and its release gate, Ask Lusot's tool calls and voice, and the sealed evaluation, never with "a photo analyzer" (§1, §19).
 > - **C14's corrections:** "more than 500 flood incidents within 24 hours"; "MMDA's 7 gauge levels plus 2 off-scale levels"; no MDPI figure.
 > - **Footage:** consented footage only (M9, M13, M29). English captions run throughout.
-> - **Photos shown inside the app** follow Rene's samples decision (Oct 28, 8:27 PM): a CC0 or CC BY sample or demo photo keeps its credit line on screen, faces and plates blurred, and no CC BY-SA photo appears.
+> - **Photos shown inside the app** follow Rene's samples decision (Oct 28, 8:27 PM): a CC0 or CC BY sample or demo photo, or a consented M9 photo used with permission, keeps its credit line on screen, faces and plates blurred, and no CC BY-SA photo appears.
 > - **The screen line** is on every app screen shown: "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories."
 > - **No timing or accuracy claim** that wasn't measured. The brackets below take the measured figures.
 

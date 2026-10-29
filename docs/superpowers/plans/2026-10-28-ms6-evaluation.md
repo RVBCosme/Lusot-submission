@@ -100,7 +100,7 @@ All new.
 
 ## Execution notes
 
-- **Routing (D18):** implementers and task reviews run on Opus 5.5 at max, scoped re-reviews on Sonnet 5.5 at xhigh, and the final whole-branch review on Opus 5.5 at max.
+- **Routing (D18):** implementers, task reviews and the final whole-branch review on Opus 5.5 at xhigh, never max (Rene's override, Oct 29, 8:48 PM; Tasks 1 to 10 and the final review ran at max, before it), and scoped re-reviews on Sonnet 5.5 at xhigh. Fable 5.1 at max only when Opus can't.
 - **Each implementer** gets from the controller this plan's task, its Global Constraints, the spec, and the controller's attribution lines.
 - **Commands** run from the worktree root unless a step says otherwise. A test run is `uv run --locked --script eval/tests/run_tests.py`, followed by any pytest arguments, for example `-k test_level_for_inches`.
 - **Tracking:** the controller ticks this plan's boxes with their evidence, in the same commit as the work. This branch changes no existing file, so the controller doesn't touch `docs/PROGRESS.md` or the day's log. Its handoff note `w4.md` carries log-ready lines, which the log owner (Window 3, after MS1) folds in.

@@ -88,10 +88,12 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | Amazon Web Services | Lusot's servers, storage, queue, logs and website | Singapore; the website is also served through AWS's worldwide network |
 | Meta | AI analysis: outlining and reading photos, transcribing spoken questions, and answering questions | [Meta's locations] |
 | OpenStreetMap Foundation | place-name lookups (Nominatim) and the map's images | [OpenStreetMap's locations] |
+| Anthropic | an AI assistant (Claude) that Lusot's developer may use to check logs and flagged reports | [Anthropic's locations] |
 
 - **The map's images.** When you open the map, your phone loads the map's images from OpenStreetMap's servers, which see your IP address, as any website does (PRIV-Q5).
 - **Your IP address.** When you upload a photo, the notice of your upload that reaches Lusot's queue carries your IP address. If the analysis fails, that notice is kept for up to 7 days so the failure can be checked, then deleted. Service logs keep no photos, locations or IP addresses.
 - [The website is hosted on AWS Amplify, which keeps access logs, including visitors' IP addresses, until the site is deleted (PRIV-Q9).]
+- **An AI assistant.** Lusot's developer may use an AI assistant (Claude, by Anthropic) to check Lusot's logs and flagged reports, which can include a report's blurred photo and its pin. Anthropic keeps what it receives for 30 days, or up to 2 years if its systems flag it for a usage-policy check (PRIV-Q10).
 
 ### How long Lusot keeps data
 
@@ -204,9 +206,11 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* Amazon Web Services: ang mga server, storage, queue, logs at website ng Lusot. Sa Singapore, at dumadaan din ang website sa worldwide network ng AWS.
 - *Taglish draft (M20):* Meta: AI analysis, ibig sabihin ang pag-outline at pagbasa ng photo, ang pag-transcribe ng spoken na tanong, at ang pagsagot sa tanong. [Mga lokasyon ng Meta.]
 - *Taglish draft (M20):* OpenStreetMap Foundation: ang paghahanap ng pangalan ng lugar (Nominatim) at ang mga larawan ng mapa. [Mga lokasyon ng OpenStreetMap.]
+- *Taglish draft (M20):* Anthropic: isang AI assistant (Claude) na puwedeng gamitin ng developer ng Lusot para suriin ang logs at ang mga na-flag na report. [Mga lokasyon ng Anthropic.]
 - *Taglish draft (M20):* **Ang mga larawan ng mapa.** Kapag binuksan mo ang mapa, kinukuha ng phone mo ang mga larawan ng mapa mula sa mga server ng OpenStreetMap, na nakakakita ng IP address mo, gaya ng anumang website (PRIV-Q5).
 - *Taglish draft (M20):* **Ang IP address mo.** Kapag nag-upload ka ng photo, may dalang IP address mo ang notice ng upload na dumarating sa queue ng Lusot. Kapag nabigo ang analysis, sine-save ang notice na iyon nang hanggang 7 araw para masuri ang problema, saka binubura. Walang photo, lokasyon o IP address sa service logs.
 - *Taglish draft (M20):* [Naka-host ang website sa AWS Amplify, na nagse-save ng access logs, kasama ang IP address ng mga bisita, hanggang mabura ang site (PRIV-Q9).]
+- *Taglish draft (M20):* **Isang AI assistant.** Puwedeng gumamit ang developer ng Lusot ng AI assistant (Claude, ng Anthropic) para suriin ang logs ng Lusot at ang mga na-flag na report, na puwedeng may kasamang naka-blur na photo ng report at ang pin nito. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check (PRIV-Q10).
 
 ### How long Lusot keeps data
 
@@ -272,4 +276,5 @@ The full questions, with options and defaults, are in Window 4's handoff note.
   - (a) Keep Amplify, say so in the policy, and delete the app at the MS10 teardown, if there is one.
   - (b) Define the hosting in the template with access logging off. That is a plan change.
   - **Recommended: (a).**
+- **PRIV-Q10: Anthropic, through the developer's AI assistant** (raised by the tracker, Oct 29, 10:31 PM, as Claude's call under Rene's delegation). Claude, the assistant Rene builds and runs Lusot with, can see app data while checking it: the service logs (timings, model names, reasons and report ids; never photos, locations, IP addresses or device ids, by design), a flagged report and its blurred photo when a pin is checked or hidden, and Ask's test answers. The policy now says so, with Anthropic's retention as Rene confirmed it (30 days, his model-improvement setting off; up to 2 years if flagged). Rene approves the wording, and decides whether the consent notice says it too. Default: the policy only, since the notice already sends people to it.
 - **[clip mode]** and **[inches range]** stay only if clip mode ships and the release gate passes.

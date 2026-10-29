@@ -214,7 +214,7 @@ So no committed field can hold free text, and Muse Spark's `reason`, post links,
 
 ### 4.5 The sealed run (Rene runs it; Claude never does)
 
-**Before it** (by Nov 3):
+**Before it** (items 1 to 3 by Nov 2, as §7 and design C19 give M18's date; the freeze, item 4, on Nov 3 just before the run, once Rene approves it):
 1. Rene approves `eval/rules.md`, with M18's gate numbers and his answers to MS6E-Q1 and MS6E-Q5 in its change log.
 2. MS3 has decided the self-check on development data (C311). It has also set geometry's live default from the development ablation that this harness computed (C309, C315), or dropped geometry (C418).
 3. MS4's recovery tests on the analysis path have passed (design §8, B2).
