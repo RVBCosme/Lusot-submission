@@ -117,6 +117,20 @@ NO_REFERENCE = (
 )
 TOO_DARK = (result(REFUSED_BODY), {"outcome": "refused/too_dark", "meta_calls": 0})
 HAPPY = [LEVEL, NO_REFERENCE, NO_FLOOD, FLOOR, NO_REFERENCE]  # B1's five outcomes
+# A level from a wheel's rim (MS3b): its log line has C316's geometry fields, and its
+# body only C67's keys, since the API's allow-list drops levelFrom and the inches.
+GEOMETRY = (
+    result(LEVEL_BODY),
+    paid(
+        "done/level",
+        deciding="wheel",
+        geometry_in_level="on",
+        wheels_measured=1,
+        geometry_checks={},
+        level_from="geometry",
+        depth_in=[13.4, 13.5],
+    ),
+)
 
 
 def event(report_id, n=1, **fields):
@@ -630,6 +644,18 @@ def test_report_body_shapes():
         smoke_upload.check_report_body({"reportId": RID, "status": "processing"})
 
 
+def test_report_body_refuses_levelfrom_and_the_inches():
+    # C320: a geometry level's source and inches stay in the item, never in the body.
+    for key, value in (
+        ("levelFrom", "geometry"),
+        ("depthInMin", 13.4),
+        ("depthInMax", 13.5),
+    ):
+        with pytest.raises(CheckFailed, match=f"extra keys \\['{key}'\\]") as exc:
+            smoke_upload.check_report_body(LEVEL_BODY | {key: value})
+        assert str(value) not in str(exc.value)  # keys only, never their values
+
+
 def test_reused_link_needs_a_fresh_form():
     smoke_upload.check_form_fresh(1000.0, 1280.0)
     with pytest.raises(CheckFailed, match="^reused link: form too old$"):
@@ -731,6 +757,29 @@ class LinkedPath:
         return self.resolved
 
 
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ("sealed.",),
+        ("sealed ",),
+        ("SEALED. .",),
+        ("sealed::$INDEX_ALLOCATION",),
+        ("x", "Sealed..", "y"),
+    ],
+    ids=["dot", "space", "dots-and-spaces", "stream", "inside"],
+)
+def test_sealed_spelled_with_trailing_dots_or_spaces_is_refused(tmp_path, parts):
+    # R156: Windows strips a name's trailing dots and spaces, and reads a part's name
+    # before any ":" (an NTFS stream), so each of these opens a folder named sealed,
+    # as MS2's is_sealed_name reads it. None exists, and none is made.
+    with pytest.raises(CheckFailed, match="inside a folder named sealed"):
+        smoke_upload.refuse_sealed(tmp_path.joinpath(*parts, "x.jpg"))
+    assert list(tmp_path.iterdir()) == []
+    # A part that only holds the word is another folder.
+    for name in ("sealedx", "unsealed", "sealedx.", "unsealed "):
+        smoke_upload.refuse_sealed(tmp_path / name / "x.jpg")
+
+
 def test_sealed_paths_are_refused(tmp_path):
     # The offline runner's rule (C66): a part equal to "sealed", in any case, as
     # written or resolved, before anything is opened or listed. None of these exists.
@@ -808,16 +857,18 @@ NAMES = [f"Flood_in_Manila_{n:02d}.jpg" for n in range(20)]
 ORDER = random.Random(SEED).sample(sorted(NAMES), 20)
 
 
-def run_smoke(tmp_path, monkeypatch, cloud, *argv, credited=True):
+def run_smoke(tmp_path, monkeypatch, cloud, *argv, credited=True, skip=()):
     """main() against `cloud`, with 20 photos in a tmp_path C87 folder.
 
-    Every photo has a credit line unless `credited` is False. The run's time module is
-    the cloud's FakeTime.
+    Every photo has a credit line unless `credited` is False, or it is named in
+    `skip`. The run's time module is the cloud's FakeTime.
     """
     folder = tmp_path / "data" / "set_c" / "commons-ph-floods"
     listed_folder(folder, NAMES, [photo(n) for n in range(20)])
     credit = "{} by A. Photographer, CC BY 2.0" if credited else ""
-    write_credits(folder, {name: credit.format(name) for name in NAMES})
+    write_credits(
+        folder, {name: "" if name in skip else credit.format(name) for name in NAMES}
+    )
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(
         smoke_upload.boto3, "Session", lambda **kw: FakeSession(cloud, **kw)
@@ -1174,3 +1225,151 @@ def test_fallback_stops_at_the_first_level(
     )
     assert any(line.startswith(f"spend: {8 * sent} Meta calls") for line in lines)
     assert lines[-1] == last
+
+
+def test_geometry_check_needs_a_measured_wheel():
+    line = GEOMETRY[1]
+    smoke_upload.check_geometry_line(line)
+    smoke_upload.check_geometry_line(line | {"wheels_measured": 2})
+    # None measured, or geometry never ran, as on a gate result. A count isn't a bool.
+    unmeasured = {k: v for k, v in line.items() if k != "wheels_measured"}
+    for wrong in (
+        line | {"wheels_measured": 0},
+        unmeasured,
+        line | {"wheels_measured": True},
+    ):
+        with pytest.raises(CheckFailed, match="^no wheel measured$"):
+            smoke_upload.check_geometry_line(wrong)
+
+
+def test_geometry_mode_sends_one_credited_photo(tmp_path, monkeypatch, capsys):
+    cloud = FakeCloud([GEOMETRY])
+    assert run_smoke(tmp_path, monkeypatch, cloud, "--geometry", "3") == 0
+    # Position 3 of C87's order, as the app sends it, and nothing else: no preflight,
+    # dark photo, missing photo, PNG or stop switch.
+    assert sent_names(cloud) == [ORDER[3]]
+    width = 100 + NAMES.index(ORDER[3])
+    assert cloud.trail == [("link", rid(0), None), ("photo", rid(0), width, None)]
+    assert cloud.time.slept == []
+    # Counts, outcome names and timings only: printed() checks no name or path shows.
+    assert printed(capsys, tmp_path, cloud) == [
+        "photos: position 3 of C87's order, which has a credit line",
+        "the geometry photo: done/level knee (NPLV) N s after its upload, 8 Meta calls",
+        (
+            "geometry: geometry_in_level on, level_from geometry, wheels_measured 1,"
+            " geometry_checks {}"
+        ),
+        (
+            "spend: 8 Meta calls (SAM 7, judge 1); ended on 504: SAM 0, judge 0;"
+            " on 413: SAM 0, judge 0; billed 2,000 input and 4,000 output tokens,"
+            " estimated $0.0370"
+        ),
+        "SMOKE OK in N s",
+    ]
+    # A position without a credit line, or outside the order, stops the run before
+    # any upload (R102).
+    for position, skip, reason in (
+        ("3", {ORDER[3]}, "position 3 has no credit line, so it isn't sent (R102)"),
+        ("20", (), "no position 20 in C87's order of 20 photos"),
+        ("-1", (), "no position -1 in C87's order of 20 photos"),
+    ):
+        cloud = FakeCloud([GEOMETRY])
+        argv = ("--geometry", position)
+        assert run_smoke(tmp_path, monkeypatch, cloud, *argv, skip=skip) == 1
+        assert printed(capsys, tmp_path, cloud)[-1] == f"SMOKE FAILED: {reason}"
+        assert cloud.trail == []
+    # One photo or C71's fallback, never both.
+    with pytest.raises(SystemExit) as exc:
+        smoke_upload.main(["--fallback", "--geometry", "3"])
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("outcome", "shown", "reason"),
+    [
+        # An image from before MS3b logs no geometry_in_level: the setting never loaded.
+        (
+            (result(LEVEL_BODY), paid("done/level", deciding="wheel")),
+            (
+                "geometry_in_level None, level_from None, wheels_measured None,"
+                " geometry_checks null"
+            ),
+            "geometry_in_level None, expected 'on'",
+        ),
+        (
+            (
+                result(LEVEL_BODY),
+                paid(
+                    "done/level",
+                    deciding="wheel",
+                    geometry_in_level="off",
+                    level_from="landmark",
+                ),
+            ),
+            (
+                "geometry_in_level off, level_from landmark, wheels_measured None,"
+                " geometry_checks null"
+            ),
+            "geometry_in_level 'off', expected 'on'",
+        ),
+        (
+            (
+                NO_REFERENCE[0],
+                paid(
+                    "refused/no_usable_reference",
+                    geometry_in_level="on",
+                    wheels_measured=0,
+                    geometry_checks={"rim_missing": 1},
+                ),
+            ),
+            (
+                "geometry_in_level on, level_from None, wheels_measured 0,"
+                ' geometry_checks {"rim_missing": 1}'
+            ),
+            "no wheel measured",
+        ),
+    ],
+    ids=["setting-not-loaded", "geometry-off", "no-wheel"],
+)
+def test_geometry_mode_needs_geometry_on_and_a_measured_wheel(
+    tmp_path, monkeypatch, capsys, outcome, shown, reason
+):
+    cloud = FakeCloud([outcome])
+    assert run_smoke(tmp_path, monkeypatch, cloud, "--geometry", "3") == 1
+    # The geometry fields and the spend still print, then the reason.
+    lines = printed(capsys, tmp_path, cloud)
+    assert lines[-3] == f"geometry: {shown}"
+    assert lines[-2].startswith("spend: 8 Meta calls")
+    assert lines[-1] == f"SMOKE FAILED: {reason}"
+
+
+@pytest.mark.parametrize("bound", [(), ("--bound", "180")], ids=["default", "180"])
+@pytest.mark.parametrize(
+    ("mode", "outcomes", "uploads", "missing"),
+    [
+        ((), HAPPY, 6, 1),  # B1's five photos and the dark one; the missing photo
+        (("--fallback",), [NO_REFERENCE, NO_FLOOD, LEVEL], 3, 0),
+        (("--geometry", "3"), [GEOMETRY], 1, 0),
+    ],
+    ids=["b1", "fallback", "geometry"],
+)
+def test_bound_reaches_every_wait(
+    tmp_path, monkeypatch, bound, mode, outcomes, uploads, missing
+):
+    # R119: --bound S is every uploaded photo's wait for its final status, and B1's
+    # 120 s (C68) without it. The missing photo keeps spec §3.6's 60 s either way.
+    waits = {}
+    wait_final = smoke_upload.wait_final
+
+    def recorded(http, api_url, report_id, **kwargs):
+        waits[report_id] = kwargs["bound_s"]
+        return wait_final(http, api_url, report_id, **kwargs)
+
+    monkeypatch.setattr(smoke_upload, "wait_final", recorded)
+    cloud = FakeCloud(outcomes)
+    assert run_smoke(tmp_path, monkeypatch, cloud, *mode, *bound) == 0
+    sent = {step[1] for step in cloud.trail if step[0] == "photo"}
+    queued = {step[1] for step in cloud.trail if step[0] == "queue"}
+    assert (len(sent), len(queued)) == (uploads, missing)
+    expected = 180 if bound else 120
+    assert waits == {r: expected for r in sent} | {r: 60 for r in queued}

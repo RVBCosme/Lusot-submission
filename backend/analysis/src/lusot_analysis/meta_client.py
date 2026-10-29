@@ -33,12 +33,22 @@ from meta_sam_parser import (
     image_segmentation_format,
 )
 
+# The parser's own field trim, which strips JavaScript's whitespace, U+FEFF among it,
+# so the size and frame checks read each field as the parser does and can't drift
+# from it (C330). It is private, and uv.lock pins meta-sam-parser at 0.1.0: an
+# upgrade that renames it fails at import, never silently.
+from meta_sam_parser._segmentation import _trim
+
 from lusot_analysis.face_blur import BlurredImage
 
 BASE_URL = "https://api.meta.ai/v1"
 SAM_MODEL = "sam-3.1"
 SPARK_MODEL = "muse-spark-1.3"
 TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0"
+# Muse Spark's reasoning.effort values, as https://dev.meta.ai/docs/reasoning lists them
+# (read Oct 30, 2026; P15). The page's "none" is "Not supported by Muse Wonder or Muse
+# Spark" (HTTP 400). With no effort sent, the model picks its own level.
+REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")
 # What SAM is asked to find, one request per phrase (plan §7 step 2).
 SAM_PHRASES = (
     "floodwater",
@@ -66,6 +76,9 @@ _STREAM_FAILURES = frozenset(
     {"response.failed", "response.incomplete", "response.refusal.done", "error"}
 )
 _BOX_TOKEN = re.compile(r"<\|box;([^|]*)\|>")  # a box token's fields hold no `|`
+# A mask token's fields hold none either: its base85 payload's alphabet has no `|`.
+_MASK_TOKEN = re.compile(r"<\|mask;([^|]*)\|>")
+_MASK_SIZE = re.compile(r"([0-9]+),([0-9]+),")  # data=rows,columns,payload
 
 _R = TypeVar("_R")
 
@@ -272,7 +285,8 @@ class MetaClient:
         `schema_name` names the schema and is logged as the prompt version. The
         response isn't stored at Meta (store: false, R76). `deadline` bounds the call
         as in `segment` (C84). `reasoning_effort` is sent as reasoning.effort when
-        set; otherwise Meta's default applies.
+        set; otherwise Meta's default applies. A value not in REASONING_EFFORTS
+        raises ValueError before any request (C312).
 
         Before any parsing, an answer with a status other than completed raises
         MetaApiError (C86, R104), and one that holds a refusal part raises
@@ -288,6 +302,10 @@ class MetaClient:
             "schema": schema,
             "strict": True,
         }
+        if reasoning_effort is not None and reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(
+                f"reasoning effort {reasoning_effort!r} isn't one Muse Spark takes"
+            )
         options = {}
         if reasoning_effort is not None:
             options["reasoning"] = {"effort": reasoning_effort}
@@ -704,7 +722,16 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
     raise MetaApiError: a lost or misplaced record must not read as no match. A mask
     whose box has a side over SAM_MASK_SIDE may come scaled down so its longer side is
     SAM_MASK_SIDE, and is scaled back up to fill its box (_scaled_down has the rule).
+    A mask whose claimed size is taller or wider than the image raises MetaApiError
+    before the parser runs, since the parser allocates that size as it reads (C330).
     """
+    for body in _MASK_TOKEN.findall(text):
+        size = _MASK_SIZE.match(_token_fields(body).get("data", ""))
+        if size is None:  # not two integers: left for the parser to report
+            continue
+        rows, columns = size.groups()
+        if _larger_than(rows, image.height) or _larger_than(columns, image.width):
+            raise MetaApiError("a SAM mask is larger than the image")
     parser = image_segmentation_format().create_parser()
     parser.push(text)
     result = parser.finish(CompletedOutcome()).result
@@ -738,6 +765,16 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
             SamInstance(int(record.object_id), box, mask, record.confidence)
         )
     return instances
+
+
+def _larger_than(digits: str, side: int) -> bool:
+    """True when the ASCII decimal `digits` claim more than `side` (C330).
+
+    Digits longer than the side's own count as larger without int(), so a size past
+    Python's 4,300-digit limit for int() is refused, never a ValueError. A size
+    padded with leading zeros to that length is refused too.
+    """
+    return len(digits) > len(str(side)) or int(digits) > side
 
 
 def _scaled_down(size: tuple[int, int], box: tuple[int, int]) -> bool:
@@ -778,12 +815,15 @@ def _upscaled(crop: np.ndarray, size: tuple[int, int]) -> np.ndarray:
 
 
 def _token_fields(body: str) -> dict[str, str]:
-    """A token's `key=value` fields by name, trimmed, as SAM's protocol reads them."""
+    """A token's `key=value` fields by name, trimmed by the parser's own _trim.
+
+    So a key or value reads here exactly as meta-sam-parser reads it (C330).
+    """
     fields = {}
     for field in body.split(";"):
         key, sep, value = field.partition("=")
         if sep:
-            fields[key.strip()] = value.strip()
+            fields[_trim(key)] = _trim(value)
     return fields
 
 

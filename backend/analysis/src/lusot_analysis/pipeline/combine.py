@@ -26,19 +26,38 @@ def tie_order(reference: Reference) -> tuple[bool, int, int]:
 def combine(references: Sequence[Reference]) -> tuple[Outcome, Reference | None]:
     """The deepest believable level, and the reference that decides it (C49, C54).
 
-    A refusal has no deciding reference.
+    Only references that decide take part, as in MS3a. A reading step 3 dropped never
+    decides, but one deeper than an exact result refuses the photo (C317). A floor
+    result stands, since it already means "this level or deeper". A refusal has no
+    deciding reference.
     """
-    if not references:
+    deciders = [r for r in references if r.decides]
+    if not deciders:
         return Outcome.refused("no_usable_reference"), None
-    if rules.disagree(r.reading for r in references):
+    if rules.disagree(r.reading for r in deciders):
         return Outcome.refused("references_disagree"), None
-    level = max((r.reading.level for r in references), key=rules.level_index)
-    at_level = [r for r in references if r.reading.level == level]
+    level = max((r.reading.level for r in deciders), key=rules.level_index)
+    at_level = [r for r in deciders if r.reading.level == level]
     deciding = min(at_level, key=tie_order)
     level_is_floor = any(r.reading.floor for r in at_level)
+    if not level_is_floor and any(
+        rules.level_index(r.reading.level) > rules.level_index(level)
+        for r in references
+        if not r.decides
+    ):
+        return Outcome.refused("references_disagree"), None
     basis = {
-        "vehicles": sum(r.kind in ("wheel", "body") for r in references),
-        "people": sum(r.kind == "person" for r in references),
+        "vehicles": sum(r.kind in ("wheel", "body") for r in deciders),
+        "people": sum(r.kind == "person" for r in deciders),
     }
-    outcome = Outcome.level_result(level, deciding.landmark, level_is_floor, basis)
+    # Inches go with the result only when geometry set the deciding level (C307).
+    geometry = deciding.level_from == "geometry"
+    outcome = Outcome.level_result(
+        level,
+        deciding.landmark,
+        level_is_floor,
+        basis,
+        level_from=deciding.level_from,
+        depth_in=deciding.depth_in if geometry else None,
+    )
     return outcome, deciding

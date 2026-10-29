@@ -13,6 +13,7 @@ from lusot_analysis.pipeline.quality import (
     quality_refusal,
     quality_scores,
 )
+from lusot_analysis.tuning import START
 
 PORTRAIT = Path(__file__).parent / "fixtures" / "faces" / "portrait.jpg"
 
@@ -41,7 +42,8 @@ def assert_same_scores(actual: QualityScores, expected: QualityScores) -> None:
     ],
 )
 def test_cutoffs_are_exact(brightness, sharpness, refusal):
-    assert quality_refusal(QualityScores(brightness, sharpness)) == refusal
+    scores = QualityScores(brightness, sharpness)
+    assert quality_refusal(scores, tuning=START) == refusal
 
 
 @pytest.mark.parametrize(
@@ -54,7 +56,7 @@ def test_cutoffs_are_exact(brightness, sharpness, refusal):
     ids=["flat-10", "flat-128", "noise"],
 )
 def test_dark_and_flat_photos_are_refused(data, refusal):
-    assert quality_refusal(quality_scores(data)) == refusal
+    assert quality_refusal(quality_scores(data), tuning=START) == refusal
 
 
 def test_scores_use_the_photo_before_the_face_blur():

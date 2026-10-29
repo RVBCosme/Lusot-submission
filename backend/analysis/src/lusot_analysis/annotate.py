@@ -2,10 +2,12 @@
 
 Each vehicle, wheel and person SAM found gets a thin outline and a label with its id,
 so Muse Spark's answer names them and code ties each answer back to its mask. A box is
-never filled; only its small label tag is. Its outline is 3 px wide and centred on the
-box's edge, so it covers the box's two outermost rows and columns and the one just
-outside them. On a wheel's box, the bottom edge covers rows y1 - 2 to y1: the wheel's
-lowest two rows and the row below, where the wheel meets the water.
+never filled; only its small label tag is. In MS3a's drawing, boxes-v1, its outline is
+3 px wide and centred on the box's edge, so it covers the box's two outermost rows and
+columns and the one just outside them. On a wheel's box, the bottom edge covers rows
+y1 - 2 to y1: the wheel's lowest two rows and the row below, where the wheel meets the
+water. The candidate, boxes-v2, draws the same outline outside the box, 2 px off it,
+so those rows stay clear (C325).
 """
 
 from __future__ import annotations
@@ -32,7 +34,9 @@ _COLOURS: dict[Kind, tuple[int, int, int]] = {
     "wheel": (0, 255, 255),
     "person": (255, 0, 255),
 }
-_LINE_THICKNESS = 2  # OpenCV draws it 3 px wide, centred on the box's edge
+_LINE_THICKNESS = 2  # OpenCV draws it 3 px wide, centred on the line it is given
+# The drawings of the boxes' outlines (C325, §D6). outline_corners says where each goes.
+DRAWINGS = ("boxes-v1", "boxes-v2")
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _FACE_MARGIN = 0.25  # blur_faces' default margin, which derive blurs with
 
@@ -67,12 +71,35 @@ def number_boxes(sam: dict[str, SamResult]) -> list[NumberedBox]:
     return boxes
 
 
-def draw_numbered_boxes(img: BlurredImage, boxes: list[NumberedBox]) -> BlurredImage:
+def outline_corners(
+    box: tuple[int, int, int, int], drawing: str
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    """The two corners draw_numbered_boxes gives cv2.rectangle for `box` (C325, §D6).
+
+    `box` is half-open, and cv2.rectangle's corners are inclusive. At thickness 2 the
+    outline is 3 px wide, centred on the line between the corners.
+    - boxes-v1, MS3a's: (x0, y0) and (x1 - 1, y1 - 1), so the outline is centred on
+      the box's edge. On a wheel's box it covers rows y1 - 2 to y1.
+    - boxes-v2: (x0 - 4, y0 - 4) and (x1 + 3, y1 + 3), so the outline lies outside the
+      box, with a 2 px gap. Its bottom covers rows y1 + 2 to y1 + 4.
+
+    Any other drawing raises ValueError.
+    """
+    x0, y0, x1, y1 = box
+    if drawing == "boxes-v1":
+        return (x0, y0), (x1 - 1, y1 - 1)
+    if drawing == "boxes-v2":
+        return (x0 - 4, y0 - 4), (x1 + 3, y1 + 3)
+    raise ValueError(f"drawing {drawing!r} isn't one of {DRAWINGS}")
+
+
+def draw_numbered_boxes(
+    img: BlurredImage, boxes: list[NumberedBox], *, drawing: str = "boxes-v1"
+) -> BlurredImage:
     """Draw each box as a thin outline, and its id on a small tag in the same colour.
 
-    The outline is cv2.rectangle at thickness 2, which OpenCV draws 3 px wide, centred
-    on the box's edge. Its second corner is inclusive, so a half-open box is drawn to
-    (x1 - 1, y1 - 1).
+    The outline is cv2.rectangle at thickness 2, which OpenCV draws 3 px wide, at the
+    corners outline_corners gives for `drawing`: boxes-v1, MS3a's, by default.
 
     The result comes from BlurredImage.derive, which keeps the blur record and blurs
     every face it finds once more (R18), so a label must miss every head. Each label
@@ -90,9 +117,8 @@ def draw_numbered_boxes(img: BlurredImage, boxes: list[NumberedBox]) -> BlurredI
     thickness = 1 if scale < 1 else 2
     pad = thickness + 2
     for box in boxes:
-        x0, y0, x1, y1 = box.box
-        colour = _COLOURS[box.kind]
-        cv2.rectangle(bgr, (x0, y0), (x1 - 1, y1 - 1), colour, _LINE_THICKNESS)
+        corners = outline_corners(box.box, drawing)
+        cv2.rectangle(bgr, *corners, _COLOURS[box.kind], _LINE_THICKNESS)
     labels: list[tuple[int, int, int, int]] = []
     for box in boxes:  # labels go over every outline
         text = str(box.id)

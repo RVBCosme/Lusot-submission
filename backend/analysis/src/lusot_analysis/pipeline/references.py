@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from lusot_analysis import rules
 from lusot_analysis.annotate import NumberedBox
@@ -23,10 +23,12 @@ from lusot_analysis.meta_client import SamInstance, SamResult
 from lusot_analysis.pipeline.segment import box_xyxy, link_wheels
 from lusot_analysis.pipeline.types import ModelAnswerError, Outcome
 from lusot_analysis.prompts import validator_class
+from lusot_analysis.tuning import TUNING
 
-MIN_WHEEL_SIDE_PX = 40  # on the longer side of a wheel's SAM box (C56, P2)
-MAX_VEHICLES = 6  # both caps are provisional (C70, P6)
-MAX_PEOPLE = 6
+# From the tuning module, checked on Manila photos and never swept (C310).
+MIN_WHEEL_SIDE_PX = TUNING.min_wheel_side_px  # a wheel SAM box's longer side (C56, P2)
+MAX_VEHICLES = TUNING.max_vehicles  # both caps are provisional (C70, P6)
+MAX_PEOPLE = TUNING.max_people
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,19 @@ def layout(prepared: Prepared, boxes: Sequence[NumberedBox]) -> Layout:
     )
 
 
+def instances_by_id(prepared: Prepared, layout: Layout) -> dict[int, SamInstance]:
+    """Each numbered box's SAM instance, by box id.
+
+    number_boxes keeps each kind in SAM's order, so the k-th numbered box of a kind is
+    the k-th kept instance of its phrase, which the kind names.
+    """
+    instances: dict[int, SamInstance] = {}
+    for kind in ("vehicle", "wheel", "person"):
+        ids = [box.id for box in layout.boxes if box.kind == kind]
+        instances |= dict(zip(ids, _instances(prepared.sam, kind), strict=True))
+    return instances
+
+
 def validate_answer(data: object, schema: dict) -> None:
     """Raise ModelAnswerError unless `data` is an object that passes `schema` (C47).
 
@@ -189,12 +204,16 @@ class KeptVehicle:
       linked to it is answered as hidden, and it lost no linked wheel to the 40 px
       rule (C69). An unanswered wheel counts as visible (C76). It holds when no wheel
       is linked.
+    - `vehicle_type`: Muse Spark's type. Only rules.READING_TYPES read Table 8's
+      wheel rows and the body (C45, C53); a type kept for geometry reads from geometry
+      alone (C318).
     """
 
     id: int
     body_waterline: str
     wheels: tuple[tuple[int, str], ...]
     wheels_hidden: bool
+    vehicle_type: str = "sedan_hatch"
 
 
 @dataclass(frozen=True)
@@ -207,21 +226,30 @@ class KeptPerson:
 
 @dataclass(frozen=True)
 class Kept:
-    """The vehicles and people left after the drops, each in id order (step 4.6)."""
+    """The vehicles and people left after the drops, each in id order (step 4.6).
+
+    `causes` names each dropped box's first cause by box id, for the evidence record
+    (C328). Kept compares without it.
+    """
 
     vehicles: tuple[KeptVehicle, ...]
     people: tuple[KeptPerson, ...]
+    causes: Mapping[int, str] = field(default_factory=dict, compare=False)
 
 
-def apply_drops(answer: dict, layout: Layout) -> tuple[Kept, Counter[str]]:
+def apply_drops(
+    answer: dict, layout: Layout, *, geometry_types: frozenset[str] = frozenset()
+) -> tuple[Kept, Counter[str]]:
     """The vehicles and people that may give readings, and the drops (step 4.6).
 
     `answer` has passed check_ids_per_item, so each entry names a numbered box of its
     own kind, once. A numbered box with no entry is unanswered (C76). Each drop counts
     once, under the first cause that applies:
     - A vehicle: `vehicle_unanswered`; `vehicle_moving` when `moving` is yes or unsure
-      (W1); `vehicle_type` when its type isn't in rules.READING_TYPES (C45). Each of
-      its numbered wheels goes with it, as `wheel_vehicle_dropped`.
+      (W1); `vehicle_type` when its type is in neither rules.READING_TYPES (C45) nor
+      `geometry_types`, which the pipeline sets to rules.GEOMETRY_ONLY_TYPES when
+      geometry is on (C318). Each of its numbered wheels goes with it, as
+      `wheel_vehicle_dropped`.
     - A numbered wheel of a kept vehicle: `wheel_unanswered`.
     - A person: `person_unanswered`; `person_not_adult` when `adult` is no or unsure;
       `person_wading` when `standing_still` is no or unsure while someone answered as
@@ -229,13 +257,15 @@ def apply_drops(answer: dict, layout: Layout) -> tuple[Kept, Counter[str]]:
       Rene's Q3). No one else blocks: not an unanswered person, nor one answered
       `adult: unsure` (C76).
 
-    `wake_visible` changes nothing (C63).
+    `wake_visible` changes nothing (C63). Kept's `causes` holds each drop by box id,
+    and the Counter counts them.
     """
     vehicles, wheels, people = (
         {item["id"]: item for item in answer[name]}
         for name in ("vehicles", "wheels", "people")
     )
-    causes: list[str] = []
+    read_types = rules.READING_TYPES | geometry_types
+    causes: dict[int, str] = {}  # box ids are unique, so each box has one cause
     kept_vehicles = []
     for vehicle_id in [box.id for box in layout.boxes if box.kind == "vehicle"]:
         entry = vehicles.get(vehicle_id)
@@ -245,20 +275,24 @@ def apply_drops(answer: dict, layout: Layout) -> tuple[Kept, Counter[str]]:
             cause = "vehicle_unanswered"
         elif entry["moving"] != "no":  # yes or unsure (W1)
             cause = "vehicle_moving"
-        elif entry["type"] not in rules.READING_TYPES:  # C45
+        elif entry["type"] not in read_types:  # C45, narrowed by C318
             cause = "vehicle_type"
         else:
             cause = None
         if cause is not None:
-            causes += [cause] + ["wheel_vehicle_dropped"] * len(own)
+            causes[vehicle_id] = cause
+            causes |= dict.fromkeys(own, "wheel_vehicle_dropped")
             continue
         answered = tuple((w, wheels[w]["waterline"]) for w in own if w in wheels)
-        causes += ["wheel_unanswered"] * (len(own) - len(answered))
+        unanswered = [w for w in own if w not in wheels]
+        causes |= dict.fromkeys(unanswered, "wheel_unanswered")
         hidden = vehicle_id not in layout.small_wheel_vehicles and all(
             w in wheels and wheels[w]["waterline"] in rules.HIDDEN_WHEEL for w in own
         )
         kept_vehicles.append(
-            KeptVehicle(vehicle_id, entry["body_waterline"], answered, hidden)
+            KeptVehicle(
+                vehicle_id, entry["body_waterline"], answered, hidden, entry["type"]
+            )
         )
 
     blocked = any(
@@ -268,14 +302,15 @@ def apply_drops(answer: dict, layout: Layout) -> tuple[Kept, Counter[str]]:
     for person_id in [box.id for box in layout.boxes if box.kind == "person"]:
         entry = people.get(person_id)
         if entry is None:
-            causes.append("person_unanswered")
+            causes[person_id] = "person_unanswered"
         elif entry["adult"] != "yes":  # no or unsure
-            causes.append("person_not_adult")
+            causes[person_id] = "person_not_adult"
         elif blocked and entry["standing_still"] != "yes":  # wading: no or unsure
-            causes.append("person_wading")
+            causes[person_id] = "person_wading"
         else:
             kept_people.append(KeptPerson(person_id, entry["waterline"]))
-    return Kept(tuple(kept_vehicles), tuple(kept_people)), Counter(causes)
+    kept = Kept(tuple(kept_vehicles), tuple(kept_people), causes)
+    return kept, Counter(kept.causes.values())
 
 
 def _instances(sam: Mapping[str, SamResult], phrase: str) -> list[SamInstance]:
