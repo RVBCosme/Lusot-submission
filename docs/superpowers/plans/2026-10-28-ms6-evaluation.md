@@ -840,6 +840,7 @@ Rene approves v0.7, and the log owner applies it. The harness changes in the sam
 - [ ] Update the §2 drift tests for v0.7's table: its row count, and the `head` row (item 2.7). Make the phrase test two-way (C408), so a code phrase that §2 doesn't list fails.
 - [ ] Remove `ankle` and `head` from the drift test's named extras once §2 lists them.
 - [ ] If item 7.8 is approved, `report.py`'s latency sentence, column and docstring say "upload to final result" in place of "upload to pin" (spec C416).
+- [ ] If item 4.5 is approved, the report's "A-neg: flood-free photos" lead names the source: openly licensed Wikimedia Commons photos (CC0, public domain or CC BY), with a test that pins the sentence and its copy rules. Nothing in the harness assumes another source today; its A-neg text says only "flood-free photos".
 - [ ] Regenerate the fixture's report with `--write`. Its "v0.6" lines change.
 - [ ] Re-run the full suite and the literal command.
 
