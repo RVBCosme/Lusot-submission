@@ -225,7 +225,7 @@ Most likely first. Each line names its tests.
   - `quality_refusal(scores, tuning: Tuning = TUNING)` reads the tuning's two cutoffs, so a replay can raise them.
   - `references.MIN_WHEEL_SIDE_PX`, `MAX_VEHICLES` and `MAX_PEOPLE` alias `TUNING`'s values. They are checked on Manila photos, never swept (C310).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: tests/test_rules.py (37 new cases) and tests/test_tuning.py (4) written first, 41 new in all beside MS3a's 15 unchanged (Task 1's report); commit 7f3d821.
   - `test_level_for_inches_follows_the_level_rule`, parametrized:
     - 0.1 and 5.0 → `below_gutter`
     - 5.01 and 8.0 → `gutter`
@@ -247,10 +247,10 @@ Most likely first. Each line names its tests.
     - `test_untuned_values_are_still_their_start_values`: each name in `TUNING.untuned` is a field and equals `START`'s value
     - `test_ms3a_cutoffs_read_the_tuning_module`: the five MS3a constants equal `TUNING`'s values, and `quality_refusal(QualityScores(45.0, 100.0), replace(TUNING, brightness_min=50.0)) == "too_dark"`
     - `test_change_log_names_the_version`: `TUNING.version` appears in `tuning.__doc__`
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_rules.py tests/test_tuning.py`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement as specified. Write the JSON entries as plain lines, so a reviewer can check each against the spec table.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS, with MS3a's tests unchanged; ruff clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the inch level rule, the tire codes and the tuning module`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_rules.py tests/test_tuning.py`. Expected: the new tests FAIL. Evidence: `uv run pytest -q tests/test_rules.py tests/test_tuning.py` → RED: ImportError for GEOMETRY_ONLY_TYPES and for lusot_analysis.tuning, 2 collection errors, 0 tests run (Task 1's report).
+- [x] **Step 3:** Implement as specified. Write the JSON entries as plain lines, so a reviewer can check each against the spec table. Evidence: rules.py additions, tire_codes.json (12 codes: sedan_hatch 4, suv_mpv 7, van 1) and tuning.py as specified; same command → 56 passed; the data file loads from a fresh interpreter, a built wheel and a Lambda-like layout (Task 1's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS, with MS3a's tests unchanged; ruff clean. Evidence: `uv run pytest -q` → 576 passed, 1 skipped (535 before); `uv run ruff check .` → All checks passed; `uv run ruff format --check .` → 45 files already formatted. R138 then changed two MS3a tests to pin START instead of the live TUNING (fix 6b7b94e → 580 passed, 1 skipped) (Task 1's report and SDD ledger).
+- [x] **Step 5:** Commit `feat(analysis): add the inch level rule, the tire codes and the tuning module`. Evidence: commit 7f3d821 (11:47 PM), then 6b7b94e (R138 and 4 minors); review clean after 1 fix round, spec ✅ (SDD ledger).
 
 ### Task 2: Step 3: the water edge, touch, the cut and raggedness
 
@@ -303,7 +303,7 @@ Most likely first. Each line names its tests.
     - In column x, the water starts at row `y_true + seam + round(ripple × sin(x ÷ 7))`. For `"none"` and `"hole"`, the wheel's pixels are removed from it. For `"overlap"`, it keeps them.
   - `instance(...)` gains `mask: np.ndarray | None = None`, which overrides `mask_xyxy` when given.
 
-- [ ] **Step 1: Write the failing tests.** The values come from a scratch run of the algorithm above on these scenes. Each passes `START`, so tuning T, the touch share or the IQR share in Task 17 never breaks it.
+- [x] **Step 1: Write the failing tests.** The values come from a scratch run of the algorithm above on these scenes. Each passes `START`, so tuning T, the touch share or the IQR share in Task 17 never breaks it. Evidence: tests/test_waterline.py, the brief's 12 tests as 16 cases, each passing START (Task 2's report).
   - `test_seam_within_tolerance_touches` (C301, D3's seam), with `wheel_scene(y_true=250, seam=s)`:
     - s = 0 → `y_w == 250.0`, cause `None`
     - s = 3 → `253.0`; s = 4 → `254.0` (the distance is 5)
@@ -328,10 +328,10 @@ Most likely first. Each line names its tests.
   - `test_thin_masks_have_no_water_contact` (finding 7): objects 1 px and 2 px tall, with water right below them, give `no_water_contact` with `touch_share == 0.0`, and no error.
   - `test_waterline_span` (C328): the object on rows 200 to 239 and columns 300 to 359, with water on rows ≥ 240 under columns 310 to 349 only → cause `None`, `touch_share == 40 / 60`, `y_w == 240.0` and `x_span == (310, 349)`.
   - `test_water_mask_is_the_union`: two `floodwater` instances give their union; no instances give all False in the given shape.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_waterline.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `waterline.py` and the two fakes.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): add step 3, the water edge with the touch check and the cut`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_waterline.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_waterline.py` → RED: ImportError (cannot import name 'wheel_scene' from 'fakes'), 1 collection error, 0 tests run (Task 2's report).
+- [x] **Step 3:** Implement `waterline.py` and the two fakes. Evidence: waterline.py and the fakes implemented; same command → 16 passed; `find_waterline` matched the brief's literal algorithm on 3006 cases (Task 2's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 596 passed, 1 skipped; `uv run ruff check .` → All checks passed; `uv run ruff format --check .` → 47 files already formatted (Task 2's report).
+- [x] **Step 5:** Commit `feat(analysis): add step 3, the water edge with the touch check and the cut`. Evidence: commit b357e18 (12:07 AM); review clean, spec ✅, quality approved; R139 aligned the spec's cut wording (SDD ledger).
 
 ### Task 3: Rim linking, the rim fit, the checks and the formula
 
@@ -367,8 +367,8 @@ Most likely first. Each line names its tests.
     - `disagree([landmark, geometry's])` → `"wheel_methods_disagree"`
     - otherwise the deeper, and an equal level counts as geometry
 
-- [ ] **Step 1:** Write `test_fit_ellipse_facts_on_this_opencv`, then run it before writing any code. Every mask is built with `cv2.ellipse(..., thickness=-1)`: a pixel-centre mask of the turned ellipse gives 71.14, which passes 72.1 ± 1 by only 0.04 (R135, M3). A disk mask of radius 35 at (320, 240) fits a centre within 0.5 px and r within 1.0 of 35; a filled ellipse with semi-axes 40 and 20 gives `max(w, h) / 2` within 1 of 40, a ratio within 0.02 of 0.5, and `width_x` within 1 of 80; turned 30°, `width_x` is within 1 of 72.1; 4 points raise `cv2.error`. Expected: PASS. If it fails, stop: the OpenCV facts above are wrong for this version, and the controller rules on them before anything else.
-- [ ] **Step 2: Write the failing tests.** Each passes `START` where it takes a tuning, so its check 9 bounds, daylight cutoff, rim score and step 3 values stay put when Task 17 tunes them (minor 5 of the second review). Only the hubcap test's last check reads the live `TUNING`.
+- [x] **Step 1:** Write `test_fit_ellipse_facts_on_this_opencv`, then run it before writing any code. Every mask is built with `cv2.ellipse(..., thickness=-1)`: a pixel-centre mask of the turned ellipse gives 71.14, which passes 72.1 ± 1 by only 0.04 (R135, M3). A disk mask of radius 35 at (320, 240) fits a centre within 0.5 px and r within 1.0 of 35; a filled ellipse with semi-axes 40 and 20 gives `max(w, h) / 2` within 1 of 40, a ratio within 0.02 of 0.5, and `width_x` within 1 of 80; turned 30°, `width_x` is within 1 of 72.1; 4 points raise `cv2.error`. Expected: PASS. If it fails, stop: the OpenCV facts above are wrong for this version, and the controller rules on them before anything else. Evidence: `test_fit_ellipse_facts_on_this_opencv` alone → 1 passed before any code (OpenCV 4.14.0, NumPy 2.5.4) (Task 3's report).
+- [x] **Step 2: Write the failing tests.** Each passes `START` where it takes a tuning, so its check 9 bounds, daylight cutoff, rim score and step 3 values stay put when Task 17 tunes them (minor 5 of the second review). Only the hubcap test's last check reads the live `TUNING`. Evidence: tests/test_geometry.py, 25 test functions as 31 cases; each takes START or `replace(START, ...)`, and only the hubcap test's last check reads TUNING (Task 3's report).
   - `test_link_rims_by_centre` (C300): wheels A `(100, 100, 200, 200)` and B `(180, 100, 280, 200)`. Rims centred at:
     - (140, 150) → A, and (240, 150) → B
     - (190, 150) → neither (it is inside both); (400, 150) → neither
@@ -427,10 +427,10 @@ Most likely first. Each line names its tests.
     - each within 0.002, with `START`'s factors
     - under `TUNING` too, the hubcap and the whole wheel still give `rim_size`, so a tuned factor can't let them through (S3, P4). They would pass only with `rim_size_low` at 0.4967 or below, or `rim_size_high` at 1.5667 or above, hence the limits of 0.50 and 1.55.
     - `keep_reading(WHEEL_ROWS["rim_quarter"], None)` keeps the landmark, so a failed rim leaves the wheel its landmark reading
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_geometry.py`. Expected: FAIL, except the Step 1 test.
-- [ ] **Step 4:** Implement `geometry.py`.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): add rim geometry with its checks, the formula and G4`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_geometry.py`. Expected: FAIL, except the Step 1 test. Evidence: `uv run pytest -q tests/test_geometry.py` → RED: ModuleNotFoundError for lusot_analysis.pipeline.geometry, 1 collection error, 0 tests run (Task 3's report).
+- [x] **Step 4:** Implement `geometry.py`. Evidence: geometry.py implemented; same command → 31 passed; 17 of 17 mutants killed after an on-the-bound check 9 case was added (Task 3's report).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 627 passed, 1 skipped; `uv run ruff check .` → All checks passed; `uv run ruff format --check .` → 49 files already formatted (Task 3's report).
+- [x] **Step 6:** Commit `feat(analysis): add rim geometry with its checks, the formula and G4`. Evidence: commit a8378d8 (12:25 AM); review clean, spec ✅, quality approved; R140 (SDD ledger).
 
 ### Task 4: Results that carry their source and inches
 
@@ -454,7 +454,7 @@ Most likely first. Each line names its tests.
     3. The level is the deepest deciding reading, and `level_is_floor` is set as in MS3a. If the result is exact and any non-deciding reading's level is deeper, by level index → `references_disagree` (C317 as amended, R87). A floor result stands (R90), and so does a result no dropped reading exceeds.
     4. The tie order, `level_is_floor` and `basis` come from the deciding references only. `level_from`, and the inches when it is `"geometry"`, come from the deciding reference (C307).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: 24 new tests in test_pipeline_types.py, test_combine.py, test_report_store.py and test_handler.py, plus 7 MS3a assertions updated for the new keys (Task 4's report).
   - `test_landmark_results_record_their_source` (C320): `Outcome.level_result("knee", ...)` and MS3a's direct `Outcome("done", level=...)` both have `level_from == "landmark"`. Update `test_outcome_item_fields`: the knee dict gains `"levelFrom": "landmark"`.
   - Update MS3a's other tests that compare a stored level result field by field, since the item gains `levelFrom` (finding 3; moved here from the handler task): `test_writes_a_level_result_under_the_claim` (`test_report_store.py`) and the `KNEE` item in `test_handler.py` each gain `"levelFrom": {"S": "landmark"}`. `write_result` already stores a `str` as `{"S": ...}`, so no code changes for it.
   - `test_geometry_result_stores_rounded_inches` (C308): `level_result("half_knee", "rim_quarter", False, {"vehicles": 1, "people": 0}, level_from="geometry", depth_in=(8.291619, 8.793869))`. Its `item_fields()` equals MS3a's level dict for these values, plus `"levelFrom": "geometry"`, `"depthInMin": 8.2` and `"depthInMax": 8.8`.
@@ -477,10 +477,10 @@ Most likely first. Each line names its tests.
     - a kept wheel at `hub` and a dropped wheel at `tire_only`, three levels below → `half_tire`. MS3a's C54 would refuse that gap between two kept readings, but a dropped reading never refuses from below.
     - only dropped readings → `no_usable_reference`
   - MS3a's `test_result_ignores_input_order` gains a mixed list with non-deciding references.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_pipeline_types.py tests/test_combine.py tests/test_report_store.py tests/test_handler.py`. Expected: the new and updated tests FAIL.
-- [ ] **Step 3:** Implement as specified.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Every other MS3a test passes unchanged.
-- [ ] **Step 5:** Commit `feat(analysis): carry each result's source and its inches, and let dropped readings refuse`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_pipeline_types.py tests/test_combine.py tests/test_report_store.py tests/test_handler.py`. Expected: the new and updated tests FAIL. Evidence: the four files → RED: 31 failed, 116 passed, 1 skipped (123 passed before any change) (Task 4's report).
+- [x] **Step 3:** Implement as specified. Evidence: implemented as specified; the four files → 147 passed, 1 skipped (Task 4's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Every other MS3a test passes unchanged. Evidence: `uv run pytest -q` → 651 passed, 1 skipped; `uv run ruff check .` → All checks passed; `uv run ruff format --check .` → 49 files already formatted (Task 4's report).
+- [x] **Step 5:** Commit `feat(analysis): carry each result's source and its inches, and let dropped readings refuse`. Evidence: commit d939ca1; review clean, spec ✅, quality approved; R141 (SDD ledger).
 
 ### Task 5: Readings per wheel: G4, geometry-only types and step 3's drops
 
@@ -507,7 +507,7 @@ Most likely first. Each line names its tests.
     - `landmark` is always Muse Spark's category (C320). For a van, it is the answered waterline.
 - On real photos, the type rules here are checked by Task 16's type check on the Commons PUV photos (C323, W14).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: 20 new items in test_apply_drops.py and test_measure.py, and R129's one assertion change with `vehicle_type="suv_mpv"` (Task 5's report).
   - `test_vans_and_unknown_are_kept_only_for_geometry` (C318): with `geometry_types=GEOMETRY_ONLY_TYPES`, `van` and `unknown` are kept with their `vehicle_type`, while `pickup`, `jeepney`, `tricycle`, `motorcycle` and `bus_truck` drop as `vehicle_type`. Without it, `van` and `unknown` drop as in MS3a.
   - `test_kept_vehicles_carry_their_type`: `sedan_hatch` and `suv_mpv` keep theirs.
   - Update MS3a's `test_only_sedans_and_suvs_are_read` (R129): its one `KeptVehicle(3, ...)` for the `suv_mpv` gains `vehicle_type="suv_mpv"`. No other MS3a assertion changes.
@@ -525,10 +525,10 @@ Most likely first. Each line names its tests.
   - `test_a_dropped_wheel_still_counts_as_visible` (C317, C53): a sedan with a `window` body and its only wheel at `hub`, dropped by step 3 → no body reading; only the non-deciding wheel reference.
   - `test_a_dropped_vehicle_gives_nothing`: a C53-dropped vehicle whose wheel step 3 also dropped → no references at all, with `vehicle_body_below_covered_wheel` 1, `wheel_vehicle_dropped` 1, and no step 3 cause counted.
   - `test_a_c43_dropped_vehicle_gives_nothing` (finding 8): a sedan with wheels 4 at `hub` and 5 at `tire_only` (three levels apart, so C43 drops it) and wheel 6 at `rim_top`, dropped by step 3 → no references at all, not even wheel 6's non-deciding one, with `vehicle_wheels_disagree` 1, `wheel_vehicle_dropped` 3, and no step 3 cause counted.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_apply_drops.py tests/test_measure.py`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; MS3a's tests unchanged apart from that one assertion (R129); clean.
-- [ ] **Step 5:** Commit `feat(analysis): read wheels by G4, keep vans for geometry and keep step 3's drops for C317`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_apply_drops.py tests/test_measure.py`. Expected: the new tests FAIL. Evidence: `uv run pytest -q tests/test_apply_drops.py tests/test_measure.py` → RED: 27 failed, 59 passed (the 20 new items and the 7 cases of the one updated MS3a test) (Task 5's report).
+- [x] **Step 3:** Implement. Evidence: implemented; same command → 86 passed; 15 of 15 mutants killed. Two fixes followed the review: R142 (97e7d3f, RED 2 failed) and R143 (434bcbb, RED 6 failed; 120 passed in the three files; 6 targeted mutants killed) (Task 5's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; MS3a's tests unchanged apart from that one assertion (R129); clean. Evidence: `uv run pytest -q` → 671 passed, 1 skipped, then 679 passed, 1 skipped after the two fixes; `uv run ruff check .` → All checks passed; `uv run ruff format --check .` → 49 files already formatted (Task 5's report).
+- [x] **Step 5:** Commit `feat(analysis): read wheels by G4, keep vans for geometry and keep step 3's drops for C317`. Evidence: commits 63ed660, 97e7d3f (1:02 AM) and 434bcbb (1:13 AM); review clean after R142, R143 and 1 fix round, spec ✅ (SDD ledger).
 
 ### Task 6: The pipeline: step 3 after the gate, `geometry_in_level` and logs
 
@@ -570,7 +570,7 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
   - from `wheel_scene(y_true=257)`, built with `instance(..., mask=...)`: `wheel` box `(263, 183, 378, 257)`, `wheel rim` box `(285, 205, 356, 257)` and `floodwater` box `(0, 257, 640, 480)`. `vehicle` is `(150, 100, 500, 300)`. Other phrases are empty.
   - the answer: vehicle 1 of the given type, not moving, body `not_visible`; wheel 2 at the given waterline
 
-- [ ] **Step 1: Write the failing tests.** Each one that pins a start-value number passes `tuning=START` to `run_pipeline` (R128), because the default `tuning: Tuning = TUNING` is bound at import and Task 16's and 17's changes would otherwise break it:
+- [x] **Step 1: Write the failing tests.** Each one that pins a start-value number passes `tuning=START` to `run_pipeline` (R128), because the default `tuning: Tuning = TUNING` is bound at import and Task 16's and 17's changes would otherwise break it: Evidence: 21 new tests in test_pipeline.py and test_gate.py, each that pins a start value passing `tuning=START` (Task 6's report).
   - `test_geometry_result_end_to_end`, with `geometry_case()`, `geometry_in_level=True` and `tuning=START`:
     - the outcome is `half_knee`, landmark `rim_quarter`, `level_from == "geometry"`, with `depth_in_min` and `depth_in_max` within 0.02 of 7.720 and 8.184
     - `item_fields()` has `depthInMin` 7.7 and `depthInMax` 8.2
@@ -589,14 +589,14 @@ The reasoning effort is Task 7's (finding 10), and the evidence record is Task 8
     - The real rim's box centre (320.5, 231) and its fit centre (320, 239.6) both lie outside the cut wheel's box. So the real rim joins wheel 2 alone, and the extra rim, in two wheel boxes, joins neither.
     - So wheel 2 keeps its own rim and still measures: `wheels_measured == 1` and `geometry_checks == {}`. Linking among the kept wheels only would give wheel 2 both rims (`rim_several`).
   - `test_log_keys_are_the_known_set` (C316): `set(run.log)` sits inside MS3a's keys plus the new ones above, so a mask can't reach the log.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_pipeline.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run `uv run pytest -q`. An MS3a test can now change outcome because its fake water doesn't touch a reference. Move that test's `floodwater` box so the water touches the reference, and never loosen step 3. List each such test in the task report. A test that pins the log's exact keys gains the new keys additively, and no check is loosened (R130). Name each in the report:
+- [x] **Step 2:** Run `uv run pytest -q tests/test_pipeline.py`. Expected: FAIL. Evidence: `uv run --frozen pytest -q tests/test_pipeline.py` → RED: 16 failed, 39 passed (TypeError: unexpected keyword argument 'geometry_in_level' or 'tuning') (Task 6's report).
+- [x] **Step 3:** Implement. Evidence: implemented; test_pipeline.py and test_gate.py → 78 passed; 13 of 13 mutants killed (Task 6's report).
+- [x] **Step 4:** Run `uv run pytest -q`. An MS3a test can now change outcome because its fake water doesn't touch a reference. Move that test's `floodwater` box so the water touches the reference, and never loosen step 3. List each such test in the task report. A test that pins the log's exact keys gains the new keys additively, and no check is loosened (R130). Name each in the report: Evidence: `uv run --frozen pytest -q` → 700 passed, 1 skipped (679 + 21 new); one MS3a test changed (`test_level_result_end_to_end`: the 4 new log keys and `tuning=START`), and no fake water had to move; `uv run --frozen ruff check .` → All checks passed (Task 6's report).
   - `test_pipeline.py::test_level_result_end_to_end`: its exact log dict gains the always keys and `level_from`.
   - The quality refusal's exact key set (`test_pipeline.py:134`) and `test_bad_files`' `{"meta_calls": 0}` stay as they are, since the new keys start at step 2.
 
   Then run `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): run step 3 after the gate and geometry behind geometry_in_level`.
+- [x] **Step 5:** Commit `feat(analysis): run step 3 after the gate and geometry behind geometry_in_level`. Evidence: commit e0b8c73; review clean, spec ✅, quality approved; R144 (SDD ledger).
 
 ### Task 7: Muse Spark's request: the reasoning effort and the drawing candidate (C312, C325)
 
@@ -627,8 +627,8 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - The handler and the offline runner both use `TUNING` by default, so the Lambda and the laptop send the same effort and draw the same way (§D2). Only a development run's explicit flag changes them (Task 9).
   - `FakeClient(..., reasoning_tokens: int | None = None)` puts that count in its answer.
 
-- [ ] **Step 1:** The controller reads Meta's reasoning page (`https://dev.meta.ai/docs/reasoning`) and passes the values it lists for `reasoning.effort` in the brief, since the implementer has no network (R135, M4). Check the tuple above against that list, and record the values, with the date, in the task report. If they differ from the tuple above, the page's list wins (P15).
-- [ ] **Step 2: Write the failing tests:**
+- [x] **Step 1:** The controller reads Meta's reasoning page (`https://dev.meta.ai/docs/reasoning`) and passes the values it lists for `reasoning.effort` in the brief, since the implementer has no network (R135, M4). Check the tuple above against that list, and record the values, with the date, in the task report. If they differ from the tuple above, the page's list wins (P15). Evidence: dev.meta.ai/docs/reasoning, read at 1:42 AM on Oct 30, lists `reasoning.effort` as none, minimal, low, medium, high, xhigh and max; `none` is not supported by Muse Spark (HTTP 400). `REASONING_EFFORTS = (minimal, low, medium, high, xhigh, max)` stands (P15) (SDD ledger).
+- [x] **Step 2: Write the failing tests:** Evidence: 5 new tests across test_meta_client.py, test_tuning.py, test_annotate.py and test_pipeline.py (Task 7's report).
   - `test_judge_refuses_an_unknown_effort` (`test_meta_client.py`): `"none"` and `"turbo"` raise `ValueError`, and no request is made.
   - `test_tuning_effort_and_drawing_are_known_values` (`test_tuning.py`): `TUNING.reasoning_effort` is `None` or in `REASONING_EFFORTS`, and `TUNING.drawing` is in `DRAWINGS`.
   - `test_drawing_v2_leaves_the_wheels_edge_clear` (`test_annotate.py`), for the box `(100, 100, 160, 160)`:
@@ -641,10 +641,10 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_reasoning_tokens_are_logged`: `FakeClient(..., reasoning_tokens=180)` → `run.log["reasoning_tokens"] == 180`; without it → `None`.
   - `test_log_keys_are_the_known_set` (Task 6) gains the three keys.
   - MS3a's `test_level_result_end_to_end` gains the same keys in its exact log dict, an additive update (R130). The quality refusal's key set and `test_bad_files` stay as they are, since the keys start at step 2.
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_meta_client.py tests/test_annotate.py tests/test_pipeline.py tests/test_tuning.py`. Expected: the new tests FAIL.
-- [ ] **Step 4:** Implement. Read `meta_client.py` first: the check goes in `judge` before `options` is built.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): send the tuning's reasoning effort and box drawing to Muse Spark`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_meta_client.py tests/test_annotate.py tests/test_pipeline.py tests/test_tuning.py`. Expected: the new tests FAIL. Evidence: the four files → RED: 3 collection errors and 4 failures (SDD ledger; Task 7's report).
+- [x] **Step 4:** Implement. Read `meta_client.py` first: the check goes in `judge` before `options` is built. Evidence: implemented (the effort check precedes `options`, so a bad effort makes no request); the four files → 201 passed (119, 16, 61 and 5); 11 of 11 mutants killed (Task 7's report).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Evidence: `uv run --frozen pytest -q` → 705 passed, 1 skipped (700 + 5 new); `uv run --frozen ruff check .` → All checks passed (Task 7's report).
+- [x] **Step 6:** Commit `feat(analysis): send the tuning's reasoning effort and box drawing to Muse Spark`. Evidence: commit 0ddd3d2; review clean, spec ✅, quality approved; R145, R146 (SDD ledger).
 
 ### Task 8: The evidence record (C328; MS4's C518)
 
@@ -678,7 +678,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `PipelineRun` gains `evidence: Evidence | None = None`, so MS3a's constructions keep working. It is set once Muse Spark's answer has passed the schema and the id check (step 4.4), on a gate result too, where no box has a reading. It is `None` before that, and on every error path. A replay rebuilds it, so the runner saves nothing new, and nothing in MS3b stores it (MS4 does, its C505 and C507).
   - After the commit, post the record's field names to the tracker for Window 4 (MS4's C518), naming any that differ from C518's list. The post also says that a reference step 3 dropped keeps its `level` in the record (person 3 at `knee`, for C317), and that MS4 nulls it, as its C524 already plans (R135, M8).
 
-- [ ] **Step 1: Write the failing tests.** Each one that pins a start-value number passes `tuning=START` to `run_pipeline`, and to `find_waterline` where it calls that (R128):
+- [x] **Step 1: Write the failing tests.** Each one that pins a start-value number passes `tuning=START` to `run_pipeline`, and to `find_waterline` where it calls that (R128): Evidence: tests/test_evidence.py, plus additions to test_pipeline.py, test_apply_drops.py and test_measure.py; 14 new tests in all, each passing `tuning=START` (Task 8's report).
   - `test_outline_of_simple_masks`: a filled rectangle on rows 10 to 29 and columns 20 to 59 gives one polygon, whose points are exactly the corners {(20, 10), (59, 10), (59, 29), (20, 29)}; a disk of radius 35 at (320, 240) gives one polygon of at least 8 points, each 33.5 to 35.5 px from the centre; an empty mask gives `()`.
   - `test_apply_drops_names_each_box_cause`: a moving vehicle → its own and each wheel's cause (`vehicle_moving`, `wheel_vehicle_dropped`); an unanswered wheel of a kept vehicle → `wheel_unanswered`; a wading person → `person_wading`; and the returned `Counter` equals `Counter(kept.causes.values())`.
   - `test_measure_boxes_keeps_each_box`: a sedan 1 with wheels 2 at `hub` and 3 at `tire_only` → causes `{1: "vehicle_wheels_disagree", 2: "wheel_vehicle_dropped", 3: "wheel_vehicle_dropped"}`; a lone sedan wheel at `hub` → `readings[id].reading.level == "half_tire"`; `measure(kept)` still returns MS3a's pair.
@@ -698,10 +698,10 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - Review Focus 6, `test_evidence_holds_no_face_plate_or_reason` (C62, C518): with `level_case()`, which has a face and a plate, the entries are exactly boxes 1 and 2; no entry's box is the face's `(300, 120, 330, 150)` or the plate's `(220, 270, 280, 290)`; no polygon lies wholly inside either box; and `REASON-MARKER-31` isn't in `repr(run.evidence)`.
   - Review Focus 6, `test_evidence_never_reaches_the_log`: no key of `run.log` is `evidence`, `outline`, `rim_outline`, `water_outline` or `rechecked`, and `json.dumps(run.log)` doesn't contain `"outline"`.
   - `test_no_evidence_before_the_answer`: a `flat_jpeg(10)` photo (`too_dark`) and a `judge` that raises `meta_error(500)` (`model_error`) both give `evidence is None`. `level_case()` answered with `standing_water: "no"` and its wheel at `tire_only` gives no flood seen, with a record of boxes 1 and 2: landmarks `not_visible` and `tire_only`, every `level` `None`, nothing used, deciding or dropped, and the water outline present.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_evidence.py tests/test_pipeline.py tests/test_apply_drops.py tests/test_measure.py`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement. The record is assembled from what steps 3 to 6 already hold; no step measures anything new for it.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; MS3a's tests unchanged; clean.
-- [ ] **Step 5:** Commit `feat(analysis): hand MS4 an evidence record of every numbered box`, then post the field names to the tracker (above), with the dropped reference's level (M8).
+- [x] **Step 2:** Run `uv run pytest -q tests/test_evidence.py tests/test_pipeline.py tests/test_apply_drops.py tests/test_measure.py`. Expected: the new tests FAIL. Evidence: the four files → RED: 2 collection errors (no module `lusot_analysis.pipeline.evidence`; cannot import `measure_boxes`); test_pipeline.py and test_apply_drops.py alone → 6 failed, 94 passed (Task 8's report).
+- [x] **Step 3:** Implement. The record is assembled from what steps 3 to 6 already hold; no step measures anything new for it. Evidence: evidence.py implemented, with `Kept.causes` and `measure_boxes`; the four files → 169 passed; 22 of 22 mutants killed (Task 8's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; MS3a's tests unchanged; clean. Evidence: `uv run --frozen pytest -q` → 719 passed, 1 skipped (705 + 14 new); `ruff check .` → All checks passed; `ruff format --check .` → 51 files already formatted. One MS3a assertion changed: `test_reason_text_never_reaches_the_log`'s field pin gains `evidence` (Task 8's report).
+- [x] **Step 5:** Commit `feat(analysis): hand MS4 an evidence record of every numbered box`, then post the field names to the tracker (above), with the dropped reference's level (M8). Evidence: commit cdfa11b (2:16 AM); the field names were posted to the tracker at 2:18 AM with the five wording differences and M8, and MS4's Task 14 took the record as built (2:21 AM); review clean, spec ✅; R147 (SDD ledger).
 
 ### Task 9: The offline runner and saved runs
 
@@ -725,7 +725,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - The printout adds `level_from`, `wheels_measured`, `geometry_checks`, `reasoning_effort`, `drawing_version` and `reasoning_tokens` (Task 11 reads them). MS3a's exact-printout test (`test_run_pipeline.py:200-210`) gains those lines, an additive update that loosens nothing (R130).
   - `refuse_sealed` and `refuse_data_in_repo` (R111) also cover `--run-dir` and `--sam-from`. A run folder holds masks and Muse Spark's `reason` (C62), so it never lies in the repo (R131).
 
-- [ ] **Step 1: Write the failing tests.** Each one that pins a start-value number passes `tuning=START` to `live` (R128):
+- [x] **Step 1: Write the failing tests.** Each one that pins a start-value number passes `tuning=START` to `live` (R128): Evidence: 20 new items in test_run_pipeline.py and test_saved.py, each that pins a start value passing `tuning=START` (Task 9's report).
   - `test_live_records_the_geometry_config`: `geometry_case()` live, with `tuning=START`, gives a `run.json` with `geometry_in_level` true, tuning version `"tuning-v1"`, `tire_codes_version == "tire-codes-v1"`, `reasoning_effort` null and `drawing_version == "boxes-v1"`.
   - `test_replay_uses_the_saved_config`: a `geometry_case("van")` run recorded with `--geometry off` replays to `no_usable_reference` and `same as saved: True`.
   - `test_effort_and_drawing_flags_reach_judge`: `--effort low --drawing boxes-v2` → the fake recorded `"low"`, and `run.json` says `"low"` and `"boxes-v2"`.
@@ -736,10 +736,10 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_rebuild_outcome_round_trips`: a landmark level, a geometry level with inches, no flood seen and a refusal each satisfy `rebuild_outcome(asdict(o)) == o`. An MS3a-shaped `asdict`, without the three new keys, rebuilds to the same level with `level_from == "landmark"`.
   - `test_old_runs_replay_with_geometry_off`: a `run.json` without the new keys, whose saved outcome lacks the three new fields, from `level_case()`, whose water touches its wheel so step 3 changes nothing → geometry off, `START`, and `same as saved: True`.
   - `test_sam_results_round_trip`: `save_sam_results`, then `load_sam_results`, gives equal boxes and scores, and `np.array_equal` masks. MS3a's saved-layout tests pass unchanged, because `save` writes the new keys only when given `config` (R130).
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_run_pipeline.py tests/test_saved.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 5:** Commit `feat(analysis): record the geometry setting, tuning, effort and drawing in saved runs`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_run_pipeline.py tests/test_saved.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_run_pipeline.py` → RED: 27 failed, 16 passed (Task 9's report).
+- [x] **Step 3:** Implement. Evidence: implemented; test_run_pipeline.py and test_saved.py → 67 passed. Review fix f9a5e28 (an existing run folder is refused before Meta is paid) → 72 passed (Task 9's report).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 739 passed, 1 skipped, then 744 passed, 1 skipped after the fix; `uv run ruff check .` → All checks passed (Task 9's report).
+- [x] **Step 5:** Commit `feat(analysis): record the geometry setting, tuning, effort and drawing in saved runs`. Evidence: commits 4fb5be2 and f9a5e28; review clean after 1 fix round (1 Important, 3 minors), spec ✅; R141, R144, R146 (SDD ledger).
 
 ### Task 10: Storage, the handler, the API test and the template
 
@@ -757,7 +757,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - **The template** gives the analysis function `GEOMETRY_IN_LEVEL: "on"`, a literal beside its other variables, not a template parameter (C309). SAM CLI keeps a parameter's previous value on an existing stack when `parameter_overrides` doesn't name it, and `samconfig.toml` names only `AlarmEmail` and `BucketSuffix`, so a changed parameter default would never reach the stack (MS4's C515 found this in SAM CLI 1.170.0's source). Task 17 changes the literal in the commit that records C309's decision.
   - `GET /reports/{id}` doesn't change: its allow-list (MS3a Task 10) already leaves out `levelFrom`, `depthInMin` and `depthInMax` (C320).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:** Evidence: 16 new Python tests in test_report_store.py, test_handler.py and test_run_pipeline.py, and `never returns levelFrom or the inches before the release gate` in reports.test.ts (Task 10's report).
   - `test_writes_inches_as_numbers` (C308): `depthInMin` 8.2, `depthInMax` 8.8 and `levelFrom` `"geometry"` are stored as `{"N": "8.2"}`, `{"N": "8.8"}` and `{"S": "geometry"}`.
   - `test_geometry_setting_is_read_before_the_claim`, parametrized over unset and `"maybe"` → `RETRY`, the report stays `pending`, and the fake made no call.
   - `test_template_quotes_the_geometry_setting` (`test_handler.py`; R135, M7): the test reads `backend/template.yaml` as text and expects its `GEOMETRY_IN_LEVEL` line to hold the quoted string `"on"` or `"off"`. An unquoted `on` or `off` is a YAML 1.1 boolean, and `_geometry_in_level` would then raise on every delivery.
@@ -769,10 +769,10 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - Review Focus 6, `test_log_line_holds_no_evidence` (C328): for `geometry_case()`, no key at any depth of the handler's log line is `evidence`, `outline`, `water_outline` or `rechecked`, and the stored item holds none either.
   - In `reports.test.ts`, `never returns levelFrom or the inches before the release gate` (C320): a stored level item with those three fields gives exactly MS3a's level body, and the body text contains none of the three names.
   - The `prompts` fixture in `test_handler.py` sets `GEOMETRY_IN_LEVEL=on` and clears `_geometry_in_level`'s cache, as it does for the prompt (P12). Both B3 tests use `prompts` alone, and the `aws` fixture builds on it, so every handler test gets the setting. (MS3a's exact-field tests gained `levelFrom` in Task 4.)
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_report_store.py tests/test_handler.py` and `npm test -w backend/api` (from the repo root). Expected: the Python tests FAIL. The API test PASSES with no code change. If it fails, the allow-list leaks: fix it in `reports.ts`.
-- [ ] **Step 3:** Implement the store, the handler and the template.
-- [ ] **Step 4:** Run `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`. From `backend`, run `sam validate --lint --profile lusot --region ap-southeast-1` and `grep -n "GEOMETRY_IN_LEVEL" template.yaml`. Expected: PASS; clean; valid; one match, and no `GeometryInLevel` parameter.
-- [ ] **Step 5:** Commit `feat(analysis): store levelFrom and the inches, and read geometry_in_level from the template`.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_report_store.py tests/test_handler.py` and `npm test -w backend/api` (from the repo root). Expected: the Python tests FAIL. The API test PASSES with no code change. If it fails, the allow-list leaks: fix it in `reports.ts`. Evidence: the Python files → RED: 8 failed, 61 errors, 63 passed, 1 skipped; `npm test -w backend/api` → 42 passed with no code change (adding `levelFrom` to reports.ts failed the new test, then was reverted) (Task 10's report).
+- [x] **Step 3:** Implement the store, the handler and the template. Evidence: store, handler and template implemented; the three Python files → 132 passed, 1 skipped (Task 10's report).
+- [x] **Step 4:** Run `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`. From `backend`, run `sam validate --lint --profile lusot --region ap-southeast-1` and `grep -n "GEOMETRY_IN_LEVEL" template.yaml`. Expected: PASS; clean; valid; one match, and no `GeometryInLevel` parameter. Evidence: `uv run pytest -q` → 760 passed, 1 skipped; ruff check and format check clean; `sam validate --lint --profile lusot --region ap-southeast-1` → valid; one GEOMETRY_IN_LEVEL line in template.yaml and no GeometryInLevel parameter; `npm test -w backend/api` → 42 passed and `npm run typecheck -w backend/api` clean (Task 10's report).
+- [x] **Step 5:** Commit `feat(analysis): store levelFrom and the inches, and read geometry_in_level from the template`. Evidence: commit 82cbdaa; review clean, spec ✅, quality approved; one minor fixed in 815862c (SDD ledger).
 
 ### Task 10a: SAM's claimed mask size, checked before parsing (C330, R123; tier Should)
 
@@ -786,7 +786,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - No signature changes.
 - `_instances(text, image)` raises the same `MetaApiError` (status `None`) as its other refusals, with the message `a SAM mask is larger than the image`. It raises before `parser.push`.
 
-- [ ] **Step 1:** Write the tests (RED):
+- [x] **Step 1:** Write the tests (RED): Evidence: 4 new items in tests/test_meta_client.py → RED: 3 failed, 120 passed (each size case raised 'parser reached' from the stub) (Tasks 10 and 10a report).
   - **Parametrized `test_segment_mask_larger_than_the_image_raises_before_parsing`.** Each case is a one-record SAM text on the 320 × 334 `photo` whose mask token claims a size larger than the image:
     - `data=335,320,…`: one row too tall
     - `data=334,321,…`: one column too wide
@@ -795,13 +795,13 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - **What each case checks:** `MetaApiError`, `status is None`, and one request. To prove the check runs first, monkeypatch `meta_client.image_segmentation_format` with a function that raises `AssertionError("parser reached")`.
   - **`test_segment_mask_at_the_image_size_passes_the_size_check`:** a full-frame record, with box `x1=0;y1=0;x2=319;y2=333;w=320;h=334` and a 334 × 320 raster built with the test file's `mask_text` helper, returns one instance.
   - **The C90 tests** (scaled rasters) and `test_segment_output_it_cannot_place_raises` keep passing unchanged.
-- [ ] **Step 2:** Implement it:
+- [x] **Step 2:** Implement it: Evidence: the check in `meta_client._instances`; test_meta_client.py → 123 passed. Review fix 815862c: fields are trimmed with the parser's own helper, and a size with more digits than the side is refused before `int()` (RED 4 failed; 196 passed in the two files) (Tasks 10 and 10a report; SDD ledger).
   - Add `_MASK_TOKEN = re.compile(r"<\|mask;([^|]*)\|>")` beside `_BOX_TOKEN`. A mask token's fields hold no `|`; its base85 payload never contains `|`, per the protocol's alphabet.
   - At the top of `_instances`, read each token's `data` field with `_token_fields`. Take its first two comma-separated integers as rows and columns. Raise if rows > `image.height` or columns > `image.width`.
   - A token whose `data` doesn't start with two integers is left for the parser to diagnose, as today.
   - Update `_instances`' docstring with one sentence.
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_meta_client.py`, then `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`. From the repo root, run `node scripts/check_account_ids.mjs`. Expected: all pass.
-- [ ] **Step 4:** Commit `fix(analysis): check SAM's claimed mask size before parsing (C330)`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_meta_client.py`, then `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`. From the repo root, run `node scripts/check_account_ids.mjs`. Expected: all pass. Evidence: `uv run pytest -q` → 764 passed, 1 skipped, then 770 passed, 1 skipped after the fix; ruff check and format check clean; `node scripts/check_account_ids.mjs` → clean (Tasks 10 and 10a report; SDD ledger).
+- [x] **Step 4:** Commit `fix(analysis): check SAM's claimed mask size before parsing (C330)`. Evidence: commits 672aed8 and 815862c; review: spec ❌ at first (1 Important: U+FEFF in a padded size), clean after 1 fix round; R149 (SDD ledger).
 
 ### Task 11: Deploy and the cloud geometry check (D1; spends Meta credits)
 
@@ -817,34 +817,34 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `smoke_upload.py --bound S` (R119): the wait for each uploaded photo's final status, passed through `upload_photo` to `await_report`'s `bound_s`. It defaults to 120 s, B1's bound (C68). MS3b's runs pass `--bound 180`, since MS3a's runs stop as late as about 150 s (C84, C88) and geometry adds time. The missing-photo check keeps its own 60 s bound (`MISSING_PHOTO_S`; MS3a spec §3.6).
   - `smoke_upload.py --geometry N`: sends the photo at position N of C87's order (`seeded_photo_order(folder)[N]`), as the app sends it, and only that photo. It stops with `CheckFailed`, before any upload, if `credited` skips that photo. Through `upload_photo` it waits for the final status within `--bound` and checks the body. It then runs `check_geometry_line` on the report's final log line, and prints the outcome, `level_from`, `wheels_measured`, `geometry_checks` and the spend. It exits 0 when every check passes and 1 otherwise. No path or name is typed or printed.
 
-- [ ] **Step 1:** First check whether MS4's `spend.py` has moved `PRICES` out of `smoke_upload.py` (MS4's Task 7; R126). If it has, merge that before editing the file. Then write the failing tests:
+- [x] **Step 1:** First check whether MS4's `spend.py` has moved `PRICES` out of `smoke_upload.py` (MS4's Task 7; R126). If it has, merge that before editing the file. Then write the failing tests: Evidence: `backend/scripts/test_smoke_upload.py` → RED: 9 failed, 40 passed, then 49 passed; `npm run check:py` → exit 0 (analysis 770 passed, 1 skipped; scripts 77 passed). MS4's `spend.py` had not moved PRICES, so nothing was merged (R148). Commit 9cd9202; review clean, spec ✅ (Task 11's report and SDD ledger).
   - `test_geometry_check_needs_a_measured_wheel`: `wheels_measured` 1 passes; 0 or missing → `CheckFailed`.
   - `test_report_body_refuses_levelfrom_and_the_inches` (C320): a level body plus any one of the three keys → `CheckFailed` naming that key.
   - `test_geometry_mode_sends_one_credited_photo` (on fakes): position N's credited photo is the one sent; an uncredited one stops with `CheckFailed` before any upload.
   - `test_bound_reaches_every_wait` (R119): with `--bound 180`, every uploaded photo's wait for its final status gets 180 s; without it, 120 s. The missing-photo check's wait stays 60 s either way (`MISSING_PHOTO_S`; MS3a spec §3.6).
 
   Run them with MS3a's command (its Task 15, Step 2): `uv run --with pytest --with "boto3[crt]" --with httpx --with numpy --with "opencv-python-headless<5" pytest -q backend/scripts/test_smoke_upload.py` from the repo root. Expected: FAIL. Implement them, re-run, expect PASS, and commit `feat(backend): add the smoke run's geometry check and --bound` (R135, M14).
-- [ ] **Step 2 (Claude; about $0.03 a photo):** find a photo with a geometry reading, offline, on the photo the cloud will get (P7).
+- [x] **Step 2 (Claude; about $0.03 a photo):** find a photo with a geometry reading, offline, on the photo the cloud will get (P7). Evidence: offline, geometry on, 3:32 to 3:35 AM, from full-order position 4 (R150): positions 4 to 9 (6 credited photos) → no wheel measured (`no_usable_reference` 3, `photo_unusable` 3); 36 Meta calls, about $0.156. D1's cloud half is partly met (SDD ledger).
   - Go through the first 10 credited photos in C87's order, one at a time. The smoke script's `seeded_photo_order` gives the full order and `credited` filters it; print no path. A "position" below is the photo's place in the full order, `seeded_photo_order(folder)[N]`, the N that `--geometry N` takes (R135, M5).
   - For each, write `as_app_jpeg(that photo)`, the app's 1,600 px at quality 85, to `<LUSOT_DATA_DIR>\d1_search\<position>.jpg`. Then run `uv run python probes/run_pipeline.py live "<that file>" --geometry on`, with the key line.
   - Stop at the first run whose output shows `wheels_measured` of at least 1, and record its full-order position, never its name.
   - The Commons car photos can't serve: they are dry, so Muse Spark sees no flood and geometry never runs (C323).
   - If none of the 10 measures a wheel, D1's cloud half is partly met. Record that, go on, and let the first Manila development or consented photo prove it.
-- [ ] **Step 3: Preconditions**, as MS3a's Task 16 Step 1:
+- [x] **Step 3: Preconditions**, as MS3a's Task 16 Step 1: Evidence (3:40 AM): the `ends_with(Arn, 'user/rene-dev')` check printed `true`; no java or Gradle process; 3.6 GB free; a clean tree at `9cd9202`. The heads-up and `DEPLOY RUNNING 3:40 AM` were posted in the handoff note and to the tracker. Rene had been asleep since about 11:11 PM, so no phone test was running. `DONE` at 3:51 AM (SDD ledger; handoff note; Oct 30 log).
   - Rene's AWS login holds: the `ends_with(Arn, 'user/rene-dev')` query prints `true`.
   - Docker is running, and no Gradle build is. `git status` is clean.
   - **A heads-up** in the handoff note: after this deploy, the cloud runs step 3 and geometry, so a photo's result can change, and the smoke run turns uploads off for about a minute (P6).
   - **No phone test is running (M14).** CLAUDE.md says never to run the smoke during one. If Rene is testing the phone, wait (P6).
   - Post `DOCKER/DEPLOY RUNNING <time>` in the handoff note and to the tracker before Step 4, and `DOCKER/DEPLOY DONE <time>` after the last smoke run (the tracker's update A.2).
-- [ ] **Step 4:** Build and check the image as `CLAUDE.md`'s deploy line says. From PowerShell, with PATH refreshed, run `npm run build -w backend/api`, then `sam build --parallel` from `backend`. Check the image SAM built, `analysisfunction:<the template's DockerTag>` (`ms1` today), never a manual `docker build`:
+- [x] **Step 4:** Build and check the image as `CLAUDE.md`'s deploy line says. From PowerShell, with PATH refreshed, run `npm run build -w backend/api`, then `sam build --parallel` from `backend`. Check the image SAM built, `analysisfunction:<the template's DockerTag>` (`ms1` today), never a manual `docker build`: Evidence: `npm run build -w backend/api` → exit 0, then `sam build --parallel` → exit 0 in 27 s; the image SAM built, run with `--network none`: its imports worked, `tire-codes-v1 12` and `tuning-v1` printed, and `/var/task/prompts` held the `.md` and `.schema.json` files (SDD ledger).
   - `docker run --rm --network none --entrypoint python <image> -c "import lusot_analysis.meta_client, lusot_analysis.handler"`, and list `/var/task/prompts`
   - `docker run --rm --network none --entrypoint python <image> -c "from lusot_analysis.rules import tire_codes, TIRE_CODES_VERSION; print(TIRE_CODES_VERSION, len(tire_codes('unknown')))"` → `tire-codes-v1 12`
-- [ ] **Step 5:** Run `npm run deploy` from PowerShell. Expected: the stack updates, then `lifecycle: keep 3`.
-- [ ] **Step 6:** Run `uv run backend/scripts/smoke_upload.py --bound 180` from the repo root. Expected: `SMOKE OK`; an exit 3 follows MS3a's C71 path (its Task 16, Step 4). Then, if Step 2 found a photo, run `uv run backend/scripts/smoke_upload.py --bound 180 --geometry <Step 2's position>`. Expected: exit 0. Record the outcome, `level_from`, `wheels_measured` and the seconds to a final status.
+- [x] **Step 5:** Run `npm run deploy` from PowerShell. Expected: the stack updates, then `lifecycle: keep 3`. Evidence: `npm run deploy` → exit 0 in 107 s; AnalysisFunction updated; `lifecycle: keep 3` (SDD ledger).
+- [x] **Step 6:** Run `uv run backend/scripts/smoke_upload.py --bound 180` from the repo root. Expected: `SMOKE OK`; an exit 3 follows MS3a's C71 path (its Task 16, Step 4). Then, if Step 2 found a photo, run `uv run backend/scripts/smoke_upload.py --bound 180 --geometry <Step 2's position>`. Expected: exit 0. Record the outcome, `level_from`, `wheels_measured` and the seconds to a final status. Evidence: `smoke_upload.py --bound 180` → exit 3, `SMOKE NO LEVEL` in 369.8 s, every other check passed (B1's 5 photos, the dark photo with 0 Meta calls, the reused link 204, B4, B5, the missing photo `NoSuchKey`, the PNG 403, the key loaded, the stop switch); about $0.164. C71's `--fallback --bound 180` → exit 3: 15 of 15 sent (positions 5 to 19), no level; about $0.512. `--geometry` was not run, because Step 2 found no photo with a measured wheel (SDD ledger).
   - Muse Spark's answers vary between runs, so the cloud can miss a wheel the offline run measured. If `--geometry` exits 1, go back to Step 2's search from the next credited photo, and try the next photo found (P7).
   - Once the first 10 credited photos are used up, record D1's cloud half as partly met.
-- [ ] **Step 7:** If a photo passed, check B3 on its real run: `$env:LUSOT_B3_RUN_DIR = '<its run dir from Step 2>'; $env:LUSOT_B3_PHOTO = '<its file in d1_search>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: all passed, 0 skipped.
-- [ ] **Step 8:** Record the spend: the photos sent, 6 calls for each offline run, 8 for each cloud photo, and the estimate from billed usage in the log lines.
+- [ ] **Step 7:** If a photo passed, check B3 on its real run: `$env:LUSOT_B3_RUN_DIR = '<its run dir from Step 2>'; $env:LUSOT_B3_PHOTO = '<its file in d1_search>'; uv run --directory backend/analysis pytest -q tests/test_handler.py -k b3`. Expected: all passed, 0 skipped. **Not applicable (Oct 30):** Step 2 found no photo with a measured wheel, so there is no run folder to replay. `test_b3_on_a_real_saved_run` stays skipped, and the synthetic B3 replay tests pass (SDD ledger).
+- [x] **Step 8:** Record the spend: the photos sent, 6 calls for each offline run, 8 for each cloud photo, and the estimate from billed usage in the log lines. Evidence: Task 11's spend is about $0.156 + $0.164 + $0.512 = $0.83, over D1's about $0.50 and within the $30 development allocation; Window 3's total was about $1.03 at that point (SDD ledger).
 
 ### Task 12: The export: development rows for MS6's harness (C315, C327)
 
@@ -908,8 +908,8 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
     - `--replay` takes Task 13's `replay.jsonl` and adds each Set A row's `<key>_replay` outcomes. Every Set A row must have them, or it exits 2 (MS6's C425).
     - It prints counts only: the photos, the G4 drops, `wheels_measured`, the geometry checks by cause, the labels written as `(other words)`, and the drops before numbering (`wheel_small`, `wheel_unlinked`, `vehicle_cap`, `wheel_cap`, `person_cap`; P2, P6). Then it prints the harness command to run next.
 
-- [ ] **Step 1:** Check MS6's harness. If `eval/run_eval.py` and `eval/scoring/` exist on `main`, read its loader's contract (read-only) and match every row and `run.json` key it names, including `m8`, `geometry_default`, `datasets`, `self_check` and the replay keys. Where its names differ from this task's, MS6's win; record each difference in the task report. Run `python eval/run_eval.py --label-words` once to see the list. Read `eval/scoring/labels.py` from `main`, or else read-only with `git show w4-independent:eval/scoring/labels.py`, and check `label_or_marker`'s three patterns against it (P1). If the harness doesn't exist yet, build to this task's names and record that, with the Set A rows waiting for `--label-words` (R133).
-- [ ] **Step 2: Write the failing tests** (runs recorded with the runner's `live()` and a `FakeClient`; manifests and M8 sheets as CSV in `tmp_path`). Each test that pins a start-value number passes `tuning=START` to `live()`, `replay_configurations` and the command's entry point (R128). Where a test below names `default_boxes-v1`, it means `settings_name(START)`:
+- [x] **Step 1:** Check MS6's harness. If `eval/run_eval.py` and `eval/scoring/` exist on `main`, read its loader's contract (read-only) and match every row and `run.json` key it names, including `m8`, `geometry_default`, `datasets`, `self_check` and the replay keys. Where its names differ from this task's, MS6's win; record each difference in the task report. Run `python eval/run_eval.py --label-words` once to see the list. Read `eval/scoring/labels.py` from `main`, or else read-only with `git show w4-independent:eval/scoring/labels.py`, and check `label_or_marker`'s three patterns against it (P1). If the harness doesn't exist yet, build to this task's names and record that, with the Set A rows waiting for `--label-words` (R133). Evidence: `eval/run_eval.py` and `eval/scoring/` are on `w4-independent` at 1cafc88 only, so R133's path applies; read read-only (the loader and labels); `--label-words` printed 39 words; MS6's names win in 14 places, listed in Task 12's report and checked in review (Task 12's report).
+- [x] **Step 2: Write the failing tests** (runs recorded with the runner's `live()` and a `FakeClient`; manifests and M8 sheets as CSV in `tmp_path`). Each test that pins a start-value number passes `tuning=START` to `live()`, `replay_configurations` and the command's entry point (R128). Where a test below names `default_boxes-v1`, it means `settings_name(START)`: Evidence: tests/test_export.py and tests/test_dev_eval.py written first, with the brief's cases (Task 12's report).
   - `test_answer_without_reason`: `reason` is gone and every other key stays; `None` gives `None`; an answer that fails the schema gives `None` (P13).
   - `test_photo_row_has_both_configurations`, on a `geometry_case("van")` run recorded and replayed with `tuning=START`:
     - `outcomes.landmark` equals `Outcome.refused("no_usable_reference").item_fields()`
@@ -934,12 +934,14 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_run_prints_cost_first_and_needs_yes`: without `--yes` → exit 2, after printing the count and the cost. With it → a run folder for each row that lacked one; existing runs are kept.
   - `test_runs_at_other_settings_go_to_their_own_folder`: `--effort low --sam-from default_boxes-v1` writes under `low_boxes-v1`, reusing the default runs' SAM outputs with no `segment` call.
   - `test_no_import_crosses_into_eval` (C400; finding 8): an `ast` walk of every `.py` file under `src/lusot_analysis` and `probes/` finds no import of `eval` or `eval.*`.
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_export.py tests/test_dev_eval.py`. Expected: FAIL.
-- [ ] **Step 4:** Implement.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): export development rows for MS6's harness`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_export.py tests/test_dev_eval.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_export.py tests/test_dev_eval.py` → RED: both files failed at collection (ImportError for lusot_analysis.export; FileNotFoundError for probes/dev_eval.py) (Task 12's report).
+- [x] **Step 4:** Implement. Evidence: export.py and dev_eval.py implemented; same command → 18 passed, 1 skipped (the harness-gated parity test). Fix rounds 76162f5 (2 Important, 12 Minor; RED 35 failed) and 6b45d7b (R156; RED 15 failed) → 53 passed, 2 skipped; the 2 gated tests passed against Window 4's copy, read-only (Task 12's report; SDD ledger).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 788 passed, 2 skipped, then 823 passed, 3 skipped, then 838 passed, 3 skipped after the fixes; ruff check and format check clean; `backend/scripts` 82 passed (Task 12's report; SDD ledger).
+- [x] **Step 6:** Commit `feat(analysis): export development rows for MS6's harness`. Evidence: commits 5b08f80 (4:20 AM), 76162f5 (4:47 AM) and 6b45d7b; 1e2aba1 took MS4's finished spend.py, spend_loader.py and spend contract, add-only (R151). Review: spec ✅, quality 'Needs fixes' fixed in 2 rounds, and a Sonnet 5.5 re-review found all addressed. Task 12b (the runner's `record_spend` calls) waits for MS4's deployed limits table (R154) (SDD ledger).
 
 ### Task 13: The tuning sweep and event replay (C310, C324)
+
+**Status (Oct 30):** not started. Tier Could, skipped: the usage plan drops it unless money and usage allow.
 
 **Files:**
 - Modify: `backend/analysis/probes/dev_eval.py`
@@ -1000,6 +1002,8 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 - [ ] **Step 6:** Commit `feat(analysis): add the tuning sweep and event replay`.
 
 ### Task 14: The Manila check, the water phrases, the effort comparison and the type check (C313, C326, C312, C325, C323)
+
+**Status (Oct 30):** not started. Tier Should. Waits for the split and `eval/rules.md` v0.7, because C313's check needs labelled development photos; the usage plan runs it after the merge if there is room.
 
 **Files:**
 - Modify: `backend/analysis/probes/dev_eval.py`
@@ -1099,8 +1103,8 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
       - the rim-edge ratio `2 r ÷ (box height ÷ D) ÷ rim`, over the candidates
     - It is diagnostic only: nothing is tuned on it (C310 tunes k and check 9 on Set B development rims), and dry cars give no geometry depth.
 
-- [ ] **Step 1:** As Task 12's Step 1, for `set_b.jsonl`: if MS6's loader is on `main`, match its field names and its rule for the uncalibrated variants (its draft gives them only when k isn't 1), and record any difference from C314.
-- [ ] **Step 2: Write the failing tests** (crop images are `noise_jpeg()` files in `tmp_path`, and SAM results come from `wheel_scene(y_true=257)`; the wheel is a `sedan_hatch` on 175/65R14 with `px_per_in` 5.0, `waterline_row` 257, `true_depth_in` 8.08 and the box `(263, 183, 378, 257)`):
+- [x] **Step 1:** As Task 12's Step 1, for `set_b.jsonl`: if MS6's loader is on `main`, match its field names and its rule for the uncalibrated variants (its draft gives them only when k isn't 1), and record any difference from C314. Evidence: MS6's loader (rows.py at 48cdaf3, unchanged since 1cafc88) is on `w4-independent` only; read read-only. MS6's names win: an unmeasured estimate holds all five keys with `fail`, not `cause` (Task 15's report; SDD ledger).
+- [x] **Step 2: Write the failing tests** (crop images are `noise_jpeg()` files in `tmp_path`, and SAM results come from `wheel_scene(y_true=257)`; the wheel is a `sedan_hatch` on 175/65R14 with `px_per_in` 5.0, `waterline_row` 257, `true_depth_in` 8.08 and the box `(263, 183, 378, 257)`): Evidence: tests/test_set_b.py written first, 14 tests (Task 15's report).
   - `test_read_wheels_validates`: a missing field, an unknown type or an unparseable code → `ValueError` naming the `crop_id` and `wheel`. A 2000 × 1500 crop scales its pixel values by 0.8.
   - `test_wheel_estimates_at_k_1`: all four variants give `depthInPoint` within 0.02 of 7.94, and `depthInMin` and `depthInMax` within 0.02 of 7.720 and 8.184, each with at most 4 decimal places.
   - `test_wheel_estimates_with_a_calibrated_k`: `rim_edge_k=1.05` → `geometry` and `known_waterline` give `depthInPoint` within 0.02 of 7.77, with min and max within 0.02 of 7.53 and 7.98; the two uncalibrated variants give 7.94, 7.720 and 8.184.
@@ -1114,12 +1118,14 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
   - `test_rims_check_prints_counts_only` (C323), with a folder in `tmp_path`: only photos with codes and a credit line are sent, each through `blur_for_meta` with exactly the 2 phrases; the cost prints first and `--yes` is needed; the printout holds no name or path; a folder under `sealed` → exit 2.
   - `test_rims_check_joins_by_title` (P2): a `cars_meta.csv` row whose `sha1` isn't its file's hash, and matches no file name, still finds its photo through `attribution.csv`'s `title` and `file_name`. A title with no `attribution.csv` row is counted as unmatched and sent nothing.
   - `test_overlay_writes_under_the_data_dir` (P4): `overlay` writes one image for the named wheel under `LUSOT_DATA_DIR`, never in the repo; a path under `sealed` → exit 2.
-- [ ] **Step 3:** Run `uv run pytest -q tests/test_set_b.py`. Expected: FAIL.
-- [ ] **Step 4:** Implement.
-- [ ] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean.
-- [ ] **Step 6:** Commit `feat(analysis): write Set B rows for MS6's harness, and add the early rim check`.
+- [x] **Step 3:** Run `uv run pytest -q tests/test_set_b.py`. Expected: FAIL. Evidence: `uv run pytest -q tests/test_set_b.py` → RED: 1 error during collection (FileNotFoundError: probes/set_b.py didn't exist) (Task 15's report).
+- [x] **Step 4:** Implement. Evidence: set_b.py and the export functions implemented; same command → 14 passed (13 on the first run; the cost now rounds up to the cent, so a paid run never reads as free). MS6's loader read a synthetic export in a scratch folder (Task 15's report).
+- [x] **Step 5:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`. Expected: PASS; clean. Evidence: `uv run pytest -q` → 852 passed, 3 skipped (838 + 14); ruff check and format check clean; `node scripts/check_account_ids.mjs` → clean, 177 files (Task 15's report).
+- [x] **Step 6:** Commit `feat(analysis): write Set B rows for MS6's harness, and add the early rim check`. Evidence: commit 13455f0 (5:28 AM); review: spec ✅, quality 'Needs fixes' (Important 1: the file-name pattern), settled by R157 after the real attribution file passed it. The free dry run on the real Commons car folder printed '8 SAM calls, about $0.02'; the early rim check ran at 5:41 AM (SDD ledger).
 
 ### Task 16: The Set C checks and the Oct 31 decision (C312, C325, C323, C311; Claude)
+
+**Status (Oct 30):** not started. Tier Should. Waits for Rene's usage reading: its paid checks (about $1.47) run only after his morning reading. Until then the Oct 31 defaults stand: effort default, drawing `boxes-v1`, self-check off and not built.
 
 **Files:** possibly `backend/analysis/src/lusot_analysis/tuning.py` and `tests/test_tuning.py`; `docs/log/<date>.md`
 
@@ -1160,6 +1166,8 @@ This task runs on Set C, before the split and before v0.7 (C322, C323), and open
   - **No:** record "not built" and why.
 
 ### Task 17: Development data through the harness (C325, C313, C326, C314, C319, C310, C324, C315, C309; Claude)
+
+**Status (Oct 30):** not started. Tier Should. Waits for the split, v0.7 and Set B (MS3b-Q1's fallback applies). Step 11's deploy folds into the integrated deploy after MS3b merges and MS4 Phase B rebases (R155).
 
 **Files:** possibly `tuning.py`, the tests that pin start values, and `backend/template.yaml` (`GEOMETRY_IN_LEVEL`'s literal); results only under `LUSOT_DATA_DIR`
 
@@ -1213,7 +1221,7 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
 - Create: `docs/research/<date>-ms3b-results.md`
 - Modify: the spec's §6 table, this plan's boxes, `docs/PROGRESS.md` (the MS3 row; W2 to W9 and W14), the day's `docs/log/` note, and the design doc's decision log if anything new was decided
 
-- [ ] **Step 1:** Write the results note, with counts and figures copied from the harness's reports and n beside each:
+- [x] **Step 1:** Write the results note, with counts and figures copied from the harness's reports and n beside each: Evidence: docs/research/2026-10-30-ms3b-results.md, with counts and figures and no photo name, path, image, key or account ID.
   - D1: the cloud photo's outcome, and the B3 replay
   - D2 and D7: Set B's figures (up to half tire) and the ablation tables with their replay columns, or "waits for the harness"
   - D4: C312's effort and C325's drawing, with each run's figures, and the self-check decision
@@ -1226,8 +1234,8 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
   - the frozen values: the tuning version, the tire codes version, the reasoning effort, the drawing, the SAM phrases and geometry's default
 
   It holds no photo names, paths, images, key or account ID.
-- [ ] **Step 2:** Add a "Result" column to the spec's §6, with ✅ or "partly met" and the evidence line for each of D1 to D10.
-- [ ] **Step 3: Confirm v0.7 is applied (§D9).** Check that `eval/rules.md`'s status line says v0.7, approved by Rene, and that its §10 freeze list names the reasoning effort, the drawing version, the SAM phrases and MS3b's tuning values (v0.7 item 10.1, which carries MS3b-Q4). If it doesn't, record MS3b-Q4 and those freeze items as pending in `docs/PROGRESS.md`. MS3b edits nothing under `eval/`.
+- [x] **Step 2:** Add a "Result" column to the spec's §6, with ✅ or "partly met" and the evidence line for each of D1 to D10. Evidence: spec §6 has the column 'Result (Oct 30)': D1 partly met, D3 and D10 ✅, D2 and D4 to D9 wait, with an evidence line each; D11 is left to Task 19.
+- [x] **Step 3: Confirm v0.7 is applied (§D9).** Check that `eval/rules.md`'s status line says v0.7, approved by Rene, and that its §10 freeze list names the reasoning effort, the drawing version, the SAM phrases and MS3b's tuning values (v0.7 item 10.1, which carries MS3b-Q4). If it doesn't, record MS3b-Q4 and those freeze items as pending in `docs/PROGRESS.md`. MS3b edits nothing under `eval/`. Evidence: `eval/rules.md` says DRAFT v0.6 on ms3b-geometry and on w4-independent (checked 5:43 AM), so v0.7 isn't applied. MS3b-Q4, v0.7 item 10.1's freeze items (reasoning effort, drawing version, SAM phrases, MS3b's tuning values) and MS3b-Q3 are recorded as pending in docs/PROGRESS.md. MS3b edits nothing under eval/.
 - [ ] **Step 4:** Run the checks. Expected: all clean.
   - `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`
   - `npm run check`
