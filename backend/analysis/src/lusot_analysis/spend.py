@@ -20,6 +20,7 @@ profile's `aws login` credentials):
     uv run --directory backend/analysis --with "botocore[crt]==1.43.120"
         python -m lusot_analysis.spend add --usd 0.37 --source manual-<who>
     uv run ... python -m lusot_analysis.spend total
+Before the seed, `add` still adds, and says on stderr that its total is partial.
 Exit codes: 0 done; 1 an AWS error, or `total` on an unseeded counter; 2 a bad --usd.
 """
 
@@ -140,22 +141,30 @@ def record_spend(
 def spend_total(*, ddb=None, table: str | None = None) -> Decimal:
     """The counter's total in USD, read strongly consistent.
 
-    A missing item, or one with no `seeded`, raises SpendUnseeded: never $0.
+    A missing item, or one with no `seeded` or no total, raises SpendUnseeded: never
+    $0, and never a KeyError.
     """
     client = boto3.client("dynamodb", config=SPEND_CONFIG) if ddb is None else ddb
-    item = client.get_item(
-        TableName=_table(table),
-        Key={"pk": {"S": SPEND_PK}},
-        ProjectionExpression="#micro, #seeded",
-        ExpressionAttributeNames={"#micro": SPEND_ATTR, "#seeded": SPEND_SEEDED_ATTR},
-        ConsistentRead=True,
-    ).get("Item")
-    if item is None or SPEND_SEEDED_ATTR not in item:
+    item = (
+        client.get_item(
+            TableName=_table(table),
+            Key={"pk": {"S": SPEND_PK}},
+            ProjectionExpression="#micro, #seeded",
+            ExpressionAttributeNames={
+                "#micro": SPEND_ATTR,
+                "#seeded": SPEND_SEEDED_ATTR,
+            },
+            ConsistentRead=True,
+        ).get("Item")
+        or {}
+    )
+    micro = item.get(SPEND_ATTR, {}).get("N")
+    if SPEND_SEEDED_ATTR not in item or micro is None:
         raise SpendUnseeded(
-            "unseeded: the Meta spend counter has no seed yet; run seed_spend.py"
+            "unseeded: the Meta spend counter has no seeded total; run seed_spend.py"
             " (docs/operations.md)"
         )
-    return _usd(item[SPEND_ATTR]["N"])
+    return _usd(micro)
 
 
 # For the CLI and the operator scripts in backend/scripts.
@@ -222,8 +231,16 @@ def main(argv: list[str] | None = None, *, session=None) -> int:
         ddb = session.client("dynamodb", config=SPEND_CONFIG)
         table = deployed_limits_table(session)
         if args.command == "add":
+            try:
+                spend_total(ddb=ddb, table=table)
+            except SpendUnseeded:
+                partial = True  # it still adds; the seed adds the rest (C527)
+            else:
+                partial = False
             total = record_spend(usd, args.source, ddb=ddb, table=table)
             print(f"added ${usd} from {args.source}: total ${total}")
+            if partial:
+                print("unseeded: this total is partial", file=sys.stderr)
         else:
             print(f"total ${spend_total(ddb=ddb, table=table)}")
     except (BotoCoreError, ClientError) as exc:

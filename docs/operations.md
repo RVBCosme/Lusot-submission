@@ -88,28 +88,33 @@ Only a seeded counter is read. Until the seed, the counter reads as `unseeded`, 
      uv run backend/scripts/seed_spend.py --usd <total>
      ```
 
-     It adds that total once and prints the new total. A run that recorded its cost before the seed is kept: the seed adds to it. A second seed exits 1 with `already seeded` and writes nothing; a missed amount goes in with `spend add` instead (step 3 of "When Meta calls pause").
+     It adds that total once and prints the new total. A run that recorded its cost before the seed is kept: the seed adds to it. A second seed exits 1 with `already seeded` and the total the counter holds, and so does a retried seed whose first attempt landed; a missed amount goes in with `spend add` instead (step 3 of "When Meta calls pause").
   4. If a photo between the deploy and the seed flipped `/lusot/stop/model-calls`, clear it as step 4 of "When Meta calls pause" says.
-- **After a deploy that removed or replaced `LimitsTable`,** as when a template without it is deployed to `lusot`: the template's `DeletionPolicy` and `UpdateReplacePolicy` keep the old table, outside the stack, with its old name and its counter. The stack's new table starts unseeded, so model calls pause with `unseeded`.
-  1. Find the old table: the limits table that isn't the stack's own.
+- **After a deploy that removed or replaced `LimitsTable`.** R155 is what prevents this: MS3b makes no deploy of `lusot` after Task 10a. This section is the fallback.
+
+  The template's `DeletionPolicy` and `UpdateReplacePolicy` keep each old table outside the stack, with its old name and its counter. `ms3b-geometry`'s template has no `LimitsTable`, and its handler counts no spend. So after a deploy from it, the stack has no limits table, and nothing counted the Meta spend made meanwhile.
+  1. Find the retained table or tables, read-only:
 
      ```powershell
      aws dynamodb list-tables --query "TableNames[?contains(@, 'LimitsTable')]" --output text --profile lusot --region ap-southeast-1 --no-cli-pager
-     aws cloudformation describe-stack-resource --stack-name lusot --logical-resource-id LimitsTable --query StackResourceDetail.PhysicalResourceId --output text --profile lusot --region ap-southeast-1 --no-cli-pager
      ```
 
-  2. Read its counter, read-only. The answer is in micro-dollars: divide it by 1,000,000 for USD.
+  2. For each one, read the counter's `micro_usd` and `seeded`, read-only:
 
      ```powershell
-     aws dynamodb get-item --table-name <old table> --key '{\"pk\":{\"S\":\"spend#meta\"}}' --consistent-read --query Item.micro_usd.N --output text --profile lusot --region ap-southeast-1 --no-cli-pager
+     aws dynamodb get-item --table-name <table> --key '{\"pk\":{\"S\":\"spend#meta\"}}' --consistent-read --query "Item.[micro_usd.N, seeded.BOOL]" --output text --profile lusot --region ap-southeast-1 --no-cli-pager
      ```
 
-     The backslashes keep the key's double quotes through Windows PowerShell 5.1. In Git Bash, write `'{"pk":{"S":"spend#meta"}}'`.
-  3. Seed the new table with that total plus anything logged since: each `spend_error` amount from after the old table left the stack that the day's log doesn't show as added. Whatever a run or `spend add` already wrote to the new table stays, and the seed adds to it.
+     It prints the total in micro-dollars (divide it by 1,000,000 for USD), then `True` for a seeded table. `None` marks a value that's missing. The backslashes keep the key's double quotes through Windows PowerShell 5.1. In Git Bash, write `'{"pk":{"S":"spend#meta"}}'`.
+
+     Use the seeded table's total. If more than one is seeded, use the highest total and tell the tracker. If none is seeded, stop and ask the tracker for the total: an unseeded table holds only what runs added, not the total from before the counter.
+  3. Redeploy MS4's template first, after the stack check (step 1 of the first deploy). The deploy creates a new `LimitsTable`, unseeded, so model calls pause with `unseeded` until the seed. The seed can't run before this deploy, because it finds the table through the stack.
+  4. Seed the new table with the old total plus the Meta spend made while the table was out of the stack. The other template's handler counted none of it, so take that spend from the tracker's ledger and from Rene's credit balance, and use the larger figure.
 
      ```powershell
      uv run backend/scripts/seed_spend.py --usd <total>
      ```
 
-  4. Clear the switch as step 4 of "When Meta calls pause" says, and note the old table's name in the day's log. Leave the old table for Rene to delete.
+     Then clear the switch as step 4 of "When Meta calls pause" says.
+  5. Leave every old table for Rene to delete, and note their names in the day's log.
 - **At the submission deploy on Nov 4,** raise the stop from $60 to $140 with step 5's command. It refuses a value above 140 or below the total already spent.

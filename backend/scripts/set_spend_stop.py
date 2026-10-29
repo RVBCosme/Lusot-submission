@@ -11,10 +11,10 @@ runs on its own: a pause at $60 during the build waits for the tracker to ask Re
 
 It refuses a value above 140, or below what the counter already holds, and then
 writes nothing. A counter not yet seeded has no total to compare with, so it prints
-`unseeded`, writes nothing and exits 1 (seed_spend.py comes first). Otherwise it puts the parameter with Overwrite=True and prints the old
-and new values. A deploy that updates the parameter puts it back to the template's 60,
-which only pauses spending sooner, so it runs again after any later deploy
-(docs/operations.md).
+`unseeded`, writes nothing and exits 1 (seed_spend.py comes first). Otherwise it puts
+the parameter with Overwrite=True and prints the old and new values. A deploy that
+updates the parameter puts it back to the template's 60, which only pauses spending
+sooner, so it runs again after any later deploy (docs/operations.md).
 
 spend.py comes from backend/analysis, loaded by path through spend_loader.py, so the
 scripts and the Lambda share one definition. The counter's table is

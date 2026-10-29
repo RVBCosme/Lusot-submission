@@ -55,9 +55,11 @@ def seed_counter(ddb) -> None:
 
 
 def test_contract_cases():
-    assert (spend.SPEND_PK, spend.SPEND_ATTR) == (
+    # Any reader of the counter learns the seeded rule from the same file.
+    assert (spend.SPEND_PK, spend.SPEND_ATTR, spend.SPEND_SEEDED_ATTR) == (
         CONTRACT["key"],
         CONTRACT["attribute"],
+        CONTRACT.get("seeded_attr"),
     )
     assert CONTRACT["cases"]
     for usd, micro in CONTRACT["cases"]:
@@ -164,6 +166,14 @@ def test_missing_or_unseeded_counter_raises(ddb, monkeypatch):
     assert spend.spend_total(ddb=ddb, table=TABLE) == Decimal("0.37")
 
 
+def test_seeded_counter_without_a_total_raises(ddb):
+    # The seed always adds micro_usd, so a seeded item without it is broken: it fails
+    # closed as unseeded, never as a KeyError.
+    ddb.put_item(TableName=TABLE, Item=KEY | {"seeded": {"BOOL": True}})
+    with pytest.raises(spend.SpendUnseeded, match="^unseeded"):
+        spend.spend_total(ddb=ddb)
+
+
 def test_spend_config_bounds_each_attempt(ddb, monkeypatch):
     seed_counter(ddb)
     config = spend.SPEND_CONFIG
@@ -219,17 +229,31 @@ def test_cli_add_and_total(ddb, capsys):
         == 0
     )
     assert spend.main(["total"], session=session) == 0
-    assert capsys.readouterr().out.splitlines() == [
+    out, err = capsys.readouterr()
+    assert out.splitlines() == [
         "added $0.37 from manual-test: total $0.37",
         "added $0.0025 from manual-test: total $0.3725",
         "total $0.3725",
     ]
+    assert err == ""  # seeded, so each total printed is the whole one
     # Only a positive, finite amount is added: the counter never goes down.
     for usd in ("0", "-0.37", "NaN", "Infinity", "abc"):
         bad = ["add", "--usd", usd, "--source", "manual-test"]
         assert spend.main(bad, session=session) == 2, usd
         assert "--usd" in capsys.readouterr().err
     assert spend.spend_total(ddb=ddb) == Decimal("0.3725")
+
+
+def test_cli_add_before_the_seed_says_its_total_is_partial(ddb, capsys):
+    # The amount still goes on the counter, and the seed adds to it later, but the
+    # total printed leaves out what was spent before the counter (C527).
+    session = boto3.Session(region_name="ap-southeast-1")
+    add = ["add", "--usd", "0.37", "--source", "manual-test"]
+    assert spend.main(add, session=session) == 0
+    out, err = capsys.readouterr()
+    assert out == "added $0.37 from manual-test: total $0.37\n"
+    assert err == "unseeded: this total is partial\n"
+    assert stored(ddb) == KEY | {"micro_usd": {"N": "370000"}}  # still unseeded
 
 
 def test_cli_reports_aws_errors_by_code(ddb, monkeypatch, capsys):

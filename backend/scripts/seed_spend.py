@@ -8,9 +8,11 @@ It runs right after the first deploy that carries the spend stop, with the recor
 total the tracker sends just before that deploy. One UpdateItem adds that total and
 sets `seeded`, on the condition that `seeded` isn't set yet. So it adds the total once,
 whether or not a run's ADD made the item between the deploy and the seed, and never
-twice: a second seed changes nothing, says `already seeded` and exits 1. A missed
-amount then goes in with `spend add` (docs/operations.md), never a second seed. Until
-the seed, the handler reads the counter as unseeded and pauses model calls.
+twice: a second seed changes nothing, prints `already seeded` with the total the
+counter holds, and exits 1. A seed retried after its first attempt landed but lost its
+answer ends the same way, so the total shows what landed. A missed amount then goes in
+with `spend add` (docs/operations.md), never a second seed. Until the seed, the
+handler reads the counter as unseeded and pauses model calls.
 
 The counter's key, attributes and client settings come from backend/analysis's
 spend.py, loaded by path through spend_loader.py, so the scripts and the Lambda share
@@ -22,8 +24,7 @@ boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
 
 Usage, from the repo root: uv run backend/scripts/seed_spend.py --usd 0.42
-Exit codes: 0 seeded; 1 an AWS error, or already seeded and nothing written; 2 a bad
---usd.
+Exit codes: 0 seeded; 1 an AWS error, or already seeded; 2 a bad --usd.
 """
 
 from __future__ import annotations
@@ -71,9 +72,12 @@ def main(argv: list[str] | None = None, *, session=None) -> int:
         except ClientError as exc:
             if exc.response["Error"]["Code"] != "ConditionalCheckFailedException":
                 raise
+            # Possibly this seed's own first attempt, whose answer was lost and
+            # retried, so it says what the counter holds, not that nothing landed.
+            held = spend.spend_total(ddb=ddb, table=table)
             print(
-                "already seeded: nothing written. Add a missed amount with"
-                " `spend add` (docs/operations.md), never a second seed.",
+                f"already seeded: total ${held}. Check it against the recorded total"
+                " before any `spend add` (docs/operations.md); never seed twice.",
                 file=sys.stderr,
             )
             return 1

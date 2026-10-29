@@ -11,6 +11,8 @@ from decimal import Decimal
 import boto3
 import pytest
 import seed_spend
+from botocore.exceptions import ReadTimeoutError
+from botocore.retries.standard import ExponentialBackoff
 from moto import mock_aws
 
 TABLE = "lusot-test-limits"
@@ -69,43 +71,89 @@ def spy_seed(session, monkeypatch) -> list[tuple[dict, dict]]:
     return made
 
 
+def seeded(total: str) -> dict:
+    """The counter's item once seeded, holding `total` USD."""
+    micro = str(seed_spend.spend.to_micro(Decimal(total)))
+    return KEY | {"micro_usd": {"N": micro}, "seeded": {"BOOL": True}}
+
+
 @pytest.mark.parametrize(
-    ("runs", "total"), [(0, "1.25"), (2, "1.255")], ids=["no-runs", "two-runs"]
+    ("runs", "usd", "total"),
+    [(0, "1.25", "1.25"), (2, "1.25", "1.255"), (0, "0", "0")],
+    ids=["no-runs", "two-runs", "zero"],
 )
-def test_seed_adds_once_after_runs(session, monkeypatch, capsys, runs, total):
+def test_seed_adds_once_after_runs(session, monkeypatch, capsys, runs, usd, total):
     # Runs between the deploy and the seed make the item with their ADDs, unseeded.
     # The seed adds the recorded total to theirs, whether or not they came first.
     ddb = session.client("dynamodb")
     for _ in range(runs):
         seed_spend.spend.record_spend(Decimal("0.0025"), "analysis", ddb=ddb)
     made = spy_seed(session, monkeypatch)
-    assert seed_spend.main(["--usd", "1.25"], session=session) == 0
+    assert seed_spend.main(["--usd", usd], session=session) == 0
     # One UpdateItem, through a client with SPEND_CONFIG, every name a placeholder.
     ((config, updates),) = made
     assert config == {"config": seed_spend.spend.SPEND_CONFIG}
+    micro = str(seed_spend.spend.to_micro(Decimal(usd)))
     assert updates == [
         SEED_UPDATE
         | {
             "ExpressionAttributeValues": {
-                ":n": {"N": "1250000"},
+                ":n": {"N": micro},
                 ":true": {"BOOL": True},
             }
         }
     ]
     assert capsys.readouterr().out == f"seeded the Meta spend counter: total ${total}\n"
-    # No expiresAt: the counter never expires.
-    seeded = KEY | {
-        "micro_usd": {"N": str(seed_spend.spend.to_micro(Decimal(total)))},
-        "seeded": {"BOOL": True},
-    }
-    assert counter(session) == seeded
-    # A second seed changes nothing.
+    # No expiresAt: the counter never expires. A $0 seed still reads back, as seeded.
+    assert counter(session) == seeded(total)
+    assert seed_spend.spend.spend_total(ddb=ddb, table=TABLE) == Decimal(total)
+    # A second seed changes nothing, and says what the counter holds.
     assert seed_spend.main(["--usd", "5"], session=session) == 1
-    assert counter(session) == seeded
+    assert counter(session) == seeded(total)
     out, err = capsys.readouterr()
     assert out == ""
-    assert err.startswith("already seeded")
+    assert err.startswith(f"already seeded: total ${total}")
     assert "spend add" in err
+
+
+def test_a_retried_seed_reports_the_held_total(session, monkeypatch, capsys):
+    # The first attempt lands but its answer is lost, so botocore retries it, and the
+    # retry meets the condition. The script then prints what the counter holds, not
+    # that nothing was written.
+    monkeypatch.setattr(ExponentialBackoff, "delay_amount", lambda self, context: 0)
+    landed = boto3.client("dynamodb", region_name="ap-southeast-1")
+    attempts = []
+
+    def answer_lost(request, **kwargs):
+        attempts.append(None)
+        if len(attempts) > 1:
+            return None  # the retry reaches moto
+        landed.update_item(
+            **SEED_UPDATE,
+            ExpressionAttributeValues={
+                ":n": {"N": "1250000"},
+                ":true": {"BOOL": True},
+            },
+        )
+        raise ReadTimeoutError(endpoint_url=request.url)
+
+    client = session.client
+
+    def make(name, **kwargs):
+        built = client(name, **kwargs)
+        if name == "dynamodb":
+            built.meta.events.register_first(
+                "before-send.dynamodb.UpdateItem", answer_lost
+            )
+        return built
+
+    monkeypatch.setattr(session, "client", make)
+    assert seed_spend.main(["--usd", "1.25"], session=session) == 1
+    assert len(attempts) == 2
+    assert counter(session) == seeded("1.25")
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.startswith("already seeded: total $1.25")
 
 
 @pytest.mark.parametrize("usd", ["-0.01", "NaN", "Infinity", "abc"])
