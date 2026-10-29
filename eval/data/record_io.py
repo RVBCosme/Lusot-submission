@@ -42,12 +42,15 @@ RECORD_KINDS = {
 _MANILA = timezone(timedelta(hours=8))
 _GIT_SECONDS = 30
 _COMMIT = re.compile(r"[0-9a-f]{40}")
+# C221's id head (table.ID_PATTERN before its -n parts), as a token inside any text.
+_ID_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Z]{1,3}[0-9]{1,4}(?![A-Za-z0-9])")
 
 
 def record_kind(record: Mapping) -> str:
     """split, set_b_final or set_d, from the record's tool. A record with any other
-    tool, or none, raises ValueError, whose message holds no text of the record's."""
-    tool = record.get("tool")
+    tool, or none, or JSON read back that isn't an object, raises ValueError, whose
+    message holds no text of the record's."""
+    tool = record.get("tool") if isinstance(record, Mapping) else None
     if not isinstance(tool, str) or tool not in RECORD_KINDS:
         raise ValueError("the record's tool has no record kind")
     return RECORD_KINDS[tool]
@@ -104,9 +107,29 @@ def archive_block(facts: ArchiveFacts) -> dict:
 
 
 def record_bytes(record: Mapping) -> bytes:
-    """The record's bytes, the same whatever its keys' order."""
+    """The record's bytes, the same whatever its keys' order.
+
+    A record any of whose keys or texts, at any depth, holds an id-shaped token, as in
+    A001.jpg, A003;A012 or a B02 key, raises ValueError, whose message names neither the
+    token nor where it is (S-R16). A tool encodes its record before it writes anything,
+    its archive included, so ids it passes through in counts or inputs stop it before
+    any write. The check is case-sensitive, so input keys stay lowercase (m8, never M8)
+    and a generator version reads like set-b-gen-v1, never V1.
+    """
+    if _holds_id(record):
+        raise ValueError("the record holds an id-shaped token")
     text = json.dumps(record, sort_keys=True, ensure_ascii=True, indent=2)
     return (text + "\n").encode("ascii")
+
+
+def _holds_id(value: object) -> bool:
+    if isinstance(value, str):
+        return _ID_TOKEN.search(value) is not None
+    if isinstance(value, Mapping):
+        return any(_holds_id(key) or _holds_id(item) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_holds_id(item) for item in value)
+    return False
 
 
 def write_record(path: Path, record: Mapping) -> str:

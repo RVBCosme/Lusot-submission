@@ -170,7 +170,8 @@ def git_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config.write_bytes(b"")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    # git still looks above a ceiling it starts in, so the ceiling is tmp_path's parent.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
 
 
 def git(folder: Path, *args: str) -> str:
@@ -186,7 +187,7 @@ def git(folder: Path, *args: str) -> str:
     return done.stdout
 
 
-def test_split_record_per_group_counts(tmp_path):
+def test_split_record_per_group_counts(tmp_path, git_alone):
     """C204's record: each group's draw reaches it exactly, beside each side's counts
     per fact value and the set's share, with the seed, the inputs' and the development
     files' hashes, the audit and the M8 photo rows allowed missing."""
@@ -302,7 +303,7 @@ def test_split_record_per_group_counts(tmp_path):
     ],
 )
 def test_share_is_exact_and_its_range_inclusive(
-    tmp_path, set_name, sealed, rows, share, in_range
+    tmp_path, git_alone, set_name, sealed, rows, share, in_range
 ):
     """The share is the set's sealed rows over all its rows, never reduced, and its
     range runs from the set's target to its cap, both included, compared exactly."""
@@ -337,10 +338,10 @@ def test_share_is_exact_and_its_range_inclusive(
     assert (found["share"], found["share_in_range"]) == (share, in_range)
 
 
-def test_record_kinds(tmp_path):
+def test_record_kinds(tmp_path, git_alone):
     """The audit tells records apart by their tool (C220), also once read back. Any
-    other tool, Task 17's freeze record's among them, has no kind, and the error names
-    none of the three tools."""
+    other tool, Task 17's freeze record's among them, has no kind, nor has JSON read
+    back that isn't an object, and the error names none of the three tools."""
     records = {
         "split": record_io.split_record(
             repo=tmp_path,
@@ -370,6 +371,9 @@ def test_record_kinds(tmp_path):
         {"tool": ["eval/data/split.py"]},
         {"tool": None},
         {},
+        [],
+        "eval/data/split.py",
+        None,
     ]
     for record in others:
         with pytest.raises(ValueError) as refused:
@@ -379,7 +383,7 @@ def test_record_kinds(tmp_path):
         ] == []
 
 
-def test_set_b_and_set_d_records_hold_their_input_hashes(tmp_path):
+def test_set_b_and_set_d_records_hold_their_input_hashes(tmp_path, git_alone):
     """Set B's final-car record and Set D's record hold their inputs' hashes and their
     counts as given, and Set D's names the freeze record it extends, when there is one
     (C216)."""
@@ -413,7 +417,7 @@ def test_set_b_and_set_d_records_hold_their_input_hashes(tmp_path):
     assert alone.keys() - BASE == {"inputs", "counts"}
 
 
-def test_record_holds_no_ids_labels_links_or_spots(tmp_path):
+def test_record_holds_no_ids_labels_links_or_spots(tmp_path, git_alone):
     """§5.9: no record holds an id, a label, a link, a spot or any other text of a row.
     The split's manifest rows hold a sentinel in every text cell and ids in their id
     cells. Set B's and Set D's builders take counts, not rows, so they get counts as
@@ -439,6 +443,121 @@ def test_record_holds_no_ids_labels_links_or_spots(tmp_path):
         data = record_io.record_bytes(record)
         assert b"sentinel" not in data.lower()
         assert IDS.findall(data) == []
+
+
+@pytest.mark.parametrize(
+    ("record", "tokens"),
+    [
+        ({"counts": {"drops": {"B02": 1}}}, ["B02"]),
+        ({"moved": "E01"}, ["E01"]),
+        ({"same_spot_as": "A003;A012"}, ["A003", "A012"]),
+        ({"file": "A001.jpg"}, ["A001"]),
+        ({"events": ["E01"]}, ["E01"]),
+        ({"sides": [{"sealed": ("dev", "N001")}]}, ["N001"]),
+        ({"notes": "x\nA001"}, ["A001"]),  # JSON escapes the newline before it
+        ({"notes": "ñA001"}, ["A001"]),  # and the ñ
+        ({"photo": "A001"}, ["A001"]),
+        ({"photo": "N001"}, ["N001"]),
+        ({"event": "E01"}, ["E01"]),
+        ({"car": "B02"}, ["B02"]),
+        ({"crop": "B02-3"}, ["B02"]),
+        ({"photo": "D01"}, ["D01"]),
+    ],
+    ids=[
+        "key",
+        "value",
+        "joined",
+        "file_name",
+        "list_element",
+        "in_a_tuple",
+        "after_a_newline",
+        "after_n_tilde",
+        "set_a_photo",
+        "a_neg_photo",
+        "event",
+        "car",
+        "crop",
+        "set_d_photo",
+    ],
+)
+def test_record_bytes_refuse_any_id(tmp_path, record, tokens):
+    """S-R16: a record any of whose keys or texts holds an id-shaped token, at any
+    depth, is refused, whatever a caller passed through. The message names no token,
+    and write_record creates no file or folder."""
+    with pytest.raises(ValueError) as refused:
+        record_io.record_bytes(record)
+    message = str(refused.value)
+    assert message == "the record holds an id-shaped token"
+    assert [token for token in tokens if token in message] == []
+    path = tmp_path / "records" / "r.json"
+    with pytest.raises(ValueError):
+        record_io.write_record(path, record)
+    assert not path.parent.exists()
+
+
+def test_record_bytes_accept_every_planned_value(tmp_path, git_alone):
+    """The id guard refuses no value the plan's records hold: the split's, with its
+    archive block and copy check; Set B's final-car record and Set D's, with their
+    archives and Set D's extends; and Task 17's look and freeze records, as the plan
+    shapes them. Each passes with a real Manila date and with a 40-hex commit and a
+    date whose hour reads T21 (S-R16)."""
+
+    def archive_of(name: str) -> dict:
+        facts = archive.ArchiveFacts(file=name, size=4096, sha256="0f" * 32)
+        return record_io.archive_block(facts)
+
+    split = golden_split(tmp_path) | {
+        "archive": archive_of("lusot-sealed.7z"),
+        "copy_check": {"rehash_ok": "5/5", "matched_sealed": 0},
+    }
+    look = record_io.base_record("eval/set_b/water_check.py", tmp_path) | {
+        "look": 1,
+        "generator_version": "set-b-gen-v1",
+        "crops": 4,
+        "passed": 3,
+        "failed_by_cause": {"no_result": 1},
+        "share": "3/4",
+        "result": "pass",
+    }
+    records = [
+        split,
+        record_io.set_b_final_record(
+            repo=tmp_path,
+            counts=SET_B_COUNTS,
+            generator_version="set-b-gen-v1",
+            generator_seed=20261101,
+            inputs=SET_B_INPUTS,
+        )
+        | {"archive": archive_of("lusot-sealed-set-b.7z")},
+        record_io.set_d_record(
+            repo=tmp_path, counts=SET_D_COUNTS, inputs=SET_D_INPUTS, extends=FREEZE
+        )
+        | {"archive": archive_of("lusot-sealed-set-d.7z")},
+        look,
+        record_io.base_record("eval/data/freeze_record.py", tmp_path)
+        | {
+            "files": {
+                "set_a/dev/manifest.csv": "1f" * 32,
+                "set_a/dev/m8.csv": "2e" * 32,
+                "a_neg/dev/manifest.csv": "3d" * 32,
+                "set_b/dev/generated/truth.csv": "4c" * 32,
+                "set_c/sturm_flooddepth/manifest.csv": "5b" * 32,
+            },
+            "records": {
+                "2026-10-30-split.json": {
+                    "sha256": "6a" * 32,
+                    "archive": split["archive"],
+                }
+            },
+            "generator_version": "set-b-gen-v1",
+            "looks": [look],
+        },
+    ]
+    commit = {"commit": "0123456789abcdef" * 2 + "01234567", "dirty": False}
+    for record in records:
+        for fields in ({}, {"git": commit, "date": "2026-10-29T21:05:00+08:00"}):
+            found = record | fields
+            assert json.loads(record_io.record_bytes(found)) == found
 
 
 def test_record_bytes_are_stable():
@@ -576,7 +695,7 @@ def test_base_record_starts_every_record(tmp_path, git_alone):
     assert record["python"] == "{}.{}.{}".format(*sys.version_info[:3])
 
 
-def test_record_io_imports_only_the_standard_library(tmp_path):
+def test_record_io_imports_only_the_standard_library(tmp_path, git_alone):
     """The audit, seal_set_d, water_check and freeze_record import record_io, and their
     environments hold no numpy, OpenCV or py7zr (C1). A fresh interpreter that imports
     record_io and manifest, and builds and encodes a record, loads none of them, nor
