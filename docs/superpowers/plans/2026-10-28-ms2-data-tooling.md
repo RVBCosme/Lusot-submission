@@ -1292,12 +1292,12 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - Modify: `README.md`
 - Outside git: the handoff note `C:\Systems\Lusot\lusot\.superpowers\handoff\specs.md`
 
-- [ ] **Step 1: README.**
+- [x] **Step 1: README.**
   - Add a row: py7zr | the write-once encrypted archives of MS2's sealing steps | LGPL-2.1-or-later. Confirm that licence from the installed metadata: `uv run --with py7zr==1.1.4 --python 3.13 python -c "import importlib.metadata as m; print(m.metadata('py7zr')['License-Expression'])"` prints `LGPL-2.1-or-later`.
   - The NumPy and OpenCV rows' use also names MS2's data tools.
   - If Task 19's note let FloodDET be downloaded, add a row for each source used, with its licence (spec §8: any Set C data used).
   - The lock-file note gains `eval/data/*.py.lock`, `eval/data/tests/run_tests.py.lock` and `eval/set_b/*.py.lock`, and one sentence: py7zr's compression and crypto libraries are pinned there, several under LGPL-2.1-or-later.
-- [ ] **Step 2: The full check.** Each must pass:
+- [x] **Step 2: The full check.** Each must pass:
   - `uv run --locked --script eval/data/tests/run_tests.py`: all pass, the M8 script's node tests included
   - `npm run check:py`: the analysis package's ruff and pytest, including `test_set_b_masks.py`, and the `backend/scripts` tests, all pass
   - `uv run --locked --script <file> --help`, for each entry script: exits 0
@@ -1305,12 +1305,19 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `git diff --name-status main...ms2-data`: only `A` lines for the new files in this plan's file table, the spec and the plan, and `M` lines for `eval/templates/set_a_log.csv`, `docs/data/set-a-collection-guide.md` and `README.md`. That shows V9's "`.claude/settings.json` is unchanged", and that no conflict file changed.
 
   **A departure from V10, stated:** `check:node` isn't run. The branch's only JavaScript, `m8_sheet.js` and its node test, runs inside the first check, not under `check:node`, and `check:node` would need an `npm ci`.
-- [ ] **Step 3 (B.8, confirm v0.7 is applied):** read `git show main:eval/rules.md`'s status line.
+- [x] **Step 3 (B.8, confirm v0.7 is applied):** read `git show main:eval/rules.md`'s status line.
   - If v0.7 is applied, check that it carries MS2-Q2's items: C203; C204 with its stratified walk (item 4.2); C209; C211; C212; C214; C224; §9's duplicate rule; one archive per sealing step.
   - If not, record that MS2's calls run as D7 defaults.
 
   Either way, `eval/rules.md` isn't edited.
-- [ ] **Step 4: The handoff, in `specs.md`:**
+- [x] **Step 4: The handoff, in `specs.md`:**
+
+*Evidence (Task 20, Steps 1 to 4, Oct 30):*
+- **Step 1:** README credits py7zr (`uv run --with py7zr==1.1.4 --python 3.13 python -c "...License-Expression..."` printed `LGPL-2.1-or-later`), names MS2's uses of NumPy and OpenCV, and lists MS2's lock files. Task 19's note isn't written (S-R31), so no Set C source is credited yet.
+- **Step 2:** `npm run check:py` exits 0 (ruff clean; analysis 597 passed, 1 skipped; `backend/scripts` 65 passed; MS2's suite 932 passed, now part of `check:py`). Every entry script's `--help` exits 0 (`intake`, `m8_sheet`, `split`, `audit`, `generate`, `water_check`, `freeze_record`, `set_b_masks`). `npm run check:secrets` exits 0 (gitleaks no leaks; plan-leak 272 files and the account-ID scan 229 files clean). `git diff --name-status main...ms2-data` shows `A` lines for this plan's new files, the spec and the plan, and `M` lines only for `eval/templates/set_a_log.csv`, `docs/data/set-a-collection-guide.md`, `README.md`, `CLAUDE.md` (MS2's commands, Step 4) and `package.json` (`check:py`, Step 4); `.claude/settings.json` and `eval/rules.md` are unchanged.
+- **Step 3:** `main`'s `eval/rules.md` is `DRAFT v0.6`, so MS2's calls run as D7 defaults, and `eval/rules.md` isn't edited.
+- **Step 4:** the handoff is in `specs.md` (log-ready lines, T9, open points, the merge owner's two edits, which this commit makes).
+- **Tasks 18 and 19** wait until after MS5's core screens (ruling S-R31), so their boxes stay open.
   - **For Window 3:** log-ready lines: what was built, with the evidence; T9 (7-Zip) as a new setup action; the open points.
   - **For the merge owner:** "`ms2-data` merges into `main` after review". Then append ` && uv run --locked --script eval/data/tests/run_tests.py` to `check:py` in `package.json`. CI runs it through `npm run check:py`, whose job already sets up Node 22 for the M8 script test.
   - **For MS2's close (`revise-claude-md`):** CLAUDE.md's Commands gain MS2's commands (spec §5.10, with `--locked --script`), and the archive names once MS2-Q2 is answered.
