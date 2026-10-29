@@ -11,12 +11,33 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from lusot_analysis import rules
 from lusot_analysis.pipeline.combine import tie_order
-from lusot_analysis.pipeline.geometry import GeometryReading, keep_reading
+from lusot_analysis.pipeline.geometry import GeometryReading, KeptReading, keep_reading
 from lusot_analysis.pipeline.references import Kept
 from lusot_analysis.pipeline.types import Reference
+
+
+@dataclass(frozen=True)
+class Measured:
+    """Step 5's result, with what each box gave, for the evidence record (C328).
+
+    - `references`, `drops`: measure's pair.
+    - `causes`: each dropped box's first cause, by box id. Every drop counts in
+      `drops`, so a vehicle whose body step 3 dropped, and which has no reading left,
+      counts twice there but keeps its step 3 cause here.
+    - `readings`: the reading each box gives, by box id, for every box of a vehicle
+      that isn't dropped and every adult with a reading, deciding or not. A box with
+      two readings gives the one that can decide (R147): a covered wheel of a type
+      kept for geometry gives its geometry reading over its tire floor (R143).
+    """
+
+    references: list[Reference]
+    drops: Counter[str]
+    causes: dict[int, str]
+    readings: dict[int, KeptReading]
 
 
 def measure(
@@ -26,6 +47,21 @@ def measure(
     geometry: Mapping[int, GeometryReading] | None = None,
 ) -> tuple[list[Reference], Counter[str]]:
     """The references of the kept vehicles and adults, and the drops.
+
+    These are measure_boxes' `references` and `drops`, as MS3a's step 5 returned
+    them.
+    """
+    m = measure_boxes(kept, step3_drops=step3_drops, geometry=geometry)
+    return m.references, m.drops
+
+
+def measure_boxes(
+    kept: Kept,
+    *,
+    step3_drops: Mapping[int, str] | None = None,
+    geometry: Mapping[int, GeometryReading] | None = None,
+) -> Measured:
+    """The references of the kept vehicles and adults, the drops, and each box's.
 
     `step3_drops` maps a box id to its step 3 cause: a wheel's, a person's, or a
     vehicle's for its body. `geometry` maps a wheel id to its geometry reading. With
@@ -60,33 +96,42 @@ def measure(
 
     An adult whose waterline gives no reading counts as `person_no_reading`. One that
     step 3 dropped gives a reference that doesn't decide, and counts under its cause.
+
+    Measured's `causes` and `readings` follow the same counting: a vehicle dropped in
+    1 or 3 gives no reading, and its boxes' causes are its own and
+    `wheel_vehicle_dropped`.
     """
     step3_drops = step3_drops or {}
     geometry = geometry or {}
     references: list[Reference] = []
-    causes: list[str] = []
+    counted: list[tuple[int, str]] = []  # (box id, cause) for each drop that counts
+    readings: dict[int, KeptReading] = {}
     for vehicle in kept.vehicles:
         reads_rows = vehicle.vehicle_type in rules.READING_TYPES  # C45, C318
         wheels: list[Reference] = []  # the wheel readings that may decide
         held: list[Reference] = []  # step 3's drops, which never decide (C317)
-        found: list[str] = []  # the causes that count only if the vehicle stays
+        # The causes and readings that count only if the vehicle stays.
+        found: list[tuple[int, str]] = []
+        given: dict[int, KeptReading] = {}
         for wheel_id, line in vehicle.wheels:
             landmark = rules.WHEEL_ROWS[line] if reads_rows else None
             if wheel_id in step3_drops:
-                found.append(step3_drops[wheel_id])
+                found.append((wheel_id, step3_drops[wheel_id]))
                 if landmark is not None:
                     held.append(
                         Reference("wheel", wheel_id, line, landmark, decides=False)
                     )
+                    given[wheel_id] = KeptReading(landmark, "landmark", None)
                 continue
             if not reads_rows and line == "wheel_covered":
                 # The sedan row's floor bounds any larger covered wheel too, so it is
                 # held to refuse a shallower exact result, never to decide (R143).
                 floor = rules.WHEEL_ROWS[line]
                 held.append(Reference("wheel", wheel_id, line, floor, decides=False))
+                given[wheel_id] = KeptReading(floor, "landmark", None)
             kept_reading = keep_reading(landmark, geometry.get(wheel_id))  # G4
             if isinstance(kept_reading, str):  # wheel_methods_disagree
-                found.append(kept_reading)
+                found.append((wheel_id, kept_reading))
             elif kept_reading is not None:
                 wheels.append(
                     Reference(
@@ -98,6 +143,7 @@ def measure(
                         depth_in=kept_reading.depth_in,
                     )
                 )
+                given[wheel_id] = kept_reading  # over R143's floor (R147)
         covered = any(line == "wheel_covered" for _, line in vehicle.wheels)
         low_body = vehicle.body_waterline in rules.BODY_AT_OR_BELOW_SILL
         if reads_rows and covered and low_body:  # C53, sedans and SUVs only (R142)
@@ -107,13 +153,15 @@ def measure(
         else:
             cause = None
         if cause is not None:
-            causes += [cause] + ["wheel_vehicle_dropped"] * len(vehicle.wheels)
+            counted.append((vehicle.id, cause))
+            counted += [(w, "wheel_vehicle_dropped") for w, _ in vehicle.wheels]
             continue
         candidates = wheels
         body = rules.BODY_ROWS[vehicle.body_waterline]
         if reads_rows and vehicle.wheels_hidden and body is not None:  # C53
+            given[vehicle.id] = KeptReading(body, "landmark", None)
             if vehicle.id in step3_drops:
-                found.append(step3_drops[vehicle.id])
+                found.append((vehicle.id, step3_drops[vehicle.id]))
                 held.append(
                     Reference(
                         "body", vehicle.id, vehicle.body_waterline, body, decides=False
@@ -124,24 +172,32 @@ def measure(
                     *wheels,
                     Reference("body", vehicle.id, vehicle.body_waterline, body),
                 ]
-        causes += found
+        counted += found
+        readings |= given
         if candidates:
             # The deepest speaks for the vehicle (C43). A tie goes in C54's order (C78).
             level = max((r.reading.level for r in candidates), key=rules.level_index)
             deepest = [r for r in candidates if r.reading.level == level]
             references.append(min(deepest, key=tie_order))
         else:
-            causes.append("vehicle_no_reading")
+            counted.append((vehicle.id, "vehicle_no_reading"))
         references += held
     for person in kept.people:
         reading = rules.PEOPLE_ROWS[person.waterline]
         if reading is None:
-            causes.append("person_no_reading")
-        elif person.id in step3_drops:
-            causes.append(step3_drops[person.id])
+            counted.append((person.id, "person_no_reading"))
+            continue
+        readings[person.id] = KeptReading(reading, "landmark", None)
+        if person.id in step3_drops:
+            counted.append((person.id, step3_drops[person.id]))
             references.append(
                 Reference("person", person.id, person.waterline, reading, decides=False)
             )
         else:
             references.append(Reference("person", person.id, person.waterline, reading))
-    return references, Counter(causes)
+    causes: dict[int, str] = {}
+    for box_id, cause in counted:
+        causes.setdefault(box_id, cause)  # the box's first cause
+    return Measured(
+        references, Counter(cause for _, cause in counted), causes, readings
+    )

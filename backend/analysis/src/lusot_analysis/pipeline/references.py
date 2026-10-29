@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from lusot_analysis import rules
 from lusot_analysis.annotate import NumberedBox
@@ -226,10 +226,15 @@ class KeptPerson:
 
 @dataclass(frozen=True)
 class Kept:
-    """The vehicles and people left after the drops, each in id order (step 4.6)."""
+    """The vehicles and people left after the drops, each in id order (step 4.6).
+
+    `causes` names each dropped box's first cause by box id, for the evidence record
+    (C328). Kept compares without it.
+    """
 
     vehicles: tuple[KeptVehicle, ...]
     people: tuple[KeptPerson, ...]
+    causes: Mapping[int, str] = field(default_factory=dict, compare=False)
 
 
 def apply_drops(
@@ -252,14 +257,15 @@ def apply_drops(
       Rene's Q3). No one else blocks: not an unanswered person, nor one answered
       `adult: unsure` (C76).
 
-    `wake_visible` changes nothing (C63).
+    `wake_visible` changes nothing (C63). Kept's `causes` holds each drop by box id,
+    and the Counter counts them.
     """
     vehicles, wheels, people = (
         {item["id"]: item for item in answer[name]}
         for name in ("vehicles", "wheels", "people")
     )
     read_types = rules.READING_TYPES | geometry_types
-    causes: list[str] = []
+    causes: dict[int, str] = {}  # box ids are unique, so each box has one cause
     kept_vehicles = []
     for vehicle_id in [box.id for box in layout.boxes if box.kind == "vehicle"]:
         entry = vehicles.get(vehicle_id)
@@ -274,10 +280,12 @@ def apply_drops(
         else:
             cause = None
         if cause is not None:
-            causes += [cause] + ["wheel_vehicle_dropped"] * len(own)
+            causes[vehicle_id] = cause
+            causes |= dict.fromkeys(own, "wheel_vehicle_dropped")
             continue
         answered = tuple((w, wheels[w]["waterline"]) for w in own if w in wheels)
-        causes += ["wheel_unanswered"] * (len(own) - len(answered))
+        unanswered = [w for w in own if w not in wheels]
+        causes |= dict.fromkeys(unanswered, "wheel_unanswered")
         hidden = vehicle_id not in layout.small_wheel_vehicles and all(
             w in wheels and wheels[w]["waterline"] in rules.HIDDEN_WHEEL for w in own
         )
@@ -294,14 +302,15 @@ def apply_drops(
     for person_id in [box.id for box in layout.boxes if box.kind == "person"]:
         entry = people.get(person_id)
         if entry is None:
-            causes.append("person_unanswered")
+            causes[person_id] = "person_unanswered"
         elif entry["adult"] != "yes":  # no or unsure
-            causes.append("person_not_adult")
+            causes[person_id] = "person_not_adult"
         elif blocked and entry["standing_still"] != "yes":  # wading: no or unsure
-            causes.append("person_wading")
+            causes[person_id] = "person_wading"
         else:
             kept_people.append(KeptPerson(person_id, entry["waterline"]))
-    return Kept(tuple(kept_vehicles), tuple(kept_people)), Counter(causes)
+    kept = Kept(tuple(kept_vehicles), tuple(kept_people), causes)
+    return kept, Counter(kept.causes.values())
 
 
 def _instances(sam: Mapping[str, SamResult], phrase: str) -> list[SamInstance]:

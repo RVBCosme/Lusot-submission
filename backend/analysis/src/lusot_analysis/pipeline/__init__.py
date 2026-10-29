@@ -32,12 +32,13 @@ from lusot_analysis.meta_client import (
     SamResult,
 )
 from lusot_analysis.pipeline.combine import combine
+from lusot_analysis.pipeline.evidence import Evidence, build_evidence
 from lusot_analysis.pipeline.geometry import (
     GeometryReading,
     link_rims,
     wheel_geometry,
 )
-from lusot_analysis.pipeline.measure import measure
+from lusot_analysis.pipeline.measure import measure_boxes
 from lusot_analysis.pipeline.publish import PUBLISH_PHRASES, publish_jpeg
 from lusot_analysis.pipeline.quality import quality_refusal, quality_scores
 from lusot_analysis.pipeline.references import (
@@ -69,16 +70,22 @@ READING_PHRASES = tuple(p for p in SAM_PHRASES if p not in PUBLISH_PHRASES)
 
 @dataclass(frozen=True)
 class PipelineRun:
-    """How a report ends, its log fields, and the photo to store, if any.
+    """How a report ends, its log fields, the photo to store, and the evidence record.
 
     `publish_jpeg` is set on a level result only, with SAM's faces and plates blurred
     (C48, C61). The run holds no answer, so Muse Spark's reason never reaches the
     handler (C62).
+
+    `evidence` is the record MS4 draws from (C328). It is set once Muse Spark's
+    answer has passed the schema and the id check, on a gate result too, and is None
+    before that and on every error path. It holds no reason either, and never joins
+    the log.
     """
 
     outcome: Outcome
     log: dict[str, object]
     publish_jpeg: bytes | None
+    evidence: Evidence | None = None
 
 
 def run_pipeline(
@@ -130,7 +137,7 @@ def run_pipeline(
     """
     log: dict[str, object] = {"meta_calls": 0}
     try:
-        outcome, photo = _run_steps(
+        outcome, photo, evidence = _run_steps(
             data,
             client,
             prompt,
@@ -154,7 +161,7 @@ def run_pipeline(
         # Anything else is the pipeline's own fault (C59), logged by class name only.
         log["error"] = type(exc).__name__
         return PipelineRun(Outcome.failed("pipeline_error"), log, None)
-    return PipelineRun(outcome, log, photo)
+    return PipelineRun(outcome, log, photo, evidence)
 
 
 def _run_steps(
@@ -167,13 +174,17 @@ def _run_steps(
     *,
     geometry_in_level: bool,
     tuning: Tuning,
-) -> tuple[Outcome, bytes | None]:
-    """The steps, adding each one's fields to `log` as it runs. Errors propagate."""
+) -> tuple[Outcome, bytes | None, Evidence | None]:
+    """The steps, adding each one's fields to `log` as it runs. Errors propagate.
+
+    It returns the outcome, the photo to store, and the evidence record, which is
+    None until the answer passes the id check (C328).
+    """
     # Step 0: the face blur, before any Meta call (C20).
     try:
         image = blur_for_meta(data)
     except UndecodableImage:  # undecodable, over 50 MP, or 32 px or less (R27)
-        return Outcome.failed("bad_file"), None
+        return Outcome.failed("bad_file"), None, None
     log |= {"blur_version": image.blur_version, "face_boxes": image.faces}
 
     # Step 1: the quality gate, on the photo before the face blur (C44, C58).
@@ -184,7 +195,7 @@ def _run_steps(
     }
     refusal = quality_refusal(scores, tuning)
     if refusal is not None:
-        return Outcome.refused(refusal), None
+        return Outcome.refused(refusal), None, None
 
     # Step 2: SAM, every phrase at once. A scene with no water or no reference still
     # goes on to Muse Spark (D14, C51).
@@ -213,7 +224,7 @@ def _run_steps(
     # `rims` keeps each wheel's one linked rim for the evidence record, which draws
     # it either way (C328, R127). A wheel with none, or with several, is left out.
     linked = _rim_links(sam, boxes, instances)
-    rims = {w: found[0] for w, found in linked.items() if len(found) == 1}  # noqa: F841
+    rims = {w: found[0] for w, found in linked.items() if len(found) == 1}
     kinds = Counter(box.kind for box in boxes)
     log["numbered"] = {
         "vehicles": kinds["vehicle"],
@@ -242,9 +253,25 @@ def _run_steps(
     validate_answer(spark.data, prompt.schema)
     answer, id_drops = check_ids_per_item(spark.data, boxes)
     drops.update(id_drops)
+    # SAM's water as one mask: step 3 reads it, and the evidence record outlines it,
+    # on a gate result too (C328).
+    water = water_mask(sam["floodwater"], (image.height, image.width))
     settled = gate(answer, has_water=water_found(sam["floodwater"]))
-    if settled is not None:
-        return settled, None
+    if settled is not None:  # no box has a reading yet, and step 3 hasn't run
+        evidence = build_evidence(
+            boxes,
+            instances,
+            answer,
+            water,
+            rims=rims,
+            causes={},
+            readings={},
+            waterlines={},
+            geometry={},
+            used=frozenset(),
+            deciding=None,
+        )
+        return settled, None, evidence
     # With geometry on, vans and `unknown` are kept for geometry alone (C318).
     geometry_types = rules.GEOMETRY_ONLY_TYPES if geometry_in_level else frozenset()
     kept, kept_drops = apply_drops(answer, links, geometry_types=geometry_types)
@@ -252,7 +279,6 @@ def _run_steps(
 
     # Step 3, after the gate, beside the drops above (C317): the waterline under each
     # kept reference that gives a reading. A reference it drops never decides.
-    water = water_mask(sam["floodwater"], (image.height, image.width))
     waterlines = _waterlines(kept, instances, water, tuning)
     step3_drops = {i: w.cause for i, w in waterlines.items() if w.cause is not None}
 
@@ -266,13 +292,27 @@ def _run_steps(
 
     # Step 5: a reading for each kept vehicle and adult. Steps 6 and 7: the level.
     # Step 3's causes and wheel_methods_disagree join the drops here.
-    references, measure_drops = measure(
-        kept, step3_drops=step3_drops, geometry=geometry
+    measured = measure_boxes(kept, step3_drops=step3_drops, geometry=geometry)
+    drops.update(measured.drops)
+    outcome, deciding = combine(measured.references)
+    # The evidence record, from what the steps above hold (C328). Only a reading that
+    # can decide is used (C317, R147). A box apply_drops dropped never reaches
+    # measure_boxes, so the two maps of causes never share a box.
+    evidence = build_evidence(
+        boxes,
+        instances,
+        answer,
+        water,
+        rims=rims,
+        causes={**kept.causes, **measured.causes},
+        readings=measured.readings,
+        waterlines=waterlines,
+        geometry=geometry,
+        used=frozenset(r.box_id for r in measured.references if r.decides),
+        deciding=None if deciding is None else deciding.box_id,
     )
-    drops.update(measure_drops)
-    outcome, deciding = combine(references)
     if deciding is None:  # a refusal
-        return outcome, None
+        return outcome, None, evidence
 
     # Step 8.1: the photo to store, with SAM's faces and plates blurred (C48, C61).
     photo = None
@@ -282,7 +322,7 @@ def _run_steps(
     if outcome.level_from == "geometry":  # as the item stores them (C308)
         low, high = rules.round_out(outcome.depth_in_min, outcome.depth_in_max)
         log["depth_in"] = [low, high]
-    return outcome, photo
+    return outcome, photo, evidence
 
 
 def _rim_links(

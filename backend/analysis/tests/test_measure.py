@@ -14,8 +14,8 @@ from fakes import answer, vehicle, wheel
 
 from lusot_analysis.annotate import NumberedBox
 from lusot_analysis.pipeline.combine import combine
-from lusot_analysis.pipeline.geometry import GeometryReading
-from lusot_analysis.pipeline.measure import measure
+from lusot_analysis.pipeline.geometry import GeometryReading, KeptReading
+from lusot_analysis.pipeline.measure import measure, measure_boxes
 from lusot_analysis.pipeline.references import (
     Kept,
     KeptPerson,
@@ -640,3 +640,68 @@ def test_a_dropped_vehicle_counts_a_g4_drop_once():
         [],
         {"vehicle_body_below_covered_wheel": 1, "wheel_vehicle_dropped": 2},
     )
+
+
+def test_measure_boxes_keeps_each_box():
+    # C328: measure_boxes also names each box's cause, counted as measure counts it,
+    # and the reading each box gives, so the evidence record measures nothing itself.
+    sedan = KeptVehicle(
+        1, "not_visible", ((2, "hub"), (3, "tire_only")), wheels_hidden=False
+    )
+    kept = Kept(vehicles=(sedan,), people=())
+    m = measure_boxes(kept)
+    assert m.causes == {
+        1: "vehicle_wheels_disagree",
+        2: "wheel_vehicle_dropped",
+        3: "wheel_vehicle_dropped",
+    }
+    assert m.readings == {}  # a vehicle C43 drops gives nothing (C317)
+    assert (m.references, m.drops) == measure(kept)
+    assert dict(m.drops) == {"vehicle_wheels_disagree": 1, "wheel_vehicle_dropped": 2}
+    lone = Kept(
+        vehicles=(KeptVehicle(1, "not_visible", ((2, "hub"),), wheels_hidden=False),),
+        people=(),
+    )
+    m = measure_boxes(lone)
+    assert m.readings[2].reading.level == "half_tire"
+    assert m.readings == {2: KeptReading(WHEEL_ROWS["hub"], "landmark", None)}
+    assert m.causes == {}
+    assert (m.references, m.drops) == measure(lone)
+    # G4's reading is the one kept, and G4's drop gives none.
+    m = measure_boxes(lone, geometry={2: KNEE_GEOMETRY})
+    assert m.readings == {2: KeptReading(KNEE, "geometry", (13.47, 13.47))}
+    shallow = GeometryReading(3.2, 4.1, "below_gutter")
+    m = measure_boxes(lone, geometry={2: shallow})
+    assert m.readings == {}
+    assert m.causes == {2: "wheel_methods_disagree", 1: "vehicle_no_reading"}
+    # A reading step 3 dropped stays beside its cause (C317). A body that step 3
+    # dropped leaves its vehicle with no reading too: both count, and the box keeps
+    # its first cause.
+    hidden = KeptVehicle(1, "window", ((2, "not_visible"),), wheels_hidden=True)
+    m = measure_boxes(
+        Kept(vehicles=(hidden,), people=(KeptPerson(3, "knee"),)),
+        step3_drops={1: "ragged_waterline", 3: "no_water_contact"},
+    )
+    assert m.causes == {1: "ragged_waterline", 3: "no_water_contact"}
+    assert dict(m.drops) == {
+        "ragged_waterline": 1,
+        "vehicle_no_reading": 1,
+        "no_water_contact": 1,
+    }
+    assert m.readings == {
+        1: KeptReading(TIRE_FLOOR, "landmark", None),
+        3: KeptReading(KNEE, "landmark", None),
+    }
+    # R147: a geometry-only type's covered wheel holds a floor that can't decide, and
+    # its geometry reading, which can, is the one kept.
+    van = KeptVehicle(
+        1,
+        "not_visible",
+        ((2, "wheel_covered"),),
+        wheels_hidden=True,
+        vehicle_type="van",
+    )
+    m = measure_boxes(Kept(vehicles=(van,), people=()))
+    assert m.readings == {2: KeptReading(TIRE_FLOOR, "landmark", None)}
+    m = measure_boxes(Kept(vehicles=(van,), people=()), geometry={2: KNEE_GEOMETRY})
+    assert m.readings == {2: KeptReading(KNEE, "geometry", (13.47, 13.47))}

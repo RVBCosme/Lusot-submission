@@ -318,3 +318,40 @@ def test_kept_items_come_in_id_order():
         people=(KeptPerson(6, "mid_shin"), KeptPerson(7, "knee")),
     )
     assert not drops
+
+
+def test_apply_drops_names_each_box_cause():
+    # C328: the evidence record names each dropped box's cause. Moving vehicle 1 takes
+    # its wheels 3 and 4, Muse Spark skipped wheel 6 of kept vehicle 2, and person 7,
+    # standing still, blocks wading person 8.
+    boxes = numbered(vehicles=[1, 2], wheels={3: 1, 4: 1, 5: 2, 6: 2}, people=[7, 8])
+    given = answer(
+        vehicles=[vehicle(1, moving="yes"), vehicle(2)],
+        wheels=[wheel(3, "hub"), wheel(4, "rim_top"), wheel(5, "rim_quarter")],
+        people=[person(7, "knee"), person(8, "waist", standing_still="no")],
+    )
+    kept, drops = apply_drops(given, boxes)
+    assert kept.causes == {
+        1: "vehicle_moving",
+        3: "wheel_vehicle_dropped",
+        4: "wheel_vehicle_dropped",
+        6: "wheel_unanswered",
+        8: "person_wading",
+    }
+    assert drops == Counter(kept.causes.values())
+    assert dict(drops) == {
+        "vehicle_moving": 1,
+        "wheel_vehicle_dropped": 2,
+        "wheel_unanswered": 1,
+        "person_wading": 1,
+    }
+    # Kept compares without its causes, so MS3a's checks above still hold (R129).
+    assert kept == Kept(
+        vehicles=(
+            KeptVehicle(2, "not_visible", ((5, "rim_quarter"),), wheels_hidden=False),
+        ),
+        people=(KeptPerson(7, "knee"),),
+    )
+    # A box apply_drops keeps has no cause.
+    kept, drops = apply_drops(answer(people=[person(1, "knee")]), numbered(people=[1]))
+    assert (kept.causes, drops) == ({}, Counter())

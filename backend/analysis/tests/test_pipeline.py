@@ -432,9 +432,10 @@ def test_reason_text_never_reaches_the_log(prompt, given, status):
     run = run_pipeline(photo, FakeClient(sam, given or level_answer), prompt)
     assert run.outcome.status == status
     assert REASON not in json.dumps(run.log)
-    # The run carries no answer, so the handler never sees the reason.
+    # The run carries no answer, so the handler never sees the reason. Its evidence
+    # record (C328) holds none either: test_evidence_holds_no_face_plate_or_reason.
     fields = [field.name for field in dataclasses.fields(PipelineRun)]
-    assert fields == ["outcome", "log", "publish_jpeg"]
+    assert fields == ["outcome", "log", "publish_jpeg", "evidence"]
 
 
 def test_reading_phrases_skip_face_and_plate(prompt):
