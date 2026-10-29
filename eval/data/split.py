@@ -22,9 +22,9 @@ Usage, from the repo root, in Rene's own Windows PowerShell window:
         --archive <data>\sealed\lusot-sealed.7z
         --record eval\data\records\<date>-split.json [--allow-missing-m8]
 The archive and the dev folders are absolute paths, and the archive's folder, named
-sealed, must exist. The two dev folders may not overlap, and the record may not lie in
-either. None of the four outputs may exist yet: a rerun names each one left by a
-stopped run, which Rene deletes first.
+sealed, must exist. The two dev folders may not overlap or lie in a photo folder, and
+the record may not lie in either dev folder. None of the four outputs may exist yet: a
+rerun names each one left by a stopped run, which Rene deletes first.
 
 It prints the intake's warnings as a count, then, once written, the rows and events per
 set, side and group, the counts per fact value, audit PASS, copy check <k> of <n>, and
@@ -283,6 +283,14 @@ def _split(args: argparse.Namespace) -> int:
         return _refuse("the two dev folders overlap")
     if _within(args.record, set_a_dev) or _within(args.record, a_neg_dev):
         return _refuse("--record is inside a dev folder")
+    # R5 deletes both photo folders after the split, and would take a dev folder in
+    # either with them: the only copies of the development photos (S-R21's M7).
+    if any(
+        _within(dev, photos)
+        for dev in (set_a_dev, a_neg_dev)
+        for photos in (args.set_a_photos, args.a_neg_photos)
+    ):
+        return _refuse("a dev folder is inside a photo folder")
 
     # 2. Rene's own console. 3. The outputs, which must not exist yet, and the archive's
     # folder, which must (Review Focus 3, S-R12). Each one found is a refusal.

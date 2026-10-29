@@ -759,6 +759,40 @@ def test_split_refuses_overlapping_outputs(
     assert not any(Path(os.path.abspath(given[out])).exists() for out in OUTPUTS)
 
 
+PHOTO_FLAGS = ("--set-a-photos", "--a-neg-photos")
+DEV_IN_PHOTOS = [
+    pytest.param(dev, photos, equal, id=f"{dev} {'is' if equal else 'in'} {photos}")
+    for dev in DEV.values()
+    for photos in PHOTO_FLAGS
+    for equal in (False, True)
+]
+
+
+@pytest.mark.parametrize(("dev", "photos", "equal"), DEV_IN_PHOTOS)
+def test_split_refuses_a_dev_folder_inside_a_photo_folder(
+    paths, prompts, tmp_path, capsys, dev, photos, equal
+):
+    """R5 deletes both photo folders after the split, so a dev folder in either would
+    go with them, and with it the only copies of the development photos (S-R21's M7).
+    It is refused on the strings, before anything opens, and the photos stay as they
+    were."""
+    data = tmp_path / "data"
+    before = {flag: tree(paths[flag]) for flag in PHOTO_FLAGS}
+    given = dict(paths) | {dev: paths[photos] if equal else paths[photos] / "dev"}
+    assert run(given) == 2
+    assert capsys.readouterr() == (
+        "",
+        "refused: a dev folder is inside a photo folder\n",
+    )
+    code, opened = synth.opened_paths(SPLIT, arguments(given))
+    assert code == 2
+    assert [item for item in opened if inside(item[1], data)] == []
+    assert prompts == []
+    assert nothing_written(paths)
+    assert not (paths[photos] / "dev").exists()
+    assert {flag: tree(paths[flag]) for flag in PHOTO_FLAGS} == before
+
+
 def test_split_outputs_that_only_share_a_prefix_run(paths, prompts):
     """dev-2 isn't inside dev, nor dev.json, though each name starts with dev."""
     set_a = paths["--set-a-dev"].parent
