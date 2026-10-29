@@ -57,7 +57,7 @@ Then, honestly (plan §19): "Reading flood depth from objects of known size is e
 ### 3. See it work
 
 - `docs/media/overlay.gif`: the overlay drawing itself on a sample (C920). Under it, the credit line: "`[title]` by `[author]`, `[CC0 or CC BY x.0]`, `[source link]`. Lusot blurred faces and plates and drew the outlines."
-- One sentence on what the GIF shows: the water, each wheel or person with its reading, then the level, the landmark and the class.
+- One sentence on what the GIF shows: the water, each wheel or person with its reading (a reference the pipeline dropped shows its reason, never a level), then the level, the landmark and the class.
 
 ### 4. The numbers
 
@@ -166,7 +166,7 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
 ### 14. Credits
 
 MS1's table as it stands, plus:
-- the sample and demo photos: a credits file listing each photo's title, author, licence, source link and the note that Lusot blurred it and drew outlines (CC BY's change notice; MS5's C617)
+- the sample and demo photos: a credits file listing, for CC0 and CC BY photos, the title, author, licence and source link; for consented M9 photos, the donor's chosen credit line and "used with permission", with no source link; and, for each photo, the note that Lusot blurred it and drew outlines (CC BY's change notice; MS5's C617)
 - the map: OpenStreetMap tiles, "© OpenStreetMap contributors" (MS5's C612)
 - the Metro Manila boundary, with its source and licence (MS4-Q1)
 - Leaflet (BSD-2-Clause), the fonts (OFL), Lucide icons (ISC), and any other library MS5 adds
