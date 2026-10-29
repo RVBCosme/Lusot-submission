@@ -79,6 +79,7 @@ def measure_boxes(
        Otherwise keep_reading gives G4's reading, or drops the wheel as
        `wheel_methods_disagree`. A covered wheel of a type kept for geometry also
        gives the sedan row's tire floor, as a reference that doesn't decide (R143).
+       This floor holds whether or not step 3 dropped the wheel (R143, C317).
     3. Deciding wheel readings that fail C54's test drop it as
        `vehicle_wheels_disagree`: an exact one sits more than one level below the
        deepest (C43).
@@ -115,6 +116,13 @@ def measure_boxes(
         given: dict[int, KeptReading] = {}
         for wheel_id, line in vehicle.wheels:
             landmark = rules.WHEEL_ROWS[line] if reads_rows else None
+            if not reads_rows and line == "wheel_covered":
+                # The sedan row's floor bounds any larger covered wheel too, so it is
+                # held to refuse a shallower exact result, never to decide (R143). It
+                # holds whether or not step 3 dropped the wheel (C317).
+                floor = rules.WHEEL_ROWS[line]
+                held.append(Reference("wheel", wheel_id, line, floor, decides=False))
+                given[wheel_id] = KeptReading(floor, "landmark", None)
             if wheel_id in step3_drops:
                 found.append((wheel_id, step3_drops[wheel_id]))
                 if landmark is not None:
@@ -123,12 +131,6 @@ def measure_boxes(
                     )
                     given[wheel_id] = KeptReading(landmark, "landmark", None)
                 continue
-            if not reads_rows and line == "wheel_covered":
-                # The sedan row's floor bounds any larger covered wheel too, so it is
-                # held to refuse a shallower exact result, never to decide (R143).
-                floor = rules.WHEEL_ROWS[line]
-                held.append(Reference("wheel", wheel_id, line, floor, decides=False))
-                given[wheel_id] = KeptReading(floor, "landmark", None)
             kept_reading = keep_reading(landmark, geometry.get(wheel_id))  # G4
             if isinstance(kept_reading, str):  # wheel_methods_disagree
                 found.append((wheel_id, kept_reading))

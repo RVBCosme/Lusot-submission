@@ -569,9 +569,10 @@ def test_a_covered_geometry_only_wheel_gives_a_floor_that_cannot_decide(type_):
         van(covered, (3, "hub"), (4, "tire_only")),
         geometry={3: KNEE_GEOMETRY, 4: shallow},
     ) == ([], {"vehicle_wheels_disagree": 1, "wheel_vehicle_dropped": 3})
-    # A covered wheel that step 3 dropped gives nothing, as before.
+    # A covered wheel that step 3 dropped still holds its floor, as a sedan's holds its
+    # landmark (C317).
     assert measured(van(covered), step3_drops={2: "no_water_contact"}) == (
-        [],
+        [COVERED_FLOOR_AT_2],
         {"no_water_contact": 1, "vehicle_no_reading": 1},
     )
 
@@ -588,12 +589,25 @@ def test_a_covered_geometry_only_wheel_refuses_a_shallower_reading(type_):
         vehicle_type=type_,
     )
 
-    def combined(depth: GeometryReading) -> tuple[Outcome, Reference | None]:
-        references, _ = measure(Kept(vehicles=(van,), people=()), geometry={3: depth})
+    def combined(
+        depth: GeometryReading, step3_drops: dict[int, str] | None = None
+    ) -> tuple[Outcome, Reference | None]:
+        references, _ = measure(
+            Kept(vehicles=(van,), people=()),
+            step3_drops=step3_drops,
+            geometry={3: depth},
+        )
         return combine(references)
 
     # The exact knee sits below the floor, so the photo is refused (C317).
     assert combined(KNEE_GEOMETRY) == (Outcome.refused("references_disagree"), None)
+    # The floor holds when step 3 drops the covered wheel too, so SAM missing the water
+    # doesn't let the shallower reading win (R143, C317).
+    dropped = {2: "no_water_contact"}
+    assert combined(KNEE_GEOMETRY, dropped) == (
+        Outcome.refused("references_disagree"),
+        None,
+    )
     # Waist isn't below the floor, so geometry's result stands, with its inches
     # (C307). Check 8 keeps a real wheel's depth within its tire's radius, under
     # 14 in for these codes, so this depth is synthetic.
