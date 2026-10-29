@@ -1,6 +1,8 @@
 # Set B car-owner OK and M11 drivers' permission: drafts for Rene
 
-> **Draft, Oct 28, 2026 (Window 4).** Two short permission texts:
+> **Draft, Oct 28, 2026 (Window 4). Versions: Set B `SETB-v1`, M11 `M11-v1`.** **Approved Oct 29, 10:36 PM (the tracker's clock) by Claude under Rene's delegation (PDF item 10).** Taglish polish may follow at M20, and any change makes a new version. (Approved text: `0c6643c`. The labels were added at the tracker's call, so MS2's intake can match each `consent_version`; a label changes no text, so it is no new version. Any wording change makes v2.)
+>
+> Two short permission texts:
 > - **Set B (M10):** for the owners of the parked cars Rene photographs
 > - **M11:** for the drivers whose jeepney, tricycle, bus, Hilux or Tamaraw tire sidewall he photographs
 >
@@ -8,7 +10,7 @@
 >
 > Two facts behind the wording:
 > - **Claude sees some of these photos.** MS2's draft plan has Claude review Set B's development overlays (its C213) and read each M11 tire code from its photo (its §5.8). So the texts say that Anthropic, which runs Claude, receives them. Set B's final cars are sealed, and Claude never sees them.
-> - **M11 photos and Meta:** MS2's plan doesn't send M11 photos to Meta, so the M11 text has no Meta line (the tracker's call, Oct 29, 10:27 PM, under Rene's delegation). A later use that sends them to Meta needs a new version of the text.
+> - **M11 photos and Meta:** MS2's plan doesn't send M11 photos to Meta, so the M11 text has no Meta line (the tracker's call, Oct 29, 10:27 PM by its clock, under Rene's delegation). A later use that sends them to Meta needs a new version of the text.
 >
 > The Anthropic retention line is the tracker's H1 (Oct 29). Its sources are in the M9 draft's notes.
 

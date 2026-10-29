@@ -1,6 +1,8 @@
 # M12 voice-recording OK: draft for Rene
 
-> **Draft, Oct 28, 2026 (Window 4).** This is for the adults who record Taglish test questions for Ask Lusot's voice test (M12, design §8's MS1 row; C41). Rene sends it, adapts it and approves every line (M21). The Taglish version is a draft for his M20 review. Keep each speaker's reply next to their recordings. This draft is information, not legal advice.
+> **Draft, Oct 28, 2026 (Window 4). Version `M12-v1`.** **Approved Oct 29, 10:36 PM (the tracker's clock) by Claude under Rene's delegation (PDF item 10).** Taglish polish may follow at M20, and any change makes a new version. (Approved text: `d6e5986`. The label was added at the tracker's call, for consistency with the other texts; MS2 has no M12 constant. Any wording change makes v2.)
+>
+> This is for the adults who record Taglish test questions for Ask Lusot's voice test (M12, design §8's MS1 row; C41). Rene sends it, adapts it and approves every line (M21). The Taglish version is a draft for his M20 review. Keep each speaker's reply next to their recordings. This draft is information, not legal advice.
 >
 > The recordings are WAV files (mono, 16-bit, 16 kHz), because Meta's file transcription accepts only WAV (CLAUDE.md). Fill in the deletion date before sending.
 >

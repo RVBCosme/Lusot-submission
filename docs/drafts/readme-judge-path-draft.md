@@ -43,7 +43,7 @@ Not affiliated with MMDA. Everything in this repo was built during the hackathon
 ---
 
 *Draft notes for Rene, not for the README:*
-- The command and its output line come from MS6's spec (C401). It is tested on Python 3.9 to 3.13 (MS6's E10), and the report path imports nothing outside the standard library.
+- The command and its output line come from MS6's spec (C401). The bare command reads `eval/results/`, so it passes only once the sealed run's results are committed; until then it exits 2 ("no results folder"). **Before submission (MS8's checklist):** run it bare in a fresh clone of the submitted repo, and expect exit 0 with `report: N files identical`. It is tested on Python 3.9 to 3.13 (MS6's E10), and the report path imports nothing outside the standard library.
 - The link targets are placeholders: `eval/results/report/report.md` exists once the sealed run's export is committed, and `PRIVACY.md` once MS5 publishes the policy.
 - Copy rules: CLAUDE.md's banned word stays out in every form, there's no crossing advice, it's "at this spot" only, and the 9 levels use the names the app shows.
 - The opening leads with the whole system, the live map first, never "a photo analyzer" (CLAUDE.md, plan §1 and §19). The Ask Lusot line follows its spec on `ask-lusot-specs` (C702, C705): one tool, which the model may call a second time.

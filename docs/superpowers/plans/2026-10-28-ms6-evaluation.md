@@ -770,7 +770,7 @@ All new.
   - the same with `python3` (3.11.9)
   - `uv run --no-project --python 3.9 python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run`. uv downloads CPython 3.9 once (spec §3). If that download fails, record the error; the after-merge CI step then covers 3.9.
 - [x] **Step 7:** Run the leak checks, then commit `feat(eval): rebuild the report with one command`.
-  - **Evidence:** `159cb7f`, pre-review fix `941743f`. RED: the module missing, then 22 failing on their own assertions; then 284, and 286, passed with `-W error`; 21 mutations caught. Step 6: `python eval/run_eval.py --from-saved` exits 0 with `report: 5 files identical` on `python` 3.10.11, `python3` 3.11.9 and uv's CPython 3.9.25. Checks clean. Review: Approved (w4.md, 4:05 AM).
+  - **Evidence:** `159cb7f`, pre-review fix `941743f`. RED: the module missing, then 22 failing on their own assertions; then 284, and 286, passed with `-W error`; 21 mutations caught. Step 6: `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` exits 0 with `report: 5 files identical` (the bare `--from-saved` reads `eval/results/`, which exists only once the sealed run's results are committed, so today it exits 2 with "no results folder"; corrected Oct 29 at the tracker's audit) on `python` 3.10.11, `python3` 3.11.9 and uv's CPython 3.9.25. Checks clean. Review: Approved (w4.md, 4:05 AM).
 
 ### Task 10: Two more label readings (MS6E-Q1, items 15 and 16)
 
