@@ -702,8 +702,8 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
     Text the parser drops or keeps as plain text, a box whose frame (its `w` and `h`)
     isn't the image's size, and a mask that doesn't fill its box inside the image
     raise MetaApiError: a lost or misplaced record must not read as no match. A mask
-    whose box has a side over SAM_MASK_SIDE may come scaled down to that longer side,
-    and is scaled back up to fill its box (_scaled_down has the rule).
+    whose box has a side over SAM_MASK_SIDE may come scaled down so its longer side is
+    SAM_MASK_SIDE, and is scaled back up to fill its box (_scaled_down has the rule).
     """
     parser = image_segmentation_format().create_parser()
     parser.push(text)
@@ -742,7 +742,8 @@ def _instances(text: str, image: BlurredImage) -> list[SamInstance]:
 
 def _scaled_down(size: tuple[int, int], box: tuple[int, int]) -> bool:
     """True when a mask of `size` is its `box` (both rows, columns) scaled down to a
-    longer side of SAM_MASK_SIDE, as SAM sends it when the box has a longer side.
+    longer side of SAM_MASK_SIDE, as SAM sends it when the box has a side over
+    SAM_MASK_SIDE.
 
     The box needs a side over SAM_MASK_SIDE (MS3a Task 16). The mask's side along the
     box's longer axis (both, for a square box) must be SAM_MASK_SIDE. Its other side
@@ -765,8 +766,9 @@ def _upscaled(crop: np.ndarray, size: tuple[int, int]) -> np.ndarray:
     """`crop` scaled up to `size` (rows, columns) by center-aligned nearest neighbour.
 
     Index i on each axis takes source index floor((i + 0.5) * src / dst), worked in
-    integers so a whole-number result stays whole. OpenCV's INTER_NEAREST_EXACT takes
-    one index less there, and plain INTER_NEAREST is half a pixel off throughout.
+    integers so a whole-number result stays whole. OpenCV's INTER_NEAREST_EXACT, in
+    16-bit fixed point, can take one index less at or just past a whole number, and
+    plain INTER_NEAREST is half a pixel off throughout.
     """
     rows, cols = (
         (2 * np.arange(dst) + 1) * src // (2 * dst)

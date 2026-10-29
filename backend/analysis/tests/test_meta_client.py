@@ -124,7 +124,15 @@ def wide_photo() -> BlurredImage:
     return gradient(1600, 1000)
 
 
-def mask_text(box: tuple[int, int, int, int], raster, frame: tuple[int, int]) -> str:
+@pytest.fixture(scope="module")
+def square_photo() -> BlurredImage:
+    """A face-free 1100 x 1100 photo, for a square box with sides over 1024 px."""
+    return gradient(1100, 1100)
+
+
+def mask_text(
+    box: tuple[int, int, int, int], raster: np.ndarray, frame: tuple[int, int]
+) -> str:
     """SAM's text for one match: `box` is (x1, y1, x2, y2), inclusive as SAM sends it,
     in a (w, h) frame, and `raster` (rows x columns of 0 and 1) is its one_bit mask.
 
@@ -837,8 +845,8 @@ def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):
     x1=0;y1=300;x2=1599;y2=999 (700 x 1600) with a 448 x 1024 mask, scaled by 0.64 so
     its longer side is 1024 px. The client scales it up to the box, center-aligned."""
     raster = np.zeros((448, 1024), np.uint8)
-    # Edges where center-aligned and plain nearest differ by a row and a column
-    raster[:150, :301] = 1
+    # Edges that a row and a column of the box map to exactly
+    raster[:152, :296] = 1
     text = mask_text((0, 300, 1599, 999), raster, (1600, 1000))
     meta = FakeMeta(sam_stream(text))
     c, _ = client(meta)
@@ -847,11 +855,13 @@ def test_segment_places_a_mask_scaled_to_a_1024_px_side(wide_photo):
     assert instance.mask.shape == (1000, 1600)
     assert not instance.mask[:300].any()  # the rows above the box
     inside = instance.mask[300:]
-    # Row i takes source row floor((i + 0.5) * 448 / 700): 233 takes 149, 234 takes
-    # 150. Column j takes floor((j + 0.5) * 1024 / 1600): 469 takes 300, 470 takes 301.
-    assert inside[0, 0] and inside[233, 469]
-    assert not inside[234, 469] and not inside[233, 470]
-    assert instance.mask.sum() == 234 * 470  # plain nearest would give 235 x 471
+    # Row i takes source row floor((i + 0.5) * 448 / 700): 236 takes 151.36 -> 151,
+    # and 237 takes exactly 152. Column j takes floor((j + 0.5) * 1024 / 1600): 461
+    # takes 295.36 -> 295, and 462 takes exactly 296.
+    assert inside[0, 0] and inside[236, 461]
+    assert not inside[237, 461] and not inside[236, 462]
+    # Plain nearest, and OpenCV's INTER_NEAREST_EXACT at the exact edges, give 238 x 463
+    assert instance.mask.sum() == 237 * 462
 
 
 def test_segment_places_a_tall_mask_scaled_to_a_1024_px_side():
@@ -887,12 +897,18 @@ def test_segment_allows_a_scaled_short_side_1_px_off(wide_photo, rows):
         # whole-frame scale would, and 1024 px wide but a row short of its box
         ((0, 0, 999, 24), (16, 640)),
         ((0, 0, 1023, 19), (19, 1024)),
-        # A 32 x 1600 box (20.48 rows at 1024 px): a long side of 1000, a short side
-        # 2 px off either way, and the scaled sides swapped
+        # A 32 x 1600 box (20.48 rows at 1024 px): a long side of 1000, a long side
+        # 1 px short or over, a short side 2 px off either way, and the scaled sides
+        # swapped
         ((0, 0, 1599, 31), (20, 1000)),
+        ((0, 0, 1599, 31), (20, 1023)),
+        ((0, 0, 1599, 31), (20, 1025)),
         ((0, 0, 1599, 31), (22, 1024)),
         ((0, 0, 1599, 31), (18, 1024)),
         ((0, 0, 1599, 31), (1024, 20)),
+        # A 34 x 1600 box scales to 21.76 rows: 20 is 2 px off round's 22, though
+        # only 1 px off floor's 21
+        ((0, 0, 1599, 33), (20, 1024)),
         # Rasters larger than their box: 33 x 1600 on 32 x 1600, and 6 x 1024 on
         # 5 x 1100, though 6 is within 1 px of round(5 * 1024 / 1100) = 5
         ((0, 0, 1599, 31), (33, 1600)),
@@ -907,6 +923,18 @@ def test_segment_mask_scaled_any_other_way_raises(wide_photo, box, size):
     c, _ = client(meta)
     with pytest.raises(MetaApiError) as exc:
         c.segment(wide_photo, "floodwater")
+    assert exc.value.status is None
+    assert len(meta.requests) == 1
+
+
+@pytest.mark.parametrize("size", [(1023, 1024), (1024, 1023)])
+def test_segment_square_mask_needs_both_sides_scaled_to_1024(square_photo, size):
+    # Both sides of a square box are its longer side, so both must be 1024 px.
+    text = mask_text((0, 0, 1099, 1099), np.ones(size, np.uint8), (1100, 1100))
+    meta = FakeMeta(sam_stream(text))
+    c, _ = client(meta)
+    with pytest.raises(MetaApiError) as exc:
+        c.segment(square_photo, "floodwater")
     assert exc.value.status is None
     assert len(meta.requests) == 1
 
