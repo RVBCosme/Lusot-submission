@@ -35,6 +35,21 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
 - Steps that need Set A, A-neg or Set B development data wait, marked waiting. So does every step that scores or shows a Set A or A-neg development result, until Rene approves v0.7 (C322).
 - Task 19 starts after Task 18 merges MS3b into `main`, on its own branch, and is due by Nov 2 (C329).
 
+**Timing (approved on Oct 29 at 10:36 PM by the tracker, under Rene's delegation; PDF item 55):**
+- **freeze-1** is tagged on `main` on **Nov 3**, just before the sealed run. Approving the freeze and the sealed run stay Rene's gate (item 43). freeze-2 is only for the disclosed rerun (C421).
+- **By the end of Nov 2, `main` holds:**
+  - MS3b, through Task 18's merge
+  - Task 19's `run_sealed.py`
+  - MS4's freeze-path work (its Task 12, the blur refactor, and Task 13's `keep_photo` half), merged by the evening of Nov 1 after Window 3's review
+  - the MS6 harness from `w4-independent`
+  - MS2's merge, with its C216 records (the dataset versions and split seeds)
+  - M18's gate numbers
+- **So MS3b merges early enough** to leave Nov 1 for that review.
+
+**Rene's data inputs (Oct 29, 10:43 PM, relayed by the tracker):**
+- **Set B:** fewer than 6 cars, or none, is accepted. MS3b-Q1's fallback then applies, and the results note says so.
+- **A-neg** comes from Wikimedia Commons: CC0, public domain or CC BY photos of dry Metro Manila streets, downloaded without anyone opening them, in place of his own photos. MS2's intake and `eval/rules.md` v0.7 carry the source line, and v0.7 stays Rene's to approve.
+
 ## Global Constraints
 
 - **AWS:** as MS3a: region `ap-southeast-1`, profile `lusot`, `--no-cli-pager`, and `MSYS_NO_PATHCONV=1` in Git Bash for arguments that start with `/`.
