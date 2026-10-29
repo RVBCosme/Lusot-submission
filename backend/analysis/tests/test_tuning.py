@@ -1,7 +1,9 @@
 """Tests for the tuning module: the cutoffs, their start values and the change log (C310).
 
 Expected numbers come from START, never the live TUNING, so a later tuning can't break
-them. Only the two tests that name TUNING read it.
+them. Three tests read TUNING, and none has a number of its own: each untuned name
+still equals START's value, MS3a's five constants equal TUNING's values, and the change
+log names TUNING's version.
 """
 
 from dataclasses import asdict, fields, replace

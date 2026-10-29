@@ -167,11 +167,15 @@ def test_disagree_follows_c54(readings, expected):
         (8.0, "gutter"),
         (8.01, "half_knee"),
         (10.0, "half_knee"),
+        (10.01, "half_tire"),
         (13.0, "half_tire"),
         (13.01, "knee"),
         (19.0, "knee"),
+        (19.01, "tire"),
         (26.0, "tire"),
+        (26.01, "waist"),
         (37.0, "waist"),
+        (37.01, "chest"),
         (45.0, "chest"),
         (45.01, "above_chest"),
     ],
@@ -241,7 +245,13 @@ def test_tire_sizes_match_table_7():
     for vehicle_type, expected in diameters.items():
         sizes = [2 * c.radius_in for c in tire_codes(vehicle_type)]
         assert (round(min(sizes), 1), round(max(sizes), 1)) == expected
-    for code in ("265/60R18X", "7.50-16", "175/65R14\n", "175/65 R14"):
+    for code in (
+        "265/60R18X",
+        "7.50-16",
+        "175/65R14\n",
+        "175/65 R14",
+        "１７５/６５R１４",  # full-width digits: \d is ASCII only here
+    ):
         with pytest.raises(ValueError):
             TireCode.parse(code)
 

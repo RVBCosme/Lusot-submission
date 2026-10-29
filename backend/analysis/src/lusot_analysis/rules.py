@@ -164,7 +164,7 @@ def disagree(readings: Iterable[Reading]) -> bool:
     return any(deepest - level_index(r.level) > 1 for r in readings if not r.floor)
 
 
-_TIRE_CODE = re.compile(r"^(\d{3})/(\d{2})R(\d{2})C?$")
+_TIRE_CODE = re.compile(r"^(\d{3})/(\d{2})R(\d{2})C?$", re.ASCII)  # \d is 0 to 9
 
 
 @dataclass(frozen=True)
@@ -221,6 +221,6 @@ def tire_codes(vehicle_type: str) -> tuple[TireCode, ...]:
 
 # The types only geometry reads: they have tire codes, but Table 8's wheel rows don't
 # cover them (C318).
-GEOMETRY_ONLY_TYPES = frozenset(
+GEOMETRY_ONLY_TYPES: frozenset[str] = frozenset(
     t for t, codes in _TIRE_CODES.items() if codes and t not in READING_TYPES
 )
