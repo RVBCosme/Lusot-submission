@@ -15,9 +15,10 @@ and new values. A deploy that updates the parameter puts it back to the template
 which only pauses spending sooner, so it runs again after any later deploy
 (docs/operations.md).
 
-spend.py comes from backend/analysis, loaded by path, so the scripts and the Lambda
-share one definition. The counter's table is LIMITS_TABLE_NAME, or else the lusot
-stack's LimitsTable. An AWS error is reported by its code and HTTP status only.
+spend.py comes from backend/analysis, loaded by path through spend_loader.py, so the
+scripts and the Lambda share one definition. The counter's table is
+LIMITS_TABLE_NAME, or else the lusot stack's LimitsTable. An AWS error is reported by
+its code and HTTP status only.
 
 boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
@@ -29,27 +30,15 @@ Exit codes: 0 set; 1 an AWS error; 2 refused, nothing written.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import sys
 from decimal import Decimal
-from pathlib import Path
 
 from botocore.exceptions import BotoCoreError, ClientError
+from spend_loader import load_spend
 
-SPEND_PY = Path(__file__).resolve().parents[1] / "analysis/src/lusot_analysis/spend.py"
 MAX_STOP_USD = Decimal(140)  # Rene's limit: $10 under the $150 of credit (C528)
 
-
-def _load_spend():
-    """backend/analysis's spend.py, by path: it needs only boto3."""
-    spec = importlib.util.spec_from_file_location("lusot_spend", SPEND_PY)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-spend = _load_spend()
+spend = load_spend()
 
 
 def main(argv: list[str] | None = None, *, session=None) -> int:

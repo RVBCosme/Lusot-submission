@@ -12,10 +12,10 @@ script says so and exits 3. A missed amount then goes in with `spend add`
 (docs/operations.md), never a second seed.
 
 The counter's key, attribute and client settings come from backend/analysis's
-spend.py, loaded by path, so the scripts and the Lambda share one definition. The
-table is LIMITS_TABLE_NAME, or else the lusot stack's LimitsTable. An AWS error is
-reported by its code and HTTP status only: its message can carry an ARN, and an ARN
-carries the account ID.
+spend.py, loaded by path through spend_loader.py, so the scripts and the Lambda share
+one definition. The table is LIMITS_TABLE_NAME, or else the lusot stack's LimitsTable.
+An AWS error is reported by its code and HTTP status only: its message can carry an
+ARN, and an ARN carries the account ID.
 
 boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
@@ -27,25 +27,12 @@ Exit codes: 0 seeded; 1 an AWS error; 2 a bad --usd; 3 already seeded, nothing w
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import sys
-from pathlib import Path
 
 from botocore.exceptions import BotoCoreError, ClientError
+from spend_loader import load_spend
 
-SPEND_PY = Path(__file__).resolve().parents[1] / "analysis/src/lusot_analysis/spend.py"
-
-
-def _load_spend():
-    """backend/analysis's spend.py, by path: it needs only boto3."""
-    spec = importlib.util.spec_from_file_location("lusot_spend", SPEND_PY)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-spend = _load_spend()
+spend = load_spend()
 
 
 def main(argv: list[str] | None = None, *, session=None) -> int:

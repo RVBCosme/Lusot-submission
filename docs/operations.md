@@ -53,7 +53,11 @@ Each flip logs `spend_stop` or `spend_error`, and `SpendPauseAlarm` emails. The 
    aws ssm get-parameter --name /lusot/spend/stop-usd --query Parameter.Value --output text --profile lusot --region ap-southeast-1 --no-cli-pager
    ```
 
-   - If step 2's total is below it, tell the tracker and clear the switch with S6's command:
+   Compare it with the latest total: step 3's last output, or step 2's if nothing was added.
+
+   For a `spend_stop` whose cause is `unreadable`, such as a missing `/lusot/spend/stop-usd` or a denied read, fix the named error before clearing, or the next photo pauses again.
+
+   - If the latest total is below the stop, tell the tracker and clear the switch with S6's command:
 
      ```powershell
      aws ssm put-parameter --name /lusot/stop/model-calls --value off --type String --overwrite --profile lusot --region ap-southeast-1 --no-cli-pager

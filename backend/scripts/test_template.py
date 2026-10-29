@@ -9,7 +9,6 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
 """
 
 import re
-from datetime import UTC, datetime
 
 from cfn_template import TEMPLATE, load_template, raw_lines
 
@@ -346,6 +345,27 @@ def test_roles():
         "${ReportsTable.Arn}",
         "${LimitsTable.Arn}",
     }
+    # Minor 3: on limits, the counter's item only, never the API's counters or flags.
+    # One statement names the table, and its condition holds spend.py's SPEND_PK.
+    source = SPEND.read_text(encoding="utf-8")
+    spend_pk = re.search(r'^SPEND_PK\s*=\s*"([^"]+)"', source, re.MULTILINE)
+    assert spend_pk, "SPEND_PK not found in spend.py"
+    assert spend_pk.group(1) == "spend#meta"
+    on_limits = [
+        s
+        for s in statements("AnalysisRole")
+        if any("LimitsTable" in resource_name(r) for r in as_list(s["Resource"]))
+    ]
+    assert len(on_limits) == 1
+    (spend_grant,) = on_limits
+    assert as_list(spend_grant["Resource"]) == [{"Fn::GetAtt": ["LimitsTable", "Arn"]}]
+    assert sorted(as_list(spend_grant["Action"])) == [
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+    ]
+    assert spend_grant["Condition"] == {
+        "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [spend_pk.group(1)]}
+    }
     assert granted("AnalysisRole", "ssm:GetParameter") == {
         f"{SSM_ARN}/lusot/stop/*",
         f"{SSM_ARN}/lusot/meta/model-api-key",
@@ -386,6 +406,8 @@ def test_roles():
     }
     assert granted("ApiRole", "dynamodb:PutItem") == tables
     assert granted("ApiRole", "dynamodb:UpdateItem") == tables
+    # The API writes every kind of limits item, so its grant has no key condition.
+    assert not [s for s in statements("ApiRole") if "dynamodb:LeadingKeys" in str(s)]
     dynamodb = {
         action
         for s in statements("ApiRole")
@@ -426,12 +448,10 @@ def test_budget():
     budget = p["Budget"]
     assert budget["BudgetType"] == "COST"
     assert budget["BudgetLimit"] == {"Amount": 150, "Unit": "USD"}
-    # It doesn't reset on Nov 1: one year from Oct 1, 2026, 00:00 UTC.
+    # It doesn't reset on Nov 1. With no start date it runs by the Budgets default,
+    # the calendar year: Jan 1 to Dec 31.
     assert budget["TimeUnit"] == "ANNUALLY"
-    start = budget["TimePeriod"]["Start"]
-    assert isinstance(start, str)
-    assert datetime.fromtimestamp(int(start), UTC) == datetime(2026, 10, 1, tzinfo=UTC)
-    assert "End" not in budget["TimePeriod"]
+    assert "TimePeriod" not in budget
     # So it measures the credits being used up, not the bill after them.
     assert budget["CostTypes"] == {"IncludeCredit": False, "IncludeRefund": False}
     notifications = p["NotificationsWithSubscribers"]

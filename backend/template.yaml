@@ -475,12 +475,17 @@ Resources:
               - Effect: Allow
                 Action: dynamodb:UpdateItem
                 Resource: !GetAtt ReportsTable.Arn
-              # The Meta spend counter (C527): read before each run, added to after it.
+              # The Meta spend counter (C527): read before each run, added to after it. Its item
+              # only: never the API's counters or flags in the same table.
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:UpdateItem
                 Resource: !GetAtt LimitsTable.Arn
+                Condition:
+                  ForAllValues:StringEquals:
+                    dynamodb:LeadingKeys:
+                      - "spend#meta"
               # The key is a SecureString under the AWS managed aws/ssm key, which lets every
               # principal in the account decrypt through SSM, so no kms:Decrypt grant is needed.
               - Effect: Allow
@@ -537,9 +542,9 @@ Resources:
       Value: "60"
 
   # The AWS credits (C528): one budget, which with the account-setup $5 budget (C25) stays
-  # inside AWS's two free ones. A year from Oct 1, 2026 (epoch seconds, UTC), so it doesn't
-  # reset on Nov 1. Credits and refunds are left out of the cost, so it measures the credits
-  # being used up.
+  # inside AWS's two free ones. Annual with no start date, so it runs Jan 1 to Dec 31 by the
+  # Budgets default and doesn't reset on Nov 1. Credits and refunds are left out of the cost,
+  # so it measures the credits being used up.
   MetaAndAwsBudget:
     Type: AWS::Budgets::Budget
     Properties:
@@ -549,8 +554,6 @@ Resources:
           Amount: 150
           Unit: USD
         TimeUnit: ANNUALLY
-        TimePeriod:
-          Start: "1790812800"
         CostTypes:
           IncludeCredit: false
           IncludeRefund: false
