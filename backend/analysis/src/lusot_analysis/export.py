@@ -25,6 +25,7 @@ Nothing here imports eval/ (C321, MS6's C400). The label words come from
 from __future__ import annotations
 
 import csv
+import dataclasses
 import io
 import math
 import re
@@ -99,11 +100,21 @@ _M8_KINDS = {
 _STORE = "false"
 # A byte-order mark, which a CSV saved on Windows may start with.
 _BOM = chr(0xFEFF)
+# MS6's loader's patterns (rows.py, at 1cafc88): a name in run.json's maps, and a
+# short string, which can hold no link or email (and no "://", checked apart).
+_TOKEN = re.compile("[a-z][a-z0-9_]{0,31}")
+_SHORT = re.compile("[A-Za-z0-9 ._:/,+()=-]{0,80}")
+# run.json's datasets, each {version, split_seed} (MS6's rows.py, MS2's C216).
+_DATASETS = ("set_a", "a_neg", "set_b", "set_d")
+_DATASET_FIELDS = {"version", "split_seed"}
+# The answer's lists, and the box ids MS6's loader takes in them (R152).
+_ANSWER_LISTS = ("vehicles", "wheels", "people")
+_MAX_BOX_ID = 9999
 
 
 class InputError(ValueError):
-    """MS2's input breaks its format. The message names the row and the column, never
-    a cell's text."""
+    """Input breaks its format: MS2's files, or run.json's datasets. The message names
+    the row, the column or the rule, never a cell's text."""
 
 
 def parse_manifest(text: str) -> list[dict]:
@@ -205,11 +216,23 @@ def bridge_base(
     return base
 
 
+def answer_data(spark: Mapping | None) -> Mapping | None:
+    """Muse Spark's answer, reason and all, from a run folder's spark.json content.
+
+    None when the run saved no spark.json (`spark` None) or saved a refusal (C86).
+    """
+    if spark is None or spark.get("refused"):
+        return None
+    return spark["data"]
+
+
 def answer_without_reason(data: Mapping | None, schema: dict) -> dict | None:
     """Muse Spark's saved answer without its `reason` (C62).
 
     None when no answer was saved, or when the answer fails the schema, since MS6's
-    allow-list would refuse such a row (P13).
+    allow-list would refuse such a row (P13). None too when an id would make MS6's
+    loader refuse the whole file, though the schema passes it (R152): see
+    loader_takes_ids. The answer itself is never changed.
     """
     if data is None:
         return None
@@ -217,7 +240,26 @@ def answer_without_reason(data: Mapping | None, schema: dict) -> dict | None:
         validate_answer(data, schema)
     except ModelAnswerError:
         return None
+    if not loader_takes_ids(data):
+        return None
     return {key: value for key, value in data.items() if key != "reason"}
+
+
+def loader_takes_ids(answer: Mapping) -> bool:
+    """Whether MS6's loader would take the ids in the answer's lists (R152).
+
+    In each list, every item's id must be a whole number from 0 to 9999, an int
+    and not a float such as 2.0, which the schema's Draft 2020-12 counts as an
+    integer. It must also come once in that list. An id may still repeat across
+    lists, as the loader allows.
+    """
+    for name in _ANSWER_LISTS:
+        ids = [item.get("id") for item in answer.get(name, ())]
+        if any(type(i) is not int or not 0 <= i <= _MAX_BOX_ID for i in ids):
+            return False
+        if len(set(ids)) < len(ids):
+            return False
+    return True
 
 
 def replay_configurations(
@@ -309,29 +351,60 @@ def photo_row(
     - `outcomes`: each configuration's item_fields() by its key, then, for each
       configuration in `replay`, its event-replay result as `<key>_replay` (C324,
       MS6's C425)
-    - `answer`: Muse Spark's, never with its `reason` (C62)
+    - `answer`: Muse Spark's, never with its `reason` (C62), and null when an id
+      would make MS6's loader refuse the file (R152, loader_takes_ids)
     - `wheel_inches`: each wheel the `geometry` run's evidence record measured, by box
       id, its inches unrounded to 4 decimal places (C327; finding 2); empty without a
       geometry run (MS6's C418)
     - `m8`, on a Set A row: the entries m8_boxes gave, possibly none
     """
     set_a = "level_label_raw" in base
-    fields = SET_A_FIELDS if set_a else A_NEG_FIELDS
-    row = {key: base[key] for key in fields if key in base}
+    kept = SET_A_FIELDS if set_a else A_NEG_FIELDS
+    row = {key: base[key] for key in kept if key in base}
     outcomes = {key: run.outcome.item_fields() for key, run in runs.items()}
-    for key, fields in (replay or {}).items():
-        outcomes[f"{key}_replay"] = dict(fields)
+    for key, replayed in (replay or {}).items():
+        outcomes[f"{key}_replay"] = dict(replayed)
     row["outcomes"] = outcomes
-    row["answer"] = (
-        None
-        if answer is None
-        else {key: value for key, value in answer.items() if key != "reason"}
-    )
+    if answer is None or not loader_takes_ids(answer):
+        row["answer"] = None
+    else:
+        row["answer"] = {key: value for key, value in answer.items() if key != "reason"}
     geometry = runs.get("geometry")
     row["wheel_inches"] = _wheel_inches(None if geometry is None else geometry.evidence)
     if set_a:
         row["m8"] = [dict(entry) for entry in m8]
     return row
+
+
+def saved_row(
+    base: Mapping[str, object],
+    runs: Mapping[str, PipelineRun],
+    spark: Mapping | None,
+    record: Mapping,
+    schema: dict,
+    *,
+    labels: Sequence[Mapping] = (),
+    replay: Mapping[str, Mapping] | None = None,
+) -> dict[str, object]:
+    """One photo's row from its saved run, as the development tool and Task 19 both
+    build it.
+
+    `runs` are replay_configurations' replays of the run. `spark` is the run
+    folder's spark.json content, or None without one, and `record` its run.json.
+    `schema` is the answer schema. `labels` are the photo's M8 rows, and `replay` its
+    event-replay outcomes by configuration.
+    - The answer goes through answer_without_reason, so it is null when it fails the
+      schema or holds an id MS6's loader refuses (P13, R152).
+    - The M8 points join the `landmark` run's numbered boxes, scaled to the image SAM
+      saw. Boxes are numbered alike in every configuration.
+    - photo_row gives the rest: `wheel_inches` from the `geometry` run, and `m8` on
+      a Set A row only.
+    """
+    answer = answer_without_reason(answer_data(spark), schema)
+    image = record["image"]
+    size = (0, 0) if image is None else (image["width"], image["height"])
+    boxes = m8_boxes(labels, runs["landmark"].evidence, size)
+    return photo_row(base, runs, answer, m8=boxes, replay=replay)
 
 
 def results_manifest(
@@ -358,15 +431,19 @@ def results_manifest(
       names them so, MS6's C424), `stops` (C419) and a rerun's `rerun_reason`
       (C421). It needs the first three. A development run carries none of these.
     - `frozen` (v0.7 item 10.1): the models, the prompt and schema, the drawing, the
-      blur, `store`, `max_side`, the SAM phrases sent and the tuning version, k, the
-      tire codes and the reasoning effort ("default" when none is sent, as C316's log
-      writes it). What the models were sent comes from `saved_run`, one saved run's
-      run.json; the rest from `tuning` and the rules the replays ran.
-    - `datasets`, and the self-check: "off", and `self_check_decided` once C311 has
-      decided, which MS6 requires of a sealed run
+      blur, `store`, `max_side`, the SAM phrases sent, the tuning version, every
+      numeric Tuning field under its own name (k among them, so a `--set`
+      candidate's run.json states its cutoffs, R153), the tire codes and the
+      reasoning effort ("default" when none is sent, as C316's log writes it). What
+      the models were sent comes from `saved_run`, one saved run's run.json; the
+      rest from `tuning` and the rules the replays ran. Each name must be an MS6
+      token and each value a short string, or ValueError.
+    - `datasets`, checked by check_datasets, and the self-check: "off", and
+      `self_check_decided` once C311 has decided, which MS6 requires of a sealed run
     - `geometry_default`: on, off or dropped, with `geometry_dropped_reason` when
       dropped (MS6's C418)
     """
+    check_datasets(datasets)
     sealed = kind == "sealed"
     if sealed and None in (freeze_commit, baseline, self_check_decided):
         raise ValueError(
@@ -387,7 +464,7 @@ def results_manifest(
     }
     if sealed:
         manifest["freeze_commit"] = freeze_commit
-    manifest["frozen"] = {
+    frozen = {
         "sam_model": saved_run["models"]["sam"],
         "spark_model": saved_run["models"]["spark"],
         "prompt": saved_run["prompt_version"],
@@ -399,11 +476,18 @@ def results_manifest(
         "max_side": str(MAX_SIDE),
         "sam_phrases": ",".join(saved_run["phrases"]),
         "tuning": tuning.version,
-        "rim_edge_k": str(tuning.rim_edge_k),
-        "tire_codes": rules.TIRE_CODES_VERSION,
-        "reasoning_effort": tuning.reasoning_effort or "default",
     }
-    manifest["datasets"] = dict(datasets)
+    for field in dataclasses.fields(tuning):
+        value = getattr(tuning, field.name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            frozen[field.name] = str(value)
+    frozen["tire_codes"] = rules.TIRE_CODES_VERSION
+    frozen["reasoning_effort"] = tuning.reasoning_effort or "default"
+    for name, value in frozen.items():
+        if not _TOKEN.fullmatch(name) or not _short(value):
+            raise ValueError(f"frozen's {name} isn't an MS6 token with a short value")
+    manifest["frozen"] = frozen
+    manifest["datasets"] = {name: dict(found) for name, found in datasets.items()}
     manifest["self_check"] = "off"  # until C311 says otherwise
     if self_check_decided is not None:
         manifest["self_check_decided"] = self_check_decided
@@ -419,9 +503,34 @@ def results_manifest(
     return manifest
 
 
+def check_datasets(datasets: object) -> None:
+    """Raise InputError unless `datasets` has MS6's shape for run.json (its rows.py):
+    an object whose names are among set_a, a_neg, set_b and set_d, each holding
+    exactly `version` and `split_seed` as short strings (MS2's C216 records)."""
+    if not isinstance(datasets, Mapping):
+        raise InputError("datasets must be an object")
+    for name, found in datasets.items():
+        if name not in _DATASETS:
+            raise InputError(f"datasets may name only {', '.join(_DATASETS)}")
+        if not isinstance(found, Mapping) or set(found) != _DATASET_FIELDS:
+            raise InputError("each dataset holds exactly version and split_seed")
+        if not all(_short(value) for value in found.values()):
+            raise InputError(
+                "a dataset's version and split_seed are up to 80 plain characters"
+            )
+
+
+def _short(value: object) -> bool:
+    """A string MS6's loader takes as short: up to 80 plain characters, no link."""
+    return (
+        isinstance(value, str) and bool(_SHORT.fullmatch(value)) and "://" not in value
+    )
+
+
 def _split(text: str) -> list[str]:
-    """A `;`-separated cell as a list: a blank cell is an empty one."""
-    return text.split(";") if text else []
+    """A `;`-separated cell as a list, each entry stripped and blanks dropped, as
+    MS2's intake reads its subsets. A blank cell is an empty list."""
+    return [part.strip() for part in text.split(";") if part.strip()]
 
 
 def _yes_no(row: Mapping, column: str) -> bool:

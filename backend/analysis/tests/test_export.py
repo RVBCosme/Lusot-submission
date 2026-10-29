@@ -7,22 +7,34 @@ as its loader on Window 4's branch checks them (eval/scoring/rows.py).
 """
 
 import ast
+import copy
+import dataclasses
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from fakes import REPO_PROMPTS, FakeClient, answer, geometry_case, vehicle, wheel
+from fakes import (
+    REPO_PROMPTS,
+    FakeClient,
+    answer,
+    geometry_case,
+    person,
+    vehicle,
+    wheel,
+)
 
 from lusot_analysis import export
 from lusot_analysis.pipeline import READING_PHRASES
 from lusot_analysis.pipeline.evidence import Evidence, EvidenceEntry
+from lusot_analysis.pipeline.references import validate_answer
 from lusot_analysis.pipeline.types import Outcome
 from lusot_analysis.prompts import load_prompt
-from lusot_analysis.tuning import START
+from lusot_analysis.tuning import START, Tuning
 
 ANALYSIS = Path(__file__).parents[1]
 REPO = Path(__file__).parents[3]
@@ -187,6 +199,64 @@ def test_answer_without_reason(prompt):
     assert export.answer_without_reason(["not", "an", "object"], prompt.schema) is None
 
 
+# R152: answers that pass the schema, but whose ids MS6's loader refuses, which would
+# make it refuse the whole file.
+LOADER_REFUSES = {
+    # Draft 2020-12 counts 2.0 as an integer; the loader wants an int.
+    "float-id": {"wheels": [{"id": 2.0, "waterline": "hub"}]},
+    "negative-id": {"wheels": [wheel(-1, "hub")]},
+    "id-above-9999": {"vehicles": [vehicle(10000)]},
+    "id-repeated-in-a-list": {"wheels": [wheel(2, "hub"), wheel(2, "rim_top")]},
+}
+
+
+@pytest.mark.parametrize("lists", LOADER_REFUSES.values(), ids=LOADER_REFUSES)
+def test_answers_the_loader_would_refuse_are_withheld(prompt, lists):
+    given = answer(**lists)
+    validate_answer(given, prompt.schema)  # the schema passes each one
+    kept = copy.deepcopy(given)
+    assert not export.loader_takes_ids(given)
+    assert export.answer_without_reason(given, prompt.schema) is None
+    # photo_row withholds it too, for a caller that hands it the answer itself.
+    base = export.bridge_base(export.parse_manifest(MANIFEST)[0], [], words=WORDS)
+    assert export.photo_row(base, {}, given)["answer"] is None
+    assert given == kept  # the model's answer is never edited
+
+
+def test_ids_the_loader_takes_are_kept(prompt):
+    # An id may repeat across lists, and 0 and 9999 are in range.
+    given = answer(
+        vehicles=[vehicle(0), vehicle(9999)],
+        wheels=[wheel(0, "hub")],
+        people=[person(9999, "knee")],
+    )
+    assert export.loader_takes_ids(given)
+    assert export.answer_without_reason(given, prompt.schema)["wheels"] == [
+        wheel(0, "hub")
+    ]
+
+
+def test_saved_row_reads_the_run_as_saved(tmp_path, monkeypatch, prompt):
+    # Task 19's path: the row from spark.json's and run.json's content, path-free.
+    data, run_dir = recorded(tmp_path, monkeypatch, lambda: geometry_case("van"))
+    runs = export.replay_configurations(data, run_dir, prompt, tuning=START)
+    spark = json.loads((run_dir / "spark.json").read_text(encoding="utf-8"))
+    record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    labels = export.parse_m8(M8)["A001"]
+    base = export.bridge_base(export.parse_manifest(MANIFEST)[0], labels, words=WORDS)
+    row = export.saved_row(base, runs, spark, record, prompt.schema, labels=labels)
+    assert row["answer"] == export.answer_without_reason(spark["data"], prompt.schema)
+    assert [entry["box_id"] for entry in row["m8"]] == [2, 1]  # wheel 2, vehicle 1
+    assert [inches["box_id"] for inches in row["wheel_inches"]] == [2]
+    # No spark.json, or a saved refusal, gives no answer.
+    assert export.saved_row(base, runs, None, record, prompt.schema)["answer"] is None
+    refused = export.saved_row(base, runs, {"refused": True}, record, prompt.schema)
+    assert refused["answer"] is None
+    # A saved answer the loader would refuse is withheld (R152).
+    spark["data"]["wheels"] *= 2
+    assert export.saved_row(base, runs, spark, record, prompt.schema)["answer"] is None
+
+
 def test_photo_row_has_both_configurations(tmp_path, monkeypatch, prompt):
     data, run_dir = recorded(tmp_path, monkeypatch, lambda: geometry_case("van"))
     runs = export.replay_configurations(data, run_dir, prompt, tuning=START)
@@ -331,7 +401,8 @@ def test_labels_match_a_patched_word_list():
     for text, stays in LABELS:
         expected = text if stays else export.OTHER_WORDS
         assert export.label_or_marker(text, WORDS) == expected, text
-    # An other_alerts_raw entry is handled the same way.
+    # An other_alerts_raw entry is handled the same way. Its blank entry is dropped,
+    # as MS2's intake drops blank list entries.
     texts = [text for text, _ in LABELS]
     row = {
         **export.parse_manifest(MANIFEST)[0],
@@ -339,7 +410,7 @@ def test_labels_match_a_patched_word_list():
         "other_alerts_raw": ";".join(texts),
     }
     bridged = export.bridge_base(row, [], words=WORDS)["other_alerts_raw"]
-    assert bridged == [export.label_or_marker(text, WORDS) for text in texts]
+    assert bridged == [export.label_or_marker(t, WORDS) for t in texts if t.strip()]
 
 
 def test_labels_match_the_harness():
@@ -422,6 +493,12 @@ def test_parsers_take_text_not_paths():
     # A Set A photo without an M8 photo row has its marks unmade (C423).
     unmarked = export.bridge_base(set_a, [], words=WORDS)
     assert (unmarked["quality"], unmarked["subsets"]) == (None, [])
+    # Tags are stripped and blanks dropped, as MS2's intake reads them.
+    loose = [{**m8["A001"][0], "subsets": " reflection ; ;splash;"}]
+    assert export.bridge_base(set_a, loose, words=WORDS)["subsets"] == [
+        "reflection",
+        "splash",
+    ]
 
     # photo_id must be unique, and event_id is required on Set A rows only (P10).
     header, first, _ = MANIFEST.splitlines()
@@ -496,6 +573,65 @@ def test_parsers_take_text_not_paths():
         export.results_manifest(kind="sealed", **common)
     with pytest.raises(ValueError, match="development"):
         export.results_manifest(freeze_commit=commit, **common)
+
+
+@pytest.mark.parametrize(
+    "datasets",
+    [
+        ["set_a"],
+        {"set_c": {"version": "v1", "split_seed": "7"}},
+        {"set_a": {"version": "v1"}},
+        {"set_a": {"version": "v1", "split_seed": "7", "note": "x"}},
+        {"set_a": {"version": 1, "split_seed": "7"}},
+        {"set_a": {"version": "see https://example.org", "split_seed": "7"}},
+        {"set_a": {"version": "v" * 81, "split_seed": "7"}},
+    ],
+    ids=["list", "set-c", "no-seed", "extra", "number", "link", "long"],
+)
+def test_datasets_take_ms6s_shape(datasets):
+    # MS6's rows.py: optional set_a, a_neg, set_b and set_d, each exactly version and
+    # split_seed as short strings. Anything else is refused before run.json is made.
+    with pytest.raises(export.InputError):
+        export.check_datasets(datasets)
+    export.check_datasets({})
+    export.check_datasets(
+        {name: {"version": "v1", "split_seed": "7"} for name in ("set_a", "set_d")}
+    )
+
+
+def test_frozen_records_every_numeric_cutoff():
+    # R153: a `--set` candidate's run.json states its cutoffs (v0.7 item 10.1), each
+    # numeric Tuning field under its own name, every name an MS6 token.
+    saved_run = {
+        "models": {"sam": "sam-3.1", "spark": "muse-spark-1.3"},
+        "prompt_version": "muse_spark_photo_v1",
+        "schema_name": "muse_spark_photo_v1",
+        "blur_version": "blur-v",
+        "phrases": list(READING_PHRASES),
+    }
+    tuning = dataclasses.replace(START, touch_tolerance_px=6.0, rim_edge_k=1.05)
+    frozen = export.results_manifest(
+        date="2026-10-30",
+        rules_version="0.6",
+        tuning=tuning,
+        saved_run=saved_run,
+        geometry_default="on",
+        dropped_reason=None,
+        datasets={},
+    )["frozen"]
+    numeric = [
+        field.name
+        for field in dataclasses.fields(Tuning)
+        if field.name not in ("version", "reasoning_effort", "drawing", "untuned")
+    ]
+    assert len(numeric) == 13
+    for name in numeric:
+        assert frozen[name] == str(getattr(tuning, name))
+    assert (frozen["touch_tolerance_px"], frozen["rim_edge_k"]) == ("6.0", "1.05")
+    assert frozen["min_wheel_side_px"] == "40"
+    for name, value in frozen.items():
+        assert re.fullmatch("[a-z][a-z0-9_]{0,31}", name), name
+        assert isinstance(value, str) and len(value) <= 80
 
 
 def imported_modules(path: Path) -> list[str]:

@@ -24,21 +24,24 @@ Run from backend/analysis:
   --out: run.json, set_a.jsonl and a_neg.jsonl. Each saved run is replayed with no
   Meta call, once per configuration: `landmark` and `geometry`, or `landmark` alone
   with --geometry-default dropped (MS6's C418). --runs names the settings folder,
-  the tuning's by default, and a run saved at another effort or drawing than the
-  tuning's is refused, so efforts never mix (finding 5). --set NAME=VALUE changes a
-  Tuning field for the replays (`default` for no reasoning effort). --replay adds
-  Task 13's event-replay outcomes to every Set A row (MS6's C425). Labels hold only
-  the harness's --label-words (C420), fetched by running `eval/run_eval.py
-  --label-words`, never by importing it (C321). Without the harness, the Set A rows
-  wait and the rest still write (R133). It prints counts only, then the harness
-  command to run next.
+  the tuning's by default. A run saved at another effort or drawing than the
+  tuning's is refused, so efforts never mix (finding 5), and so are runs that
+  differ from each other in what run.json's `frozen` states once. --set NAME=VALUE
+  changes a Tuning field for the replays (`default` for no reasoning effort), and
+  `frozen` records every numeric field (R153). --replay adds Task 13's event-replay
+  outcomes to every Set A row (MS6's C425). Labels hold only the harness's
+  --label-words (C420), fetched by running `eval/run_eval.py --label-words`, never by
+  importing it (C321). Without the harness, the Set A rows wait and the rest still
+  write (R133). A row whose saved answer MS6's loader would refuse carries none
+  (P13, R152). It prints counts only, then the harness command to run next.
 
 <data> is LUSOT_DATA_DIR, or the runner's default. Before anything is opened, every
 path given is refused when it lies inside a folder named sealed, as is every photo a
-manifest names (C66). run's data folder must lie outside the repo (R131), and
-export's --out under the data folder and outside the repo, so no row is written into
-the repo. Nothing printed holds a photo's name, a path, a label, an answer or a key,
-and every line masks runs of 12 digits.
+manifest names and every run folder (C66). run's data folder must lie outside the
+repo (R131). export's --out must lie under the data folder, outside its runs/ folder
+and outside the repo, so no row is written into the repo or beside the raw outputs.
+--runs and --sam-from are single folder names. Nothing printed holds a photo's name,
+a path, a label, an answer or a key, and every line masks runs of 12 digits.
 
 Exit codes: 0 done; 2 refused, invalid input, waiting for the harness, or a paid run
 without --yes; 3 the run couldn't read or write what it needed, with the error's
@@ -51,6 +54,7 @@ import argparse
 import dataclasses
 import importlib.util
 import json
+import math
 import os
 import re
 import subprocess
@@ -65,7 +69,8 @@ from typing import NoReturn
 from lusot_analysis import export
 from lusot_analysis.annotate import DRAWINGS
 from lusot_analysis.meta_client import REASONING_EFFORTS, MissingApiKey
-from lusot_analysis.pipeline.saved import PhotoMismatch
+from lusot_analysis.pipeline import references
+from lusot_analysis.pipeline.saved import PhotoMismatch, saved_config
 from lusot_analysis.pipeline.types import ModelKeyRejected
 from lusot_analysis.prompts import load_prompt
 from lusot_analysis.tuning import START, TUNING, Tuning
@@ -99,6 +104,9 @@ _NUMBERING_DROPS = (
     "person_cap",
 )
 _TOKEN = re.compile("[a-z][a-z0-9_]{0,31}")
+# A settings folder's name, as settings_name and --repeat make them: one name, with
+# no separator, so --runs and --sam-from can't leave runs/dev/<set>/.
+_FOLDER = re.compile("[A-Za-z0-9_][A-Za-z0-9_.-]*")
 _MANILA = timezone(timedelta(hours=8))  # Manila keeps no daylight saving time
 
 
@@ -167,6 +175,7 @@ def run_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
     pending = []
     for row in rows:
         run_dir = run_dir_for(data_dir, row, settings, repeat=args.repeat)
+        runner.refuse_sealed(run_dir)  # a photo id can't lead into one (C66)
         if (run_dir / "run.json").is_file():
             continue
         if run_dir.exists():  # live() would refuse it, after the rows before it paid
@@ -174,6 +183,7 @@ def run_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
         sam_from = None
         if args.sam_from is not None:
             sibling = run_dir_for(data_dir, row, args.sam_from)
+            runner.refuse_sealed(sibling)
             if (sibling / "run.json").is_file():
                 sam_from = sibling
         pending.append((row, run_dir, sam_from))
@@ -216,6 +226,8 @@ def export_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
         _refuse("--out is inside the repo")
     if not out.is_relative_to(data_dir.resolve()):
         _refuse("--out must lie under the data folder")
+    if out.is_relative_to((data_dir / "runs").resolve()):  # beside masks and reasons
+        _refuse("--out must lie outside the runs folder")
     dropped = args.geometry_default == "dropped"
     if dropped != (args.dropped_reason is not None):
         _refuse(
@@ -236,6 +248,9 @@ def export_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
     words = label_words() if sides["set_a"] else frozenset()
     if words is None:  # R133: the Set A rows wait for the harness
         del sides["set_a"]
+        # An earlier export's Set A rows would be scored beside this run.json.
+        if (args.out / "set_a.jsonl").exists():
+            _refuse("--out holds an earlier export's set_a.jsonl: use a new folder")
     if not any(sides.values()):
         if words is None:
             return _waiting()
@@ -261,16 +276,24 @@ def export_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
                 tuning=tuning,
                 configurations=configurations,
             )
-            answer = export.answer_without_reason(_saved_answer(run_dir), prompt.schema)
-            labels = m8.get(row["photo_id"], []) if name == "set_a" else []
+            set_a = name == "set_a"
+            labels = m8.get(row["photo_id"], []) if set_a else []
             # Without the harness only A-neg rows are left, and they hold no label.
             base = export.bridge_base(row, labels, words=words or frozenset())
-            boxes = export.m8_boxes(labels, runs["landmark"].evidence, _size(record))
-            built[name].append(
-                export.photo_row(
-                    base, runs, answer, m8=boxes, replay=replays.get(row["photo_id"])
-                )
+            spark = _spark(run_dir)
+            built_row = export.saved_row(
+                base,
+                runs,
+                spark,
+                record,
+                prompt.schema,
+                labels=labels,
+                replay=replays.get(row["photo_id"]) if set_a else None,
             )
+            built[name].append(built_row)
+            # An answer was saved, but its row holds none (P13, R152).
+            if built_row["answer"] is None and export.answer_data(spark) is not None:
+                tally["withheld"] += 1
             # Task 6: these keys appear only once geometry has run.
             geometry = runs["geometry"].log if "geometry" in runs else {}
             tally["g4"] += geometry.get("drops", {}).get("wheel_methods_disagree", 0)
@@ -278,7 +301,7 @@ def export_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
             checks.update(geometry.get("geometry_checks", {}))
             numbered = runs["landmark"].log.get("drops", {})
             drops.update({cause: numbered.get(cause, 0) for cause in _NUMBERING_DROPS})
-            if name == "set_a":
+            if set_a:
                 written = [
                     base["level_label_raw"],
                     base["passability_raw"],
@@ -307,6 +330,7 @@ def export_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
     say(f"wheels_measured: {tally['wheels']}")
     say(f"geometry_checks: {json.dumps(checks, sort_keys=True)}")
     say(f"labels_as_other_words: {tally['marked']}")
+    say(f"answers_withheld: {tally['withheld']}")
     say(f"drops_before_numbering: {json.dumps(drops, sort_keys=True)}")
     if words is None:
         return _waiting()
@@ -341,7 +365,13 @@ def main(argv: list[str] | None = None, *, tuning: Tuning = TUNING) -> int:
     except PhotoMismatch:  # a ValueError, so before the next clause
         say("refused: saved outputs belong to another photo")
         return 2
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        subprocess.SubprocessError,  # a --label-words that timed out among them
+    ) as exc:
         # R110: the class only, as an error's text can hold a path or a value.
         say(f"failed: {type(exc).__name__}")
         return 3
@@ -371,6 +401,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--repeat", type=_positive, default=1, help="a repeat's number")
     run.add_argument(
         "--sam-from",
+        type=_folder,
         metavar="SETTINGS",
         help="a settings folder whose SAM outputs to reuse: pays for Muse Spark only",
     )
@@ -387,7 +418,10 @@ def _parser() -> argparse.ArgumentParser:
         help="change a Tuning field for the replays",
     )
     rows.add_argument(
-        "--runs", metavar="SETTINGS", help="the runs' settings; default: tuning's"
+        "--runs",
+        type=_folder,
+        metavar="SETTINGS",
+        help="the runs' settings folder; default: tuning's",
     )
     rows.add_argument("--datasets", default="{}", metavar="JSON")
     rows.add_argument(
@@ -409,6 +443,15 @@ def _token(text: str) -> str:
     """A lowercase token, so no free text reaches run.json."""
     if not _TOKEN.fullmatch(text):
         raise argparse.ArgumentTypeError("must be a lowercase token, such as a_reason")
+    return text
+
+
+def _folder(text: str) -> str:
+    """One settings folder's name, such as default_boxes-v1: no separator, no `..`."""
+    if not _FOLDER.fullmatch(text) or ".." in text:
+        raise argparse.ArgumentTypeError(
+            "must be one folder name, such as low_boxes-v1"
+        )
     return text
 
 
@@ -439,24 +482,36 @@ def _set_field(tuning: Tuning, text: str) -> Tuning:
             " cuts can't be set (R144)"
         )
     if name == "reasoning_effort":
+        if value != "default" and value not in REASONING_EFFORTS:
+            _refuse(
+                f"--set reasoning_effort takes default or one of {REASONING_EFFORTS}"
+            )
         return dataclasses.replace(
             tuning, reasoning_effort=None if value == "default" else value
         )
+    if name == "drawing" and value not in DRAWINGS:
+        _refuse(f"--set drawing takes one of {DRAWINGS}")
     if isinstance(getattr(START, name), float):
         try:
-            return dataclasses.replace(tuning, **{name: float(value)})
+            number = float(value)
         except ValueError:
-            _refuse(f"--set {name} takes a number")
+            number = math.nan
+        if not math.isfinite(number):
+            _refuse(f"--set {name} takes a finite number")
+        return dataclasses.replace(tuning, **{name: number})
     return dataclasses.replace(tuning, **{name: value})
 
 
 def _datasets(text: str) -> dict:
+    """--datasets, as a JSON object of MS6's shape, checked before anything else is
+    read (an InputError, exit 2)."""
     try:
         datasets = json.loads(text)
     except json.JSONDecodeError:
         datasets = None
     if not isinstance(datasets, dict):
         _refuse("--datasets takes a JSON object")
+    export.check_datasets(datasets)
     return datasets
 
 
@@ -473,6 +528,8 @@ def _read_replay(
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             entry = json.loads(line)
+            if not isinstance(entry, dict) or "photo_id" not in entry:
+                raise ValueError("a replay line isn't an object with a photo_id")
             photo_id = entry.pop("photo_id")
             found[photo_id] = {
                 key.removesuffix("_replay"): outcome for key, outcome in entry.items()
@@ -490,12 +547,27 @@ def _read_replay(
 def _saved_runs(
     sides: Mapping[str, list[dict]], data_dir: Path, settings: str, tuning: Tuning
 ) -> dict[tuple[str, str], tuple[Path, dict]]:
-    """Each row's run folder and run.json, by (side, photo id). A row without a saved
-    run, or one saved at another effort or drawing than the tuning's, is refused."""
+    """Each row's run folder and run.json, by (side, photo id).
+
+    It refuses:
+    - a row without a saved run
+    - a run saved at another effort or drawing than the tuning's (finding 5)
+    - a run saved under other C56 or C70 values than the live constants, since its
+      boxes would be numbered differently, as the runner's replay refuses it (R144)
+    - runs that differ from each other in the prompt, the models, the blur or the
+      SAM phrases sent, which run.json's `frozen` states once. A run that stopped
+      before the blur or before SAM is left out of those two.
+    """
     saved = {}
+    live_cuts = (
+        references.MIN_WHEEL_SIDE_PX,
+        references.MAX_VEHICLES,
+        references.MAX_PEOPLE,
+    )
     for name, rows in sides.items():
         for row in rows:
             run_dir = run_dir_for(data_dir, row, settings)
+            runner.refuse_sealed(run_dir)  # a photo id can't lead into one (C66)
             if not (run_dir / "run.json").is_file():
                 _refuse("a row has no saved run here: run `dev_eval.py run` first")
             record = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
@@ -505,23 +577,40 @@ def _saved_runs(
                     "a saved run used another effort or drawing than the tuning's,"
                     " so efforts would mix (finding 5)"
                 )
+            _, saved_tuning = saved_config(record)
+            cuts = (
+                saved_tuning.min_wheel_side_px,
+                saved_tuning.max_vehicles,
+                saved_tuning.max_people,
+            )
+            if cuts != live_cuts:
+                _refuse("a run was saved under other C56/C70 values (R144)")
             saved[name, row["photo_id"]] = (run_dir, record)
+    sent = [record for _, record in saved.values()]
+    kinds = {
+        "prompt_version": [record["prompt_version"] for record in sent],
+        "models": [record["models"] for record in sent],
+        "blur_version": [record["blur_version"] for record in sent],
+        "phrases": [record["phrases"] for record in sent if record["phrases"]],
+    }
+    for found in kinds.values():
+        seen = {
+            json.dumps(value, sort_keys=True) for value in found if value is not None
+        }
+        if len(seen) > 1:
+            _refuse(
+                "the saved runs differ in their prompt, models, blur or SAM phrases,"
+                " which run.json states once"
+            )
     return saved
 
 
-def _saved_answer(run_dir: Path) -> dict | None:
-    """Muse Spark's saved answer, reason and all, or None when none was saved."""
+def _spark(run_dir: Path) -> dict | None:
+    """The run folder's spark.json, Muse Spark's reason and all, or None without one."""
     path = run_dir / "spark.json"
     if not path.is_file():
         return None
-    saved = json.loads(path.read_text(encoding="utf-8"))
-    return None if saved.get("refused") else saved["data"]
-
-
-def _size(record: Mapping) -> tuple[int, int]:
-    """The sent image's width and height, or (0, 0) when no image was sent."""
-    image = record["image"]
-    return (0, 0) if image is None else (image["width"], image["height"])
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _write(path: Path, text: str) -> None:

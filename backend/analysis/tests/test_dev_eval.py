@@ -8,11 +8,15 @@ so no test reaches Meta or the real data folder. The harness's --label-words com
 from a stand-in script in tmp_path, since eval/run_eval.py isn't on this branch.
 """
 
+import ast
 import csv
 import dataclasses
 import importlib.util
 import io
 import json
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -23,6 +27,7 @@ from lusot_analysis.pipeline import READING_PHRASES
 from lusot_analysis.tuning import START
 
 TOOL = Path(__file__).parents[1] / "probes" / "dev_eval.py"
+EVAL = Path(__file__).parents[3] / "eval"  # MS6's harness, run, never imported
 REASON = "REASON-MARKER-31"  # the reason fakes.answer gives every answer
 DEFAULT = "default_boxes-v1"  # settings_name(START)
 # The harness's --label-words, as printed on Window 4's branch at 1cafc88.
@@ -375,7 +380,8 @@ def test_export_writes_the_results_folder(tmp_path, monkeypatch, capsys, harness
     assert manifest["datasets"] == datasets
     assert manifest["self_check"] == "off"
     assert manifest["geometry_default"] == "on"
-    # v0.7 item 10.1's versions, in MS6's `frozen` map of short strings.
+    # v0.7 item 10.1's versions, in MS6's `frozen` map of short strings, with every
+    # numeric cutoff at its start value (R153).
     assert manifest["frozen"] == {
         "sam_model": "sam-3.1",
         "spark_model": "muse-spark-1.3",
@@ -387,7 +393,19 @@ def test_export_writes_the_results_folder(tmp_path, monkeypatch, capsys, harness
         "max_side": "1600",
         "sam_phrases": ",".join(READING_PHRASES),
         "tuning": "tuning-v1",
+        "touch_tolerance_px": "5.0",
+        "touch_share_min": "0.25",
+        "ragged_iqr_share": "0.1",
+        "daylight_brightness_min": "80.0",
+        "rim_score_min": "0.5",
+        "rim_size_low": "0.85",
+        "rim_size_high": "1.15",
         "rim_edge_k": "1.0",
+        "brightness_min": "40.0",
+        "sharpness_min": "25.0",
+        "min_wheel_side_px": "40",
+        "max_vehicles": "6",
+        "max_people": "6",
         "tire_codes": rules.TIRE_CODES_VERSION,
         "reasoning_effort": "default",
     }
@@ -402,6 +420,7 @@ def test_export_writes_the_results_folder(tmp_path, monkeypatch, capsys, harness
         "wheels_measured: 3",
         "geometry_checks: {}",
         "labels_as_other_words: 0",
+        "answers_withheld: 0",
         (
             'drops_before_numbering: {"person_cap": 0, "vehicle_cap": 0, "wheel_cap":'
             ' 0, "wheel_small": 0, "wheel_unlinked": 0}'
@@ -451,7 +470,8 @@ def test_replay_outcomes_join_every_set_a_row(tmp_path, monkeypatch, harness):
     # MS6's C425.
     data = write_data(tmp_path)
     record_all(monkeypatch, data)
-    replay = write_replay(data.root / "replay.jsonl", ["A001", "A002"])
+    # An A-neg line is ignored: only Set A rows carry replays (MS6's C425).
+    replay = write_replay(data.root / "replay.jsonl", ["A001", "A002", "N001"])
     out = data.root / "results" / "replayed"
     argv = export_argv(data, out, "--replay", str(data.root / "replay.jsonl"))
     assert tool.main(argv, tuning=START) == 0
@@ -525,6 +545,41 @@ def test_export_refuses_bad_paths(tmp_path, monkeypatch, capsys, harness):
     assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
     assert not out.exists()
     assert not (data.root / "set_a" / "sealed").exists()
+    # --out under the runs folder, beside the raw outputs.
+    beside = data.root / "runs" / "results"
+    assert tool.main(export_argv(data, beside), tuning=START) == 2
+    assert (
+        capsys.readouterr().out == "refused: --out must lie outside the runs folder\n"
+    )
+    assert not beside.exists()
+    # --runs and --sam-from are single folder names: argparse refuses the rest.
+    for flags in (("--runs", "../x"), ("--runs", "a/b"), ("--runs", "..")):
+        with pytest.raises(SystemExit) as exc:
+            tool.main(export_argv(data, out, *flags), tuning=START)
+        assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        tool.main(["run", "--manifest", str(data.set_a), "--sam-from", "..\\x"])
+    assert exc.value.code == 2
+    assert not out.exists()
+
+
+def test_run_folders_are_checked_for_sealed(tmp_path, monkeypatch, capsys, harness):
+    # A photo id that leads its run folder into a folder named sealed is refused
+    # before that folder is looked at, by run and by export (C66).
+    data = write_data(tmp_path, set_a=("A001",), a_neg=("N001",))
+    record_all(monkeypatch, data)
+    data.rows["A001"]["photo_id"] = "../../../../sealed/A001"
+    data.set_a.write_text(
+        csv_text(MANIFEST_COLUMNS, [data.rows["A001"]]), encoding="utf-8"
+    )
+    for argv in (
+        ["run", "--manifest", str(data.set_a), "--yes"],
+        export_argv(data, data.root / "results" / "x"),
+    ):
+        assert tool.main(argv, tuning=START) == 2
+        assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
+    assert not (data.root / "sealed").exists()
+    assert not (data.root / "results").exists()
 
 
 def test_export_needs_every_run(tmp_path, monkeypatch, capsys, harness):
@@ -551,6 +606,178 @@ def test_export_without_the_harness_waits_for_set_a(tmp_path, monkeypatch, capsy
     assert len(read_lines(out / "a_neg.jsonl")) == 1
     assert read_json(out / "run.json")["kind"] == "development"
     assert not (out / "set_a.jsonl").exists()
+    # A folder that still holds an earlier export's set_a.jsonl is refused, since the
+    # harness would score those rows beside this run.json. Nothing is rewritten.
+    stale = data.root / "results" / "stale"
+    stale.mkdir()
+    (stale / "set_a.jsonl").write_text("{}\n", encoding="utf-8")
+    assert tool.main(export_argv(data, stale), tuning=START) == 2
+    assert "earlier export's set_a.jsonl" in capsys.readouterr().out
+    assert sorted(path.name for path in stale.iterdir()) == ["set_a.jsonl"]
+
+
+def test_set_records_its_cutoffs(tmp_path, monkeypatch, harness):
+    # R153: a --set candidate's run.json states the cutoff it ran with.
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    out = data.root / "results" / "candidate"
+    argv = export_argv(data, out, "--set", "touch_tolerance_px=6")
+    assert tool.main(argv, tuning=START) == 0
+    frozen = read_json(out / "run.json")["frozen"]
+    assert frozen["touch_tolerance_px"] == "6.0"
+    assert frozen["touch_share_min"] == str(START.touch_share_min)
+    for name in frozen:  # each an MS6 token of 32 characters or fewer
+        assert re.fullmatch("[a-z][a-z0-9_]{0,31}", name), name
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "reasoning_effort=extreme",
+        "drawing=boxes-v9",
+        "touch_tolerance_px=nan",
+        "touch_tolerance_px=inf",
+        "touch_tolerance_px=-inf",
+        "touch_tolerance_px=five",
+        "max_vehicles=5",
+        "untuned=x",
+        "colour=red",
+        "touch_tolerance_px",
+    ],
+)
+def test_set_refuses_bad_values(tmp_path, monkeypatch, capsys, harness, text):
+    # Each refused before any run is read or replayed, and nothing is written.
+    data = write_data(tmp_path, set_a=("A001",), a_neg=())
+    out = data.root / "results" / "bad-set"
+    assert tool.main(export_argv(data, out, "--set", text), tuning=START) == 2
+    assert capsys.readouterr().out.startswith("refused: --set")
+    assert not out.exists()
+
+
+def test_export_counts_withheld_answers(tmp_path, monkeypatch, capsys, harness):
+    # R152: a saved answer whose ids MS6's loader would refuse passes the schema, so
+    # its row carries no answer, and the export goes on and counts it. The saved
+    # answer itself is left as it was.
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    spark_file = data.run_dir("A002") / "spark.json"
+    spark = read_json(spark_file)
+    spark["data"]["wheels"] *= 2  # wheel 2, twice in one list
+    spark_file.write_text(json.dumps(spark), encoding="utf-8")
+    out = data.root / "results" / "withheld"
+    assert tool.main(export_argv(data, out), tuning=START) == 0
+    first, second = read_lines(out / "set_a.jsonl")
+    assert first["answer"] is not None and second["answer"] is None
+    assert "answers_withheld: 1" in capsys.readouterr().out.splitlines()
+    assert read_json(spark_file) == spark
+
+
+@pytest.mark.parametrize(
+    ("change", "printed"),
+    [
+        (lambda saved: saved["tuning"].update(max_people=5), "C56/C70"),
+        (lambda saved: saved["tuning"].update(min_wheel_side_px=30), "C56/C70"),
+        (lambda saved: saved.update(blur_version="other-blur"), "states once"),
+        (lambda saved: saved.update(prompt_version="other_prompt"), "states once"),
+        (lambda saved: saved["models"].update(sam="other-sam"), "states once"),
+        (lambda saved: saved.update(phrases=["floodwater"]), "states once"),
+    ],
+    ids=["c70", "c56", "blur", "prompt", "models", "phrases"],
+)
+def test_saved_runs_must_agree(tmp_path, monkeypatch, capsys, harness, change, printed):
+    # R144: a run numbered under other C56 or C70 values is refused, as the runner's
+    # replay refuses it. Runs that differ in what `frozen` states once are refused,
+    # so run.json can't misstate them. Nothing is written.
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    path = data.run_dir("A002") / "run.json"
+    saved = read_json(path)
+    change(saved)
+    path.write_text(json.dumps(saved), encoding="utf-8")
+    out = data.root / "results" / "mixed"
+    assert tool.main(export_argv(data, out), tuning=START) == 2
+    assert printed in capsys.readouterr().out
+    assert not out.exists()
+
+
+def test_failures_exit_3_with_the_class_only(tmp_path, monkeypatch, capsys, harness):
+    # R110: a --label-words that times out, and a replay line that isn't an object,
+    # end with exit 3 and the error's class, with no traceback.
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    out = data.root / "results" / "failed"
+
+    def timed_out(*args, **kwargs):
+        raise tool.subprocess.TimeoutExpired(cmd="run_eval.py", timeout=60)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(tool.subprocess, "run", timed_out)
+        assert tool.main(export_argv(data, out), tuning=START) == 3
+    assert capsys.readouterr().out == "failed: TimeoutExpired\n"
+    replay = data.root / "replay.jsonl"
+    replay.write_text("[1, 2]\n", encoding="utf-8")
+    argv = export_argv(data, out, "--replay", str(replay))
+    assert tool.main(argv, tuning=START) == 3
+    assert capsys.readouterr().out == "failed: ValueError\n"
+    assert not out.exists()
+
+
+def test_export_checks_its_datasets(tmp_path, monkeypatch, capsys, harness):
+    # With every run saved, only --datasets can stop the export: MS6's shape is
+    # checked before anything is read (an InputError) or written.
+    data = write_data(tmp_path, set_a=("A001",), a_neg=())
+    record_all(monkeypatch, data)
+    out = data.root / "results" / "datasets"
+    for given, printed in (
+        ('{"set_c": {"version": "v1", "split_seed": "7"}}', "invalid: datasets may"),
+        ('{"set_a": {"version": "v1"}}', "invalid: each dataset"),
+        ('{"set_a": {"version": "a://b", "split_seed": "7"}}', "invalid: a dataset"),
+        ("[]", "refused: --datasets"),
+        ("not json", "refused: --datasets"),
+    ):
+        argv = export_argv(data, out, "--datasets", given)
+        assert tool.main(argv, tuning=START) == 2
+        assert capsys.readouterr().out.startswith(printed)
+    assert not out.exists()
+
+
+def rules_version() -> str:
+    """The harness's RULES_VERSION, read from eval/scoring/__init__.py as text, so
+    eval/ is never imported (C321)."""
+    tree = ast.parse((EVAL / "scoring" / "__init__.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign | ast.Assign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(getattr(t, "id", None) == "RULES_VERSION" for t in targets):
+                return ast.literal_eval(node.value)
+    raise AssertionError("eval/scoring/__init__.py sets no RULES_VERSION")
+
+
+def test_the_harness_loads_the_export(tmp_path, monkeypatch):
+    # End to end, once MS6's harness is in the tree: an export holding a withheld
+    # answer (R152), with the real --label-words, loads under MS6's allow-list and
+    # writes its report.
+    if not (EVAL / "run_eval.py").is_file():
+        pytest.skip("eval/run_eval.py isn't in the tree: MS6 hasn't merged")
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    spark_file = data.run_dir("A001") / "spark.json"
+    spark = read_json(spark_file)
+    spark["data"]["wheels"][0]["id"] = 2.0  # passes the schema, not the loader
+    spark_file.write_text(json.dumps(spark), encoding="utf-8")
+    out = data.root / "results" / "end-to-end"
+    argv = export_argv(data, out)
+    argv[argv.index("--rules-version") + 1] = rules_version()
+    assert tool.main(argv, tuning=START) == 0
+    done = subprocess.run(
+        [sys.executable, "-I", "-B", str(EVAL / "run_eval.py"), "--from-saved"]
+        + ["--results", str(out), "--write"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout[-2000:]
 
 
 def test_rows_hold_no_free_text(tmp_path, monkeypatch, capsys, harness):
