@@ -56,7 +56,7 @@ DEV_FILES = {"A": "set_a_manifest", "A-neg": "a_neg_manifest"}
 _ZERO = {"events": 0, "rows": 0}
 _NOT_WRITTEN = "not a file the tools wrote"
 # An archive's file name, as a record gives it: a bare ASCII name, at most 100
-# characters before .7z, which is safe to open beside RUN_DIR and to print (S-R18).
+# characters before .7z, which can be opened beside RUN_DIR and printed (S-R18).
 _ARCHIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.7z")
 
 Row = Mapping[str, str]

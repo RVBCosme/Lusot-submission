@@ -256,7 +256,7 @@ Flood photos and clips that friends, relatives or community groups give you, for
 | `people` | who appears in it, and whether they agreed too |
 | `source_note` | where it came from, and who took it |
 | `consent_file` | the file holding the written OK |
-| `consent_version` | the version of the donor message the OK answered, such as `M9-v3`. The intake accepts only a version you've approved (C218). |
+| `consent_version` | the version of the donor message the OK answered, such as `M9-v4`. The intake accepts only a version you've approved (C218). |
 | `notes` | anything odd |
 
 ## Set D (M13, only if it rains)

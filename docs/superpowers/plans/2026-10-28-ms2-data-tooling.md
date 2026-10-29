@@ -163,7 +163,7 @@ Most likely first. Each line names its test.
 
 ## Execution notes
 
-- **Routing (D18):** implementers and every task review (spec compliance and code quality) run on Opus 5.5 at max, scoped re-reviews and easy edits on Sonnet 5.5 at xhigh, and the final whole-branch review on Opus 5.5 at max. This follows the tracker's later build rule, as the SDD ledger records it, in place of this plan's first routing, which put spec-compliance reviews on Sonnet. Task 19's licence reading is a lookup and may run on Sonnet 5.5 at xhigh. Task 1, Task 4b's browser check and Task 20's handoff are the controller's own steps.
+- **Routing (D18):** implementers and every task review (spec compliance and code quality) run on Opus 5.5 at xhigh, scoped re-reviews and easy edits on Sonnet 5.5 at xhigh, and the final whole-branch review on Opus 5.5 at xhigh (Rene's change at 8:48 PM on Oct 29: Opus at xhigh, never max). This follows the tracker's later build rule, as the SDD ledger records it, in place of this plan's first routing, which put spec-compliance reviews on Sonnet. Task 19's licence reading is a lookup and may run on Sonnet 5.5 at xhigh. Task 1, Task 4b's browser check and Task 20's handoff are the controller's own steps.
 - **One subagent at a time** (the tracker's section A). None starts while Window 3's `DOCKER/DEPLOY RUNNING` line stands, until its `DONE` (the tracker relays both).
 - **Each implementer** gets this plan's task, the Global Constraints, the spec, and the controller's attribution lines.
 - **Order:** Tasks 1 to 20 in order, with 4a before 4b. Rene needs the guide and the M8 sheet first, `set_b_masks` lets the development-car masks run early, and the split (Task 13) is due Oct 30. No task uses a name a later task defines: the three record kinds live in Task 11, before the audit (Task 12) and the tools that write them (Tasks 13, 16 and 18).
@@ -286,7 +286,7 @@ Most likely first. Each line names its test.
     - M8: `M8_KINDS = ("photo", "vehicle", "wheel", "person")`, `QUALITIES = ("ok", "dark", "blurry")`, `SUBSET_TAGS = ("reflection", "splash", "moving")`
     - Set B and the other logs: `SET_B_TYPES = ("sedan_hatch", "suv_mpv", "van")`, `VIEWS = ("side", "angled")`, `WHEEL_SIDES = ("left", "right")`, `ITEM_KINDS = ("photo", "clip")`, `SIDEWALL_VEHICLES = ("jeepney", "tricycle", "bus", "hilux", "tamaraw", "other")`
   - `METRO_MANILA: tuple[str, ...]`: the 16 cities and Pateros, as display names (`Las Piñas`, `Parañaque`, `Quezon City`…)
-  - `APPROVED_CONSENT: dict[str, frozenset[str]] = {"m9": frozenset(), "set_b": frozenset(), "m11": frozenset()}` (C218: set when Rene approves each text; Window 4's M9 draft is labelled `M9-v2`)
+  - `APPROVED_CONSENT: dict[str, frozenset[str]] = {"m9": frozenset(), "set_b": frozenset(), "m11": frozenset()}` (C218: set when Rene approves each text; Window 4's M9 text is `M9-v4`, approved on Oct 29 by Claude under Rene's delegation, and only a v4 reply counts)
   - id and file patterns: `SET_A_ID = r"A[0-9]{3}"`, `A_NEG_ID = r"N[0-9]{3}"`, `ITEM_ID = r"S[0-9]{3}"`, `CAR_ID = r"B[0-9]{2}"`, `SET_D_ID = r"D[0-9]{2}"`, `PHOTO_EXTENSIONS = ("jpg", "jpeg", "png")`
   - `is_date(text: str) -> bool` (`YYYY-MM-DD`, a real date), `is_time(text: str) -> bool` (`YYYY-MM-DD HH:MM`, 24-hour, real) and `parse_time(text: str) -> datetime`
 
@@ -320,7 +320,7 @@ Most likely first. Each line names its test.
     - the page never shows alert labels
     - its Clear button, after the split
   - **Set D (M13):** `set_d_log.csv` in `set_d\sealed\`, with the photos in `set_d\sealed\photos\`.
-  - **M9:** `consented_log.csv`, whose `consent_version` is the donor message's version, such as `M9-v2` once approved. The old draft message is replaced by a pointer to the message Rene approves (Window 4's draft `M9-v2`).
+  - **M9:** `consented_log.csv`, whose `consent_version` is the donor message's version, such as `M9-v4` once approved. The old draft message is replaced by a pointer to the message Rene approves (Window 4's draft `M9-v4`).
   - **M11:** `sidewalls.csv`.
 - [x] **Step 5:** Run the tests again. Expected: all pass.
 - [x] **Step 6:** Commit `feat(data): add MS2's formats, the log templates and the updated collection guide`.
@@ -1271,7 +1271,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - **For MS2's close (`revise-claude-md`):** CLAUDE.md's Commands gain MS2's commands (spec §5.10, with `--locked --script`), and the archive names once MS2-Q2 is answered.
 - [ ] **Step 5: The reviews.**
   - `security-review` (CLAUDE.md: before a merge that touches keys). `set_b_masks` is a new Meta caller that reads `MODEL_API_KEY`, and the branch handles the archive password. The skill diffs against `origin/HEAD`.
-  - Then the final whole-branch review, on Opus 5.5 at max, with `superpowers:requesting-code-review` against `main`.
+  - Then the final whole-branch review, on Opus 5.5 at xhigh, with `superpowers:requesting-code-review` against `main`.
   - Fixes get their own commits, after `superpowers:receiving-code-review`.
 - [ ] **Step 6:** Commit `docs: credit py7zr and close MS2's build`.
 
@@ -1323,7 +1323,7 @@ Remove-Item -Force C:\Systems\Lusot\lusot-data\set_a\set_a_log.csv, C:\Systems\L
 
 Then tell Claude: "split done, 7-Zip test passed, inputs deleted".
 
-**R6. Set B's final cars** (C214), after the freeze and by Nov 1. The summary shows the planned calls and their cost before you type `yes`: 3 SAM calls per photo at $0.0025 a call, about $0.04 for 5 photos. A car without its owner's OK is skipped and never sent. Close the window afterwards, because the key stays set in it.
+**R6. Set B's final cars** (C214), after C213's generator freeze and by Nov 1. The summary shows the planned calls and their cost before you type `yes`: 3 SAM calls per photo at $0.0025 a call, about $0.04 for 5 photos. A car without its owner's OK is skipped and never sent. Close the window afterwards, because the key stays set in it.
 
 ```powershell
 $env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --locked --directory backend/analysis python probes/set_b_masks.py --final --cars C:\Systems\Lusot\lusot-data\set_b\sealed\cars.csv --photos C:\Systems\Lusot\lusot-data\set_b\sealed\photos --out C:\Systems\Lusot\lusot-data\set_b\sealed\masks
@@ -1376,5 +1376,5 @@ Live spend stays under $0.25 in all (spec §3). Commands are spec §5.10's, run 
 - **`package.json` and CI:** the merge owner adds MS2's test line (Task 20).
 - **`docs/PROGRESS.md` and `docs/log/`:** Window 3 (D20). **`CLAUDE.md`:** at MS2's close.
 - **Rene:** MS2-Q1 to MS2-Q4, and MS3b-Q5.
-- **Window 4:** version labels for the Set B owner and M11 driver texts, so C218's constant can hold them. Only the M9 draft has one, `M9-v2`.
+- **Window 4:** version labels for the Set B owner and M11 driver texts, so C218's constant can hold them. Done on Oct 29: `M9-v4`, `SETB-v1` and `M11-v1`, approved by Claude under Rene's delegation, which Task 13b puts in the constant.
 - **Window 3:** once MS3a's runner, with its `refuse_sealed`, is on `main`, `set_b_masks` may import that instead of its copy.
