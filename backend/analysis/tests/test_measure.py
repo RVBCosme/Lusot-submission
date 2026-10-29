@@ -1,14 +1,17 @@
-"""Tests for step 5: each kept vehicle and adult gives at most one reading (spec §3.3).
+"""Tests for step 5: each kept vehicle and adult gives at most one deciding reading.
 
-measure takes Kept after the drops, so every vehicle is a sedan_hatch or suv_mpv
-standing still, and every person an adult. Box ids follow number_boxes: vehicles
+Spec §3.3, and MS3b's C317 and G4. measure takes Kept after the drops, so every
+vehicle stands still and is a sedan_hatch or suv_mpv, or with geometry on a van or
+unknown (C318), and every person is an adult. Box ids follow number_boxes: vehicles
 first, then wheels, then people.
 """
 
 from collections import Counter
+from collections.abc import Mapping
 
 import pytest
 
+from lusot_analysis.pipeline.geometry import GeometryReading
 from lusot_analysis.pipeline.measure import measure
 from lusot_analysis.pipeline.references import Kept, KeptPerson, KeptVehicle
 from lusot_analysis.pipeline.types import Reference
@@ -37,14 +40,22 @@ PEOPLE_MARKS = (
 
 
 def measured(
-    *vehicles: KeptVehicle, people: tuple[KeptPerson, ...] = ()
+    *vehicles: KeptVehicle,
+    people: tuple[KeptPerson, ...] = (),
+    step3_drops: Mapping[int, str] | None = None,
+    geometry: Mapping[int, GeometryReading] | None = None,
 ) -> tuple[list[Reference], dict[str, int]]:
     """measure's references and drops for these kept items.
 
     The drops come back as a plain dict, so a cause logged at 0 fails a test:
-    Counter's own == treats a missing cause as 0.
+    Counter's own == treats a missing cause as 0. Only the options a test gives are
+    passed, so MS3a's tests still call measure(kept) alone.
     """
-    references, drops = measure(Kept(vehicles=vehicles, people=people))
+    options = {"step3_drops": step3_drops, "geometry": geometry}
+    references, drops = measure(
+        Kept(vehicles=vehicles, people=people),
+        **{name: value for name, value in options.items() if value is not None},
+    )
     assert isinstance(drops, Counter)
     return references, dict(drops)
 
@@ -303,4 +314,159 @@ def test_one_reference_per_vehicle_then_per_adult():
             "wheel_vehicle_dropped": 2,
             "person_no_reading": 1,
         },
+    )
+
+
+KNEE = Reading("knee", floor=False)
+KNEE_GEOMETRY = GeometryReading(13.47, 13.47, "knee")  # 13.47 in is knee (§1)
+
+
+@pytest.mark.parametrize("type_", ["van", "unknown"])
+def test_geometry_only_types_read_from_geometry(type_):
+    # C318: Table 8's wheel rows don't cover these types, so their wheels read from
+    # geometry alone. The landmark is still Muse Spark's category (C320).
+    van = KeptVehicle(
+        1, "not_visible", ((5, "hub"),), wheels_hidden=False, vehicle_type=type_
+    )
+    assert measured(van, geometry={5: KNEE_GEOMETRY}) == (
+        [
+            Reference(
+                "wheel", 5, "hub", KNEE, level_from="geometry", depth_in=(13.47, 13.47)
+            )
+        ],
+        {},
+    )
+    assert measured(van) == ([], {"vehicle_no_reading": 1})
+    # With no landmark reading, a wheel step 3 dropped leaves nothing to keep (C317).
+    assert measured(van, step3_drops={5: "no_water_contact"}) == (
+        [],
+        {"no_water_contact": 1, "vehicle_no_reading": 1},
+    )
+    # C53's body rule is for sedans and SUVs only.
+    hidden = KeptVehicle(
+        1, "window", ((5, "not_visible"),), wheels_hidden=True, vehicle_type=type_
+    )
+    assert measured(hidden) == ([], {"vehicle_no_reading": 1})
+
+
+def test_g4_through_measure():
+    # G4: a sedan wheel's landmark and geometry readings give one, the deeper. A
+    # geometry level keeps the wheel's landmark, Muse Spark's category (C320).
+    sedan = KeptVehicle(1, "not_visible", ((2, "hub"),), wheels_hidden=False)
+    assert measured(sedan, geometry={2: KNEE_GEOMETRY}) == (
+        [
+            Reference(
+                "wheel", 2, "hub", KNEE, level_from="geometry", depth_in=(13.47, 13.47)
+            )
+        ],
+        {},
+    )
+    # More than one level apart, the wheel is dropped, and the vehicle has nothing
+    # left to read.
+    shallow = GeometryReading(3.2, 4.1, "below_gutter")
+    assert measured(sedan, geometry={2: shallow}) == (
+        [],
+        {"wheel_methods_disagree": 1, "vehicle_no_reading": 1},
+    )
+    # A deeper landmark is kept, and carries no inches (C307).
+    rim_top = KeptVehicle(1, "not_visible", ((2, "rim_top"),), wheels_hidden=False)
+    assert measured(rim_top, geometry={2: KNEE_GEOMETRY}) == (
+        [Reference("wheel", 2, "rim_top", Reading("tire", floor=False))],
+        {},
+    )
+
+
+def test_step3_drops_keep_the_reading_for_c317():
+    # C317: step 3's drop takes away only the reading's say. The reading never
+    # decides, but combine still sees it, so it can refuse the photo. Each counts
+    # under its cause.
+    sedan = KeptVehicle(1, "not_visible", ((4, "rim_top"),), wheels_hidden=False)
+    assert measured(sedan, step3_drops={4: "no_water_contact"}) == (
+        [Reference("wheel", 4, "rim_top", Reading("tire", floor=False), decides=False)],
+        {"no_water_contact": 1, "vehicle_no_reading": 1},
+    )
+    adult = KeptPerson(5, "waist")
+    assert measured(people=(adult,), step3_drops={5: "ragged_waterline"}) == (
+        [Reference("person", 5, "waist", Reading("waist", floor=False), decides=False)],
+        {"ragged_waterline": 1},
+    )
+    hidden = KeptVehicle(1, "window", ((2, "not_visible"),), wheels_hidden=True)
+    assert measured(hidden, step3_drops={1: "ragged_waterline"}) == (
+        [Reference("body", 1, "window", TIRE_FLOOR, decides=False)],
+        {"ragged_waterline": 1, "vehicle_no_reading": 1},
+    )
+
+
+def test_a_dropped_wheel_still_counts_as_visible():
+    # C317, C53: step 3 dropping the hub's reading doesn't hide the wheel, so the
+    # window-deep body gives no reading.
+    sedan = KeptVehicle(1, "window", ((2, "hub"),), wheels_hidden=False)
+    assert measured(sedan, step3_drops={2: "no_water_contact"}) == (
+        [
+            Reference(
+                "wheel", 2, "hub", Reading("half_tire", floor=False), decides=False
+            )
+        ],
+        {"no_water_contact": 1, "vehicle_no_reading": 1},
+    )
+
+
+def test_a_kept_vehicle_keeps_its_dropped_readings_too():
+    # C317: wheel 2's rim_top, which step 3 dropped, goes beside the hub that speaks
+    # for the vehicle, so combine refuses the photo rather than let the shallower
+    # hub win. C43 runs over the deciding wheels only, so the vehicle isn't dropped.
+    # The vehicle's own reference comes first, then the ones that can't decide.
+    sedan = KeptVehicle(
+        1, "not_visible", ((2, "rim_top"), (3, "hub")), wheels_hidden=False
+    )
+    assert measured(sedan, step3_drops={2: "no_water_contact"}) == (
+        [
+            Reference("wheel", 3, "hub", Reading("half_tire", floor=False)),
+            Reference(
+                "wheel", 2, "rim_top", Reading("tire", floor=False), decides=False
+            ),
+        ],
+        {"no_water_contact": 1},
+    )
+
+
+def test_a_dropped_vehicle_gives_nothing():
+    # C317: readings of a vehicle that C53 drops play no part, not even as ones that
+    # can't decide. Its wheel counts once, with its vehicle.
+    sedan = KeptVehicle(1, "door_sill", ((2, "wheel_covered"),), wheels_hidden=True)
+    assert measured(sedan, step3_drops={2: "no_water_contact"}) == (
+        [],
+        {"vehicle_body_below_covered_wheel": 1, "wheel_vehicle_dropped": 1},
+    )
+
+
+def test_a_c43_dropped_vehicle_gives_nothing():
+    # Finding 8: hub and tire_only sit three levels apart, so C43 drops the vehicle.
+    # Wheel 6's rim_top, which step 3 dropped, plays no part either (C317).
+    sedan = KeptVehicle(
+        1,
+        "not_visible",
+        ((4, "hub"), (5, "tire_only"), (6, "rim_top")),
+        wheels_hidden=False,
+    )
+    assert measured(sedan, step3_drops={6: "no_water_contact"}) == (
+        [],
+        {"vehicle_wheels_disagree": 1, "wheel_vehicle_dropped": 3},
+    )
+
+
+def test_a_dropped_vehicle_counts_a_g4_drop_once():
+    # Each wheel counts once, after its vehicle's fate is known. G4 drops wheel 6
+    # (half_knee against chest), then C43 drops the vehicle, so wheel 6 counts only
+    # as wheel_vehicle_dropped.
+    sedan = KeptVehicle(
+        1,
+        "not_visible",
+        ((4, "hub"), (5, "tire_only"), (6, "rim_quarter")),
+        wheels_hidden=False,
+    )
+    chest = GeometryReading(40.2, 41.0, "chest")
+    assert measured(sedan, geometry={6: chest}) == (
+        [],
+        {"vehicle_wheels_disagree": 1, "wheel_vehicle_dropped": 3},
     )
