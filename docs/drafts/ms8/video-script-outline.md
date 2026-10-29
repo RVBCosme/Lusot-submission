@@ -161,7 +161,7 @@ If no quote came, the scene shows the user test only (C13). No tester appears on
   - the live URL and the repository's URL
   - the safety line, word for word
   - "Not affiliated with MMDA."
-  - a credit line for every photo shown (title, author, licence, source, and the note that Lusot blurred it and drew outlines), and for the music if any
+  - a credit line for every photo shown (for CC0 and CC BY photos, the title, author, licence and source link; for consented M9 photos, the donor's chosen credit line and "used with permission", with no source link; and, for each photo, the note that Lusot blurred it and drew outlines), and for the music if any
   - "English captions throughout."
 
 ## The X post (M26, C918)
