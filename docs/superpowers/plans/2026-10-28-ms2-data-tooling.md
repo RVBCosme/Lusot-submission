@@ -1032,7 +1032,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `line_rows(wheels: Sequence[WheelGeom], depth_in: float, width: int) -> np.ndarray`: one int row per column. The straight line runs through each wheel's `(cx, ground_row − depth × px_per_in)`, and is level for one wheel. Each column's row is rounded half up; water fills the column from that row down.
   - `wheel_truth(geom: WheelGeom, rows: np.ndarray) -> tuple[int, int, int, float]`: `waterline_left_row` (`rows[x0]`), `waterline_right_row` (`rows[x1 − 1]`), `waterline_row` (`rows[cx]`), and `true_depth_in = (ground_row − waterline_row) ÷ px_per_in`, rounded to 4 decimals
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_parse_tire_codes`, parametrized:
     - `175/65R14` gives (175, 65, 14) and diameter 22.9567; `185/55R15` gives 23.0118; `215/70R16C` gives 27.8504
     - `P205/55ZR16 91V` gives (205, 55, 16); `LT235/75R15` gives (235, 75, 15)
@@ -1044,10 +1044,19 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_truth_on_a_drawn_wheel` (V1): a 400 × 300 frame and a wheel ellipse centred at (200, 200) with a vertical half-height of 50, so `top_row` 150 and `ground_row` 251. With `175/65R14` the scale is 101 ÷ 22.9567 = 4.3996 px/in. Depth 6.0 puts the line at 224.60, drawn at row 225, so `waterline_row == 225` and `true_depth_in == 5.9096`.
   - `test_sloped_line_gives_both_wheels_one_depth` (Review Focus 5): ground rows 251 and 263, at 4.4 and 4.0 px/in. The line's rows at the two centres differ, and each wheel's `true_depth_in` lies within one pixel (1 ÷ `px_per_in`) of the drawn depth.
   - `test_rim_edge_ratio`: a rim 70 px tall at 4.3996 px/in on a 14 in rim gives 1.1365, and no rim gives None.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setb`. Expected: FAIL, with `ModuleNotFoundError: No module named 'tires'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(set_b): add tire codes, the wheel choice and G3's truth`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setb`. Expected: FAIL, with `ModuleNotFoundError: No module named 'tires'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(set_b): add tire codes, the wheel choice and G3's truth`.
+
+*Evidence (Task 14, Oct 30):*
+- **Commits:** 677e971, 1e4319f and 11c2f57.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 713 passed.
+- **Checks:** ruff format and check, the plan-leak check (257 files), the account-ID scan (217 files), gitleaks and the banned-forms check are clean.
+- **RED:** the expected `ModuleNotFoundError` for `tires` and `wheels`.
+- **The review approved it** and re-checked the geometry beyond the golden numbers: `line_rows` against exact fractions over 3,000 random two-wheel slopes in both wheel orders (2,746,370 columns, no mismatch, 19 exact half-pixel ties), and `wheel_truth` on an off-brief slope within half a pixel. Rim suffixes glued to the rim (`22.5`, `16V`, `14XL`) give `bad_tire_code`.
+- **Ruling S-R24:** the two chosen wheels must be different wheels, so two SAM masks of one wheel (a tire and its hub) count once and never draw a vertical line.
+- **One fix round (S-R25),** checked by the controller: a test for each direction of the overlap rule (two mutants, each deleting one direction, each caught), a shape check in `synth.masks_folder`, and `Instance` compared by identity.
 
 ### Task 15: The water and the crops (C211)
 
