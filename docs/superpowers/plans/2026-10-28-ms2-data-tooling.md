@@ -962,7 +962,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 
       No id is printed.
 
-- [ ] **Step 1: Write the failing tests.** All use `synth.split_inputs(tmp_path / "data")`, `synth.console` and `synth.typed(monkeypatch, TEST_PHRASE, TEST_PHRASE)`.
+- [x] **Step 1: Write the failing tests.** All use `synth.split_inputs(tmp_path / "data")`, `synth.console` and `synth.typed(monkeypatch, TEST_PHRASE, TEST_PHRASE)`.
   - `test_split_end_to_end`, on that layout. It checks:
     - exit 0, and the archive opens with the test phrase and holds exactly the members above
     - the archive's manifests hold only sealed rows, and the dev manifests only dev rows
@@ -987,10 +987,20 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_unexpected_error_names_no_photo`: `photos.photo_facts`, patched to raise `OSError` with a photo's name in its message, gives exit 1 and output naming the class only.
   - `test_split_output_and_record_hold_no_log_text`: sentinels in every text column of both logs, and none in stdout, stderr or the record.
   - `test_record_holds_no_photo_or_event_id`
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k split`. Expected: FAIL, with `ModuleNotFoundError: No module named 'split'`.
-- [ ] **Step 3:** Implement, then run `uv lock --script eval/data/split.py`.
-- [ ] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/split.py --help` exits 0.
-- [ ] **Step 5:** Commit `feat(data): add the split, writing the sealed archive and the development side`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k split`. Expected: FAIL, with `ModuleNotFoundError: No module named 'split'`.
+- [x] **Step 3:** Implement, then run `uv lock --script eval/data/split.py`.
+- [x] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/split.py --help` exits 0.
+- [x] **Step 5:** Commit `feat(data): add the split, writing the sealed archive and the development side`.
+
+*Evidence (Task 13, Oct 29):*
+- **Commits:** add21f0, 5fea0db and 6a23b21.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 660 passed. `uv run --locked --script eval/data/split.py --help` exits 0.
+- **Checks:** ruff format and check, the plan-leak check (216 files), the account-ID scan (176 files), gitleaks and the banned-forms check are clean.
+- **RED:** the expected `ModuleNotFoundError` for `split`.
+- **The golden split** is asserted from the manifest extracted from the written archive: Set A seals E01, E02, E07 and E09 (8 of 20 rows, exactly 2/5), and A-neg seals 3 of 8.
+- **Ruling S-R19:** every check (the intake, photo facts, draw, manifests, copy check, audit and the record's id pre-check) runs before the password, as spec §5.5 orders, so a stop leaves nothing written and the password is never asked. An `--archive` name outside S-R18's pattern, or holding an id, is refused on the string.
+- **The review approved it,** with all seven named risks held: order and fail-closed writes; no sealed id, spot or label in any output line; the golden split; each log and photo read once and archived as the same bytes; the archive and dev layout of spec §5.5 and §5.9; private names; an undecodable photo split like any other.
+- **One fix round (S-R21),** checked by the controller under the usage plan (the code diff read; 660 passed with `-W error`; three mutants, each caught): overlapping dev folders, a `--record` inside a dev folder, and a dev folder inside a photo folder (R5 would delete it) are refused on the strings; the rerun after a real failure past the password is pinned; a relative `--record` is tested; refusals print to stderr.
 
 ### Task 14: Tire codes, wheels and G3's truth (C212, G3)
 
@@ -1298,23 +1308,24 @@ Leave out `--m8` until the export exists. On Oct 28, `uv` resolved in Claude's s
 
 **R1 (T9).** Install 7-Zip: `winget install --id 7zip.7zip --exact`.
 
-**R2. Before the split,** all four must hold:
+**R2. Before the split,** all five must hold:
+- `C:\Systems\Lusot\lusot-data\sealed\` exists (the split refuses a missing archive folder)
 - the intake prints `problems=0` on the final logs and M8 export
 - MS3b-Q5 is answered, and the page states that answer
 - every Set A photo is labelled
 - Task 20's v0.7 status is noted
 
-**R3. The split** (M19), typing the password twice from the password manager:
+**R3. The split** (M19), typing the password twice from the password manager. Close other windows first: the split holds the photos in memory until the dev copies are written. It reads every photo, draws and audits first, and asks for the password only after every check passes (S-R19):
 
 ```powershell
 uv run --locked --script eval/data/split.py --set-a-log C:\Systems\Lusot\lusot-data\set_a\set_a_log.csv --set-a-photos C:\Systems\Lusot\lusot-data\set_a\raw --a-neg-log C:\Systems\Lusot\lusot-data\a_neg\a_neg_log.csv --a-neg-photos C:\Systems\Lusot\lusot-data\a_neg\raw --m8 C:\Systems\Lusot\lusot-data\set_a\m8_labels.csv --set-a-dev C:\Systems\Lusot\lusot-data\set_a\dev --a-neg-dev C:\Systems\Lusot\lusot-data\a_neg\dev --archive C:\Systems\Lusot\lusot-data\sealed\lusot-sealed.7z --record eval\data\records\<date>-split.json
 ```
 
-Expect `audit PASS`, `copy check <n> of <n>`, and the archive's size and SHA-256. A stop before writing names what to fix; fix it and run the command again. If the run was interrupted after writing, delete what the rerun names, then run it again.
+Expect `warnings=<n>` first, then `audit PASS`, `copy check <n> of <n>`, and the archive's size and SHA-256. A stop before writing names what to fix; fix it and run the command again. If the run was interrupted after writing, delete what the rerun names, then run it again.
 
 **R4.** Test the archive: `& "C:\Program Files\7-Zip\7z.exe" t C:\Systems\Lusot\lusot-data\sealed\lusot-sealed.7z`. 7-Zip asks for the password. Expect `Everything is Ok`.
 
-**R5. Only after R4,** delete the plaintext inputs (C219). First click the M8 page's "Clear saved work", and delete any other copy of `m8_labels.csv`, such as one in Downloads. Then:
+**R5. Only after R4,** delete the plaintext inputs (C219). Close Excel first: a working copy open in `raw\` would stop the delete partway. Then click the M8 page's "Clear saved work", and delete any other copy of `m8_labels.csv`, such as one in Downloads. Then:
 
 ```powershell
 Remove-Item -Recurse -Force C:\Systems\Lusot\lusot-data\set_a\raw, C:\Systems\Lusot\lusot-data\a_neg\raw
