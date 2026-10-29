@@ -41,7 +41,8 @@ def measure(
        and none for a type kept for geometry (C318). A wheel step 3 dropped gives its
        landmark reading, if it has one, as a reference that doesn't decide (C317).
        Otherwise keep_reading gives G4's reading, or drops the wheel as
-       `wheel_methods_disagree`.
+       `wheel_methods_disagree`. A covered wheel of a type kept for geometry also
+       gives the sedan row's tire floor, as a reference that doesn't decide (R143).
     3. Deciding wheel readings that fail C54's test drop it as
        `vehicle_wheels_disagree`: an exact one sits more than one level below the
        deepest (C43).
@@ -78,6 +79,11 @@ def measure(
                         Reference("wheel", wheel_id, line, landmark, decides=False)
                     )
                 continue
+            if not reads_rows and line == "wheel_covered":
+                # The sedan row's floor bounds any larger covered wheel too, so it is
+                # held to refuse a shallower exact result, never to decide (R143).
+                floor = rules.WHEEL_ROWS[line]
+                held.append(Reference("wheel", wheel_id, line, floor, decides=False))
             kept_reading = keep_reading(landmark, geometry.get(wheel_id))  # G4
             if isinstance(kept_reading, str):  # wheel_methods_disagree
                 found.append(kept_reading)
