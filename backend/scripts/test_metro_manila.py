@@ -10,6 +10,7 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
 import json
 from pathlib import Path
 
+import metro_manila
 import pytest
 from metro_manila import NCR, geohash6, in_boundary, in_metro_manila, load_boundary
 
@@ -69,6 +70,24 @@ def test_a_missing_or_malformed_boundary_reads_as_outside(tmp_path, text):
         encoding="utf-8",
     )
     assert in_boundary(load_boundary(good), *MS1_POINT) is True
+
+
+def test_the_boundary_is_read_once(monkeypatch):
+    # demo_pins.py asks about many points in one run, so the file is read once.
+    reads = []
+
+    def counted(path=NCR):
+        reads.append(path)
+        return load_boundary(path)
+
+    monkeypatch.setattr(metro_manila, "load_boundary", counted)
+    metro_manila.ncr_boundary.cache_clear()
+    try:
+        for _ in range(3):
+            assert in_metro_manila(*MS1_POINT) is True
+        assert reads == [NCR]
+    finally:
+        metro_manila.ncr_boundary.cache_clear()
 
 
 def test_geohash6_matches_ngeohash():

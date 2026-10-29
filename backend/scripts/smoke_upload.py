@@ -79,7 +79,7 @@ import random
 import re
 import time
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
@@ -89,6 +89,7 @@ import cv2
 import httpx
 import numpy as np
 from botocore.exceptions import BotoCoreError, ClientError
+from guards import stack_outputs
 
 STACK = "lusot"
 REGION = "ap-southeast-1"
@@ -137,6 +138,34 @@ class Stack:
     queue: str  # the upload queue's name: its URL holds the account ID (R20)
     log_group: str  # the analysis function's, looked up once
     since_ms: int  # where log searches start: the run's start, less LOG_SKEW_S
+    outputs: Mapping[str, str] = field(default_factory=dict)  # every stack output
+
+    def output(self, name: str) -> str:
+        """One of the stack's outputs, such as TableName, or CheckFailed."""
+        if name not in self.outputs:
+            raise CheckFailed(f"the stack has no {name} output")
+        return self.outputs[name]
+
+
+def load_stack(session: boto3.Session) -> Stack:
+    """The deployed stack as the checks use it: its outputs, and its analysis log group.
+
+    Log searches start LOG_SKEW_S before now, for clock skew.
+    """
+    outputs = stack_outputs(session)
+    log_group = session.client("cloudformation").describe_stack_resource(
+        StackName=STACK, LogicalResourceId="AnalysisLogGroup"
+    )["StackResourceDetail"]["PhysicalResourceId"]
+    return Stack(
+        session=session,
+        # Paths are joined as f"{api_url}/uploads", so no trailing slash may remain.
+        api_url=outputs["ApiUrl"].rstrip("/"),
+        bucket=outputs["BucketName"],
+        queue=outputs["QueueName"],
+        log_group=log_group,
+        since_ms=int((time.time() - LOG_SKEW_S) * 1000),
+        outputs=outputs,
+    )
 
 
 @dataclass
@@ -181,21 +210,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # run before anything is paid.
         jpegs = [as_app_jpeg(photo) for photo in photos]
         session = boto3.Session(profile_name="lusot", region_name=REGION)
-        cloudformation = session.client("cloudformation")
-        [stack] = cloudformation.describe_stacks(StackName=STACK)["Stacks"]
-        outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
-        log_group = cloudformation.describe_stack_resource(
-            StackName=STACK, LogicalResourceId="AnalysisLogGroup"
-        )["StackResourceDetail"]["PhysicalResourceId"]
-        deployed = Stack(
-            session=session,
-            # Paths are joined as f"{api_url}/uploads", so no trailing slash may remain.
-            api_url=outputs["ApiUrl"].rstrip("/"),
-            bucket=outputs["BucketName"],
-            queue=outputs["QueueName"],
-            log_group=log_group,
-            since_ms=int((time.time() - LOG_SKEW_S) * 1000),
-        )
+        deployed = load_stack(session)
         # IPv4 only: IPv6 doesn't connect on the home Wi-Fi (Oct 28 log).
         transport = httpx.HTTPTransport(local_address="0.0.0.0")
         with httpx.Client(timeout=30, transport=transport) as http:

@@ -2,7 +2,8 @@
 
 Fakes only: httpx.MockTransport stands in for the API and S3's form posts, tmp_path
 folders for the photos, and FakeCloud for the AWS clients, each of whose calls must
-first pass botocore's own check of that operation. The main() tests run on FakeTime,
+first pass botocore's own check of that operation (fake_aws.py's FakeSession, shared
+with the other scripts' tests). The main() tests run on FakeTime,
 a clock that moves only when the run sleeps or the fake cloud takes time. Nothing
 reaches AWS or Meta.
 
@@ -19,17 +20,14 @@ import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import cv2
 import httpx
 import numpy as np
 import pytest
 import smoke_upload
-from botocore import xform_name
-from botocore.exceptions import ClientError, ParamValidationError
-from botocore.session import get_session
-from botocore.validate import validate_parameters
+from botocore.exceptions import ClientError
+from fake_aws import FakeSession
 from smoke_upload import CheckFailed
 
 SEED = 20261028
@@ -123,51 +121,6 @@ def event(report_id, n=1, **fields):
     """An analysis log event in Lambda's text format: level, time, request id, JSON."""
     line = json.dumps({"reportId": report_id, **fields})
     return f"[INFO]\t2026-10-29T01:02:{n:02d}.000Z\treq-{n}\t{line}\n"
-
-
-_BOTOCORE = get_session()  # botocore's own service models; no network, no credentials
-
-
-class FakeAws:
-    """One AWS service's client, held to botocore's own model of each call.
-
-    A call's parameters must pass botocore's check of its operation, and FakeCloud
-    then answers it in its `<service>_<method>` method.
-    """
-
-    def __init__(self, cloud, service):
-        self._cloud, self._service = cloud, service
-        model = _BOTOCORE.get_service_model(service)
-        self._operations = {
-            xform_name(name): model.operation_model(name)
-            for name in model.operation_names
-        }
-
-    def __getattr__(self, method):
-        operation = self._operations[method]
-        answer = getattr(self._cloud, f"{self._service}_{method}")
-
-        def call(**params):
-            try:
-                validate_parameters(params, operation.input_shape)
-            except ParamValidationError as exc:
-                raise AssertionError(str(exc)) from None
-            return answer(**params)
-
-        return call
-
-    def get_paginator(self, method):
-        call = getattr(self, method)
-        return SimpleNamespace(paginate=lambda **params: [call(**params)])
-
-
-class FakeSession:
-    def __init__(self, cloud, **kwargs):
-        cloud.session_kwargs = kwargs
-        self._cloud = cloud
-
-    def client(self, service):
-        return FakeAws(self._cloud, service)
 
 
 class FakeTime:

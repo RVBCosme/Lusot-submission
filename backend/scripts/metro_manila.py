@@ -7,6 +7,7 @@ outside. A file that is missing or malformed contains no point, so a script that
 asks gets "outside", never "inside" (spec §4.3).
 """
 
+import functools
 import json
 import math
 from pathlib import Path
@@ -54,8 +55,14 @@ def in_boundary(boundary: list | None, lat: float, lng: float) -> bool:
     return inside
 
 
+@functools.cache
+def ncr_boundary() -> list | None:
+    """The API's boundary file, read once per process: a script asks about many points."""
+    return load_boundary()
+
+
 def in_metro_manila(lat: float, lng: float) -> bool:
-    return in_boundary(load_boundary(), lat, lng)
+    return in_boundary(ncr_boundary(), lat, lng)
 
 
 def geohash6(lat: float, lng: float) -> str:
