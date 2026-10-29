@@ -36,7 +36,8 @@ SENTINEL = "Zqxjv"
 REFUSED = "refused: path inside a folder named sealed\n"
 
 # A row of each other log that passes every check, once its consent text's version is
-# approved. APPROVED_CONSENT is empty until Rene approves a text (C218).
+# approved. The real sets now hold M9-v4, SETB-v1 and M11-v1 (C218), so each test that
+# needs a version approved patches its own synthetic one and never depends on them.
 M8_PHOTO = {"photo_id": "A001", "ref_id": "P1", "kind": "photo", "quality": "ok"}
 CONSENTED = {
     "item_id": "S001",
@@ -419,7 +420,8 @@ def test_intake_writes_nothing(tmp_path, capsys, monkeypatch):
 def test_intake_output_holds_no_log_text(tmp_path, capsys):
     """C201: with a sentinel in every text column of every log, and as an unknown header
     name, the output never holds it. The rows reach each check that reads a cell:
-    links, spots, labels, notes, posters, cities, alert columns and file names."""
+    links, spots, labels, notes, posters, cities, alert columns, file names and a
+    Commons row's credit."""
 
     def everywhere(columns, **cells):
         return dict.fromkeys(columns, SENTINEL) | cells
@@ -447,7 +449,16 @@ def test_intake_output_holds_no_log_text(tmp_path, capsys):
     paths = write_inputs(
         tmp_path,
         set_a,
-        [everywhere(a_neg_columns, candidate_id="N001")],
+        [
+            everywhere(a_neg_columns, candidate_id="N001"),
+            # A Commons row with a valid licence, so its credit (free text) is read.
+            everywhere(
+                a_neg_columns,
+                candidate_id="N002",
+                poster="commons",
+                licence="cc-by-4.0",
+            ),
+        ],
         set_a_columns=set_a_columns,
         a_neg_columns=a_neg_columns,
         m8=m8,
@@ -467,6 +478,7 @@ def test_intake_output_holds_no_log_text(tmp_path, capsys):
         "A001 logged_on: bad_date",
         "A002 spot_text: differs",
         "a_neg log column 22: unknown",
+        "N002 photo_file: id_file_mismatch",
         "A001 P1.quality: not_in_list",
         "A001 R1.x: out_of_range",
         "A001 R1.vehicle_type: not_in_list",

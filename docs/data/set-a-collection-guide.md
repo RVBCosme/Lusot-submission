@@ -4,7 +4,7 @@ Set A is the main evaluation set: Metro Manila flood photos, each paired with a 
 
 This guide also covers A-neg, your M8 labels, Set B's cars (M10), the sidewall photos (M11), consented items (M9) and Set D (M13). Each log has an empty template in `eval/templates/`, and MS2's tools read the same columns and values (`eval/data/formats.py`, MS2 spec §5.9). Updated Oct 28 for MS2 (spec C209, C218), with the tracker's Set A search checklist v2 folded in.
 
-**Why by hand:** Facebook's and X's terms ban automated collection (plan M7), and this is a Meta-run hackathon. You do the searching and saving. Claude's tools do the checks, the matching, the event IDs and the audit, and you run the split itself (M19), because only you hold its password. Claude never opens Facebook, X or a post's link, and never views a Set A or A-neg photo or log before the split.
+**Why by hand:** Facebook's and X's terms ban automated collection (plan M7), and this is a Meta-run hackathon. You do the searching and saving. Claude's tools do the checks, the matching, the event IDs and the audit, and you run the split itself (M19), because only you hold its password. Claude never opens Facebook, X or a post's link, and never opens a Set A or A-neg photo before the split. Its checks read each log's text columns, which include the Commons rows' text that the tracker's script fills (below), and never a photo's bytes.
 
 **Targets:** about 50 Set A photos and about 15 A-neg photos by **Oct 30, mid-afternoon**. You then label the photos on the M8 page, and you run the split that evening. Plan on about 3 minutes a photo once you're on a good day's posts (a rough guess).
 
@@ -166,7 +166,7 @@ Wet streets that aren't flooded, and dry streets, ideally with parked cars or pe
   - `poster`: `commons`
   - `platform`: `other`
   - `post_url`: the photo's file page on Commons. No tool ever opens it.
-  - `licence`: `cc0`, `pd`, `cc-by-2.0`, `cc-by-2.5`, `cc-by-3.0` or `cc-by-4.0`, as the file page gives it. Any other licence, BY-SA included, is a problem.
+  - `licence`: write exactly one of `cc0`, `pd`, `cc-by-2.0`, `cc-by-2.5`, `cc-by-3.0` or `cc-by-4.0`, matching the file page's wording to it (the page's "CC BY 4.0" becomes `cc-by-4.0`, and public domain becomes `pd`). Don't copy the page's wording over. Any other value is a problem, and we don't take `CC BY-SA` photos at all.
   - `credit`: the author's credit, as Commons gives it. The intake checks only that it isn't empty, and never prints it.
   - `post_time_pht`: the date the photo was taken. When the page gives a date only, write `00:00` for the time and "time unknown" in `notes`; for A-neg only the date is used.
   - `reference_visible`, `label_in_image` and `faces_or_plates`, and `surface` when the page doesn't say: you fill these after looking at each photo, because no Claude opens an A-neg photo before the split.
@@ -224,7 +224,7 @@ Set B tests the wheel geometry where the depth is known: you photograph dry park
 | `view` | `side` or `angled` |
 | `taken_on` | the date, `YYYY-MM-DD` |
 | `consent_file` | the file holding the owner's OK, beside `cars.csv` |
-| `consent_version` | the version of the text the owner answered. Until you approve a text, the check only warns. |
+| `consent_version` | the version of the text the owner answered. The approved one is `SETB-v1`. Any other version only warns, and always will (C218). |
 | `notes` | anything odd |
 
 ## Sidewall photos (M11)
@@ -243,14 +243,14 @@ Close photos of the size codes on the tire sidewalls of one jeepney, one tricycl
 | `checked_code` | leave it blank: Claude fills it in from the photo |
 | `taken_on` | the date, `YYYY-MM-DD` |
 | `consent_file` | the file holding the driver's permission |
-| `consent_version` | the version of the text the driver answered. Until you approve a text, the check only warns. |
+| `consent_version` | the version of the text the driver answered. The approved one is `M11-v1`. Any other version only warns, and always will (C218). |
 | `notes` | anything odd |
 
 ## Consented sample photos (M9, separate from Set A)
 
 Flood photos and clips that friends, relatives or community groups give you, for the "Try a sample" button and the demo. They **never** join Set A.
 
-- **Ask with the donor message you approve.** Window 4 drafts it in `docs/drafts/m9-donor-message-draft.md`, on its branch until it merges; its latest draft, on Oct 28, is `M9-v3`. It replaces the draft message this guide used to hold. The written OK must cover every use, because the rules require us to hold the rights to everything we submit, so a chat "sure" isn't enough.
+- **Ask with the donor message you approve.** Window 4 drafts it in `docs/drafts/m9-donor-message-draft.md`, on its branch until it merges; its approved version is `M9-v4` (approved on Oct 29 by Claude, under your delegation), and only a v4 reply counts. It replaces the draft message this guide used to hold. The written OK must cover every use, because the rules require us to hold the rights to everything we submit, so a chat "sure" isn't enough.
 - **Files:** each item in `C:\Systems\Lusot\lusot-data\consented\`, with `consented_log.csv` beside it, made from `eval/templates/consented_log.csv`, and each written OK (a screenshot of the reply is fine) there too.
 - **Where and when** matter: each demo pin sits at its photo's real spot.
 
@@ -292,5 +292,5 @@ Set D is final only: it is sealed, and Claude never sees it. If it rains, find s
 
 - **No news-outlet photos.** News lists only point you to the official posts.
 - **Nothing goes into the repo or gets shared.** The photos and logs stay in `lusot-data`.
-- **Don't ask Claude to open a Set A or A-neg photo or log before the split.** The deny rules stop it anyway.
+- **Don't ask Claude to open a Set A or A-neg photo before the split.** The deny rules block reading or editing the `raw\` photo folders. They don't cover the logs, which Claude's checks do read, as text columns only (C201).
 - **No relabelling after predictions.** Never change a label because of something Lusot answered.

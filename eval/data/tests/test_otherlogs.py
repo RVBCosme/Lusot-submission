@@ -17,8 +17,9 @@ SEALED_NAME = "../sealed/x.png"
 
 @pytest.fixture(autouse=True)
 def approved(monkeypatch):
-    """Approve the versions the rows below give (C218). APPROVED_CONSENT is empty until
-    Rene approves a text, and a test that needs another set patches it again."""
+    """Approve the versions the rows below give (C218). The real sets now hold M9-v4,
+    SETB-v1 and M11-v1, so these tests patch their own synthetic versions and never
+    depend on them. A test that needs another set patches it again."""
     monkeypatch.setitem(formats.APPROVED_CONSENT, "m9", frozenset({"M9-v3"}))
     monkeypatch.setitem(formats.APPROVED_CONSENT, "m11", frozenset({"M11-v1"}))
 

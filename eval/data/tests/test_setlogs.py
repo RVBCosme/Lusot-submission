@@ -766,9 +766,15 @@ def test_findings_hold_no_cell_text(tmp_path):
         columns=columns,
     )
     a_neg_columns = formats.TEMPLATES["a_neg_log.csv"] + (SENTINEL,)
+    a_neg_everywhere = dict.fromkeys(a_neg_columns, SENTINEL)
     a_neg = check(
         tmp_path / "a_neg",
-        [dict.fromkeys(a_neg_columns, SENTINEL) | {"candidate_id": "N001"}],
+        [
+            a_neg_everywhere | {"candidate_id": "N001"},
+            # A Commons row with a valid licence, so its credit (free text) is read.
+            a_neg_everywhere
+            | {"candidate_id": "N002", "poster": "commons", "licence": "cc-by-4.0"},
+        ],
         set_name="A-neg",
         columns=a_neg_columns,
     )
@@ -791,7 +797,8 @@ def test_findings_hold_no_cell_text(tmp_path):
         "nearest",
         "match",
     }
-    assert a_neg.problems and a_neg.warnings
+    assert a_neg.warnings
+    assert {problem.ref for problem in a_neg.problems} >= {"N001", "N002"}
     printed = [
         str(item)
         for found in (set_a, a_neg)
