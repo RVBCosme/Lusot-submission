@@ -164,7 +164,7 @@ describe("public pins", () => {
     });
   });
 
-  it('shows depthInMin and depthInMax only while INCHES_SHOWN is "true"', async () => {
+  it("shows depthInMin and depthInMax only while inchesShown is true", async () => {
     const stored = item({ depthInMin: 17, depthInMax: 19 });
 
     const hidden = publicPin(stored, false);
