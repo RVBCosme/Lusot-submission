@@ -19,10 +19,13 @@ MIN_SIDE = 40
 MAX_WHEELS = 2
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Instance:
     """One SAM instance: its half-open box (x0, y0, x1, y1), from its mask's own extent;
-    its mask, a bool array of the image's height x width; and SAM's score, or None."""
+    its mask, a bool array of the image's height x width; and SAM's score, or None.
+
+    Instances compare and hash by identity (eq=False), since == on the masks would
+    raise."""
 
     box: tuple[int, int, int, int]
     mask: np.ndarray

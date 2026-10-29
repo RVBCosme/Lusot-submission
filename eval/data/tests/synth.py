@@ -271,7 +271,8 @@ def masks_folder(
     writes: ids; boxes, N x 4 floats, half-open, from each mask's own extent (zeros for
     an empty mask); scores, all NaN, as SAM's None, since the generator never reads
     them; and masks, N x height x width bool, so an empty list still has the photo's
-    shape. No raw .txt and no meta.json are written.
+    shape. No raw .txt and no meta.json are written. A mask whose shape isn't the
+    photo's (height, width) raises AssertionError before anything is written.
 
     The four files merge into root/files.txt as set_b_masks.write_files_txt merges
     them: lines of "<sha256>  <path relative to root, with />", sorted by path, with
@@ -283,6 +284,9 @@ def masks_folder(
 
     image = cv2.imdecode(np.frombuffer(photo, np.uint8), cv2.IMREAD_GRAYSCALE)
     height, width = image.shape
+    # A reshape alone would take a transposed mask with the same pixel count.
+    for masks in (vehicles, wheels, rims):
+        assert all(mask.shape == (height, width) for mask in masks), "mask shape"
     folder = root / stem
     folder.mkdir(parents=True, exist_ok=True)
     blurred = folder / "blurred.jpg"

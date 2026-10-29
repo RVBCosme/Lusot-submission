@@ -134,6 +134,32 @@ def test_overlapping_masks_of_one_wheel_give_one_wheel(tmp_path):
     assert [wheel.box for wheel in chosen] == [LEFT_BOX]
 
 
+def test_a_partial_mask_inside_a_chosen_wheel_counts_once(tmp_path):
+    """S-R24, the first direction alone: a partial mask, such as one side of a tire,
+    whose centre lies inside a chosen wheel's box is the same wheel, though its own box
+    doesn't hold that wheel's centre. A smaller wheel elsewhere is used instead."""
+    chosen_wheel = rect(100, 100, 200, 200)  # centre (149, 149)
+    part = rect(150, 155, 200, 200)  # centre (177, 174); its box misses (149, 149)
+    second = rect(100, 300, 145, 340)
+    assert np.count_nonzero(part) > np.count_nonzero(second)
+    frame = [rect(0, 0, *SHAPE)]
+    vehicles, found, _ = loaded(tmp_path / "a", frame, [part, chosen_wheel])
+    chosen = wheels.pick_wheels(vehicles, found, SHAPE)
+    assert [wheel.box for wheel in chosen] == [(100, 100, 200, 200)]
+    vehicles, found, _ = loaded(tmp_path / "b", frame, [part, second, chosen_wheel])
+    chosen = wheels.pick_wheels(vehicles, found, SHAPE)
+    assert [wheel.box for wheel in chosen] == [
+        (100, 100, 200, 200),
+        (300, 100, 340, 145),
+    ]
+
+
+def test_instances_compare_by_identity():
+    """Two instances with equal fields are two: == and hash never touch the masks."""
+    a, b = (wheels.Instance(LEFT_BOX, ellipse(*LEFT), None) for _ in range(2))
+    assert a != b and len({a, b}) == 2
+
+
 def test_a_box_around_a_chosen_centre_counts_once(tmp_path):
     """S-R24, the other direction: a smaller mask whose box holds a chosen wheel's
     centre is the same wheel, even when its own centre lies outside that wheel's box.
@@ -214,6 +240,19 @@ def test_empty_masks_are_skipped(tmp_path):
     assert [w.box for w in found] == [LEFT_BOX]
     with np.load(tmp_path / "B01-1" / "sam_wheel_masks.npz") as data:
         assert data["masks"].shape == (2, *SHAPE)
+
+
+def test_masks_folder_refuses_masks_of_another_shape(tmp_path):
+    """A mask whose shape isn't the photo's, even a transposed one with the same pixel
+    count, stops synth.masks_folder before it writes anything."""
+    transposed = np.zeros(SHAPE[::-1], bool)
+    transposed[10:50, 10:40] = True
+    with pytest.raises(AssertionError):
+        synth.masks_folder(
+            tmp_path, "B01-1", synth.jpeg(1, SHAPE), [rect(*VEHICLE)], [transposed], []
+        )
+    assert not (tmp_path / "B01-1").exists()
+    assert not (tmp_path / "files.txt").exists()
 
 
 def test_masks_folder_merges_files_txt(tmp_path):
