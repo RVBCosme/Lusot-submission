@@ -135,6 +135,7 @@ def test_writes_a_level_result_under_the_claim(ddb):
         "passability": {"S": "NPLV"},
         "levelIsFloor": {"BOOL": False},
         "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
+        "levelFrom": {"S": "landmark"},
         "photoKey": {"S": PHOTO_KEY},
     }
 

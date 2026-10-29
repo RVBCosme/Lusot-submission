@@ -68,6 +68,7 @@ KNEE = {
     "passability": {"S": "NPLV"},
     "levelIsFloor": {"BOOL": False},
     "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
+    "levelFrom": {"S": "landmark"},
     "photoKey": {"S": PHOTO_KEY},
 }
 LEVEL_PHOTO = level_case()[0]
