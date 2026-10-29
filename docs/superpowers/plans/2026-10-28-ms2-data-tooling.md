@@ -1,4 +1,4 @@
-> Draft: written before Rene approved the spec (D7). The executing controller reviews it before Task 1.
+> Approved Oct 29, 2026, by Claude under Rene's delegation (PDF item 17), except MS2-Q2, which rides on eval/rules.md v0.7 (Rene's). Written before the spec's approval (D7); the executing controller reviewed it before Task 1.
 
 # MS2 Data Tooling Implementation Plan
 

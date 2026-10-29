@@ -1,7 +1,7 @@
 # MS2 Data tooling: spec
 
 - **Date:** Oct 28, 2026 (Manila)
-- **Status:** Draft, written before Rene's approval and without a live conversation (D7, D15). Revised after an accuracy review, Window 4's alignment note, a builder check and the tracker's verified updates (section B, under Rene's delegation). Claude proceeds on the calls in §6 and the defaults in §11 until Rene approves. **One rule bends:** Rene-only commands may read inside `sealed` folders (C202), because C39 puts the final cars there. Amended at 4:13 PM for Rene's 80-10-10 instruction (about 3:35 PM), from the tracker's verified note. It adds C204's stratified walk and MS2-Q4. No validation part is drawn: validation is event replay in MS3b and MS6.
+- **Status:** Approved Oct 29, 2026, by Claude under Rene's delegation (PDF item 17), except MS2-Q2, which rides on eval/rules.md v0.7 (Rene's). Written without a live conversation (D7, D15). Revised after an accuracy review, Window 4's alignment note, a builder check and the tracker's verified updates (section B, under Rene's delegation). MS2-Q2's default holds until Rene signs v0.7. **One rule bends:** Rene-only commands may read inside `sealed` folders (C202), because C39 puts the final cars there. Amended at 4:13 PM for Rene's 80-10-10 instruction (about 3:35 PM), from the tracker's verified note. It adds C204's stratified walk and MS2-Q4. No validation part is drawn: validation is event replay in MS3b and MS6.
 - **Implements:**
   - plan §11 (Table 12, and the inputs Table 13's metrics need), Table 25, §20 Phase 2 (Table 22) and §20's repo layout (`eval/set_b/`)
   - plan Table 11's W18, and Table 27's M7 to M11, M13 and M19
