@@ -51,19 +51,36 @@ it('the two locked English lines are the same in Taglish, and reviewed', () => {
   expect(FIL['about.notAffiliated']).toEqual(EN['about.notAffiliated'])
 })
 
+// The banned forms (C608): the two words anywhere in a word, the crossing phrases, and the 9 levels called MMDA's.
+const BANNED_WORDS = /safe|ligtas/i
+const CROSSING = /you can cross|you can pass|go ahead|pu?wedeng dumaan|tumawid ka|lusutan mo/i
+const NINE_LEVELS = /MMDA(['’]?s)? (9|nine) levels|(the )?(9|nine) MMDA levels/i
+
+it('the banned-phrase patterns catch every spelling they stand for', () => {
+  for (const s of ['Unsafe', 'SAFETY', 'kaligtasan', 'makaligtas']) expect(s, s).toMatch(BANNED_WORDS)
+  const crossing = ['You can cross.', 'you can pass', 'Go ahead', 'Pwedeng dumaan', 'Puwedeng dumaan', 'TUMAWID KA']
+  for (const s of [...crossing, 'Lusutan mo']) expect(s, s).toMatch(CROSSING)
+  for (const s of ["MMDA's 9 levels", 'MMDA’s nine levels', 'MMDA 9 levels', 'mmda nine levels', 'the 9 MMDA levels']) {
+    expect(s, s).toMatch(NINE_LEVELS)
+  }
+})
+
 it('no string uses a banned word or phrase', () => {
   const all = [...Object.values(EN), ...Object.values(FIL)].map((e) => e.text)
   for (const s of all) {
-    expect(s).not.toMatch(/safe|ligtas/i)
-    expect(s).not.toMatch(/you can cross|you can pass|go ahead|pwedeng dumaan|tumawid ka|lusutan mo/i)
-    expect(s).not.toMatch(/MMDA['’]?s (9|nine) levels|(the )?(9|nine) MMDA levels/i)
+    expect(s).not.toMatch(BANNED_WORDS)
+    expect(s).not.toMatch(CROSSING)
+    expect(s).not.toMatch(NINE_LEVELS)
   }
 })
 
 it("D19's English refusal starts reviewed, and its Taglish draft and every new line don't", () => {
   expect(EN['refusal.d19']).toEqual({ text: D19, reviewed: true })
   expect(FIL['refusal.d19'].reviewed).toBe(false)
-  for (const key of ['nav.map', 'nav.report', 'nav.tested', 'nav.about', 'lang.en', 'lang.fil'] as const) {
+  const nav: StringKey[] = ['nav.map', 'nav.report', 'nav.tested', 'nav.about']
+  const layout: StringKey[] = ['lang.en', 'lang.fil', 'lang.switch', 'layout.noApi', 'layout.noApiDetail']
+  const titles: StringKey[] = ['privacy.title', 'licences.title', 'pin.title']
+  for (const key of [...nav, ...layout, ...titles]) {
     expect(EN[key].reviewed, `en ${key}`).toBe(false)
     expect(FIL[key].reviewed, `fil ${key}`).toBe(false)
   }

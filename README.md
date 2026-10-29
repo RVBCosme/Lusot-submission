@@ -41,6 +41,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | [Vite](https://github.com/vitejs/vite), with its `create-vite` react-ts template | The starter for `app/`, its dev server and its build | MIT |
 | [React](https://github.com/facebook/react) | The app's interface | MIT |
 | [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | The app's styles | MIT |
+| [Lucide](https://github.com/lucide-icons/lucide), through `lucide-react` | The app's icons, bundled as inline SVG | ISC. The icons Lucide derives from [Feather](https://github.com/feathericons/feather), among them `info`, are MIT, as its LICENSE lists them. |
 | [Capacitor](https://github.com/ionic-team/capacitor) (core, CLI and Android) | Wraps the app for Android; `app/android/` comes from its template | MIT |
 | Capacitor's [Camera](https://github.com/ionic-team/capacitor-camera) and [Geolocation](https://github.com/ionic-team/capacitor-geolocation) plugins | Taking the photo and reading the GPS fix | MIT |
 | [Gradle](https://github.com/gradle/gradle) wrapper | Runs the Android build; part of Capacitor's Android template | Apache-2.0 |
