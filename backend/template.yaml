@@ -76,7 +76,7 @@ Resources:
   DeadLetterQueue:
     Type: AWS::SQS::Queue
     Properties:
-      # 7 days, not the plan's 14: each message is an S3 event record with the uploader's IP.
+      # 7 days, not the MS1 plan's first 14 days: each message is an S3 event record with the uploader's IP.
       MessageRetentionPeriod: 604800
       SqsManagedSseEnabled: true
 
@@ -293,6 +293,21 @@ Resources:
                   - s3:GetObject
                   - s3:DeleteObject
                 Resource: !Sub "${UploadBucket.Arn}/raw/*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "${UploadBucket.Arn}/blurred/*"
+              # So that a missing raw photo reads as 404 NoSuchKey, not 403 AccessDenied. MS3a
+              # Task 16 recorded NoSuchKey under this raw/-limited grant, so the handler's
+              # missing-photo rule holds only NoSuchKey and AccessDenied retries (MS3a spec
+              # §3.6, R93).
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt UploadBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix: "raw/*"
               - Effect: Allow
                 Action: dynamodb:Query
                 Resource: !Sub "${ReportsTable.Arn}/index/reportId-index"

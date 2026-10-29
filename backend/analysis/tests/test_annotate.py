@@ -1,14 +1,20 @@
 """Tests for the numbered boxes Muse Spark sees (plan §7 step 4)."""
 
+import copy
 import math
+from collections import Counter
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
+from fakes import answer as spark_answer
+from fakes import person, vehicle, wheel
 
 from lusot_analysis.annotate import (
     NumberedBox,
     check_ids,
+    check_ids_per_item,
     draw_numbered_boxes,
     number_boxes,
 )
@@ -194,3 +200,83 @@ def test_check_ids_flags_an_id_answered_twice():
         "wheel id 3 in people",
         "id 3 answered 2 times",
     ]
+
+
+def test_number_boxes_keeps_input_order():
+    # layout relies on it: the k-th numbered box of a kind is SAM's k-th instance of
+    # that kind. Each kind's boxes come right to left here, against reading order.
+    results = {
+        "vehicle": sam("vehicle", (330, 60, 620, 300), (20, 60, 310, 300)),
+        "wheel": sam("wheel", (520, 240, 580, 300), (60, 240, 120, 300)),
+        "person": sam("person", (5, 10, 15, 50)),
+    }
+    assert number_boxes(results) == [
+        NumberedBox(1, "vehicle", (330, 60, 620, 300)),
+        NumberedBox(2, "vehicle", (20, 60, 310, 300)),
+        NumberedBox(3, "wheel", (520, 240, 580, 300)),
+        NumberedBox(4, "wheel", (60, 240, 120, 300)),
+        NumberedBox(5, "person", (5, 10, 15, 50)),
+    ]
+
+
+# Every entry answered right for BOXES.
+CLEAN = {
+    "vehicles": [vehicle(1)],
+    "wheels": [wheel(2, "hub"), wheel(3, "rim_top")],
+    "people": [person(4, "knee")],
+}
+
+
+@pytest.mark.parametrize(
+    ("lists", "kept", "drops"),
+    [
+        pytest.param(
+            {"wheels": [wheel(2, "hub"), wheel(99, "hub")]},
+            {"wheels": [wheel(2, "hub")]},
+            Counter(unknown_id=1),
+            id="unknown-id",
+        ),
+        pytest.param(
+            {"vehicles": [vehicle(1), vehicle(3)], "wheels": [wheel(2, "hub")]},
+            {"vehicles": [vehicle(1)], "wheels": [wheel(2, "hub")]},
+            Counter(wrong_list=1),
+            id="wheel-id-under-vehicles",
+        ),
+        pytest.param(
+            {"wheels": [wheel(2, "hub"), wheel(3, "hub"), wheel(2, "rim_top")]},
+            {"wheels": [wheel(3, "hub")]},
+            Counter(duplicate_id=2),
+            id="wheel-answered-twice",
+        ),
+        pytest.param(
+            # The entry under people is also in the wrong list, but a repeat comes
+            # first (C77).
+            {
+                "wheels": [wheel(2, "hub"), wheel(3, "hub")],
+                "people": [person(3, "knee"), person(4, "knee")],
+            },
+            {"wheels": [wheel(2, "hub")], "people": [person(4, "knee")]},
+            Counter(duplicate_id=2),
+            id="id-under-wheels-and-people",
+        ),
+        pytest.param(
+            # An unknown id answered twice is unknown, not a repeat.
+            {
+                "wheels": [wheel(99, "hub"), wheel(2, "hub")],
+                "people": [person(99, "knee")],
+            },
+            {"wheels": [wheel(2, "hub")]},
+            Counter(unknown_id=2),
+            id="unknown-id-twice",
+        ),
+        pytest.param(CLEAN, CLEAN, Counter(), id="clean"),
+    ],
+)
+def test_per_item_check_drops_only_bad_items(lists, kept, drops):
+    given = spark_answer(standing_water="no", **lists)
+    before = copy.deepcopy(given)
+    checked, counts = check_ids_per_item(given, BOXES)
+    assert checked == spark_answer(standing_water="no", **kept)
+    assert counts == drops
+    assert checked is not given  # a copy
+    assert given == before  # the input is never changed
