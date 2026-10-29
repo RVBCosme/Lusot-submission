@@ -45,7 +45,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | Capacitor's [Camera](https://github.com/ionic-team/capacitor-camera) and [Geolocation](https://github.com/ionic-team/capacitor-geolocation) plugins | Taking the photo and reading the GPS fix | MIT |
 | [Gradle](https://github.com/gradle/gradle) wrapper | Runs the Android build; part of Capacitor's Android template | Apache-2.0 |
 | [AWS SAM CLI](https://github.com/aws/aws-sam-cli) | Builds and deploys `backend/template.yaml` | Apache-2.0 |
-| [AWS SDK for JavaScript v3](https://github.com/aws/aws-sdk-js-v3) | The API Lambda's calls to DynamoDB, S3 and SSM, and its upload links | Apache-2.0 |
+| [AWS SDK for JavaScript v3](https://github.com/aws/aws-sdk-js-v3) | The API Lambda's calls to DynamoDB, S3 and SSM, its upload links and its 5-minute photo links | Apache-2.0 |
 | [ngeohash](https://github.com/sunng87/node-geohash) | Geohash keys for reports | MIT |
 | [boto3](https://github.com/boto/boto3), with its [CRT](https://github.com/awslabs/aws-crt-python) extra in the scripts | AWS calls from the analysis Lambda and the scripts in `backend/scripts/` | Apache-2.0 |
 | [NumPy](https://github.com/numpy/numpy) | Image arrays in the analysis | BSD-3-Clause, with bundled parts under 0BSD, MIT, Zlib and CC0-1.0. Its wheels also bundle OpenBLAS (BSD-3-Clause), LAPACK (BSD-3-Clause-Open-MPI) and the GCC runtime (GPL-3.0-or-later with the GCC Runtime Library Exception), and the Linux wheel in the Lambda image adds libquadmath (LGPL-2.1-or-later). The wheel's LICENSE.txt lists them. |

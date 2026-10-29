@@ -83,7 +83,9 @@ describe("route", () => {
   });
 
   it("sends GET /reports/{id} to the report handler", async () => {
-    ddbMock.on(QueryCommand).resolves({ Items: [{ reportId: ID, status: "pending", capturedAt: "2026-10-30T10:05:12Z" }] });
+    // 7 days after capture, from an ISO string (F3). Without it the report answers 404 (C526).
+    const expiresAt = Date.parse("2026-11-06T10:05:12Z") / 1000;
+    ddbMock.on(QueryCommand).resolves({ Items: [{ reportId: ID, status: "pending", capturedAt: "2026-10-30T10:05:12Z", expiresAt }] });
 
     const res = await route({ routeKey: "GET /reports/{id}", pathParameters: { id: ID }, isBase64Encoded: false }, deps());
 
