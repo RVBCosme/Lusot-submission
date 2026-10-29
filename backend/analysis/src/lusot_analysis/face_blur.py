@@ -24,6 +24,15 @@ import numpy as np
 
 FACE_BLUR_VERSION = "yunet-2023mar/multiscale-1-0.5-0.25/pixelate-gauss-v2"
 YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+# The setting FACE_BLUR_VERSION names. eval/rules.md §10 freezes it with the version
+# (D12), so none of these changes without a new version (R94).
+DOWNSCALES = (2, 4)  # YuNet's passes besides full size: half and quarter (R98)
+SCORE_THRESHOLD = 0.6  # YuNet's lowest face score kept
+MARGIN = 0.25  # each face box grows by this share of its size on every side
+PIXELATE_CELLS = 10  # the pixelate grid's cells a side, at most
+KERNEL_DIVISOR = 3  # the Gaussian kernel is the box's longer side over this, made odd
+JPEG_QUALITY = 90  # every BlurredImage's JPEG
+MAX_SIDE = 1600  # the image Meta gets has a longer side of at most this many px
 
 _MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
 _TOKEN = object()  # proves a BlurredImage was built in this module
@@ -99,7 +108,9 @@ def _detector() -> cv2.FaceDetectorYN:
     return cv2.FaceDetectorYN.create(str(_MODEL_PATH), "", (320, 320))
 
 
-def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceBox]:
+def detect_faces(
+    bgr: np.ndarray, *, score_threshold: float = SCORE_THRESHOLD
+) -> list[FaceBox]:
     """Run YuNet at full, half and quarter size, and return every pass's boxes.
 
     YuNet boxes faces of up to about 300 px well, so the smaller passes box larger
@@ -115,7 +126,7 @@ def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceB
         cv2.resize(
             bgr, (max(1, width // n), max(1, height // n)), interpolation=cv2.INTER_AREA
         )
-        for n in (2, 4)  # half and quarter size, as FACE_BLUR_VERSION records
+        for n in DOWNSCALES  # half and quarter size, as FACE_BLUR_VERSION records
     ]
     boxes = []
     with _DETECTOR_LOCK:
@@ -137,7 +148,7 @@ def detect_faces(bgr: np.ndarray, *, score_threshold: float = 0.6) -> list[FaceB
 
 
 def blur_faces(
-    bgr: np.ndarray, faces: Sequence[FaceBox], *, margin: float = 0.25
+    bgr: np.ndarray, faces: Sequence[FaceBox], *, margin: float = MARGIN
 ) -> np.ndarray:
     """Blur each face box, grown by `margin` of its size on every side.
 
@@ -151,31 +162,42 @@ def blur_faces(
         x1, y1 = min(width, face.x + face.w + dx), min(height, face.y + face.h + dy)
         if x0 >= x1 or y0 >= y1:
             continue
-        # Pixelate to about a 10 x 10 grid, then smooth it with an odd Gaussian kernel.
+        # Pixelate to a grid of about PIXELATE_CELLS a side, then smooth it with an odd
+        # Gaussian kernel.
         roi_w, roi_h = x1 - x0, y1 - y0
         cells = cv2.resize(
             out[y0:y1, x0:x1],
-            (min(10, roi_w), min(10, roi_h)),
+            (min(PIXELATE_CELLS, roi_w), min(PIXELATE_CELLS, roi_h)),
             interpolation=cv2.INTER_AREA,
         )
         pixelated = cv2.resize(cells, (roi_w, roi_h), interpolation=cv2.INTER_NEAREST)
-        kernel = (max(face.w, face.h) // 3) | 1
+        kernel = (max(face.w, face.h) // KERNEL_DIVISOR) | 1
         out[y0:y1, x0:x1] = cv2.GaussianBlur(pixelated, (kernel, kernel), 0)
     return out
 
 
-def blur_for_meta(data: bytes, *, max_side: int = 1600) -> BlurredImage:
-    """Decode, shrink to `max_side` with INTER_AREA, blur the faces, encode as JPEG.
+def shrink_to_max_side(bgr: np.ndarray, max_side: int = MAX_SIDE) -> np.ndarray:
+    """Shrink with INTER_AREA so the longer side is at most `max_side`.
 
-    A shrunk image with a side of 32 px or less is refused (R27): detect_faces skips
-    every pass of it (R24), so the photo would reach Meta unchecked.
+    Each side is rounded with Python's round, and an image that already fits comes
+    back as it is. The quality step shrinks this way too, so its scores read the photo
+    blur_for_meta sends, before the face blur (C58).
     """
-    bgr = decode_image(data)
     height, width = bgr.shape[:2]
     if max(height, width) > max_side:
         scale = max_side / max(height, width)
         size = (max(1, round(width * scale)), max(1, round(height * scale)))
         bgr = cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
+    return bgr
+
+
+def blur_for_meta(data: bytes, *, max_side: int = MAX_SIDE) -> BlurredImage:
+    """Decode, shrink to `max_side` with INTER_AREA, blur the faces, encode as JPEG.
+
+    A shrunk image with a side of 32 px or less is refused (R27): detect_faces skips
+    every pass of it (R24), so the photo would reach Meta unchecked.
+    """
+    bgr = shrink_to_max_side(decode_image(data), max_side)
     if min(bgr.shape[:2]) <= _YUNET_PAD:
         raise UndecodableImage("too small to check for faces")
     faces = detect_faces(bgr)
@@ -185,7 +207,7 @@ def blur_for_meta(data: bytes, *, max_side: int = 1600) -> BlurredImage:
 
 
 def _encode(bgr: np.ndarray, *, faces: int, blur_version: str) -> BlurredImage:
-    ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
     if not ok:
         raise ValueError("JPEG encoding failed")
     height, width = bgr.shape[:2]

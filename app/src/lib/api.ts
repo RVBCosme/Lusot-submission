@@ -19,6 +19,13 @@ export interface PresignedPost {
 export interface ReportResult {
   status: string
   refusalReason?: string
+  // A done report always has noFloodSeen. Only a level brings the rest (C67).
+  noFloodSeen?: boolean
+  level?: string
+  landmark?: string
+  passability?: string
+  basis?: { vehicles: number; people: number }
+  levelIsFloor?: boolean
 }
 
 // A non-2xx response. `code` and `detail` are the API's `error` and `detail` values, when the body has them.
@@ -33,6 +40,14 @@ export class HttpError extends Error {
     this.status = status
     this.code = code
     this.detail = detail
+  }
+}
+
+// No final status by the deadline. Its own class, so the screen can read it as processing failed (spec §3.8).
+export class PollTimeoutError extends Error {
+  constructor(reportId: string, timeoutMs: number) {
+    super(`No result for report ${reportId} after ${timeoutMs / 1000} s`)
+    this.name = 'PollTimeoutError'
   }
 }
 
@@ -86,11 +101,11 @@ export async function pollReport(
       const res = await fetchFn(`${apiUrl}/reports/${reportId}`, { signal })
       if (res.status === 404) return undefined
       if (!res.ok) throw await httpError(res)
-      const { status, refusalReason } = await res.json()
-      return { status, refusalReason }
+      const { status, refusalReason, noFloodSeen, level, landmark, passability, basis, levelIsFloor } = await res.json()
+      return { status, refusalReason, noFloodSeen, level, landmark, passability, basis, levelIsFloor }
     })
     if (report !== undefined && FINAL_STATUSES.has(report.status)) return report
-    if (Date.now() + intervalMs > deadline) throw new Error(`No result for report ${reportId} after ${timeoutMs / 1000} s`)
+    if (Date.now() + intervalMs > deadline) throw new PollTimeoutError(reportId, timeoutMs)
     await sleep(intervalMs)
   }
 }
