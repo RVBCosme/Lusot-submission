@@ -826,7 +826,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     No car, crop or photo id.
   - `set_d_record(*, repo: Path, counts: Mapping, inputs: Mapping[str, str], extends: Mapping | None) -> dict`: `base_record("eval/data/seal_set_d.py", repo)`, plus `inputs` (the SHA-256 of `set_d_log.csv`), `counts` (`photos`, by `vehicle_type`, by `wheel`), and `extends` (`file`, `sha256`) when given. No id.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_manifest_columns_and_values`: a synthetic photo gives an exact row.
   - `test_duplicate_fields`: in a group, the lowest id gets `duplicate = no` and `duplicate_of = A003`, its own id; the others get `yes` and `A003`; an ungrouped photo gets `no` and a blank.
   - `test_undecodable_row`: a blank dHash, width and height, and `decodes = no`.
@@ -838,10 +838,18 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_record_bytes_are_stable`: the same dict in another key order gives the same bytes, ASCII with a final newline.
   - `test_write_record_never_overwrites`
   - `test_record_io_imports_only_the_standard_library`: a fresh interpreter imports `record_io`, and `numpy`, `cv2` and `py7zr` aren't in `sys.modules`.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "manifest or record_io"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'manifest'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(data): build the manifests and the three record kinds`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "manifest or record_io"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'manifest'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(data): build the manifests and the three record kinds`.
+
+*Evidence (Task 11, Oct 29):*
+- **Commits:** 6faff57 and 6c4ac30.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 476 passed.
+- **Checks:** ruff format and check, the plan-leak check (210 files), the account-ID scan (172 files) and gitleaks are clean.
+- **RED:** the two expected `ModuleNotFoundError`s, for `manifest` and `record_io`.
+- **The review approved it:** spec compliant, with no Critical or Important findings.
+- **One fix round (S-R16)** added one guard for every record writer: `record_bytes` refuses any record whose keys or text values hold an id-shaped token, so a caller's counts can't carry a final or sealed id into a committed record. The same round made `record_kind` refuse a record that isn't a mapping, and isolated every git-running test. The scoped re-review found every finding addressed.
 
 ### Task 12: The audit (W18, C220)
 
