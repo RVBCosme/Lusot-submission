@@ -209,6 +209,36 @@ def test_a_file_must_stay_inside_data(given, tmp_path, capsys, rel):
     assert not given["--out"].exists()
 
 
+def test_truth_must_be_spelled_as_written(given, tmp_path, capsys):
+    """S-R30: a --file that names truth.csv in another case is refused before anything
+    opens, so the key MS6 reads, and the generator version beside it, never go
+    missing in silence."""
+    given["--file"][2] = "Set_B/dev/generated/Truth.csv"
+    assert freeze_record.main(args(given)) == 2
+    spelled = "refused: --file must be spelled set_b/dev/generated/truth.csv\n"
+    assert capsys.readouterr() == ("", spelled)
+    code, events = synth.opened_paths(FREEZE, args(given))
+    assert code == 2
+    assert [item for item in events if inside(item[1], tmp_path)] == []
+    assert not given["--out"].exists()
+
+
+@pytest.mark.parametrize("flag", ["--record", "--look"])
+def test_two_inputs_may_not_share_a_name(given, tmp_path, capsys, flag):
+    """S-R30: two --record files, or two --look files, whose bare names match by
+    casefold, from different folders, are refused before anything opens, so no
+    record's entry replaces another's."""
+    first = given[flag][0]
+    other = write_json(tmp_path / "other" / first.name.upper(), {"tool": "x"})
+    given[flag].append(other)
+    assert freeze_record.main(args(given)) == 2
+    assert capsys.readouterr() == ("", f"refused: two {flag} files share a name\n")
+    code, events = synth.opened_paths(FREEZE, args(given))
+    assert code == 2
+    assert [item for item in events if inside(item[1], tmp_path)] == []
+    assert not given["--out"].exists()
+
+
 def test_data_must_be_absolute(given, capsys, monkeypatch):
     monkeypatch.chdir(given["--data"].parent)
     given["--data"] = Path("data")

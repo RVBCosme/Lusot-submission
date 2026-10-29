@@ -19,13 +19,14 @@ Run from the repo root at MS2's close (Claude runs this one):
 ".." part, and the record keys it as given, with /. Each --record is keyed by its bare
 file name, with its SHA-256 and a copy of its archive block, or null when it has none.
 The generator version is read from set_b/dev/generated/truth.csv when that --file is
-given, and is null otherwise. Each --look is copied whole, in the order given. The
-record holds no id: one that would, as through a --file's or a --record's name, is
-refused before anything is written (S-R16).
+given, spelled exactly so, and is null otherwise. Each --look is copied whole, in the
+order given. The record holds no id: one that would, as through a --file's or a
+--record's name, is refused before anything is written (S-R16).
 
 It prints the file count and the record's SHA-256. Exit codes: 0 written; 1 a record
 that would hold an id, or an error, of which only the class prints; 2 refused: a path
-inside a folder named sealed, a relative --data, a --file that leaves --data, or an
+inside a folder named sealed, a relative --data, a --file that leaves --data or names
+truth.csv in another case, two --record or two --look files whose names match, or an
 --out that exists.
 """
 
@@ -92,6 +93,13 @@ def _run(args: argparse.Namespace) -> int:
     if not all(_inside(rel) for rel in args.file):
         return _refuse("--file must stay inside --data")
     paths = {rel.replace("\\", "/"): args.data / rel for rel in args.file}
+    # The keys MS6 reads stay as written, and no entry replaces another's (S-R30).
+    if any(rel.casefold() == TRUTH and rel != TRUTH for rel in paths):
+        return _refuse(f"--file must be spelled {TRUTH}")
+    for flag, given in (("--record", args.record), ("--look", args.look)):
+        names = [path.name.casefold() for path in given]
+        if len(set(names)) != len(names):
+            return _refuse(f"two {flag} files share a name")
     guards.refuse_sealed(args.data, *paths.values(), *args.record, *args.look, args.out)
     if args.out.exists():
         print("--out exists: a record is never rewritten", file=sys.stderr)

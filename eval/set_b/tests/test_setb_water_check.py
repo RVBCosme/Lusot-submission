@@ -318,6 +318,20 @@ def test_mixed_generator_versions_stop(layout, capsys, versions, kind):
     assert not layout["--looks-dir"].exists()
 
 
+@pytest.mark.parametrize("versions", [["", ""], ["", VERSION]])
+def test_a_blank_generator_version_stops(layout, capsys, versions):
+    """S-R30: a blank generator_version cell, in every row or in one, stops the run
+    before any crop is checked, so no look records an empty version."""
+    rows = []
+    for n, version in enumerate(versions, start=1):
+        lay_crop(layout, f"B01-1-{n}", FULL, meta={"generator_version": version})
+        rows += truth_rows(f"B01-1-{n}", generator_version=version)
+    write_truth(layout, rows)
+    assert water_check.main(args(layout)) == 1
+    assert capsys.readouterr() == ("", "stopped: generator_version blank\n")
+    assert not layout["--looks-dir"].exists()
+
+
 @pytest.mark.parametrize("flag", ["--truth", "--sam", "--looks-dir"])
 def test_water_check_refuses_sealed_paths(layout, tmp_path, capsys, flag):
     """Each path inside a folder named sealed is refused before anything opens, though

@@ -27,8 +27,8 @@ holds counts, causes and the share, never a crop id.
 
 It prints the failed crops by cause, then the look's number, its counts, its share and
 its result. Exit codes: 0 the look is written, whether it passes or fails; 1 truth.csv's
-rows don't share one generator_version, or an error, of which only the class prints; 2
-refused: a path inside a folder named sealed, or three looks are used.
+rows don't share one generator_version, or one is blank, or an error, of which only the
+class prints; 2 refused: a path inside a folder named sealed, or three looks are used.
 """
 
 import argparse
@@ -128,6 +128,9 @@ def _run(args: argparse.Namespace) -> int:
         return 2
     rows = table.read_table(args.truth).rows
     versions = {row["generator_version"] for row in rows}
+    if "" in versions:  # a look never records an empty version (S-R30)
+        print("stopped: generator_version blank", file=sys.stderr)
+        return 1
     if len(versions) != 1:
         print(Finding("truth", "generator_version", "mixed" if versions else "none"))
         return 1
