@@ -1269,14 +1269,23 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `--out` is created exclusively, with `table.write_new`, and never overwritten: an existing `--out` is refused (exit 2) before the walk, so a rerun needs a new path.
 - Only if Step 5's note finds a source that qualifies: `flooddet --root DIR --sources FILE --out FILE`, where `--sources` is a CSV (`prefix`, `source`, `meta_ok`) that Claude writes from the note. Each image takes the `source` and `meta_ok` of its longest matching prefix, and `meta_ok = no` when none matches.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_sturm_manifest`: a synthetic tree with `extracted/upscaled_images/Level1/x.jpg`, `Level3/y.png` and `readme.txt` gives two rows, at levels 1 and 3, and `skipped=1`.
   - `test_walk_skips_sealed_folders`: `Level2/Sealed/z.jpg` isn't listed, and `synth.opened_paths` shows no `open` or `os.scandir` event under `Sealed`.
   - `test_paths_use_slashes_and_sort`; `test_refuses_sealed_root_or_out`
   - `test_existing_out_is_never_overwritten`: an existing `--out` exits 2, and its bytes are unchanged.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setc`. Expected: FAIL, with `ModuleNotFoundError: No module named 'setc'`.
-- [ ] **Step 3:** Implement, then lock the script.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k setc`. Expected: FAIL, with `ModuleNotFoundError: No module named 'setc'`.
+- [x] **Step 3:** Implement, then lock the script.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+
+*Evidence (Task 19, Steps 1 to 4, Oct 30; ruling S-R32):*
+- **Commits:** ea72002, 7d44872, b9708af, 5c33798 and 75dfcd1. Steps 5 to 7 (the licence note, `flooddet` if a source qualifies, and their commit) wait until after MS5's core screens (S-R31, S-R32).
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 978 passed, 2 skipped (the symbolic-link tests, which CI's Ubuntu runs). `uv run --locked --script eval/data/setc.py --help` exits 0.
+- **Checks:** ruff format and check, the plan-leak check (275 files), the account-ID scan (231 files), gitleaks and the banned-forms check are clean.
+- **RED:** the expected `ModuleNotFoundError: No module named 'setc'`.
+- **The review held the walk's boundary:** a folder whose name `is_sealed_name` matches is pruned before any link check; no symbolic link or junction is descended (ruling S-R33, tested with a real junction on Windows); a file link is never hashed; an unreadable folder stops the run before `--out` exists.
+- **Rulings S-R33 and S-R34:** the guards' tests pin `sealed.`, `sealed `, `SEALED.` and `Sealed ..` inside a path and as the leaf, for `refuse_sealed` and `require_sealed`.
+- **For L7:** the manifest is `<data>\set_c\sturm_flooddepth\manifest.csv`, entered with `--file set_c/sturm_flooddepth/manifest.csv`.
 - [ ] **Step 5 (the licence note; Claude reads each page as a person would):** for each source of FloodDET's images (DEEPFLOOD, FloodIMG, Mapillary Vistas and MS COCO), on that source's own page, record:
   - its licence
   - whether private development use is allowed
