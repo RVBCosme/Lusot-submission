@@ -1080,14 +1080,14 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `plan_crops(car_id: str, photo_no: int, diameter: float, rng: random.Random) -> list[CropPlan]`:
     - the four bands, in a seeded order, give crop numbers 1 to 4 (`B01-1-3`)
     - each depth is drawn evenly within its band
-    - two of the four, drawn at random, shrink, each to a target height drawn evenly from 50 to 80 px
+    - two of the four, drawn at random, shrink, each to a target height drawn evenly from 50 to 80 px (from Oct 30, 52.5 to 79.5 px, and `make_crop` refuses a shrunk wheel outside 50 to 80 px: ruling S-R27)
     - a band without limits is left out
   - `@dataclass class Crop: plan: CropPlan; image: np.ndarray; water: np.ndarray; scale: float; wheels: list[tuple[WheelGeom, tuple[int, int, int, float]]]`
   - `make_crop(blurred: np.ndarray, wheel_masks: Sequence[np.ndarray], diameter: float, plan: CropPlan, rng: np.random.Generator) -> Crop`:
     - When `plan.shrink`, it shrinks first. The scale is the target over the smaller wheel's height, at most 1; the image shrinks with `INTER_AREA` and the masks with `INTER_NEAREST`.
     - It then recomputes each `WheelGeom` in the crop's own pixels, and runs `line_rows`, `composite` and `wheel_truth`.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_water_hides_everything_below_the_line`: two images equal above the line and different below it give identical composites.
   - `test_pixels_above_the_line_are_unchanged`; `test_water_mask_is_exactly_below_the_rows`; `test_same_seed_same_water`
   - `test_band_limits`: diameter 22.9567 gives `half_tire` a top of 10.9783; diameter 20.0 gives None.
@@ -1095,10 +1095,19 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_small_crop_wheel_height`: a shrunk crop's smaller wheel is 50 to 80 px tall, so C56's 40 px holds.
   - `test_rows_are_the_crops_own`: a shrunk crop's `ground_row`, `px_per_in` and waterline rows belong to the shrunk image. Water starts at `waterline_row` in column `cx`, with the original pixel above it.
   - `test_generator_is_reproducible`: the same photo name gives the same crops, byte for byte after JPEG encoding.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "setb_water or setb_crops"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'water'`.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run the tests again. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(set_b): composite the muddy water and plan the four crops`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "setb_water or setb_crops"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'water'`.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run the tests again. Expected: all pass.
+- [x] **Step 5:** Commit `feat(set_b): composite the muddy water and plan the four crops`.
+
+*Evidence (Task 15, Oct 30):*
+- **Commits:** 1564950, dd3327c, a4803f4 and a7e5495.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 734 passed.
+- **Checks:** ruff format and check, the plan-leak check (261 files), the account-ID scan (221 files), gitleaks and the banned-forms check are clean.
+- **RED:** the expected `ModuleNotFoundError` for `water` and `crops`.
+- **The review confirmed:** the water mask is exactly the rows' rule, lines partly outside the frame included; pixels above the line are untouched; the seeds and draw order are as briefed; the shrink and the crop's own geometry are right; two processes give the same JPEG bytes, masks and wheels.
+- **Rulings S-R26 and S-R27:** C211 fixes the result, a shrunk wheel 50 to 80 px tall. INTER_NEAREST samples rows and columns, so a round wheel can come out up to two pixels under its target. Targets are therefore drawn from 52.5 to 79.5, and `make_crop` refuses (`ShrinkOutOfRange`) any shrunk crop still outside 50 to 80, which Task 16 counts as a drop. A sweep of 2,100 crops near both ends stays inside 50 to 80.
+- **Fix round, checked by the controller:** the diff read; removing the refusal and drawing from 50.5 again are each caught (with the bytecode cache cleared; an earlier controller run with a stale cache wrongly showed the second surviving).
 
 ### Task 16: The generator, development and final (C214)
 
