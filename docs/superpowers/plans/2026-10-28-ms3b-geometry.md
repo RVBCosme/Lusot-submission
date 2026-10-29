@@ -46,7 +46,8 @@ Once MS2, MS4 and MS6 merge, their copies in `main` win. Executors read all four
   - M18's gate numbers
 - **So MS3b merges early enough** to leave Nov 1 for that review.
 
-**Rene's data inputs (Oct 29, 10:43 PM, relayed by the tracker):**
+**Rene's data inputs (Oct 29, about 10:45 PM, not clock-read; relayed by the tracker):**
+- **His review rule:** Claude annotates or compiles first, and Rene reviews before any use. Set A photo labels stay his, by the sealed rule.
 - **Set B:** fewer than 6 cars, or none, is accepted. MS3b-Q1's fallback then applies, and the results note says so.
 - **A-neg** comes from Wikimedia Commons: CC0, public domain or CC BY photos of dry Metro Manila streets, downloaded without anyone opening them, in place of his own photos. MS2's intake and `eval/rules.md` v0.7 carry the source line, and v0.7 stays Rene's to approve.
 
