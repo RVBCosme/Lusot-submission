@@ -844,25 +844,17 @@ def test_reused_link_during_analysis_pays_once_and_leaves_no_raw(aws, fake, capl
 # S3 codes (R22, narrowed)
 
 
-@pytest.mark.parametrize(
-    ("code", "http_status"), [("NoSuchKey", 404), ("AccessDenied", 403)]
-)
-def test_missing_photo_codes(aws, fake, monkeypatch, caplog, code, http_status):
+def test_missing_photo_code(aws, fake, caplog):
+    # The role's raw/-limited s3:ListBucket makes S3 answer 404 NoSuchKey for a
+    # missing key, as MS3a Task 16 recorded in the cloud (R93).
     seed(aws)  # no raw object: moto answers NoSuchKey
-    if code == "AccessDenied":
-        # Without s3:ListBucket, S3 answers 403, not 404, for a missing key. It stays
-        # in the rule until Task 16 shows which code the role gets (R93).
-        def get_object(**kwargs):
-            raise aws_error("AccessDenied", 403, "GetObject")
-
-        monkeypatch.setattr(handler._client("s3"), "get_object", get_object)
     assert handler.handler(message(), None) == NO_FAILURES
     assert status(aws) == ("failed", "photo_missing")
     (line,) = report_lines(caplog)
     assert (line["outcome"], line["error"], line["http_status"]) == (
         "failed/photo_missing",
-        code,
-        http_status,
+        "NoSuchKey",
+        404,
     )
     assert fake.calls == []
     assert "arn:" not in caplog.text
@@ -894,11 +886,14 @@ def test_non_jpeg_bytes_end_bad_file_before_decoding(aws, fake, monkeypatch, dat
     [
         ("SignatureDoesNotMatch", 403),
         ("RequestTimeTooSkewed", 403),
+        ("AccessDenied", 403),
         ("InternalError", 500),
     ],
 )
 def test_other_s3_errors_retry(aws, fake, monkeypatch, caplog, code, http_status):
-    # A 403 from clock skew or a bad signature can pass, so it retries (R22).
+    # A 403 from clock skew or a bad signature can pass, so it retries (R22). With the
+    # role's ListBucket a missing key reads 404 (MS3a Task 16), so AccessDenied is a
+    # real permission fault: it retries into the dead-letter queue and its alarm (R93).
     seed(aws, photo=LEVEL_PHOTO)
 
     def get_object(**kwargs):

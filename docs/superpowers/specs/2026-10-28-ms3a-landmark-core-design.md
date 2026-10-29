@@ -48,7 +48,7 @@ For each message (batch size 1), in order:
 
    Neither path calls Meta. After a successful claim, delete `blurred/{id}.jpg`, before any Meta call (C72).
 5. If the switch reads anything but `off`, end with `failed/model_calls_paused` (C60).
-6. Get `raw/{id}.jpg`. The S3 error codes `NoSuchKey` and `AccessDenied` end with `failed/photo_missing` (R22, narrowed). Any other S3 error returns the message, so a 403 from clock skew or a bad signature retries. A photo whose bytes don't start with JPEG's `FF D8 FF` ends with `failed/bad_file`, before anything decodes it (C83).
+6. Get `raw/{id}.jpg`. The S3 error code `NoSuchKey` ends with `failed/photo_missing` (R22, narrowed; `AccessDenied` left the rule after Task 16 recorded `NoSuchKey` in the cloud, R93). Any other S3 error returns the message, so an `AccessDenied`, or a 403 from clock skew or a bad signature, retries, and a lasting one reaches the dead-letter queue and its alarm. A photo whose bytes don't start with JPEG's `FF D8 FF` ends with `failed/bad_file`, before anything decodes it (C83).
 7. Run the pipeline (§3.2).
 8. Publish (§3.2 step 8).
 
@@ -191,7 +191,7 @@ One field, `refusalReason`, carries the reason on both `refused` and `failed` re
 | `refused` | `references_disagree` | C54 |
 | `refused` | `model_declined` | Muse Spark refused to answer: its answer held a refusal content part (C86) |
 | `failed` | `model_calls_paused` | The model-calls switch isn't `off` |
-| `failed` | `photo_missing` | `NoSuchKey` or `AccessDenied` on the raw photo (R22) |
+| `failed` | `photo_missing` | `NoSuchKey` on the raw photo (R22, R93) |
 | `failed` | `bad_file` | The bytes aren't JPEG (C83), or `blur_for_meta` rejects the file |
 | `failed` | `model_error` | C47, C59 |
 | `failed` | `pipeline_error` | C59 |
@@ -235,7 +235,7 @@ MS1's `pipeline_not_built` stays readable on old reports until their 7-day expir
 - **Analysis role:**
   - `s3:PutObject` and `s3:DeleteObject` on `blurred/*` (C72).
   - `s3:ListBucket` on the bucket, limited to the `raw/` prefix.
-  - AWS documents that a missing object reads as 404 with `s3:ListBucket` and as 403 without. It doesn't say whether a prefix-limited grant counts. So `AccessDenied` stays in the missing-photo rule, and the cloud check records which code a missing key returns.
+  - AWS documents that a missing object reads as 404 with `s3:ListBucket` and as 403 without. It doesn't say whether a prefix-limited grant counts. The cloud check (Task 16, Oct 29) recorded `NoSuchKey` (404) for a missing key under this grant, so `AccessDenied` left the missing-photo rule and now retries (R93).
 - **Logs.** One JSON line per report, as in MS1.
   - **Fields:**
     - the report id and the outcome

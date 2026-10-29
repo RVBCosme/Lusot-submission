@@ -40,10 +40,11 @@ DEADLINE_MARGIN_S = 30  # the run stops this long before Lambda's timeout (C84, 
 _INDEX_NAME = "reportId-index"
 _RAW_KEY = re.compile(r"raw/(r_[0-9a-f]{32})\.jpg")  # the key the API signs (C32)
 _JPEG_MAGIC = b"\xff\xd8\xff"  # how every JPEG starts; the app sends only JPEG (C83)
-# What S3 answers for a missing raw photo: NoSuchKey with s3:ListBucket, AccessDenied
-# without it. AccessDenied stays until Task 16 shows which one the role's prefix-limited
-# grant gets (R22, R93). Any other code, such as a 403 from clock skew, retries.
-_MISSING_PHOTO_CODES = frozenset({"NoSuchKey", "AccessDenied"})
+# What S3 answers for a missing raw photo. With the role's raw/-limited s3:ListBucket it
+# is NoSuchKey, as MS3a Task 16 recorded in the cloud (R22, R93). Any other code, such as
+# AccessDenied or a 403 from clock skew, retries, so a real 403 reaches the dead-letter
+# queue and its alarm.
+_MISSING_PHOTO_CODES = frozenset({"NoSuchKey"})
 _NOT_FOUND_VISIBILITY_S = 10  # a report not yet in the index retries this soon (R92)
 # The outcomes that return the message: an error, a rejected key (C73), and another
 # worker's live lease (C89).
