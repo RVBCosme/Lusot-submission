@@ -1376,7 +1376,7 @@ Remove-Item -Force C:\Systems\Lusot\lusot-data\set_a\set_a_log.csv, C:\Systems\L
 
 Then tell Claude: "split done, 7-Zip test passed, inputs deleted".
 
-**R6. Set B's final cars** (C214), after C213's generator freeze and by Nov 1. The summary shows the planned calls and their cost before you type `yes`: 3 SAM calls per photo at $0.0025 a call, about $0.04 for 5 photos. A car without its owner's OK is skipped and never sent. Close the window afterwards, because the key stays set in it. Each owner's OK sits beside `cars.csv` as a plain file name (S-R29). If `generate --final` stops on a development photo that `set_b_masks` couldn't decode, remove that row from the development `cars.csv` and run it again.
+**R6. Set B's final cars** (C214), after C213's generator freeze and by Nov 1. The summary shows the planned calls and their cost before you type `yes`: 3 SAM calls per photo at $0.0025 a call, about $0.04 for 5 photos. A car without its owner's OK is skipped and never sent. Close the window afterwards, because the key stays set in it. Each owner's OK sits beside `cars.csv` as a plain file name (S-R29). If `generate --final` stops on a development photo that `set_b_masks` couldn't decode, remove that row from the development `cars.csv` and run it again. If it stops with `row <n> masks: missing`, `set_b_masks --final` didn't finish: run it again until it does, then run `generate --final` again (S-R32).
 
 ```powershell
 $env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --locked --directory backend/analysis python probes/set_b_masks.py --final --cars C:\Systems\Lusot\lusot-data\set_b\sealed\cars.csv --photos C:\Systems\Lusot\lusot-data\set_b\sealed\photos --out C:\Systems\Lusot\lusot-data\set_b\sealed\masks
