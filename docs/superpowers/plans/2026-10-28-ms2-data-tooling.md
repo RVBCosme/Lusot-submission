@@ -24,10 +24,10 @@
 
 | Question | Default followed | Changes if answered otherwise |
 |---|---|---|
-| MS2-Q1, the password | (a): typed twice into Rene's own console with `getpass`; the tools write the archives | (b) or (c) replace `ask_password` (Task 2) and the archive writes in Tasks 9, 13, 16 and 18 |
+| MS2-Q1, the password | (a), approved on Oct 29 by Claude under Rene's delegation: typed twice into Rene's own console with `getpass`; the tools write the archives | (b) or (c) replace `ask_password` (Task 2) and the archive writes in Tasks 9, 13, 16 and 18 |
 | MS2-Q2, departures from `eval/rules.md` and C39 | (a): the tools follow C203, C204 (stratified), C209, C211, C212, C214, C224 and §9's duplicate rule, with one archive per sealing step | (b) changes only the items left out: C203 (Task 6), C204 (Tasks 8 and 10), C209 (Tasks 3 and 7), C211 and C212 (Tasks 14 and 15), C214 (Task 16 and R6), C224 (Tasks 6 and 7), the duplicate rule (Task 13), and the archives (Tasks 13, 16 and 18). (c) moves Tasks 13, 16 and 18 to one archive written after the last sealing input. |
-| MS2-Q3, `set_b_masks` before MS3a merges | (a): build it now (Task 5), after telling Window 3 (Task 1, Step 4) | (b) holds Task 5 until MS3a merges |
-| MS2-Q4, city offices | (a): official city-office pages are `poster_kind = city` | (b) narrows `places.poster_kind` (Task 6) and the guide's poster forms (Task 3) |
+| MS2-Q3, `set_b_masks` before MS3a merges | (a), approved on Oct 29 by Claude under Rene's delegation: build it now (Task 5), after telling Window 3 (Task 1, Step 4) | (b) holds Task 5 until MS3a merges |
+| MS2-Q4, city offices | (a), approved on Oct 29 by Claude under Rene's delegation: official city-office pages are `poster_kind = city` | (b) narrows `places.poster_kind` (Task 6) and the guide's poster forms (Task 3) |
 | MS3b-Q5, in-between waterlines (open elsewhere) | the higher mark for wheels, people and car bodies | `m8_sheet.IN_BETWEEN_RULE` (Task 4b), set before Rene labels |
 
 ## Files
@@ -281,7 +281,7 @@ Most likely first. Each line names its test.
     - `CARS_COLUMNS`, `TRUTH_COLUMNS` (27), `SET_D_COLUMNS`, `CONSENTED_COLUMNS` and `SIDEWALLS_COLUMNS`, as §5.9 lists them
   - `TEMPLATES: dict[str, tuple[str, ...]]`, from template file name to header: `set_a_log.csv` (`SET_A_COLUMNS + SET_A_OPTIONAL`), `a_neg_log.csv` (`A_NEG_COLUMNS + ("same_spot_as",)`), `m8_labels.csv`, `set_b_cars.csv`, `set_d_log.csv`, `consented_log.csv` and `sidewalls.csv`
   - value lists:
-    - from the guide and the spec: `PLATFORMS = ("facebook", "x", "other")`, `YES_NO = ("yes", "no")`, `REFERENCE_VISIBLE = ("wheel", "person", "both", "none")`, `LABEL_IN_IMAGE = ("no", "cropped", "yes")`, `A_NEG_POSTERS = ("own", "friend")`, `SURFACES = ("wet", "dry")`
+    - from the guide and the spec: `PLATFORMS = ("facebook", "x", "other")`, `YES_NO = ("yes", "no")`, `REFERENCE_VISIBLE = ("wheel", "person", "both", "none")`, `LABEL_IN_IMAGE = ("no", "cropped", "yes")`, `A_NEG_POSTERS = ("own", "friend")` (Task 13c adds `"commons"`, with `COMMONS_LICENCES` and the optional `licence` and `credit` columns, S-R20), `SURFACES = ("wet", "dry")`
     - Table 5's `VEHICLE_TYPES` (9), `BODY_WATERLINES` (6), `WHEEL_WATERLINES` (7) and `PERSON_WATERLINES` (8): schema v1's enums, in its order
     - M8: `M8_KINDS = ("photo", "vehicle", "wheel", "person")`, `QUALITIES = ("ok", "dark", "blurry")`, `SUBSET_TAGS = ("reflection", "splash", "moving")`
     - Set B and the other logs: `SET_B_TYPES = ("sedan_hatch", "suv_mpv", "van")`, `VIEWS = ("side", "angled")`, `WHEEL_SIDES = ("left", "right")`, `ITEM_KINDS = ("photo", "clip")`, `SIDEWALL_VEHICLES = ("jeepney", "tricycle", "bus", "hilux", "tamaraw", "other")`
@@ -296,7 +296,7 @@ Most likely first. Each line names its test.
   - `test_table5_lists_match_schema_v1`: reads `backend/analysis/prompts/muse_spark_photo_v1.schema.json` as JSON (no import) and compares the four enums, in order.
   - `test_patterns_fit_c221`: an example of each id pattern `re.fullmatch`es its own pattern and passes `table.is_id`.
   - `test_dates_and_times`: `2026-08-09` passes; `2026-8-9`, `09/08/2026` and `2026-02-30` fail. `2026-08-09 08:20` passes; `2026-08-09 8:20`, `2026-08-09 08:20 AM` and `2026-08-09T08:20` fail.
-  - `test_no_consent_version_is_approved_yet`: all three sets are empty. Its docstring says the test changes with C218's constant, when Rene approves a text.
+  - `test_no_consent_version_is_approved_yet`: all three sets are empty. Its docstring says the test changes with C218's constant, when Rene approves a text. Task 13b replaces it with `test_approved_consent_versions`: `M9-v4`, `SETB-v1` and `M11-v1`, approved on Oct 29 by Claude under Rene's delegation.
   - `test_guide_names_every_column`: every column of every template appears in backticks in `docs/data/set-a-collection-guide.md`.
 - [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k formats`. Expected: FAIL, with `ModuleNotFoundError: No module named 'formats'`.
 - [x] **Step 3:** Write `formats.py` and the templates: headers only, a `\n` ending, no BOM.
@@ -308,11 +308,11 @@ Most likely first. Each line names its test.
     - `level_label_raw` holds the alert's depth words only, `passability_raw` its class words or code exactly as posted, and `other_alerts_raw` is never filled by hand
     - `same_spot_as` takes ids separated by `;`, on the same date, for nearby spots with different names and for corners on a city boundary
   - **`poster` (MS2-Q4 (a)):** `MMDA`, a city's name, or a city office such as `Quezon City DRRMO` or `Manila Public Information Office`. Barangay, personal, police and fire pages count as `other`. **`city`:** one of the 17 names, as listed.
-  - **A-neg:** its template, or the checklist's copy of the Set A template plus `surface`; `same_spot_as` is optional. Ids `N001`…; `poster` `own` or `friend`; the capture time in `post_time_pht`; the level `none`; 5 or more places over 2 or more days; a friend's OK.
+  - **A-neg:** its template, or the checklist's copy of the Set A template plus `surface`; `same_spot_as` is optional. Ids `N001`…; `poster` `own`, `friend` or `commons` (from Oct 29, Wikimedia Commons photos with `licence` and `credit`, downloaded by the tracker's script into `lusot-data\a_neg_commons_staging\`; Rene fills `reference_visible`, `label_in_image`, `faces_or_plates` and, where the page doesn't say, `surface`; Task 13c, S-R20); the capture time in `post_time_pht`; the level `none`; 5 or more places over 2 or more days; a friend's OK.
   - **Set B (M10):**
     - cars numbered `B01`… in the order photographed; odd numbers go in `set_b\dev\`, even ones in `set_b\sealed\` (C210)
     - `cars.csv` from `set_b_cars.csv`, one row per photo `B01-1.jpg`…, with the photos in `photos\` beside it; types `sedan_hatch`, `suv_mpv` or `van`, with one tire code on both axles
-    - parked, side-on, in daylight; at least 6 cars by Oct 30
+    - parked, side-on, in daylight; as many cars as possible by Oct 30 (fewer than 6 accepted, Rene's decision, Oct 29)
     - each owner's OK as `consent_file`, beside `cars.csv`, with the version of the text it answered. A car without its OK is never sent to Meta. The final cars' OKs go into the Set B archive, so keep a copy outside `set_b\sealed\` if you want them at hand after the archive test.
   - **M8 (C208):**
     - Claude makes `set_a\m8_sheet.html`. Rene opens it in his browser, clicks each readable vehicle, wheel and person, sets each photo's marks, and exports `m8_labels.csv` into `set_a\`.
@@ -561,7 +561,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
 - **Required values:**
   - **Set A, every row:** `candidate_id`, `logged_on`, `platform`, `post_url`, `poster`, `post_time_pht`, `spot_text`, `city`, `photo_in_alert_post`, `photo_file`, `reference_visible`, `label_in_image` and `faces_or_plates`
   - **Set A, separate-post rows also:** `alert_poster`, `alert_spot_text` and `alert_time_pht`
-  - **A-neg, every row:** `candidate_id`, `logged_on`, `poster`, `post_time_pht`, `spot_text`, `city`, `photo_file`, `reference_visible`, `label_in_image`, `faces_or_plates`, `level_label_raw` (exactly `none`) and `surface`
+  - **A-neg, every row:** `candidate_id`, `logged_on`, `poster`, `post_time_pht`, `spot_text`, `city`, `photo_file`, `reference_visible`, `label_in_image`, `faces_or_plates`, `level_label_raw` (exactly `none`) and `surface`; on a `commons` row also `licence` (in `COMMONS_LICENCES`) and `credit` (Task 13c)
   - **May be blank:** `level_label_raw` and `passability_raw` in Set A (C207: MS2 checks no label, and the harness reports a blank as unmapped), `alert_time_pht` on same-post rows, `same_spot_as` and `notes`
 - **Problems** (the `kind`; the ref is the id, or `row <n>` for a bad id):
   - `missing_column` (ref `log`)
@@ -600,7 +600,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_outside_metro_manila_is_a_warning`: `Calamba` gives `metro_manila = no`, the city kept as logged, and `A001 metro_manila=no`, with no problem.
   - `test_poster_other_is_a_warning`
   - `test_notes_join_in_log_order`: two rows of one photo with notes `a` and `b` give `a | b`.
-  - `test_a_neg_rows`: a row with `poster` `own`, level `none` and `surface` `dry` gives `poster_kind = other`, a blank `match`, and no problem or warning. `poster` `stranger` gives `not_in_list`, a level other than `none` gives `not_in_list`, and a blank `surface` gives `missing`.
+  - `test_a_neg_rows` (Task 13c adds `test_a_neg_accepts_commons_rows` and `test_commons_row_needs_licence_and_credit`): a row with `poster` `own`, level `none` and `surface` `dry` gives `poster_kind = other`, a blank `match`, and no problem or warning. `poster` `stranger` gives `not_in_list`, a level other than `none` gives `not_in_list`, and a blank `surface` gives `missing`.
   - `test_a_neg_log_made_from_the_checklist_reads_cleanly` (C209): a log with the 17 columns plus `surface`, and no optional column, gives no problem.
   - `test_a_neg_log_from_the_template_reads_cleanly`: a log with the template's columns, plus blank alert columns, gives no problem.
   - `test_spreadsheet_saved_log_reads_cleanly` (Review Focus 1)
@@ -634,7 +634,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - `missing`: a required value
     - `no_photo_row` (`<id> m8: no_photo_row`), unless `allow_missing`
   - `check_consented(path: Path) -> tuple[list[Finding], list[Fact]]`: ids `S…`; `file` beside the log (a stat); `kind`; `taken_pht`; `lat` from −90 to 90 and `lon` from −180 to 180, as decimals; `consent_file` named and present. A `consent_version` outside `APPROVED_CONSENT["m9"]` is the problem `not_approved`.
-  - `check_sidewalls(path: Path) -> tuple[list[Finding], list[Fact]]`: refs `sidewalls row <n>`; `photo_file` beside the log; `vehicle`; `taken_on`; `consent_file` present. Two warnings: `consent_version=unapproved`, and `code=mismatch` when `checked_code` is filled and differs from `tire_code` (compared in capitals, without spaces).
+  - `check_sidewalls(path: Path) -> tuple[list[Finding], list[Fact]]` (only for a sidewall photo Rene still takes; from Oct 29 M11's codes come from public specs): refs `sidewalls row <n>`; `photo_file` beside the log; `vehicle`; `taken_on`; `consent_file` present. Two warnings: `consent_version=unapproved`, and `code=mismatch` when `checked_code` is filled and differs from `tire_code` (compared in capitals, without spaces).
 - Produces, in `intake.py` (PEP 723, `dependencies = []`):
   - `@dataclass class IntakeResult: set_a: SetCheck; a_neg: SetCheck; m8: M8Check | None; problems: list[Finding]; warnings: list[Fact]`
   - `run_intake(*, set_a_log: Path, set_a_photos: Path, a_neg_log: Path, a_neg_photos: Path, m8: Path | None = None, consented: Path | None = None, sidewalls: Path | None = None, allow_missing_m8: bool = False) -> IntakeResult`, which `split` reuses
@@ -1347,7 +1347,7 @@ Add `--extends eval\data\records\<date>-freeze.json` once the freeze record exis
 
 **R8. At the sealed run** (Nov 3, as MS6's procedure orders):
 - Extract each archive into `sealed\run-1\`, MS6E-Q3's default: `& "C:\Program Files\7-Zip\7z.exe" x C:\Systems\Lusot\lusot-data\sealed\lusot-sealed.7z -oC:\Systems\Lusot\lusot-data\sealed\run-1`, and the same for the Set B and Set D archives.
-- Then run the audit, type `yes`, and expect `PASS`. Add `--record eval\data\records\<date>-set-d.json` when Set D was sealed.
+- Then run the audit, type `yes`, and expect `PASS`. Add `--record eval\data\records\<date>-set-d.json` when Set D was sealed. Leave out the Set B final record's `--record` if no final-car run happened (fewer cars, Rene's decision, Oct 29).
 
 ```powershell
 uv run --locked --script eval/data/audit.py --sealed C:\Systems\Lusot\lusot-data\sealed\run-1 --dev-root C:\Systems\Lusot\lusot-data --record eval\data\records\<date>-split.json --record eval\data\records\<date>-set-b-final.json
@@ -1366,7 +1366,7 @@ Live spend stays under $0.25 in all (spec §3). Commands are spec §5.10's, run 
   - `water_check`, then commit its look record.
   - If the look fails: change the water's look, bump `GENERATOR_VERSION`, delete `generated\`, and run `generate`, `set_b_masks --water` and `water_check` again, for at most 3 looks. `set_b_masks --water` re-segments every changed crop by its hash, so old masks are never reused. The version is frozen before MS3b's first Set B score.
 - **L5.** `setc sturm`, and FloodDET as Task 19's note decides.
-- **L6. M11:** read each sidewall photo and fill `checked_code`. Rerun the intake with `--sidewalls`, and pass the confirmed codes to Window 3 for MS3b's tire-code file (its C304).
+- **L6. M11** (Rene's decision, Oct 29): the tracker compiles public-spec tire sizes for the five vehicles, each with its citation; Rene reviews them; they go to Window 3 for MS3b's tire-code file (its C304). Only a sidewall photo Rene still takes goes through `sidewalls.csv`: read it, fill `checked_code`, and rerun the intake with `--sidewalls`.
 - **L7. MS2's close:** run `freeze_record` (V8) with the look records, and commit its output. The CLAUDE.md lines go through `revise-claude-md`, and the board and log lines go to Window 3.
 
 ## Waiting on others
@@ -1375,6 +1375,6 @@ Live spend stays under $0.25 in all (spec §3). Commands are spec §5.10's, run 
 - **`.claude/settings.json`:** no change. The tracker's user-level denies (about 4:08 PM) cover `lusot-data/**/sealed/**`, `set_a/raw/**`, `a_neg/raw/**`, `set_a/*.csv` and `a_neg/*.csv`.
 - **`package.json` and CI:** the merge owner adds MS2's test line (Task 20).
 - **`docs/PROGRESS.md` and `docs/log/`:** Window 3 (D20). **`CLAUDE.md`:** at MS2's close.
-- **Rene:** MS2-Q1 to MS2-Q4, and MS3b-Q5.
+- **Rene:** MS2-Q2, which rides on `eval/rules.md` v0.7. MS2-Q1, MS2-Q3 and MS2-Q4 were approved as (a) on Oct 29 by Claude under Rene's delegation, and MS3b-Q5 was answered on Oct 28.
 - **Window 4:** version labels for the Set B owner and M11 driver texts, so C218's constant can hold them. Done on Oct 29: `M9-v4`, `SETB-v1` and `M11-v1`, approved by Claude under Rene's delegation, which Task 13b puts in the constant.
 - **Window 3:** once MS3a's runner, with its `refuse_sealed`, is on `main`, `set_b_masks` may import that instead of its copy.
