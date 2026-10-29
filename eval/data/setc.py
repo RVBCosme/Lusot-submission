@@ -14,13 +14,14 @@ Both paths are absolute, and neither may lie inside a folder named sealed. --out
 not exist yet: a manifest is created once and never rewritten, so a rerun needs a new
 path.
 
-The walk is the one folder listing MS2's tools make (spec §5.2). It goes top-down,
-descends no symbolic link, and never descends a folder whose name guards.is_sealed_name
-calls sealed, the rule the path guard applies. A folder it can't read stops the run before
---out is written. An image (.jpg, .jpeg or .png, in any case) gets a row when a folder
-below --root named Level0 to Level4, in any case, holds it, and the nearest such
-folder sets its level. Every other file counts as skipped. The rows, sorted by path,
-go into a CSV of path (relative to --root, with /), level and sha256.
+The walk is the one folder listing MS2's tools make (spec §5.2). It goes top-down and
+never descends a folder whose name guards.is_sealed_name calls sealed, the rule the
+path guard applies, nor a folder link: a symbolic link or a junction (S-R33). A folder
+it can't read stops the run before --out is written. An image (.jpg, .jpeg or .png, in
+any case) gets a row when a folder below --root named Level0 to Level4, in any case,
+holds it, and the nearest such folder sets its level. A file link is never read: it
+and every other file count as skipped. The rows, sorted by path, go into a CSV of path
+(relative to --root, with /), level and sha256.
 
 It prints files=<n>, the count per level and skipped=<k>, never a file name or path.
 Exit codes: 0 written; 1 a folder the walk can't read, or another error, of which only
@@ -85,19 +86,30 @@ def _sturm(root: Path, out: Path) -> int:
     for folder, subfolders, files in os.walk(
         root, topdown=True, onerror=_stop, followlinks=False
     ):
-        # Pruned in place, so the walk never descends a sealed folder (PF-C27).
-        subfolders[:] = [name for name in subfolders if not guards.is_sealed_name(name)]
+        # Pruned in place, so the walk never descends a sealed folder (PF-C27), nor a
+        # folder link, junctions included, which followlinks=False alone would enter
+        # (S-R33). The name is checked first, so a sealed folder isn't even looked up.
+        subfolders[:] = [
+            name
+            for name in subfolders
+            if not guards.is_sealed_name(name) and not _is_link(Path(folder, name))
+        ]
         parts = Path(folder).relative_to(root).parts
         level = _level(parts)
         for name in files:
-            if level is None or Path(name).suffix.lower() not in IMAGES:
+            path = Path(folder, name)
+            if (
+                level is None
+                or path.suffix.lower() not in IMAGES
+                or os.path.islink(path)
+            ):
                 skipped += 1
                 continue
             rows.append(
                 {
                     "path": "/".join((*parts, name)),
                     "level": str(level),
-                    "sha256": table.sha256_file(Path(folder, name)),
+                    "sha256": table.sha256_file(path),
                 }
             )
     rows.sort(key=lambda row: row["path"])
@@ -115,6 +127,12 @@ def _level(parts: Sequence[str]) -> int | None:
         if match := LEVEL.fullmatch(part):
             return int(match[1])
     return None
+
+
+def _is_link(path: Path) -> bool:
+    """True for a folder link: a symbolic link, or a Windows junction, which
+    os.path.islink doesn't call a link."""
+    return os.path.islink(path) or os.path.isjunction(path)
 
 
 def _stop(error: OSError) -> None:

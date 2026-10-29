@@ -73,20 +73,32 @@ def test_sturm_manifest(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("name", ["sealed", "Sealed", "SEALED"])
-def test_walk_skips_sealed_folders(tmp_path, capsys, name):
+def test_walk_skips_sealed_folders(tmp_path, capsys, monkeypatch, name):
     """Addition 1: a folder named sealed, in any case, is pruned before the walk
     descends it. None of its files is listed or counted, and no open or os.scandir
-    event falls inside it."""
+    event falls inside it. Its name is checked before the link checks (S-R33), so it
+    isn't even looked up."""
     root = tree(
         tmp_path / "sturm",
         "Level2/kept.jpg",
         f"Level2/{name}/z.jpg",
         f"Level2/{name}/Level1/w.png",
     )
+    looked_up = []
+    for check in ("islink", "isjunction"):
+        real = getattr(os.path, check)
+
+        def spy(path, real=real):
+            looked_up.append(os.fspath(path))
+            return real(path)
+
+        monkeypatch.setattr(os.path, check, spy)
     out = tmp_path / "manifest.csv"
     assert setc.main(args(root, out)) == 0
     assert paths(out) == ["Level2/kept.jpg"]
     assert capsys.readouterr() == (counts(1, (0, 0, 1, 0, 0), 0), "")
+    assert str(root / "Level2" / "kept.jpg") in looked_up
+    assert [path for path in looked_up if inside(path, root / "Level2" / name)] == []
     code, events = synth.opened_paths(SETC, args(root, tmp_path / "again.csv"))
     assert code == 0
     assert [item for item in events if inside(item[1], root / "Level2" / name)] == []
@@ -107,6 +119,75 @@ def test_the_walk_follows_no_link(tmp_path):
     out = tmp_path / "manifest.csv"
     assert setc.main(args(root, out)) == 0
     assert paths(out) == ["Level2/kept.jpg"]
+
+
+def test_the_walk_enters_no_junction(tmp_path, capsys):
+    """S-R33: a junction to a folder outside --root is pruned, though os.walk's
+    followlinks=False alone would enter it, and nothing under it or its target opens.
+    Windows makes a junction without elevation; other systems have none."""
+    winapi = pytest.importorskip("_winapi")
+    elsewhere = tree(tmp_path / "elsewhere", "Level1/x.jpg")
+    root = tree(tmp_path / "sturm", "Level2/kept.jpg")
+    winapi.CreateJunction(str(elsewhere), str(root / "Level3"))
+    assert os.path.isjunction(root / "Level3")
+    out = tmp_path / "manifest.csv"
+    assert setc.main(args(root, out)) == 0
+    assert paths(out) == ["Level2/kept.jpg"]
+    assert capsys.readouterr() == (counts(1, (0, 0, 1, 0, 0), 0), "")
+    code, events = synth.opened_paths(SETC, args(root, tmp_path / "again.csv"))
+    assert code == 0
+    assert [
+        item
+        for item in events
+        if inside(item[1], elsewhere) or inside(item[1], root / "Level3")
+    ] == []
+    # The hook sees the walk's reads, so the check above isn't empty by default.
+    assert ("os.scandir", str(root / "Level2")) in events
+
+
+def test_a_file_link_is_skipped_and_never_read(tmp_path, capsys):
+    """S-R33: a symbolic link to a file counts as skipped and is never opened, so no
+    hash is read through it. Skipped where symbolic links can't be made, as on Windows
+    outside Developer Mode; CI's Ubuntu runs it."""
+    elsewhere = tree(tmp_path / "elsewhere", "x.jpg")
+    root = tree(tmp_path / "sturm", "Level2/kept.jpg")
+    link = root / "Level2" / "linked.jpg"
+    try:
+        os.symlink(elsewhere / "x.jpg", link)
+    except OSError:
+        pytest.skip("this system can't make a symbolic link")
+    out = tmp_path / "manifest.csv"
+    assert setc.main(args(root, out)) == 0
+    assert paths(out) == ["Level2/kept.jpg"]
+    assert capsys.readouterr() == (counts(1, (0, 0, 1, 0, 0), 1), "")
+    code, events = synth.opened_paths(SETC, args(root, tmp_path / "again.csv"))
+    assert code == 0
+    assert [
+        item for item in events if inside(item[1], link) or inside(item[1], elsewhere)
+    ] == []
+
+
+def test_a_file_the_system_calls_a_link_is_skipped(tmp_path, capsys, monkeypatch):
+    """S-R33, pinned on Windows too, where a file link needs Developer Mode: a file
+    os.path.islink calls a link counts as skipped and is never hashed."""
+    root = tree(tmp_path / "sturm", "Level2/kept.jpg", "Level2/linked.jpg")
+    link = root / "Level2" / "linked.jpg"
+    islink, sha256_file = os.path.islink, table.sha256_file
+    hashed = []
+
+    def spy(path):
+        hashed.append(Path(path))
+        return sha256_file(path)
+
+    monkeypatch.setattr(
+        os.path, "islink", lambda path: Path(path) == link or islink(path)
+    )
+    monkeypatch.setattr(table, "sha256_file", spy)
+    out = tmp_path / "manifest.csv"
+    assert setc.main(args(root, out)) == 0
+    assert paths(out) == ["Level2/kept.jpg"]
+    assert capsys.readouterr() == (counts(1, (0, 0, 1, 0, 0), 1), "")
+    assert hashed == [root / "Level2" / "kept.jpg"]
 
 
 def test_pruning_shares_the_guards_rule(tmp_path, monkeypatch):
