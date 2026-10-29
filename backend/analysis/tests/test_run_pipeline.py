@@ -13,14 +13,32 @@ import re
 from pathlib import Path
 
 import pytest
-from fakes import FakeClient, level_case, meta_error, noise_jpeg
+from fakes import (
+    REPO_PROMPTS,
+    FakeClient,
+    geometry_case,
+    level_case,
+    meta_error,
+    noise_jpeg,
+)
 
+from lusot_analysis import handler
 from lusot_analysis.meta_client import ModelRefused
 from lusot_analysis.pipeline import READING_PHRASES
 from lusot_analysis.pipeline.types import Outcome
+from lusot_analysis.tuning import START, TUNING
 
 RUNNER = Path(__file__).parents[1] / "probes" / "run_pipeline.py"
 REASON = "REASON-MARKER-31"  # the reason fakes.answer gives every answer
+# The settings MS3b's runs record in run.json (v0.7 item 10.1)
+CONFIG_KEYS = (
+    "geometry_in_level",
+    "tuning",
+    "tire_codes_version",
+    "reasoning_effort",
+    "drawing_version",
+    "sam_from",
+)
 
 
 def load_runner():
@@ -50,19 +68,40 @@ def write_photo(path: Path) -> Path:
     return path
 
 
-def live_run(tmp_path, monkeypatch, capsys, client=None):
-    """A live run of the level case's photo, tmp_path/street.jpg, through main.
+def live_run(tmp_path, monkeypatch, capsys, client=None, *, case=level_case, flags=()):
+    """A live run of `case`'s photo, tmp_path/street.jpg, through main, with `flags`.
 
-    make_client gives `client`, by default a FakeClient on the level case, and the
-    data folder is tmp_path. Returns the photo, the run folder, the fake and stdout.
+    make_client gives `client`, by default a FakeClient on `case`, the level case by
+    default, and the data folder is tmp_path. The run starts from START (R128).
+    Returns the photo, the run folder, the fake and stdout.
     """
-    _, sam, given = level_case()
+    data, sam, given = case()
     fake = FakeClient(sam, given) if client is None else client
     monkeypatch.setattr(runner, "make_client", lambda: fake)
-    photo = write_photo(tmp_path / "street.jpg")
-    assert runner.main(["live", str(photo), "--data-dir", str(tmp_path)]) == 0
+    photo = tmp_path / "street.jpg"
+    photo.write_bytes(data)
+    argv = ["live", str(photo), "--data-dir", str(tmp_path), *flags]
+    assert runner.main(argv, tuning=START) == 0
     (run_dir,) = (tmp_path / "runs").glob("*/*")
     return photo, run_dir, fake, capsys.readouterr().out
+
+
+def read_json(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def judged_efforts(client: FakeClient) -> list[object]:
+    """The reasoning effort of each judge call the fake recorded."""
+    return [
+        keywords["reasoning_effort"]
+        for (kind, _, _), keywords in zip(client.calls, client.keywords, strict=True)
+        if kind == "judge"
+    ]
+
+
+def no_segment(phrase: str) -> None:
+    """A segment hook for a run that must pay for no SAM call."""
+    raise AssertionError("a SAM call was made")
 
 
 @pytest.mark.parametrize(
@@ -196,16 +235,24 @@ def test_live_sends_the_reading_phrases_and_saves_under_the_data_dir(
     # Counts and timings only: never the answer, its reason or a path.
     assert "meta_calls" in out
     assert REASON not in out
+    # Geometry is on by default. The level case has no rim, so its wheel keeps the
+    # landmark reading.
     assert out.splitlines() == [
         "outcome: done/level, level knee",
+        "level_from: landmark",
         "meta_calls: 6",
+        "reasoning_effort: default",
+        "drawing_version: boxes-v1",
         "SAM floodwater: instances 1, 500 ms",
         "SAM wheel: instances 1, 500 ms",
         "SAM wheel rim: instances 0, 500 ms",
         "SAM person: instances 0, 500 ms",
         "SAM vehicle: instances 1, 500 ms",
         "Muse Spark: 1500 ms, tokens 1000 in, 200 out",
+        "reasoning_tokens: None",
         "drops: {}",
+        "wheels_measured: 0",
+        'geometry_checks: {"rim_missing": 1}',
     ]
     assert str(photo.parent) not in out
 
@@ -358,6 +405,237 @@ def test_live_and_replay_return_their_runs(tmp_path, monkeypatch):
     replayed = runner.replay(photo, run_dir)
     assert replayed.outcome == live.outcome
     assert replayed.log == live.log
+
+
+# MS3b: the geometry setting, the tuning, the effort and the drawing in saved runs
+
+
+def test_live_records_the_geometry_config(tmp_path, monkeypatch):
+    # v0.7 item 10.1: a run folder records what it was run with (C316).
+    data, sam, given = geometry_case()
+    monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    photo = tmp_path / "street.jpg"
+    photo.write_bytes(data)
+    run_dir, run = runner.live(photo, tmp_path, tuning=START)
+    assert run.outcome.level_from == "geometry"
+    saved = read_json(run_dir / "run.json")
+    assert {key: saved[key] for key in CONFIG_KEYS} == {
+        "geometry_in_level": True,
+        "tuning": {**dataclasses.asdict(START), "untuned": sorted(START.untuned)},
+        "tire_codes_version": "tire-codes-v1",
+        "reasoning_effort": None,
+        "drawing_version": "boxes-v1",
+        "sam_from": False,
+    }
+    assert saved["tuning"]["version"] == "tuning-v1"
+
+
+@pytest.mark.parametrize(
+    ("geometry", "outcome"),
+    [("off", "refused/no_usable_reference"), ("on", "done/level, level half_knee")],
+)
+def test_replay_uses_the_saved_config(tmp_path, monkeypatch, capsys, geometry, outcome):
+    # C309, C318: off, a van is dropped by its type; on, geometry alone reads its
+    # wheel. A replay takes the setting and the tuning from run.json, so each run
+    # replays to its own outcome.
+    photo, run_dir, _, live_out = live_run(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        case=lambda: geometry_case("van"),
+        flags=("--geometry", geometry),
+    )
+    assert live_out.splitlines()[0] == f"outcome: {outcome}"
+    assert read_json(run_dir / "run.json")["geometry_in_level"] is (geometry == "on")
+    monkeypatch.setattr(runner, "make_client", no_client)
+    assert runner.main(["replay", str(photo), str(run_dir)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert (out[0], out[-1]) == (f"outcome: {outcome}", "same as saved: True")
+
+
+def test_effort_and_drawing_flags_reach_judge(tmp_path, monkeypatch, capsys):
+    # C312, C325: a development run's flags change what Muse Spark is sent, and the
+    # run records them, so runs at different settings never mix (finding 5).
+    photo, run_dir, fake, out = live_run(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        flags=("--effort", "low", "--drawing", "boxes-v2"),
+    )
+    assert judged_efforts(fake) == ["low"]
+    saved = read_json(run_dir / "run.json")
+    assert (saved["reasoning_effort"], saved["drawing_version"]) == ("low", "boxes-v2")
+    assert (saved["tuning"]["reasoning_effort"], saved["tuning"]["drawing"]) == (
+        "low",
+        "boxes-v2",
+    )
+    assert {"reasoning_effort: low", "drawing_version: boxes-v2"} <= set(
+        out.splitlines()
+    )
+    # `default` sends no effort, even when the tuning names one: Muse Spark picks.
+    _, sam, given = level_case()
+    fake = FakeClient(sam, given)
+    monkeypatch.setattr(runner, "make_client", lambda: fake)
+    run_dir = tmp_path / "default-effort"
+    argv = ["live", str(photo), "--run-dir", str(run_dir), "--effort", "default"]
+    high = dataclasses.replace(START, reasoning_effort="high")
+    assert runner.main(argv, tuning=high) == 0
+    assert judged_efforts(fake) == [None]
+    assert read_json(run_dir / "run.json")["reasoning_effort"] is None
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [("--effort", "extreme"), ("--drawing", "boxes-v9"), ("--geometry", "maybe")],
+    ids=["effort", "drawing", "geometry"],
+)
+def test_unknown_flag_values_are_usage_errors(tmp_path, monkeypatch, capsys, flags):
+    # R146: argparse's choices refuse them with its usage error, exit 2, before any
+    # file is opened, any client is built or anything is paid for.
+    photo = tmp_path / "street.jpg"  # never written
+    monkeypatch.setattr(runner, "make_client", no_client)
+    with pytest.raises(SystemExit) as exc:
+        runner.main(["live", str(photo), *flags])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.fixture
+def handler_prompts(monkeypatch):
+    """The repo's prompts as the handler's PROMPTS_DIR, read fresh by the test."""
+    monkeypatch.setenv("PROMPTS_DIR", str(REPO_PROMPTS))
+    handler._prompt.cache_clear()
+    yield
+    handler._prompt.cache_clear()
+
+
+def test_handler_and_runner_send_the_same_effort(
+    tmp_path, monkeypatch, handler_prompts
+):
+    # §D2: with their defaults, the laptop and the Lambda send Muse Spark the live
+    # TUNING's effort and draw its boxes the same way. It reads TUNING's fields, with
+    # no number of its own (R128).
+    data, sam, given = level_case()
+    laptop, cloud = FakeClient(sam, given), FakeClient(sam, given)
+    monkeypatch.setattr(runner, "make_client", lambda: laptop)
+    photo = tmp_path / "street.jpg"
+    photo.write_bytes(data)
+    run_dir, live = runner.live(photo, tmp_path)
+    handled = handler.analyse(data, cloud)
+    assert judged_efforts(laptop) == judged_efforts(cloud) == [TUNING.reasoning_effort]
+    assert live.log["reasoning_effort"] == handled.log["reasoning_effort"]
+    assert live.log["drawing_version"] == handled.log["drawing_version"]
+    assert handled.log["drawing_version"] == TUNING.drawing
+    saved = read_json(run_dir / "run.json")
+    assert (saved["reasoning_effort"], saved["drawing_version"]) == (
+        TUNING.reasoning_effort,
+        TUNING.drawing,
+    )
+
+
+def test_sam_from_pays_only_for_judge(tmp_path, monkeypatch, capsys):
+    # C312's runs of Muse Spark alone: --sam-from reuses a saved run's SAM outputs,
+    # so only judge is paid for, and the run is saved as a run of its own.
+    photo, first, _, _ = live_run(tmp_path, monkeypatch, capsys)
+    _, sam, given = level_case()
+    fake = FakeClient(sam, given, on_segment=no_segment)
+    monkeypatch.setattr(runner, "make_client", lambda: fake)
+    judged = tmp_path / "judged"
+    argv = ["live", str(photo), "--run-dir", str(judged), "--sam-from", str(first)]
+    assert runner.main(argv, tuning=START) == 0
+    assert [kind for kind, _, _ in fake.calls] == ["judge"]
+    assert capsys.readouterr().out.splitlines()[0] == "outcome: done/level, level knee"
+    saved = read_json(judged / "run.json")
+    assert saved["sam_from"] is True
+    assert saved["phrases"] == list(READING_PHRASES)
+    # The new run replays to its own saved outcome, with no call at all.
+    monkeypatch.setattr(runner, "make_client", no_client)
+    assert runner.main(["replay", str(photo), str(judged)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "same as saved: True"
+
+
+def test_run_dir_flag_writes_there(tmp_path, monkeypatch, capsys):
+    _, sam, given = level_case()
+    monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    photo = write_photo(tmp_path / "street.jpg")
+    run_dir = tmp_path / "elsewhere" / "run-1"
+    argv = ["live", str(photo), "--data-dir", str(tmp_path / "data"), "--run-dir"]
+    assert runner.main([*argv, str(run_dir)], tuning=START) == 0
+    assert (run_dir / "run.json").is_file()
+    assert not (tmp_path / "data").exists()
+    assert "elsewhere" not in capsys.readouterr().out  # no path is printed
+    returned, _ = runner.live(
+        photo, tmp_path / "data", run_dir=tmp_path / "run-2", tuning=START
+    )
+    assert returned == tmp_path / "run-2"
+    assert (returned / "run.json").is_file()
+
+
+@pytest.mark.parametrize("flag", ["--run-dir", "--sam-from"])
+def test_sealed_run_dirs_are_refused(tmp_path, monkeypatch, capsys, flag):
+    # C66: the run folder written and the one read from are checked too, before the
+    # photo is read. None of these exists, and none is made.
+    photo = tmp_path / "street.jpg"  # never written
+    monkeypatch.setattr(runner, "make_client", no_client)
+    folder = tmp_path / "Sealed" / "run"
+    argv = ["live", str(photo), "--data-dir", str(tmp_path / "data"), flag]
+    assert runner.main([*argv, str(folder)]) == 2
+    assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("flag", ["--run-dir", "--sam-from"])
+def test_repo_run_dirs_are_refused(tmp_path, monkeypatch, capsys, flag):
+    # R131: a run folder holds masks and Muse Spark's reason (C62), so one inside the
+    # repo is refused, to write or to read, before any client, call or folder.
+    folder = RUNNER.parents[1] / "runs-r131-test"
+    monkeypatch.setattr(runner, "make_client", no_client)
+    photo = write_photo(tmp_path / "street.jpg")
+    argv = ["live", str(photo), "--data-dir", str(tmp_path), flag, str(folder)]
+    assert runner.main(argv) == 2
+    assert capsys.readouterr().out == "refused: the data folder is inside the repo\n"
+    assert not folder.exists()
+    assert not (tmp_path / "runs").exists()
+
+
+def test_old_runs_replay_with_geometry_off(tmp_path, monkeypatch, capsys):
+    # An MS3a run folder: its run.json has none of the new keys, and its outcome none
+    # of Task 4's three fields. It replays with geometry off and START. The level
+    # case's water touches its wheel, so step 3 changes nothing, and the outcome is
+    # the saved one (R141).
+    photo, run_dir, _, _ = live_run(tmp_path, monkeypatch, capsys)
+    saved = read_json(run_dir / "run.json")
+    for key in CONFIG_KEYS:
+        del saved[key]
+    for key in ("level_from", "depth_in_min", "depth_in_max"):
+        del saved["outcome"][key]
+    (run_dir / "run.json").write_text(json.dumps(saved), encoding="utf-8")
+    monkeypatch.setattr(runner, "make_client", no_client)
+    replayed = runner.replay(photo, run_dir)
+    logged = (replayed.log["geometry_in_level"], replayed.log["tuning_version"])
+    assert logged == ("off", START.version)
+    assert "wheels_measured" not in replayed.log
+    assert runner.main(["replay", str(photo), str(run_dir)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "same as saved: True"
+
+
+def test_replay_refuses_runs_saved_under_other_cut_values(
+    tmp_path, monkeypatch, capsys
+):
+    # R144: C56's 40 px rule and C70's caps are constants, never swept, so a replay
+    # can't number boxes under a run's own values. A run.json that records others is
+    # refused before the pipeline runs.
+    photo, run_dir, _, _ = live_run(tmp_path, monkeypatch, capsys)
+    monkeypatch.setattr(runner, "make_client", no_client)
+    text = (run_dir / "run.json").read_text(encoding="utf-8")
+    for name in ("min_wheel_side_px", "max_vehicles", "max_people"):
+        saved = json.loads(text)
+        saved["tuning"][name] += 1
+        (run_dir / "run.json").write_text(json.dumps(saved), encoding="utf-8")
+        assert runner.main(["replay", str(photo), str(run_dir)]) == 1
+        out = capsys.readouterr().out
+        assert out == "refused: saved under other C56/C70 values\n"
 
 
 def test_every_line_masks_twelve_digit_runs(capsys):

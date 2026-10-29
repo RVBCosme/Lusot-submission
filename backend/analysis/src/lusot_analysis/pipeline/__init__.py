@@ -16,6 +16,7 @@ import numpy as np
 
 from lusot_analysis import rules
 from lusot_analysis.annotate import (
+    DRAWINGS,
     NumberedBox,
     check_ids_per_item,
     draw_numbered_boxes,
@@ -23,6 +24,7 @@ from lusot_analysis.annotate import (
 )
 from lusot_analysis.face_blur import UndecodableImage, blur_for_meta
 from lusot_analysis.meta_client import (
+    REASONING_EFFORTS,
     SAM_MODEL,
     SAM_PHRASES,
     SPARK_MODEL,
@@ -111,7 +113,9 @@ def run_pipeline(
     computed. `tuning` gives the cutoffs: the quality gate's, step 3's and the
     geometry checks' (C310). Step 3 runs either way, after the gate (C317). It also
     gives what Muse Spark is sent: its reasoning effort and the boxes' drawing (C312,
-    C325). The handler and the offline runner take the default, TUNING.
+    C325). The handler and the offline runner take the default, TUNING. An effort
+    Muse Spark doesn't take, or a drawing annotate doesn't know, raises ValueError
+    before the face blur, so it ends failed, pipeline_error, with no Meta call (R146).
 
     Errors end as outcomes (C59), checked in this order:
     - Muse Spark refused to answer: refused, model_declined (C86).
@@ -180,6 +184,15 @@ def _run_steps(
     It returns the outcome, the photo to store, and the evidence record, which is
     None until the answer passes the id check (C328).
     """
+    # What Muse Spark is to be sent, checked before anything is paid for (R146).
+    effort = tuning.reasoning_effort
+    if effort is not None and effort not in REASONING_EFFORTS:
+        raise ValueError(
+            f"reasoning effort {effort!r} isn't one of {REASONING_EFFORTS}"
+        )
+    if tuning.drawing not in DRAWINGS:
+        raise ValueError(f"drawing {tuning.drawing!r} isn't one of {DRAWINGS}")
+
     # Step 0: the face blur, before any Meta call (C20).
     try:
         image = blur_for_meta(data)

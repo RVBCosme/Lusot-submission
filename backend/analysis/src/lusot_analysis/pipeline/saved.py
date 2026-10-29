@@ -8,11 +8,13 @@ folder keeps Muse Spark's reason, which only the offline runner saves (C62).
 A run folder holds:
 - `run.json`: the photo's file name and SHA-256, the phrases SAM was asked, the
   prompt version and schema name, the model ids, the blur version, the size of the
-  image SAM saw, the outcome and the log
+  image SAM saw, the outcome and the log. A run saved with its settings, as the
+  offline runner saves every run, also records them (run_config; v0.7 item 10.1).
 - `sam/<phrase>.json`, with the phrase's spaces as `_`: the phrase, its time, and
   each instance's id, box and score. `sam/<phrase>.npz` holds the masks, N x H x W,
   only when SAM found something, and `sam/<phrase>.raw` SAM's raw output text. A
-  call that failed leaves none of the three.
+  call that failed leaves none of the three. save_sam_results and load_sam_results
+  write and read this folder on its own.
 - `spark.json`: Muse Spark's answer, reason included, its token counts and its time,
   with `spark.raw`, the answer's raw text. A refusal (C86) is kept as exactly
   `{"refused": true}`, with no `spark.raw`: ModelRefused carries no text. Neither
@@ -28,11 +30,13 @@ import dataclasses
 import hashlib
 import json
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from lusot_analysis import rules
 from lusot_analysis.face_blur import BlurredImage
 from lusot_analysis.meta_client import (
     SAM_MODEL,
@@ -45,8 +49,9 @@ from lusot_analysis.meta_client import (
     SparkResult,
 )
 from lusot_analysis.pipeline.publish import PUBLISH_PHRASES
-from lusot_analysis.pipeline.types import ModelAnswerError, ModelClient
+from lusot_analysis.pipeline.types import ModelAnswerError, ModelClient, Outcome
 from lusot_analysis.prompts import PromptSpec
+from lusot_analysis.tuning import START, Tuning
 
 if TYPE_CHECKING:  # the package imports its modules, never the reverse
     from lusot_analysis.pipeline import PipelineRun
@@ -114,35 +119,25 @@ class RecordingClient:
         return result
 
     def save(
-        self, run_dir: Path, *, photo: Path, prompt: PromptSpec, run: PipelineRun
+        self,
+        run_dir: Path,
+        *,
+        photo: Path,
+        prompt: PromptSpec,
+        run: PipelineRun,
+        config: Mapping[str, object] | None = None,
     ) -> None:
         """Write the run folder for `run`, which these calls made, on `photo`.
 
         `run_dir` must not exist yet, so two runs never mix, and run.json is written
         last, so a folder without one is incomplete. The phrases come in
         SAM_PHRASES' order. Before any SAM call, `image` is None, and when step 0
-        refused the file, `blur_version` is too.
+        refused the file, `blur_version` is too. `config`, run_config's settings,
+        joins run.json only when given, so a record saved without it keeps MS3a's
+        keys exactly (R130).
         """
-        sam_dir = run_dir / "sam"
         run_dir.mkdir(parents=True)
-        sam_dir.mkdir()
-        for phrase, result in self._sam.items():
-            stem = _stem(phrase)
-            instances = [
-                {"id": inst.id, "box": list(inst.box), "score": inst.score}
-                for inst in result.instances
-            ]
-            saved = {
-                "phrase": phrase,
-                "elapsed_s": result.elapsed_s,
-                "instances": instances,
-            }
-            _write_json(sam_dir / f"{stem}.json", saved)
-            if result.instances:
-                masks = np.array([inst.mask for inst in result.instances], bool)
-                np.savez_compressed(sam_dir / f"{stem}.npz", masks=masks)
-            # Bytes, so line ends come back exactly as SAM sent them.
-            (sam_dir / f"{stem}.raw").write_bytes(result.raw.encode("utf-8"))
+        save_sam_results(run_dir, self._sam)
         if self._refused:  # no reason or text: ModelRefused carries none (C86)
             _write_json(run_dir / "spark.json", {"refused": True})
         elif self._spark is not None:
@@ -170,6 +165,8 @@ class RecordingClient:
             "outcome": dataclasses.asdict(run.outcome),
             "log": run.log,
         }
+        if config is not None:
+            record |= config
         _write_json(run_dir / "run.json", record)
 
 
@@ -215,22 +212,7 @@ class SavedOutputsClient:
             if not asked and phrase in PUBLISH_PHRASES:
                 return SamResult(phrase, [], 0.0, "")
             raise KeyError(phrase)
-        saved = json.loads(path.read_text(encoding="utf-8"))
-        masks: np.ndarray | tuple[()] = ()
-        if saved["instances"]:
-            with np.load(path.with_suffix(".npz")) as arrays:
-                masks = arrays["masks"]
-        instances = [
-            SamInstance(
-                item["id"],
-                tuple(float(value) for value in item["box"]),
-                mask,
-                item["score"],
-            )
-            for item, mask in zip(saved["instances"], masks, strict=True)
-        ]
-        raw = path.with_suffix(".raw").read_bytes().decode("utf-8")
-        return SamResult(saved["phrase"], instances, saved["elapsed_s"], raw)
+        return _read_sam_result(path)
 
     def judge(
         self,
@@ -265,6 +247,139 @@ class SavedOutputsClient:
             raw=(self._dir / "spark.raw").read_bytes().decode("utf-8"),
             reasoning_tokens=saved["reasoning_tokens"],
         )
+
+
+class SavedSamLiveJudge:
+    """A ModelClient with a saved run's SAM results and a live Muse Spark answer.
+
+    The offline runner's `--sam-from` uses it, so a run pays for `judge` alone (C312).
+    `segment` answers as `saved` does, refusing an image of another size, and `judge`
+    passes on to `live` with its keywords unchanged (R108).
+    """
+
+    def __init__(self, saved: SavedOutputsClient, live: ModelClient) -> None:
+        self._saved = saved
+        self._live = live
+
+    def segment(
+        self, image: BlurredImage, phrase: str, *, deadline: float | None = None
+    ) -> SamResult:
+        return self._saved.segment(image, phrase, deadline=deadline)
+
+    def judge(
+        self,
+        image: BlurredImage,
+        *,
+        prompt: str,
+        schema: dict,
+        schema_name: str,
+        deadline: float | None = None,
+        reasoning_effort: str | None = None,
+    ) -> SparkResult:
+        return self._live.judge(
+            image,
+            prompt=prompt,
+            schema=schema,
+            schema_name=schema_name,
+            deadline=deadline,
+            reasoning_effort=reasoning_effort,
+        )
+
+
+def save_sam_results(run_dir: Path, sam: Mapping[str, SamResult]) -> None:
+    """Write SAM's results to `run_dir`/sam, in the layout the module docstring gives.
+
+    `run_dir` is made if need be, but its `sam` folder must not exist yet, so two sets
+    of results never mix.
+    """
+    sam_dir = run_dir / "sam"
+    sam_dir.mkdir(parents=True)
+    for phrase, result in sam.items():
+        stem = _stem(phrase)
+        instances = [
+            {"id": inst.id, "box": list(inst.box), "score": inst.score}
+            for inst in result.instances
+        ]
+        saved = {
+            "phrase": phrase,
+            "elapsed_s": result.elapsed_s,
+            "instances": instances,
+        }
+        _write_json(sam_dir / f"{stem}.json", saved)
+        if result.instances:
+            masks = np.array([inst.mask for inst in result.instances], bool)
+            np.savez_compressed(sam_dir / f"{stem}.npz", masks=masks)
+        # Bytes, so line ends come back exactly as SAM sent them.
+        (sam_dir / f"{stem}.raw").write_bytes(result.raw.encode("utf-8"))
+
+
+def load_sam_results(run_dir: Path) -> dict[str, SamResult]:
+    """Every SAM result saved in `run_dir`/sam, by its phrase."""
+    paths = sorted((run_dir / "sam").glob("*.json"))
+    return {result.phrase: result for result in map(_read_sam_result, paths)}
+
+
+def rebuild_outcome(saved: Mapping[str, object]) -> Outcome:
+    """The Outcome that run.json's `outcome`, its dataclasses.asdict, was saved from.
+
+    An MS3a run's saved outcome has none of `level_from`, `depth_in_min` and
+    `depth_in_max`, so they take their defaults, and a level counts as a landmark's,
+    as it was (R141).
+    """
+    return Outcome(**saved)
+
+
+def run_config(
+    *, geometry_in_level: bool, tuning: Tuning, sam_from: bool
+) -> dict[str, object]:
+    """The settings a run was made with, as run.json records them (v0.7 item 10.1).
+
+    They are the geometry setting (C309), the whole tuning, with `untuned` as a
+    sorted list, the tire codes' version (C304), what Muse Spark was sent (C312,
+    C325), and whether SAM's results came from another run. A replay reads the first
+    two back with saved_config.
+    """
+    return {
+        "geometry_in_level": geometry_in_level,
+        "tuning": dataclasses.asdict(tuning) | {"untuned": sorted(tuning.untuned)},
+        "tire_codes_version": rules.TIRE_CODES_VERSION,
+        "reasoning_effort": tuning.reasoning_effort,
+        "drawing_version": tuning.drawing,
+        "sam_from": sam_from,
+    }
+
+
+def saved_config(record: Mapping[str, object]) -> tuple[bool, Tuning]:
+    """The geometry setting and tuning that run.json's `record` was saved with.
+
+    An MS3a run recorded neither, and ran without geometry, so it gives geometry off
+    and START.
+    """
+    geometry_in_level = record.get("geometry_in_level", False)
+    saved = record.get("tuning")
+    if saved is None:
+        return geometry_in_level, START
+    return geometry_in_level, Tuning(**saved | {"untuned": frozenset(saved["untuned"])})
+
+
+def _read_sam_result(path: Path) -> SamResult:
+    """One phrase's saved result, from its `sam/<phrase>.json` and the files beside."""
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    masks: np.ndarray | tuple[()] = ()
+    if saved["instances"]:
+        with np.load(path.with_suffix(".npz")) as arrays:
+            masks = arrays["masks"]
+    instances = [
+        SamInstance(
+            item["id"],
+            tuple(float(value) for value in item["box"]),
+            mask,
+            item["score"],
+        )
+        for item, mask in zip(saved["instances"], masks, strict=True)
+    ]
+    raw = path.with_suffix(".raw").read_bytes().decode("utf-8")
+    return SamResult(saved["phrase"], instances, saved["elapsed_s"], raw)
 
 
 def _stem(phrase: str) -> str:

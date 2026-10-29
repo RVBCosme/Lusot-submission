@@ -852,3 +852,24 @@ def test_reasoning_tokens_are_logged(prompt):
     assert "reasoning_tokens" not in run.log
     logged = (run.log["reasoning_effort"], run.log["drawing_version"])
     assert logged == ("default", "boxes-v1")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"reasoning_effort": "extreme"}, {"drawing": "boxes-v9"}],
+    ids=["effort", "drawing"],
+)
+def test_a_bad_tuning_fails_before_any_meta_call(prompt, changes):
+    # R146: an effort Muse Spark doesn't take, or a drawing annotate doesn't know,
+    # fails before the face blur. Checked later, it would cost SAM's calls first.
+    def no_segment(phrase: str) -> None:
+        raise AssertionError("a SAM call was made")
+
+    photo, sam, given = level_case()
+    client = FakeClient(sam, given, on_segment=no_segment)
+    tuning = dataclasses.replace(START, **changes)
+    run = run_pipeline(photo, client, prompt, tuning=tuning)
+    assert run.outcome == Outcome.failed("pipeline_error")
+    assert run.log == {"meta_calls": 0, "error": "ValueError"}
+    assert client.calls == []
+    assert run.evidence is None
