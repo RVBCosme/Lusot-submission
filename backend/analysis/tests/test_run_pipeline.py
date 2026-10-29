@@ -10,6 +10,7 @@ import dataclasses
 import importlib.util
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -68,12 +69,21 @@ def write_photo(path: Path) -> Path:
     return path
 
 
-def live_run(tmp_path, monkeypatch, capsys, client=None, *, case=level_case, flags=()):
+def live_run(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    client=None,
+    *,
+    case=level_case,
+    flags=(),
+    tuning=START,
+):
     """A live run of `case`'s photo, tmp_path/street.jpg, through main, with `flags`.
 
     make_client gives `client`, by default a FakeClient on `case`, the level case by
-    default, and the data folder is tmp_path. The run starts from START (R128).
-    Returns the photo, the run folder, the fake and stdout.
+    default, and the data folder is tmp_path. The run starts from `tuning`, START by
+    default (R128). Returns the photo, the run folder, the fake and stdout.
     """
     data, sam, given = case()
     fake = FakeClient(sam, given) if client is None else client
@@ -81,7 +91,7 @@ def live_run(tmp_path, monkeypatch, capsys, client=None, *, case=level_case, fla
     photo = tmp_path / "street.jpg"
     photo.write_bytes(data)
     argv = ["live", str(photo), "--data-dir", str(tmp_path), *flags]
-    assert runner.main(argv, tuning=START) == 0
+    assert runner.main(argv, tuning=tuning) == 0
     (run_dir,) = (tmp_path / "runs").glob("*/*")
     return photo, run_dir, fake, capsys.readouterr().out
 
@@ -437,17 +447,19 @@ def test_live_records_the_geometry_config(tmp_path, monkeypatch):
 def test_replay_uses_the_saved_config(tmp_path, monkeypatch, capsys, geometry, outcome):
     # C309, C318: off, a van is dropped by its type; on, geometry alone reads its
     # wheel. A replay takes the setting and the tuning from run.json, so each run
-    # replays to its own outcome.
+    # replays to its own outcome, under its own tuning version.
     photo, run_dir, _, live_out = live_run(
         tmp_path,
         monkeypatch,
         capsys,
         case=lambda: geometry_case("van"),
         flags=("--geometry", geometry),
+        tuning=dataclasses.replace(START, version="tuning-x"),
     )
     assert live_out.splitlines()[0] == f"outcome: {outcome}"
     assert read_json(run_dir / "run.json")["geometry_in_level"] is (geometry == "on")
     monkeypatch.setattr(runner, "make_client", no_client)
+    assert runner.replay(photo, run_dir).log["tuning_version"] == "tuning-x"
     assert runner.main(["replay", str(photo), str(run_dir)]) == 0
     out = capsys.readouterr().out.splitlines()
     assert (out[0], out[-1]) == (f"outcome: {outcome}", "same as saved: True")
@@ -545,7 +557,12 @@ def test_sam_from_pays_only_for_judge(tmp_path, monkeypatch, capsys):
     argv = ["live", str(photo), "--run-dir", str(judged), "--sam-from", str(first)]
     assert runner.main(argv, tuning=START) == 0
     assert [kind for kind, _, _ in fake.calls] == ["judge"]
-    assert capsys.readouterr().out.splitlines()[0] == "outcome: done/level, level knee"
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "outcome: done/level, level knee"
+    # meta_calls counts the pipeline's calls, as a replay's does; the paid count
+    # follows it.
+    after = out.index("meta_calls: 6") + 1
+    assert out[after : after + 2] == ["sam_from: True", "paid_calls: 1"]
     saved = read_json(judged / "run.json")
     assert saved["sam_from"] is True
     assert saved["phrases"] == list(READING_PHRASES)
@@ -570,6 +587,61 @@ def test_run_dir_flag_writes_there(tmp_path, monkeypatch, capsys):
     )
     assert returned == tmp_path / "run-2"
     assert (returned / "run.json").is_file()
+
+
+class FixedClock:
+    """Stands in for datetime in the runner: the run always begins at 2:41:05 AM."""
+
+    @staticmethod
+    def now() -> datetime:
+        return datetime(2026, 10, 30, 2, 41, 5)
+
+
+def test_an_existing_run_folder_is_refused_before_paying(tmp_path, monkeypatch, capsys):
+    # A run folder is written once. One that already exists is refused before any
+    # client is built, so no call is paid for only to be lost at the save.
+    monkeypatch.setattr(runner, "make_client", no_client)
+    photo = write_photo(tmp_path / "street.jpg")
+    taken = tmp_path / "taken"
+    taken.mkdir()
+    argv = ["live", str(photo), "--data-dir", str(tmp_path), "--run-dir", str(taken)]
+    assert runner.main(argv) == 2
+    assert capsys.readouterr().out == "refused: the run folder already exists\n"
+    assert list(taken.iterdir()) == []
+    assert not (tmp_path / "runs").exists()
+    # The default folder too, as when two runs of one photo begin in the same second.
+    monkeypatch.setattr(runner, "datetime", FixedClock)
+    default = tmp_path / "runs" / "2026-10-30" / "street-024105"
+    default.mkdir(parents=True)
+    with pytest.raises(SystemExit) as exc:
+        runner.live(photo, tmp_path, tuning=START)
+    assert exc.value.code == 2
+    assert capsys.readouterr().out == "refused: the run folder already exists\n"
+    assert list(default.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        (lambda saved: saved.pop("outcome"), "KeyError"),
+        (lambda saved: saved["outcome"].update(colour="red"), "TypeError"),
+        (lambda saved: saved["tuning"].update(colour="red"), "TypeError"),
+        (lambda saved: saved["tuning"].pop("untuned"), "KeyError"),
+    ],
+    ids=["no-outcome", "outcome-key", "tuning-key", "no-untuned"],
+)
+def test_a_malformed_run_record_exits_3(tmp_path, monkeypatch, capsys, change, error):
+    # R110: a run.json with a missing or unknown key can't be read, so the replay
+    # ends 3 with the error's class only: no traceback, path or message.
+    photo, run_dir, _, _ = live_run(tmp_path, monkeypatch, capsys)
+    saved = read_json(run_dir / "run.json")
+    change(saved)
+    (run_dir / "run.json").write_text(json.dumps(saved), encoding="utf-8")
+    monkeypatch.setattr(runner, "make_client", no_client)
+    assert runner.main(["replay", str(photo), str(run_dir)]) == 3
+    captured = capsys.readouterr()
+    assert captured.out == f"failed: {error}\n"
+    assert captured.err == ""
 
 
 @pytest.mark.parametrize("flag", ["--run-dir", "--sam-from"])

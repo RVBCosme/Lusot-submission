@@ -35,10 +35,12 @@ Exit codes:
 - 1: the replay's outcome isn't the saved one, or the run was saved under other C56
   or C70 values than the live ones (R144)
 - 2: refused: a sealed path, a STURM photo, a data or run folder inside the repo, a
-  missing, short or rejected key, or another photo's outputs. argparse's own usage
-  errors exit 2 too, an unknown --effort, --drawing or --geometry among them (R146).
-- 3: the run couldn't read or write what it needed. It prints `failed:` and the
-  error's class only, never a path or the error's text (R110).
+  run folder that already exists, a missing, short or rejected key, or another
+  photo's outputs. argparse's own usage errors exit 2 too, an unknown --effort,
+  --drawing or --geometry among them (R146).
+- 3: the run couldn't read or write what it needed, a run.json with a missing or
+  unknown key among them. It prints `failed:` and the error's class only, never a
+  path or the error's text (R110).
 """
 
 from __future__ import annotations
@@ -150,13 +152,14 @@ def live(
 ) -> tuple[Path, PipelineRun]:
     """Run the pipeline on `photo` with Meta's models, and save what they return.
 
-    Returns the run folder and the run. The folder is `run_dir`, which must not exist
-    yet, or else <data_dir>/runs/<YYYY-MM-DD>/<photo stem>-<HHMMSS> on the local clock
-    when the run began. run.json records `geometry_in_level`, `tuning` and the rest of
-    run_config's settings. With `sam_from`, a run folder for the same photo, SAM's
-    results come from there and only Muse Spark is paid for (C312); other outputs
-    there raise PhotoMismatch. A key or account Meta rejects raises ModelKeyRejected
-    (C73), and nothing is saved.
+    Returns the run folder and the run. The folder is `run_dir`, or else
+    <data_dir>/runs/<YYYY-MM-DD>/<photo stem>-<HHMMSS> on the local clock when the run
+    began. One that already exists exits 2 before any client is built, so nothing is
+    paid for that the save would then lose. run.json records `geometry_in_level`,
+    `tuning` and the rest of run_config's settings. With `sam_from`, a run folder for
+    the same photo, SAM's results come from there and only Muse Spark is paid for
+    (C312); other outputs there raise PhotoMismatch. A key or account Meta rejects
+    raises ModelKeyRejected (C73), and nothing is saved.
     """
     folders = [folder for folder in (run_dir, sam_from) if folder is not None]
     refuse_sealed(photo, data_dir, *folders)
@@ -164,6 +167,12 @@ def live(
         refuse_data_in_repo(folder)
     refuse_sturm_live(photo)
     started = datetime.now()
+    if run_dir is None:
+        day, stamp = started.strftime("%Y-%m-%d"), started.strftime("%H%M%S")
+        run_dir = data_dir / "runs" / day / f"{photo.stem}-{stamp}"
+    if run_dir.exists():
+        say("refused: the run folder already exists")
+        raise SystemExit(2)
     prompt = load_prompt(PROMPTS)
     data = photo.read_bytes()
     saved = None if sam_from is None else SavedOutputsClient(sam_from, data)
@@ -179,9 +188,6 @@ def live(
         geometry_in_level=geometry_in_level,
         tuning=tuning,
     )
-    if run_dir is None:
-        day, stamp = started.strftime("%Y-%m-%d"), started.strftime("%H%M%S")
-        run_dir = data_dir / "runs" / day / f"{photo.stem}-{stamp}"
     config = run_config(
         geometry_in_level=geometry_in_level, tuning=tuning, sam_from=saved is not None
     )
@@ -259,6 +265,7 @@ def main(argv: list[str] | None = None, *, tuning: Tuning = TUNING) -> int:
     replay_command.add_argument("run_dir", type=Path)
     args = parser.parse_args(argv)
 
+    sam_from = args.command == "live" and args.sam_from is not None
     try:
         if args.command == "live":
             data_dir = args.data_dir or Path(
@@ -292,11 +299,12 @@ def main(argv: list[str] | None = None, *, tuning: Tuning = TUNING) -> int:
     except PhotoMismatch:  # a ValueError, so before the next clause
         say("refused: saved outputs belong to another photo")
         return 2
-    except (OSError, ValueError) as exc:
-        # R110: the class only, as an error's text can hold a path.
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        # R110: the class only, as an error's text can hold a path. A run.json with a
+        # missing or unknown key raises KeyError or TypeError.
         say(f"failed: {type(exc).__name__}")
         return 3
-    _print_run(run)
+    _print_run(run, sam_from=sam_from)
     if args.command == "live":
         return 0
     # Rebuilt, so an MS3a run isn't judged by the keys its outcome lacks (R141). A
@@ -306,12 +314,16 @@ def main(argv: list[str] | None = None, *, tuning: Tuning = TUNING) -> int:
     return 0 if same else 1
 
 
-def _print_run(run: PipelineRun) -> None:
+def _print_run(run: PipelineRun, *, sam_from: bool = False) -> None:
     """The outcome and its level, then the log's counts, timings and settings.
 
     The log never holds the answer or its reason (C62), so neither is printed. A key
     is printed only once its step has run: `level_from` on a level, and
     `wheels_measured` and `geometry_checks` once geometry has (spec §3.7, C316).
+
+    `meta_calls` counts the pipeline's calls, served from a saved run or not. With
+    `sam_from`, SAM's came from a saved run, so only the judge call beyond them, if
+    the run got that far, was paid for, and that count is printed too.
     """
     outcome, log = run.outcome, run.log
     level = "" if outcome.level is None else f", level {outcome.level}"
@@ -319,6 +331,9 @@ def _print_run(run: PipelineRun) -> None:
     if "level_from" in log:
         say(f"level_from: {log['level_from']}")
     say(f"meta_calls: {log['meta_calls']}")
+    if sam_from:
+        say("sam_from: True")
+        say(f"paid_calls: {max(log['meta_calls'] - len(READING_PHRASES), 0)}")
     for key in ("reasoning_effort", "drawing_version"):
         if key in log:
             say(f"{key}: {log[key]}")
