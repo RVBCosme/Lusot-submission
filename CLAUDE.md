@@ -158,7 +158,7 @@ Coding guardrails throughout come from `andrej-karpathy-skills:karpathy-guidelin
 
 Rene set this for Lusot on Oct 28. His global settings stay as they are.
 - **Easy tasks:** subagents run on Sonnet 5.5 with `effort: "xhigh"`. That covers mechanical edits, lookups, boilerplate and document updates.
-- **Medium and harder tasks:** Opus 5.5 with `effort: "max"`. That covers most code, reviews, debugging and design.
+- **Medium and harder tasks:** Opus 5.5 with `effort: "xhigh"` (Rene, Oct 29, 8:48 PM; it was `"max"`). Never `"max"`, even where a ledger, brief or plan says "Opus 5.5 max". That covers most code, reviews, debugging and design.
 - **Only when Opus 5.5 can't do it:** Fable 5.1 with `effort: "max"`. Judge the severity first. When both models can do the task, Opus uses tokens better.
 - **Workflows (ultracode):** only when necessary, with at most 50 agents.
 
