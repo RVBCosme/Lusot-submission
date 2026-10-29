@@ -3,6 +3,7 @@
 - **Date:** Oct 29, 2026 (Manila), written from 5:20 AM
 - **Status:** Claude's draft; Rene approves. Written overnight without a live conversation, under Rene's instruction (D7, D15). Claude proceeds on the calls in §6 and the defaults in §9 until he answers.
   - A builder check (Opus 5.5 at max, back at 6:06 AM) asked three questions, settled as C732 to C734 and AskL-Q9 (§13).
+  - An accuracy review (Opus 5.5 at xhigh, Oct 29 evening, against MS4's committed spec and plan) found 1 Critical, 13 Important and 20 Minor problems. All are folded in under Window 4's rulings, as C735, AskL-Q10 and AskL-Q11 and the edits they name (§14).
 - **Implements:**
   - design §8's MS6 row, its Nov 2 half: typed Ask Lusot (the spot list, the `get_reports` tool, 300 m and 3 hours, Nominatim through the Lambda), then voice with WAV capture. Its done-when: Ask Lusot answers 10 typed and 10 spoken test questions.
   - design C10 (voice is WAV), C11 (Nominatim on the server, with a cache, an off switch and attribution) and G1 (demo pins may be cited, each labelled "(demo)")
@@ -10,8 +11,8 @@
   - row 14 of the tracker's cross-spec audit (Oct 29): what MS4, MS5, MS7, MS8, MS9 and Window 4's privacy drafts assume about Ask (§10)
 - **Builds on:**
   - MS1 on `main` (`98e8266`): the API Lambda and its `stopSwitch.ts`, the template, the Meta client's rules, and the probe's voice check (C35)
-  - MS4's spec on `ms4-backend-specs` (`1867afe`), and its plan draft, uncommitted in `lusot-wt\ms4`: `pins.ts`, `limits.ts`, `metroManila.ts`, the publish switch (C516), the map read (C519), the global caps (MS4-Q13) and N6's API alarm
-  - MS5's spec and plan on `ms5-app-specs` (`5f9e16e`): the string tables and their review marks (C609), the wording functions, the gates (C605), the fifth navigation slot (C620), the device id (C606) and the copy tests (C608)
+  - MS4's spec and plan on `ms4-backend-specs` (`dc136ff`: spec draft 4 with its last rulings, plan revision 2): `pins.ts`, `limits.ts`, `metroManila.ts`, the publish switch (C516), the nearby read (C509), the global caps (MS4-Q13), the demo credits (C523), CORS (§4.7) and N6's API alarm
+  - MS5's spec and plan on `ms5-app-specs` (`6ca31b9`): the string tables and their review marks (C609), the wording functions, the gates (C605), the fifth navigation slot (C620), the device id (C606) and the copy tests (C608)
   - MS7 (`ms7-harden-specs`, `8be1b9e`): §5's Ask row, S2, L9, P14, the copy check (C819) and the rush (C828)
   - MS8 (`ms8-submit-specs`, `1ae4913`): C905's Ask scene, C915's agentic paragraph and N4
   - MS9 (`ms9-ms10-specs`, `406f044`): F5, F6, N6 and N8
@@ -50,10 +51,10 @@ What makes it worth judging (plan Table 21, Table 28; M33, the agentic prize) is
 
 ## 3. Constraints
 
-- CLAUDE.md's rules hold throughout. The ones that bite here: the copy rules and the exact safety line on every screen, the model IDs (`muse-spark-1.3`, `muse-voice-transcribe-1.0`, never the contributor model), only Lambda reads the key, never log exact locations, WAV only for transcription, retries only on 429, 500 and 503, Nominatim only from the API Lambda, Rene's review of every Taglish line (M20), and every Meta call on the credits.
+- CLAUDE.md's rules hold throughout. The ones that bite here: the copy rules and the exact screen line on every screen, the model IDs (`muse-spark-1.3`, `muse-voice-transcribe-1.0`, never the contributor model), only Lambda reads the key, never log exact locations, WAV only for transcription, retries only on 429, 500 and 503, Nominatim only from the API Lambda, Rene's review of every Taglish line (M20), and every Meta call on the credits.
 - **Lambda concurrency:** the account limit is 10 and analysis takes up to 5 (C9). A question holds an API slot for several seconds, so it is the traffic most likely to reach the limit (MS7's C828 measures it).
 - **API Gateway's HTTP API** times out at 30 s, which can't be raised. The API stage throttle is 10 a second, burst 20 (MS1).
-- **DynamoDB stays inside the free 25 and 25 units.** Ask adds no table and no index: its counters, its Nominatim slots and its place cache live in MS4's `limits` table (2 and 2).
+- **DynamoDB stays inside the free 25 and 25 units.** Ask adds no table and no index: its counters, its Nominatim slots and its place cache live in MS4's `limits` table (2 and 2). The place cache is read with `GetItem`, which MS4's grants leave out (its §4.7: `PutItem` and `UpdateItem` only), so Ask adds it (C701).
 - **Meta's limits** are per team: Muse Spark 3,000 requests and 4M tokens a minute; transcription 256 concurrent streams (plan Table 16).
 
 ### What the sources say (read Oct 29)
@@ -63,7 +64,7 @@ What makes it worth judging (plan Table 21, Table 28; M33, the agentic prize) is
 | F1 | **Tool calls in the Responses API:** a function tool is flat (`type`, `name`, `description`, `parameters`, optional `strict`). The model's call comes back as a `function_call` item with `call_id`, `name` and JSON `arguments`. The result goes back as a `function_call_output` item with the same `call_id`. `tool_choice` accepts only `"auto"`: `"none"`, `"required"` and a named function return HTTP 400. `parallel_tool_calls` defaults to true and can be turned off. | dev.meta.ai: Tool calling |
 | F2 | **Stateless turns:** with `store: false`, the server keeps no copy of the conversation. The client resends the conversation each turn, with reasoning carried as encrypted items: `include: ["reasoning.encrypted_content"]`, and each replayed reasoning item needs a `summary` field. `include` can't be combined with `previous_response_id` (HTTP 400). Without `previous_response_id`, every `function_call_output` must match a `function_call` in the same request. | dev.meta.ai: Responses API protocol |
 | F3 | **Reasoning:** `minimal` to `max`; `none` returns HTTP 400 for Muse Spark; without the field the model picks its own level. Reasoning tokens are billed as output, and `max_output_tokens` (at least 16) covers reasoning and the visible answer together. MS1's photo answers at the default effort took a median of 24.7 s, and about 95% of their output was reasoning. | dev.meta.ai: Reasoning, Responses API protocol; MS1 probe note §4 |
-| F4 | **Structured output** uses `text.format` with `strict: true` (MS1's `judge` uses it). Whether tools and `text.format` work in the same request isn't documented. | dev.meta.ai: Structured output, Tool calling |
+| F4 | **Structured output** uses `text.format` with `strict: true` (MS1's `judge` uses it). The Tool calling page documents tools with structured output only through Chat Completions' `response_format`; the Responses pages don't say whether tools and `text.format` work in the same request. | dev.meta.ai: Structured output, Tool calling |
 | F5 | **File transcription:** `POST /v1/asr/transcribe`, multipart with a JSON `request` part (`model`, `audioEncoding: "WAV"`, `mode`, default `PUSH_TO_TALK`, `keywords`, and `languageBias` as language names such as `["English"]`) and an `audio` part. WAV only: mono 16-bit PCM at 16 or 24 kHz, up to 10 minutes and 32 MB. Keywords bias recognition but don't guarantee spelling, and no limit on their number is documented. No `store` or retention setting is documented. $0.18 an hour, billed by whole seconds; failed and 429 requests aren't billed. The response holds `transcript` and `audioDurationMs`. | dev.meta.ai: Speech to text, Voice schemas |
 | F6 | **MS1's voice check:** a synthetic English WAV of 3.7 s came back word for word in 1.99 s, with "Espana" spelled "España". No Taglish clip has been tried, because M12's recordings don't exist yet. | MS1 probe note §7; C35, C41 |
 | F7 | **Nominatim's usage policy:** at most 1 request a second; a User-Agent or Referer that identifies the application (stock library agents are refused); cache results; show attribution; no autocomplete; an app must be able to switch the service off at OSMF's request; a client that repeats the same query may be blocked. | operations.osmfoundation.org, Nominatim usage policy |
@@ -90,11 +91,11 @@ What makes it worth judging (plan Table 21, Table 28; M33, the agentic prize) is
 | 7.5 s | the model's last turn. Every Meta call carries this deadline, and a retry that would end after it isn't made. Nominatim is asked only with at least 2.5 s left. The final turn starts only with at least 1.5 s left, and without it the answer comes from turn 1's call (§4.3). |
 | 8.5 s | the answer returned, the plain list included; otherwise a 503 `ask_unavailable` |
 
-The phone sees the answer within about 9 to 9.5 s at worst, inside plan §12's 10 s, with room for the network and a cold start. The API function's timeout rises from 10 s to 15 s only as a backstop, so a slow plain list still reaches the person instead of API Gateway's error (C701). The probe (C731) measures the real turn times and may move these numbers, by a recorded ruling within C734.
+The phone sees the answer within about 9 to 9.5 s at worst, inside plan §12's 10 s, with room for the network and a cold start. The budget's clock starts at the handler, while the 10 s promise is at the phone (MS7's L9). For a spoken question, the clip's upload (about 640 KB of base64 for 15 s) comes before the handler's clock starts, so on a weak connection the phone can wait past 10 s; AK3 records the upload time apart, so that is measured, not assumed. The API function's timeout rises from 10 s to 15 s only as a backstop, so a slow plain list still reaches the person instead of API Gateway's error (C701). The probe (C731) measures the real turn times and may move these numbers, by a recorded ruling within C734.
 
 ### 4.2 The tool: `get_reports`
 
-One function tool, as plan §9 and Table 15 name it (C702). Its call carries the lookup and the model's reading of the question, so the call alone holds everything a safe answer needs except the citations (C734):
+One function tool, as plan §9 and Table 15 name it (C702). Its call carries the lookup and the model's reading of the question, so the call alone holds everything the answer's crossing and vehicle lines need, with only the citations left (C734):
 
 | Argument | Type | Meaning |
 |---|---|---|
@@ -105,14 +106,14 @@ One function tool, as plan §9 and Table 15 name it (C702). Its call carries the
 | `vehicle` | `light`, `heavy`, `on_foot` or `none` | as in the answer schema (§4.3) |
 
 **What code does with a call:**
-1. **Checks the arguments.** `place` is cleaned (§4.6). `since_minutes` is clamped to 1 to 180, and a value under 180 counts only when the question itself states a time, such as "in the last hour" or "30 minuto". Otherwise the window stays 180, so a "ngayon" can't shrink it and hide the deepest report (C732).
-2. **Finds the point** (§4.6): the phone's location for `here`, or the spot list, then Nominatim, for `place`. A place wider than the 300 m circle answers `place_too_broad` (C733).
-3. **Checks it** with MS4's `inMetroManila`. A point outside answers `outside_metro_manila` (plan §13: tool arguments stay inside Metro Manila and the last 3 hours).
-4. **Reads the pins** through MS4's `pins.ts`, as the map does (C519): published pins within 300 m whose `visibleUntil` hasn't passed. The publish switch acts inside that read, so live pins vanish while it is on and demo pins stay (C516, MS4-Q7).
-5. **Keeps live pins captured within the window,** deepest first (the 9 levels in MS3a's order; a tie goes to the newer photo). Demo pins skip the window and are kept apart (C707).
-6. **Answers the model** with summaries only: a ref (`r1` for the deepest live report, then `r2`…, and `d1`… for demo pins), the level, `level_is_floor`, the class, the minutes since the photo (live) or its year (demo), and the distance in metres. Each result numbers its refs afresh, and the answer cites the last result's. **No coordinates and no report ids reach Meta.** The point stays in the Lambda, so a "dito" location never leaves it except as distances to pins Meta can't place (C720).
+1. **Checks the arguments.** `place` is cleaned (§4.6). `since_minutes` is clamped to 1 to 180, and a value under 180 counts only when the question itself states a time, such as "in the last hour" or "30 minuto", and never below that stated time: "in the last 2 hours" with the model's 30 keeps 120. Otherwise the window stays 180, so a "ngayon" can't shrink it and hide the deepest report (C732).
+2. **Finds the point** (§4.6): the phone's location for `here`, or the spot list, then Nominatim, for `place`.
+3. **Checks it** with MS4's `inMetroManila` first. A point outside answers `outside_metro_manila` (plan §13: tool arguments stay inside Metro Manila and the last 3 hours), even when the result is wide: a town such as Bacoor resolves to an area far wider than 300 m, and "too broad" would be the wrong answer. Then a place inside Metro Manila that is wider than the 300 m circle answers `place_too_broad` (C733).
+4. **Reads the pins** through MS4's `pins.ts`, as nearby does (MS4's C509): published pins within 300 m whose `visibleUntil` hasn't passed, from the nine-cell read, at most 200 pins, newest first. The publish switch acts inside that read, so live pins vanish while it is on and demo pins stay (C516, MS4-Q7).
+5. **Keeps live pins captured within the window,** re-ranked deepest first (the 9 levels in MS3a's order; a tie goes to the newer photo). Demo pins skip the window and are kept apart (C707).
+6. **Answers the model** with summaries only, at most 5 live reports and 3 demo pins, the same ones the answer shows: a ref (`r1` for the deepest live report, then `r2`…, and `d1`… for demo pins), the level, `level_is_floor`, the class, the minutes since the photo (live) or its year (demo), and the distance in metres. Each result numbers its refs afresh, and the answer cites the last result's. **No coordinates and no report ids reach Meta.** The point stays in the Lambda, so a "dito" location never leaves it except as distances to pins Meta can't place (C720).
 
-The tool's own answer is one of `ok`, `place_not_found`, `place_too_broad`, `outside_metro_manila`, `no_location` or `lookup_unavailable`. The model may call the tool a second time, for example with a simpler place name after `place_not_found`, but never a third (C703).
+The tool's own answer is one of `ok`, `place_not_found`, `place_too_broad`, `outside_metro_manila`, `no_location` or `lookup_unavailable` (Nominatim busy, off or failing, or the place cache unreadable). The model may call the tool a second time, for example with a simpler place name after `place_not_found`, but never a third (C703).
 
 ### 4.3 The model's turns
 
@@ -125,48 +126,53 @@ Muse Spark (`muse-spark-1.3`) runs at most three turns for one question, each a 
 
 | Field | Values |
 |---|---|
-| `kind` | `depth`; `crossing` (it asks whether to cross, pass, go or drive through, or whether it is safe, in any language); `off_topic` |
+| `kind` | `depth`; `crossing` (it asks whether to cross, pass, go or drive through, or whether going is risky or dangerous, in any language); `off_topic` |
 | `vehicle` | `heavy` (a truck or a bus); `on_foot` (walking or wading); `light` (any other vehicle, or unsure: plan §9's stricter class); `none` (no vehicle or walking mentioned) |
 | `cited` | the refs of the reports that answer the question |
 
 **How a question can end** (C734):
 - **Turn 1 must give a valid call, or a valid `off_topic` answer.** Otherwise the plain list answers (§4.5): the budget ran out first (`deadline`), Meta failed (`model_error`) or rejected the key or the account (`key_rejected`), the call or the answer failed code's checks (`invalid_answer`), or the model answered `depth` or `crossing` without a call (`no_tool_call`).
-- **The final turn only adds the citations.** It runs when at least 1.5 s remain after the tool. Its `cited` must be a subset of the last result's refs and include `r1` while live reports exist (plan §13; C705). If the turn doesn't run, fails, or fails that check, the answer is built from the last call's arguments with no citations: still `source: "model"`, without the "Used" marks. A late or confused final turn costs only those marks, never the crossing line or the vehicle line.
+- **The final turn only adds the citations.** It runs when at least 1.5 s remain after the tool. Its `cited` must be a subset of the last result's refs and include `r1` while live reports exist (plan §13; C705), and its `kind` can't be `off_topic`, which would hide the reports a call already found. If the turn doesn't run, fails, or fails that check, the answer is built from the last call's arguments with no citations: still `source: "model"`, without the "Used" marks. A late or confused final turn costs only those marks, never the crossing line or the vehicle line.
 - **A third tool call isn't made.** The answer uses the second call's result and arguments, without citations.
 
 **What code takes from the model** (C711, C712). Code can make the model's reading stricter, never looser:
-- **`crossing`** is on when the call's or the answer's `kind` is `crossing`, or the question matches the crossing words.
-- **`on_foot`** holds when the model says so in either place, or the question has a walking word ("lakad", "maglakad", "walk", "lumusong").
-- **`heavy`** holds only when the model says so and the question names a truck or a bus ("truck", "trak", "bus"), and no one is on foot. A `heavy` without such a word, and any other vehicle, is `light`, plan §9's stricter class.
+- **`crossing`** is on when either call's or the answer's `kind` is `crossing`, or the question matches the crossing words.
+- **`on_foot`** holds only when the question has a walking word ("lakad", "maglakad", "walk", "lumusong"), as `heavy` needs a truck or bus word. A model-only `on_foot` falls back to `none`, since a wrong `on_foot` would drop every class line: `none` keeps the class lines and adds no vehicle line, and code can't tell from the words alone whether a car was named.
+- **`heavy`** holds only when the model says so, in either call or the answer, and the question names a truck or a bus ("truck", "trak", "bus"), and no one is on foot. A `heavy` without such a word, and any other vehicle, is `light`, plan §9's stricter class.
 - **`none`** otherwise.
 
 The walking, heavy-vehicle and time words sit beside the crossing words in `ask_v1.words.json` (C725).
 
-If Meta refuses `text.format` beside tools (F4), the final turn instead sends the question and the tool's output as plain input, with no tools, and keeps the schema. That second form is also stateless, and never `store: true` (C714).
+If Meta refuses `text.format` beside tools (F4), each turn has a second form, also stateless and never `store: true` (C714):
+- **Turn 1** sends the tools with no `text.format`. Besides `get_reports`, it offers a second function, `not_about_flood_depth()`, which the model calls for an off-topic question, so `off_topic` still comes back as a call that code can check.
+- **The final turn** sends the question and the tool's output as plain input, with no tools, and keeps the schema.
+
+The probe (C731) tries both turns in both forms.
 
 ### 4.4 The answer
 
-The API returns data, never prose (§5.3). The app renders every line from MS5's string tables, in the language the person chose, with MS5's own wording functions for the level and class lines, so a pin and an answer never word one reading two ways (C724). Every line here is an English draft for Rene's review (M20). Taglish drafts go into the tables unreviewed, and lines that bear on safety show in English until he has reviewed them (MS5's C619).
+The API returns data, never prose (§5.3). The app renders every line from MS5's string tables, in the language the person chose, with MS5's own wording functions for the level and class lines, so a pin and an answer never word one reading two ways (C724). Every line here is an English draft for Rene's review (M20). Every new `ask.*` line, English and Taglish, starts `reviewed: false` (MS5's C609), and the screen-line keys show in English until he has reviewed them (MS5's C619).
 
 | Part | When | English draft |
 |---|---|---|
-| The crossing line | first, whenever the model says `crossing` or the question matches the crossing words (C711) | "I can't tell you whether to cross or go through." The safety line stays in view, as on every screen. |
+| The crossing line | first, whenever the model says `crossing` or the question matches the crossing words (C711) | "I can't tell you whether to cross or go through." The screen line stays in view, as on every screen. |
 | The summary | `reports` | "3 reports within 300 m of España Blvd cor. Maceda St in the last 3 hours." ("1 report…" for one). The place is always a point's name: a listed spot, a small landmark, or "you" (C733). |
-| The deepest report | `reports` | MS5's level line, such as "Knee deep at this spot (MMDA level).", then MS5's class line, then "Photo taken 25 min ago, 120 m from España Blvd cor. Maceda St." ("… from you" for "dito") |
-| The vehicle line | the model's answer, `light` or `heavy` | "For MMDA's classes, Lusot counts your vehicle as a light vehicle." or "… as a heavy vehicle, not a light one." |
+| The deepest report | `reports` | MS5's level line, such as "Knee deep at this spot (MMDA level).", then MS5's class line, then "Photo taken 25 min ago, 120 m from España Blvd cor. Maceda St." ("… from you" for "dito"), the age from MS5's `ageText` |
+| The vehicle line | the model's answer, `light` or `heavy` | "For MMDA's classes, Lusot counts your vehicle as a light vehicle." or "… as a heavy vehicle." With `heavy`, the crossing line also shows directly under the class line, so "not passable to light vehicles" never reads as permission (AskL-Q10's default). |
 | On foot | `on_foot` | No class line on any report, and "MMDA's classes are for vehicles, so this answer gives the level only." (plan §9) |
 | More reports | up to 4 more live reports, deepest first | the same card, shorter; the ones the model cited are marked "Used" |
 | Demo pins | up to 3, nearest first | "(demo)", MS5's level line, the photo's own date and place, and its credit line (G1, MS5's C618). A demo pin without a credit line isn't shown (MS5's N2). |
 | No report | `no_reports` | "No recent reports within 300 m of {place} in the last 3 hours." For "dito", in Taglish, plan §9's "Walang recent report dito."; in English, "No recent reports near you in the last 3 hours." Then always: "No report doesn't mean no flood." Never "passable". Demo pins follow, if any. |
 | Too broad | `place_too_broad` | "That's a whole street or area. Ask about a corner or a landmark on it, or turn on your location and ask about "dito"." Then up to 3 listed spots on it, to tap. |
 | No place | `no_place` | "I couldn't find that place in Metro Manila. Name a corner or a landmark, or turn on your location and ask about "dito"." |
+| Lookup busy | `lookup_unavailable` | "I couldn't look up that place just now. Try again in a minute, or name a nearby landmark." Busy isn't "not found". |
 | Outside | `outside_metro_manila` | "Lusot answers only about spots in Metro Manila." |
 | No location | `no_location` | "Turn on your location to ask about "dito", or name a place." |
 | Off topic | `off_topic` | "I can only answer about flood depth near a place in Metro Manila, from recent reports." |
 | Nothing heard | `no_speech` | "I didn't catch a question. Try again, or type it." |
 | The plain list's note | `source: plain_list` | "Here is the plain list of reports." |
 
-Each report card links to its pin (MS5's `#/pin/<id>`), so the person can see the photo and its overlay. A spoken question shows "You asked:" and the transcript above the answer. The transcript is the person's own words, shown as theirs.
+Each report card links to its pin (MS5's `#/pin/<id>`), so the person can see the photo and its overlay. A spoken question shows "You asked:" and the transcript above the answer. The transcript is the person's own words, shown as theirs, except that a banned word in it ("safe" in any form, or "ligtas") is masked, each letter shown as "•", so no Lusot screen shows one (AskL-Q11's default). The place heard stays.
 
 ### 4.5 The plain list
 
@@ -186,22 +192,22 @@ The order (C713):
 2. **The spot list** (`backend/api/src/data/spots.json`, C715): each spot has an id, a display name, its city, one point, the roads it sits on, and its aliases. A spot is one point and is named as one: a corner, a landmark, or "in front of" a landmark, never a stretch of road. A bare road name finds a spot only when the list has one spot on that road. With several, the answer is `place_too_broad`, offering those spots. Matching folds case and accents ("Espana" is "España", MS1's probe note), drops punctuation, treats "cor.", "corner", "&" and "at" between two names alike, and prefers the longest alias found.
 3. **Nominatim,** for a place the list doesn't have (C714):
    - **Only from the API Lambda,** and only when a question is sent, never as the person types (no autocomplete, F7).
-   - **One request a second across every Lambda:** a conditional write of a `nominatim#<epoch second>` item in `limits`. A taken second waits for the next one if the budget allows, and otherwise gives `lookup_unavailable`.
-   - **The cache:** first in the Lambda's memory, then in `limits` under `geocode#<SHA-256 of the normalised place>`, for 7 days for a found place and 1 day for a miss, so a repeated query never repeats a request. The cache holds the hash, the name OpenStreetMap gives and the point, never the text that was asked (AskL-Q3).
+   - **One request a second across every Lambda:** a conditional write of a `nominatim#<epoch second>` item in `limits`, which also holds its write time in milliseconds. A request goes only when the previous slot's write time is at least 1 s earlier, so two requests can't fall milliseconds apart across a second's boundary. A taken slot waits for the next one if the budget allows, and otherwise gives `lookup_unavailable`.
+   - **The cache:** first in the Lambda's memory, then in `limits` under `geocode#<SHA-256 of the normalised place>`, read with `GetItem` (C701), for 7 days for a found place and 1 day for a miss, so a repeated query never repeats a request. The reader checks the item's `expiresAt` itself, since DynamoDB's TTL deletes days late (as MS4's C526 does). A failed cache read never sends a Nominatim request: that place answers `lookup_unavailable`, logged by its error name. The cache holds the hash, the name OpenStreetMap gives and the point, never the text that was asked (AskL-Q3).
    - **The request:** `/search` with `format=jsonv2`, `limit=1`, `countrycodes=ph`, Metro Manila's bounding box as a preference (`bounded=0`, so a place outside still resolves and `inMetroManila` can say it is outside), and `accept-language=en`. Its own timeout is 1.5 s.
-   - **Points only** (C733): a result whose bounding box spans more than 300 m corner to corner is a street or an area, not a point. The answer is then `place_too_broad`, offering the listed spots inside that box, so Lusot never answers "within 300 m of" a whole road or barangay.
+   - **Points only** (C733): after the `inMetroManila` test on its point (§4.2, step 3), a result whose bounding box spans more than 300 m corner to corner is a street or an area, not a point. The answer is then `place_too_broad`, offering the listed spots inside that box, so Lusot never answers "within 300 m of" a whole road or barangay.
    - **The User-Agent** names the application, `Lusot/1.0`, with the live site's address once it exists. It never holds an email address (CLAUDE.md).
    - **The switch:** `/lusot/stop/nominatim`, a fourth stop switch in the template, read like the other three (MS1's `stopSwitch.ts`). When it is on, only the spot list resolves places. It is the off switch C11 asks for, and the one OSMF may ask for (F7).
    - **Attribution:** an answer whose place came from Nominatim says "Place search © OpenStreetMap contributors" under it.
-4. **Every point** must pass MS4's `inMetroManila`.
+4. **Every point** must pass MS4's `inMetroManila`, before any breadth test.
 
 ### 4.7 Voice
 
 **In the app** (C718):
-- The mic button starts a recording on a tap and stops it on a second tap, or at 15 s (plan §12 and Table 4). A countdown shows the seconds left.
+- The mic button starts a recording on a tap and stops it on a second tap, or at 14.9 s, so a full-length clip never crosses the server's 15 s limit by an audio quantum (plan §12 and Table 4: up to 15 s). A countdown shows the seconds left.
 - The app records through the Web Audio API, not `MediaRecorder`, whose formats Meta doesn't take. It downsamples to 16 kHz mono in its own code, encodes 16-bit PCM WAV, and sends it as base64 in JSON (§5.2).
 - The audio lives in memory only. It is dropped once the answer arrives or the screen closes, and is never written to `localStorage`, IndexedDB, the cache or a file.
-- The APK declares Android's `RECORD_AUDIO`. A refused microphone gets a line that offers typing instead.
+- The APK declares Android's `RECORD_AUDIO` and `MODIFY_AUDIO_SETTINGS`: Capacitor's WebView requests both together for audio capture and refuses it if either is missing. A refused microphone gets a line that offers typing instead.
 
 **On the server** (C719):
 - The header must say RIFF/WAVE, PCM, mono, 16 bits, 16,000 or 24,000 Hz, with 0.5 to 15 s of audio. Anything else is refused before any Meta call (§5.4).
@@ -219,11 +225,12 @@ The order (C713):
 | In all | 300 questions per UTC clock hour (MS9's N8, after MS4-Q13's 300 uploads) | 429 `{"error": "question_cap"}`, with `Retry-After` |
 
 - **The device id** comes from `X-Lusot-Device`, which MS5 sends (C606). A missing or malformed id counts in MS4's shared `none` bucket (C508).
-- **The order:** the device first, then the global cap, so one device's refused questions never use up the cap (C716).
+- **The order:** the device first, then the global cap, so one device's refused questions never use up the cap (C716). A global refusal gives the device's count back, as MS4's `take` does (its §4.6). Both counts go through MS4's one `take` call, with a `question` bucket whose refusals carry Ask's codes.
 - **What counts:** every question that passes its checks counts once, before any Meta or Nominatim call, whatever path answers it. A spoken question refused for `voice_paused` doesn't count.
 - **Where:** MS4's `limits` table, keyed by the SHA-256 of the device id, never the id (C520), with its 2-hour TTL.
-- **The app** never retries `question_limit` or `question_cap`, and shows a line for each. A 429 without one of Lusot's codes is API Gateway's throttle, and MS5's rule retries it once (C635).
-- **The cap alarm** (C727): a metric filter on the API log counts `question_cap` refusals by that term (the function logs in Lambda's text format, so a JSON filter wouldn't match), and an alarm emails Rene through MS1's topic when any happen in an hour, with `OKActions`. N6's API alarm stays MS4's, and Ask adds at most 300 answered questions an hour to it.
+- **The app** never retries `question_limit` or `question_cap`, and shows a line for each. A 429 without one of Lusot's codes is API Gateway's throttle, retried once (C635). Ask's client retries nothing else: never a 503 (`voice_failed` or `ask_unavailable` were counted, and may have been paid), and never a request already sent when the connection drops, since the server may have counted and paid for it. So `ask` and `askVoice` don't use MS5's `retryOnce`, which also retries 503s and network errors.
+- **The cap alarm** (C727): a metric filter on the API log counts `question_cap` refusals by that term (the function logs in Lambda's text format, so a JSON filter wouldn't match), and an alarm emails Rene through MS1's topic when any happen in an hour, with `OKActions`.
+- **N6's API alarm** stays at 5,000 invocations an hour, which this spec sets (C735).
 
 | Switch | Effect on Ask |
 |---|---|
@@ -271,15 +278,15 @@ Every Muse Spark request sends `store: false` (F2, F8). Transcription has no suc
 
 ### 4.10 The Ask screen
 
-- **Where:** MS5's fifth navigation slot, `#/ask` (C620), behind MS5's gate (C605), with the safety line visible without scrolling, as on every screen (C608).
+- **Where:** MS5's fifth navigation slot, `#/ask` (C620), behind MS5's gate (C605), with the screen line visible without scrolling, as on every screen (C608).
 - **What it holds:**
   - a question box of up to 300 characters with a send button
   - the mic button (§4.7)
   - a "Use my location" switch, off by default, which takes a fix of 100 m or better before a question is sent and explains a poorer one
-  - three example questions to tap, such as "Gaano kalalim ang baha sa España?" and "May baha ba dito?"
+  - three example questions to tap, such as "Gaano kalalim ang baha sa España cor. Maceda?" and "May baha ba dito?", each naming a point, never a bare road (C733)
   - the answer (§4.4), the transcript of a spoken question, and the attribution line
   - the notice line (§4.9)
-- **Its lines** live under `ask.` keys in MS5's tables. The answer's lines are `ask.answer.*`, which MS5's `isSafetyKey` treats as safety lines (C724).
+- **Its lines** live under `ask.` keys in MS5's tables. The answer's lines are `ask.answer.*`, which MS5's `isScreenLineKey` treats as screen-line keys (C724; the name follows the tracker's 9:50 PM ruling, §14).
 - **The visual work** loads `ui-ux-pro-max` and `frontend-design`, as CLAUDE.md asks, and follows MS5's tokens.
 
 ### 4.11 Cost
@@ -317,7 +324,7 @@ Other specs depend on these names. They change only through this spec.
 |---|---|---|
 | `source` | `"model"` or `"plain_list"` | who chose the parts |
 | `fallback` | null, or `model_calls_paused`, `deadline`, `model_error`, `key_rejected`, `invalid_answer`, `no_tool_call` | why the plain list answered |
-| `kind` | `reports`, `no_reports`, `place_too_broad`, `no_place`, `outside_metro_manila`, `no_location`, `off_topic`, `no_speech` | which answer (§4.4) |
+| `kind` | `reports`, `no_reports`, `place_too_broad`, `no_place`, `lookup_unavailable`, `outside_metro_manila`, `no_location`, `off_topic`, `no_speech` | which answer (§4.4) |
 | `crossing` | boolean | show the crossing line first |
 | `vehicle` | `light`, `heavy`, `on_foot`, or null | the vehicle after code's checks (§4.3); null in the plain list and when none was mentioned |
 | `place` | `{"name": string, "source": "spots" \| "nominatim" \| "here"}`, or null | the place used; `name` is the spot's display name, OpenStreetMap's name, or "here" |
@@ -329,7 +336,7 @@ Other specs depend on these names. They change only through this spec.
 | `cited` | list of ids | what the model cited, after code's checks; empty in the plain list, and when the final turn didn't run or failed |
 | `suggestions` | list of strings | for `place_too_broad`, up to 3 listed spots' display names; otherwise empty |
 
-Each report in `reports` and `demo` is MS4's public pin (its §4.4 fields, inches only once the gate shows them, and the demo credit fields once MS4 adds them), plus `distanceM`, an integer.
+Each report in `reports` and `demo` is MS4's public pin (its §4.4 fields, inches only once the gate shows them, and a demo pin's `credit`, `place` and `event`, MS4's C523), plus `distanceM`, an integer.
 
 ### 5.4 Errors
 
@@ -352,9 +359,9 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 | # | Call | Why |
 |---|---|---|
 | C700 | **Ask's boundary.** Ask owns the two routes, the tool, the model loop, place resolution with the spot list and Nominatim, the question caps, voice from the app's capture to the transcript, the Ask screen and the test questions. It reads pins only through MS4's `pins.ts`, adds no table, and changes no pin field. | Design §8 gives MS6 Ask, and MS4 (its §9) left exactly these to this spec. |
-| C701 | **Ask runs in the API Lambda,** as plan §5 and Figure 1 have it. The API role gains `ssm:GetParameter` on the model key, read on the first question and cached, and the function's timeout rises from 10 s to 15 s as a backstop (AskL-Q7). | MS4's N6 alarm and MS9's checks (F5, §4.2) already read the API function. Only the 8.5 s budget, not the timeout, should end a question. |
-| C702 | **One tool, `get_reports(place, here, since_minutes, kind, vehicle)`.** Code finds the point, so the model never sees coordinates or report ids, only refs and distances. The call also carries the model's reading of the question (C734). | Plan §9 and Table 15 name one tool. A model that never holds a location can't leak one. |
-| C703 | **At most three stateless turns and two tool calls,** with `tool_choice: "auto"` and parallel calls off. A third call isn't made. | Meta accepts only `"auto"` (F1), so code ends a loop the model won't. Two calls allow one retry with a simpler place name, inside the budget. |
+| C701 | **Ask runs in the API Lambda,** as plan §5 and Figure 1 have it. The API role gains `ssm:GetParameter` on the model key, read on the first question and cached, and `dynamodb:GetItem` on `LimitsTable` for the place cache and the Nominatim slot's previous-second read (§4.6); MS4 grants only `PutItem` and `UpdateItem` there (its §4.7), so Ask's template task adds `GetItem` and updates MS4's `test_roles`. The function's timeout rises from 10 s to 15 s as a backstop (AskL-Q7). Ask's two new variables are read lazily on its own path, so MS4's missing-variable test keeps its seven names. | MS4's N6 alarm and MS9's checks (F5, §4.2) already read the API function. Only the 8.5 s budget, not the timeout, should end a question. A cache that can't be read would either call Nominatim on every repeat, against its policy (F7), or fail every place. |
+| C702 | **One tool, `get_reports(place, here, since_minutes, kind, vehicle)`.** Only turn 1's second form (§4.3), used if Meta refuses tools beside `text.format`, adds a function with no arguments, `not_about_flood_depth()`, which stands in for the `off_topic` answer and reads nothing. Code finds the point, so the model never sees coordinates or report ids, only refs and distances. The call also carries the model's reading of the question (C734). | Plan §9 and Table 15 name one tool. A model that never holds a location can't leak one. |
+| C703 | **At most three stateless turns and two `get_reports` calls,** with `tool_choice: "auto"` and parallel calls off. A third call isn't made. A `not_about_flood_depth` call ends the question as `off_topic` and counts as no lookup. | Meta accepts only `"auto"` (F1), so code ends a loop the model won't. Two calls allow one retry with a simpler place name, inside the budget. |
 | C704 | **The model writes no answer text.** Besides its tool call's arguments, it returns `kind`, `vehicle` and `cited` in a strict schema, and the app writes every line from reviewed tables (AskL-Q1). | M20 asks Rene to review every Taglish line before release, which free text can't meet. Plan §9's rules then hold by construction. |
 | C705 | **The answer is bounded by the tool's results.** The summary is the deepest live report within 300 m in the window, its age and the count, all chosen by code. `cited` must be a subset of the last result's refs and include the deepest, or the answer keeps no citations (C734). | Plan §9 and §13. A model that understated the deepest report would hide the most dangerous reading (C17's reasoning). |
 | C706 | **No report says so plainly,** and adds "No report doesn't mean no flood." It never says "passable". | Plan §9. An empty map in a downpour can mean nobody has reported yet. |
@@ -362,8 +369,8 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 | C708 | **The time budget:** transcription by 4 s, the model by 7.5 s, the answer by 8.5 s (§4.1). | Plan §12's 10 s at the phone, with room for the network and a cold start. |
 | C709 | **The plain list** answers when `model-calls` is on or turn 1 fails (§4.5), with code's own place finding and no Nominatim. | Plan §12 and Table 18. Without the model, code can't tell which words are a place. |
 | C710 | **Retries stay inside the budget.** Only 429, 500 and 503, with backoff and jitter; a `Retry-After` past the deadline means no retry. At most 3 tries a call. A 401, 402 or 403 drops the cached key, answers with the plain list (`key_rejected`) and logs `meta_status`. | CLAUDE.md's retry rule, within a 10 s promise. Meta's 503s have asked for 60 s waits (Oct 28 log). MS3a's C73 treats the same codes as account faults, and MS9 reads 402s from the logs. |
-| C711 | **Crossing and "is it safe" questions get the crossing line first:** "I can't tell you whether to cross or go through." The model's `kind`, in its call or its answer, or a fixed word list (such as "tawid", "dumaan", "lusot ba", "ligtas", "cross", "safe"), turns it on, so the plain list shows it too. On foot, no class line appears. | CLAUDE.md bans crossing advice, and no such line exists yet, so this spec drafts one for M20. Two triggers mean a model outage can't drop it. Plan §9 gives people on foot the level only. |
-| C712 | **Vehicles map to MMDA's classes only, and code can only make them stricter** (§4.3): `heavy` needs a truck or bus word in the question, a walking word forces `on_foot`, and any other vehicle, or an unsure one, is `light` (plan §9). Each has one fixed line. | W11: no vehicle verdict. A wrong `heavy` beside "not passable to light vehicles" would read as permission to go, and a wrong `on_foot` would drop every class line (the builder check). MS8's C905 has Rene say he drives a sedan. |
+| C711 | **Crossing and risk questions get the crossing line first:** "I can't tell you whether to cross or go through." The model's `kind`, in its call or its answer, or a fixed word list (such as "tawid", "dumaan", "lusot ba", "ligtas", "cross", "safe"), turns it on, so the plain list shows it too. On foot, no class line appears. | CLAUDE.md bans crossing advice, and no such line exists yet, so this spec drafts one for M20. Two triggers mean a model outage can't drop it. Plan §9 gives people on foot the level only. |
+| C712 | **Vehicles map to MMDA's classes only, and code can only make them stricter** (§4.3): `heavy` needs a truck or bus word in the question, `on_foot` needs a walking word (a model-only `on_foot` is `none`), and any other vehicle, or an unsure one, is `light` (plan §9). Each has one fixed line, and a `heavy` answer also shows the crossing line under the class line (AskL-Q10). | W11: no vehicle verdict. A `heavy` beside "not passable to light vehicles" can read as permission to go, wrong or right (the accuracy review), and a wrong `on_foot` would drop every class line (the builder check). MS8's C905 has Rene say he drives a sedan. |
 | C713 | **Places resolve in this order:** here, the spot list, Nominatim. Every point passes `inMetroManila`, and every answer names the point it used (C733). | Plan §9 and Table 3. The list is instant and free. |
 | C714 | **Nominatim's rules** (§4.6): the API Lambda only, a named User-Agent, one request a second across all Lambdas, a memory and table cache (7 days, misses 1 day), a bounding-box preference, no autocomplete, attribution, and a fourth stop switch. | Design C11 and the usage policy (F7). A per-Lambda limit can't hold 1 a second when several Lambdas run. |
 | C715 | **The spot list** holds 40 to 80 Metro Manila spots, from MMDA's alerts in the alert index and MMDA's own published list if one is found, read as a person would. Its points come from a downloaded OpenStreetMap extract, processed on the laptop, never from Nominatim. Each spot is one point, named as one, with the roads it sits on. It is shared under ODbL with its credit, and its names are the transcription keywords (AskL-Q8). | Plan §20 puts `spots.json` beside the API. CLAUDE.md allows Nominatim only from the API Lambda. |
@@ -375,17 +382,18 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 | C721 | **One log line per question** with §4.9's fields, `meta_calls` and `meta_status` as in the analysis log, and the never-list. | MS9's N8 and its daily check. CLAUDE.md: never log exact locations. |
 | C722 | **The notice:** MS5's gate before the first question, and one line under the box on every visit. | MS5's C605 already covers questions; a person asking for the tenth time should still see where the words go. |
 | C723 | **The Ask screen** as §4.10 describes, in MS5's fifth slot. | MS5's C620 left the slot and the gate for MS6. |
-| C724 | **The app renders answers** with MS5's wording functions and new `ask.*` keys. The `ask.answer.*` keys are safety lines, so their Taglish shows only once reviewed. | One wording for a reading wherever it appears; MS5's C609 and C619; MS7's copy check reads the same tables. |
+| C724 | **The app renders answers** with MS5's wording functions and new `ask.*` keys. The `ask.answer.*` keys are screen-line keys (MS5's `isScreenLineKey`), so their Taglish shows only once reviewed. | One wording for a reading wherever it appears; MS5's C609 and C619; MS7's copy check reads the same tables. |
 | C725 | **The prompt, the tool, the answer schema and the word lists** are versioned files in `backend/api/prompts/` (`ask_v1.*`), copied into the bundle. | CLAUDE.md keeps prompts and schemas in versioned files. MS7's copy check reads prompt files for review only, since they name banned words to forbid them. |
 | C726 | **The question is data, never instructions.** Prompt injection can only change an enum or a ref, which code checks, or a place string, which is trimmed to 100 characters and stripped of control characters before it reaches Nominatim. | The model's reply can't carry text to the person (C704), so injection has nowhere to show. |
 | C727 | **An alarm on the global cap** (§4.8), which N6's API alarm doesn't catch: a cap that holds keeps invocations low. | MS9's F6 and N8 ask for the cap; Rene should hear when it is reached. |
 | C728 | **The test questions run in a harness** with real Meta calls, the real code and fixture pins, and their answers are saved outside the repo. A smaller check runs on the deployed API (§8; AskL-Q5). | No test may put a pin on the public map (MS4's C513), and Nominatim runs only from the Lambda. Fixture pins let each question test one rule. |
 | C729 | **Voice waits for M12's recordings,** with synthetic clips for plumbing only (§4.7; AskL-Q6). | Plan M12 and Table 18. |
 | C730 | **Cost:** about $0.005 a typed question, $0.006 a spoken one, $0.01 as the planning figure, and at most $1 for Ask's own build and tests (§4.11). | MS7's C828 and MS9's N8 take Ask's figure; the probe replaces the estimate. |
-| C731 | **A probe runs before the build:** tools beside `text.format`, the stateless second turn, minimal against low effort, a 15 s clip and the full keyword list, for about $0.10. Its results set the effort, the final turn's form (§4.3), the transcription slot and the budget's numbers, by recorded rulings within C734. | F3 and F4 leave the two biggest unknowns open, and the 10 s promise depends on them. |
-| C732 *(from the builder check)* | **A shorter window needs a stated time.** A `since_minutes` under 180 counts only when the question states a time, such as "in the last hour" or "30 minuto"; otherwise the window stays 180. | A model that read "ngayon" as the last hour would drop the deepest report from the answer and its count, which the plain list would have shown. |
-| C733 *(from the builder check)* | **An answer is always about a point, never a road or an area.** A Nominatim result wider than 300 m corner to corner, or a bare road name with several listed spots, answers `place_too_broad` with up to 3 listed spots to ask about instead. Spots are named as points (C715). | CLAUDE.md: never describe a whole road or route. "No recent reports within 300 m of Barangay Tatalon" would read as the whole barangay. |
-| C734 *(from the builder check)* | **Turn 1 carries the safety parts, and the final turn adds only the citations.** A late or failed final turn leaves the answer with its crossing line and vehicle line, without "Used" marks. The budget's ends stay fixed. The probe's rulings may move the transcription slot between 3.0 and 5.0 s, so that one turn still fits after it. If a 14.5 s clip doesn't fit even then, AskL-Q9 lowers the recording cap. | Plan §12's 10 s can't move without Rene, so what gives way is decided now, not on Nov 2. MS8's C915 then describes what the probe leaves (§10). |
+| C731 | **A probe runs before the build:** tools beside `text.format` (with each turn's second form if Meta refuses them), the stateless second turn, minimal against low effort with 10 timings each, a 15 s clip and the full keyword list, for about $0.20. Its results set the effort, the final turn's form (§4.3), the transcription slot and the budget's numbers, by recorded rulings within C734. | F3 and F4 leave the two biggest unknowns open, and the 10 s promise depends on them. |
+| C732 *(from the builder check)* | **A shorter window needs a stated time.** A `since_minutes` under 180 counts only when the question states a time, such as "in the last hour" or "30 minuto", and never below that time; otherwise the window stays 180. | A model that read "ngayon" as the last hour would drop the deepest report from the answer and its count, which the plain list would have shown. |
+| C733 *(from the builder check)* | **An answer is always about a point, never a road or an area.** A Nominatim result inside Metro Manila wider than 300 m corner to corner, or a bare road name with several listed spots, answers `place_too_broad` with up to 3 listed spots to ask about instead. A result outside Metro Manila answers `outside_metro_manila` first, however wide. Spots are named as points (C715). | CLAUDE.md: never describe a whole road or route. "No recent reports within 300 m of Barangay Tatalon" would read as the whole barangay. |
+| C734 *(from the builder check)* | **Turn 1 carries the crossing and vehicle parts, and the final turn adds only the citations.** A late or failed final turn leaves the answer with its crossing line and vehicle line, without "Used" marks. The budget's ends stay fixed. The probe's rulings may move the transcription slot between 3.0 and 5.0 s, so that one turn still fits after it. If a 14.5 s clip doesn't fit even then, AskL-Q9 lowers the recording cap. | Plan §12's 10 s can't move without Rene, so what gives way is decided now, not on Nov 2. MS8's C915 then describes what the probe leaves (§10). |
+| C735 *(from the accuracy review)* | **N6's API alarm stays at 5,000 invocations an hour,** the threshold MS4 left for this spec to set (its §4.7). | Ask adds at most 300 counted questions an hour in all, plus refused ones, which are cheap invocations, well inside 5,000. A rush that passes it is the unusual traffic the alarm is for. |
 
 ## 7. Left to the builder
 
@@ -401,7 +409,7 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 |---|---|---|
 | AK1 | **10 typed questions answered** in the harness with real Muse Spark calls: each within 10 s, with the expected kind, place, crossing line and vehicle; where the answer has citations, `cited` a subset of the last result's refs, including the deepest; and the copy check clean on the rendered English and Taglish | the harness's results, saved outside the repo; a summary in the results note |
 | AK2 | **10 spoken questions answered** from M12's recordings: each within 10 s, with its transcript shown and the rules of AK1 held. The count of places heard as the speaker meant is reported, with no minimum (AskL-Q6). | the same; waits for M12 |
-| AK3 | **The deployed API:** 5 typed questions within 10 s at the client: a spot, a small landmark through Nominatim, "dito", a crossing question, and a place outside Metro Manila, each answered as the live pins of the moment allow; plus one synthetic spoken clip end to end | the cloud check's counts and timings |
+| AK3 | **The deployed API:** 5 typed questions within 10 s at the client, with the spoken clip's upload time recorded apart (§4.1): a spot, a small landmark through Nominatim, "dito", a crossing question, and a place outside Metro Manila, each answered as the live pins of the moment allow; plus one synthetic spoken clip end to end | the cloud check's counts and timings |
 | AK4 | **Caps:** the 21st question from one device and the 301st in all are refused with their codes and `Retry-After`; the device is counted first; no refused question makes a Meta or Nominatim call | unit tests |
 | AK5 | **Fallbacks:** each trigger in §4.5 gives the plain list, with no Meta call under `model-calls`; a spoken question gets `voice_paused`; an unreadable switch counts as on | unit tests; MS7's S2 in the cloud |
 | AK6 | **The publish switch:** while it is on, no live pin appears in any answer and demo pins still do | unit tests through MS4's read |
@@ -409,8 +417,8 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 | AK8 | **Nominatim:** one request a second across Lambdas, a cache hit makes no request, the User-Agent is sent, the switch stops it, and the app shows the attribution | unit tests |
 | AK9 | **Copy:** MS5's string-table tests and MS7's copy check pass on the `ask.*` keys and the saved answers; Rene's review brings the unreviewed count to 0 before release (M20) | test runs; MS7's sheet |
 | AK10 | **Voice capture:** the encoder and downsampler pass their tests; the app records a WAV from a fake microphone in Playwright; nothing holds the audio afterwards; the APK records on the emulator | unit and end-to-end tests; an emulator run |
-| AK11 | **The template:** the two routes, the key grant, the 15 s timeout, the Nominatim switch, the exposed `Retry-After` and the cap alarm; `npm run check` and CI pass | template tests; CI |
-| AK12 | **The guards** (C732 to C734): an SUV question that the model labels `heavy` answers `light`; a walking word forces `on_foot`; a window under 180 minutes without a stated time stays 180; a Nominatim result wider than 300 m, and a road with several listed spots, answer `place_too_broad` with suggestions; a final turn that runs late or cites wrongly leaves an answer with no citations, its crossing and vehicle lines intact | unit tests |
+| AK11 | **The template:** the two routes, the key grant, the `GetItem` grant on `limits` (C701), the 15 s timeout, the Nominatim switch, the cap alarm and the API alarm's 5,000 (C735), with MS4's count tests updated for the new routes, variables and grant; MS4's own test keeps `Retry-After` exposed; `npm run check` and CI pass | template tests; CI |
+| AK12 | **The guards** (C732 to C734): an SUV question that the model labels `heavy` answers `light`; a walking word forces `on_foot`, and a model-only `on_foot` answers `none` with its class lines; a window under 180 minutes without a stated time stays 180, and a stated time is never shortened; a Nominatim result inside Metro Manila wider than 300 m, and a road with several listed spots, answer `place_too_broad` with suggestions, while a wide result outside answers `outside_metro_manila`; a final turn that runs late, cites wrongly or says `off_topic` leaves an answer with its reports and no citations, its crossing and vehicle lines intact | unit tests |
 
 ## 9. Questions for Rene
 
@@ -424,9 +432,11 @@ Each has a default that the plan follows until he answers (D7). Most important f
 | AskL-Q4 | **Demo pins in answers** | (a) apart, labelled "(demo)" with their date and credit, never the summary; (b) mixed with live pins and labelled; (c) never in Ask | (a) |
 | AskL-Q5 | **Where the 20 test questions run** | (a) in the harness, with real Meta calls and fixture pins, plus a 5-question check on the deployed API; (b) all 20 on the deployed API, against whatever pins exist then | (a). Under (b), with no flood and few demo pins, most answers would be "no recent reports". |
 | AskL-Q6 | **The bar for the spoken questions** | (a) all 10 answered within the rules, with the count of places heard right reported and no minimum; (b) at least 8 of 10 places heard right | (a). Whether voice stays in the video is then your call with that count in hand (plan Table 18, MS8). |
-| AskL-Q7 | **Ask's Lambda** | (a) the API Lambda, as plan Figure 1 has it, with the key grant added to its role; (b) its own function, so only it can read the key, with its own log and alarm | (a). (b) is tighter on privilege, but MS4's N6 and MS9's daily check would need updating. |
+| AskL-Q7 | **Ask's Lambda** | (a) the API Lambda, as plan Figure 1 has it, with the key grant added to its role; (b) its own function, so only it can read the key, with its own log and alarm | (a). (b) is tighter on privilege, and it would also keep the key away from MS4's any-origin public `FeedApi` (its C521), which runs on the same `ApiFunction`. But MS4's N6 and MS9's daily check would need updating. |
 | AskL-Q8 | **The spot list's source** | (a) names from MMDA's alerts and published list, points from an OpenStreetMap extract under ODbL, credited; (b) Rene picks each point by hand | (a), with the licence confirmed on the source page before the file is committed |
 | AskL-Q9 | **If the probe shows that a 15 s clip can't be transcribed in time** (C734). Asked only if it happens. | (a) The app's recording cap drops to 10 s by a recorded ruling, still within plan Table 4's "up to 15 s", and `audio_too_long` follows. (b) Keep 15 s, and a long clip answers `voice_failed` or the plain list. | (a). Short questions are the common case, and every answer still shows its transcript. |
+| AskL-Q10 *(from the accuracy review)* | **The `heavy` vehicle line beside an NPLV class line** ("not passable to light vehicles") reads as "your vehicle can pass", even when `heavy` is right (M20) | (a) drop "not a light one" and, with `heavy`, show the crossing line directly under the class line; (b) show the vehicle line only for `light`; (c) drop "not a light one" only | (a) |
+| AskL-Q11 *(from the accuracy review)* | **A spoken question's transcript can hold a banned word,** such as "Ligtas ba…?", which Lusot would then show (CLAUDE.md, MS5's C608) | (a) mask each banned word in the shown transcript, letter by letter as "•", keeping the rest; (b) show the transcript as quoted user input, exempt by a ruling, with MS5's and MS7's checks told which element is exempt; (c) show only the place heard | (a). The rule is absolute, and the place heard, which the transcript is there to check, stays. |
 
 Design R6 bears on Ask too: the fewer consented demo pins exist, the more answers say "no recent reports" outside a flood.
 
@@ -437,25 +447,25 @@ Design R6 bears on Ask too: the fewer consented demo pins exist, the more answer
 | # | From | Need | If it doesn't come |
 |---|---|---|---|
 | N1 | MS4 | `pins.ts` exports a data-level read, such as `nearbyPins(lat, lng, radiusM, deps)`, returning public pins with the publish switch applied, which `nearby` wraps; and its distance function | Ask's Task 0 splits `nearby` on Ask's branch, with MS4's tests unchanged. |
-| N2 | MS4 | `limits.ts` takes a `question` bucket: 20 a device, 300 in all | Ask adds it, test first. |
+| N2 | MS4 | `limits.ts`'s one `take(bucket, deviceHeader, nowS, deps)` takes a `question` bucket: 20 a device, 300 in all, refusing with Ask's codes through a per-bucket code map, while MS4's codes stay | Ask adds it, test first, and reuses `retryAfterS`. |
 | N3 | MS4 | `metroManila.ts` exports `inMetroManila` | Ask imports the polygon test as MS4 wrote it. |
-| N4 | MS4 | CORS exposes `Retry-After` (audit row 23) and allows `X-Lusot-Device` | Ask's template task adds `exposeHeaders`. |
-| N5 | MS4 | Demo pins carry `credit`, `place` and `event` in public pins (audit row 1) | Demo pins drop out of answers, as MS5's filter drops them from the map. |
-| N6 | MS4 | Name its own limit codes in the same pattern, such as `upload_limit` and `upload_cap` (audit row 7) | Ask's codes stand on their own. |
-| N7 | MS5 | The fifth slot `#/ask`, the gate before the first question, `isSafetyKey` covering `ask.answer.`, and the wording functions as exports | Ask's app tasks add them on Ask's branch. |
+| N4 | MS4 | CORS exposes `Retry-After` (audit row 23) and allows `X-Lusot-Device` | **Answered:** MS4's §4.7 does both. |
+| N5 | MS4 | Demo pins carry `credit`, `place` and `event` in public pins (audit row 1) | **Answered:** MS4's C523. |
+| N6 | MS4 | *(Dropped.)* MS4's C522 kept `device_limit` and `global_cap`, which MS5, MS7 and MS9 follow. | Ask's codes stand on their own. |
+| N7 | MS5 | The fifth slot `#/ask`, the gate before the first question, `isScreenLineKey` covering `ask.answer.`, and the wording functions as exports | Ask's app tasks add them on Ask's branch. |
 | N8 | Window 4 | The policy and the notice take AskL-Q3's answer: no stored questions, the location kept in the Lambda, `store: false`, the cache's 7 days, Nominatim, no `store` setting for audio, and a notice heading that covers questions as well as photos | The texts keep their PRIV-Q3 brackets, which M21 can't approve as they are. |
-| N9 | MS7 | The copy check reads `ask.*` keys, the `ask_v1.*` prompt files (review only), and the saved answers' `rendered.en` and `rendered.fil` fields (the `transcript` field is the speaker's words, review only). The crossing line joins the allowed sentences once Rene approves it. The switch test covers `/lusot/stop/nominatim`. The APK's permission list adds `RECORD_AUDIO`. C828's questions name spot-list places, so the rush makes no Nominatim call. | Ask's own copy test runs on its keys; the rest waits for MS7. |
+| N9 | MS7 | The copy check reads `ask.*` keys, the `ask_v1.*` prompt files (review only), and the saved answers' `rendered.en` and `rendered.fil` fields (the `transcript` field is the speaker's words, review only; the shown transcript is masked, AskL-Q11). The crossing line joins the allowed sentences once Rene approves it. The switch test covers `/lusot/stop/nominatim`. The APK's permission list adds `RECORD_AUDIO` and `MODIFY_AUDIO_SETTINGS`. C828's questions name spot-list places, so the rush makes no Nominatim call. | Ask's own copy test runs on its keys; the rest waits for MS7. |
 
 **What Ask gives others:**
 - **MS7:** §5's contract; the plain list marked `source: "plain_list"` with `fallback: "model_calls_paused"` and `meta_calls` 0 (S2); 10 s at the client (L9); no audio in any bucket or table (P14); the spot list at `backend/api/src/data/spots.json`; the saved answers at `LUSOT_DATA_DIR\ask\<date>\` (§8); the cost per question from AK1, else $0.01.
 - **MS9:** N8 answered: the 300 cap and its alarm, the log fields, the plain list under `model-calls` and `voice_paused` for voice. Ask's 402s appear in the API log as `meta_status` 402 with `fallback: "key_rejected"`.
 - **MS8:** C915's facts: the tool is `get_reports`; Muse Spark reads the question, decides the lookup, calls the tool, reads its results and cites the reports it used; code checks every citation; the spoken answer shows its transcript; the counts come from AK1 and AK2. N4: answers show their cited pins ("Used") and the transcript. If the probe drops the final turn (C734), C915 says instead that Muse Spark reads the question, decides the lookup and calls the tool, and code picks the reports from what it returns.
-- **MS4:** N6's API alarm gains at most 300 answered questions an hour from Ask.
+- **MS4:** N6's API alarm threshold, set at 5,000 an hour (C735), with at most 300 counted questions an hour from Ask; and the `GetItem` grant on `limits` (C701), which Ask's template task adds.
 
 ## 11. Risks
 
 - **Muse Spark is too slow even at minimal effort.** The probe shows it before the build. If two turns don't fit 7.5 s, the final turn gives way (C734), which keeps the model's place finding, the crossing line and the vehicle line.
-- **Tools and `text.format` don't mix** (F4). The final turn's second form (§4.3) is ready.
+- **Tools and `text.format` don't mix** (F4). Both turns' second forms (§4.3) are ready, and the probe tries them.
 - **Taglish voice is weak,** or keywords can't hold the full list. Plan Table 18's fallback, and the transcript always shown.
 - **Questions fill the account's 10 Lambda slots** in a rush. The caps bound the hourly total but not a burst; MS7's C828 measures it, and the per-route throttles MS4 may add (audit row 9) can include Ask's routes.
 - **Nominatim blocks or slows us.** The spot list answers first, the cache second, and the switch turns Nominatim off.
@@ -481,3 +491,17 @@ A fresh reviewer (Opus 5.5 at max) read this spec, CLAUDE.md, the build design, 
 | BQ3 | A street or a barangay resolves to one point, so "No recent reports within 300 m of {place}" reads as the whole road or area. | Claude's call, from CLAUDE.md's rule | Answers are always about a point (C733): spots are named as points, a road with several listed spots and a Nominatim result wider than 300 m answer `place_too_broad` with up to 3 spots to ask about instead. |
 
 It also named gaps a builder could settle: how refs number across two tool calls (each result numbers afresh, and the answer cites the last, §4.2), the final turn's other form in the probe, a fake Nominatim in the harness, freezing the 10 typed questions before the prompt is tuned, and keeping MS4's API alarm at 5,000. The plan takes each of them.
+
+## 14. Accuracy review (Oct 29 evening)
+
+A fresh reviewer (Opus 5.5 at xhigh) checked this spec and the plan against MS4's committed spec and plan (`d136513`), MS5 (`6ca31b9`), the code on `main` and MS3a's branch, the cross-spec audit, CLAUDE.md and dev.meta.ai. It found 1 Critical, 13 Important and 20 Minor problems, all taken under Window 4's rulings (Claude's calls, in Rene's batch). The ones that change this spec:
+- **The Critical:** the place cache reads `limits`, which MS4's grants left write-only, so the API role gains `GetItem` there (C701).
+- **Where the place test runs:** `inMetroManila` comes before the breadth test, so a town outside Metro Manila answers `outside_metro_manila`, not `place_too_broad` (§4.2, C733).
+- **Code's checks on the model:** `on_foot` now needs a walking word (§4.3, C712). A final turn can't turn a question `off_topic` (§4.3). The two calls' readings are combined, and a stated time is never shortened (C732).
+- **Turn 1's fallback form:** tools with no `text.format`, if Meta refuses the two together (§4.3, F4).
+- **The client:** Ask's client never retries a 503 or a request already sent (§4.8).
+- **N6's alarm:** it stays at 5,000 an hour (C735).
+- **New lines:** a busy place lookup gets its own line, `lookup_unavailable` (§4.4, §5.3).
+- **Copy questions for Rene:** the `heavy` line beside NPLV (AskL-Q10), and a transcript that holds a banned word (AskL-Q11).
+- **Wording:** every avoidable form of the banned word is gone from this spec's prose. MS5's `isSafetyKey` becomes `isScreenLineKey` by the tracker's 9:50 PM ruling, and only quoted rules and detection lists still name the word.
+- **Housekeeping:** the refs to MS4 and MS5 are re-pinned, and N4 and N5 are answered. N6 is dropped.
