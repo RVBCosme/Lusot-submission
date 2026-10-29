@@ -135,10 +135,10 @@ All new.
   - `tables(text: str) -> list[list[list[str]]]`: each Markdown table as rows of stripped cells, with the header and separator rows dropped
   - `version() -> str`: the `vX.Y` on the status line, without the `v`
 
-- [ ] **Step 1: Write the runner and the path hook.**
+- [x] **Step 1: Write the runner and the path hook.**
   - `run_tests.py` carries PEP 723 metadata: `requires-python = ">=3.13,<3.14"`, `dependencies = ["pytest==9.1.1", "scikit-learn==1.9.1"]`. Its body runs `pytest.main([<its own folder>, "-q", "-p", "no:cacheprovider", *sys.argv[1:]])` and exits with the result.
   - `conftest.py` inserts the `eval/` folder (`Path(__file__).resolve().parents[1]`) at the front of `sys.path`, so tests import `scoring` and `run_eval`.
-- [ ] **Step 2: Write the failing tests.**
+- [x] **Step 2: Write the failing tests.**
   - `test_scale.py`:
     - `test_scale_matches_rules_md`: `rules_md.tables(rules_md.section(1))[0]` gives rows of index, level, limit and class. Each row's level equals `LEVELS[i]`, its limit text (`d ≤ 5` … `d > 45`) gives `UPPER_IN[i]`, and its class equals `CLASSES[level]`.
     - `test_level_for_inches`: `0 → below_gutter`, `5 → below_gutter`, `5.01 → gutter`, `8 → gutter`, `13 → half_tire`, `13.2 → knee`, `26 → tire`, `45 → chest`, `45.1 → above_chest` (each a `Decimal`). `Decimal("-0.1")` raises `ValueError`.
@@ -178,8 +178,8 @@ All new.
       - `label_words_ok` is true for every phrase in rules §2's two tables (with the two annotations dropped, since `off` and `scale` aren't label words), for `Gutter deep, 8"`, `13-18 inches`, `25cm`, `NPLV`, `""` and `OTHER_WORDS`
       - it is false for `Espana Maceda`, `8:00 AM`, `knee deep (Espana)`, `2026 knee`, and a label holding `http://x` or `@`
       - every word in the first column of `rules_md.section(2)`'s two tables, outside the two annotations, is in `LABEL_WORDS`
-- [ ] **Step 3:** Run `uv lock --script eval/tests/run_tests.py`. Expected: `eval/tests/run_tests.py.lock` appears (uv fetches the package index once). Check in the lock that scikit-learn resolved to 1.9.1; if that version doesn't exist, pin the newest 1.9.x, and check its `cohen_kappa_score` with Context7 at that version. Then run the tests. Expected: FAIL, since `scoring` doesn't exist.
-- [ ] **Step 4: Implement `scale.py`, `labels.py` and `scoring/__init__.py`.**
+- [x] **Step 3:** Run `uv lock --script eval/tests/run_tests.py`. Expected: `eval/tests/run_tests.py.lock` appears (uv fetches the package index once). Check in the lock that scikit-learn resolved to 1.9.1; if that version doesn't exist, pin the newest 1.9.x, and check its `cohen_kappa_score` with Context7 at that version. Then run the tests. Expected: FAIL, since `scoring` doesn't exist.
+- [x] **Step 4: Implement `scale.py`, `labels.py` and `scoring/__init__.py`.**
   - **Level labels.** The order matters, so that no mark is lost.
     1. Lowercase the raw text.
     2. Pull out every number with its unit (`"`, `”`, `″`, `in`, `inch`, `inches`, `cm` and the centimetre spellings), including a range: two numbers joined by `-`, `–` or `to`.
@@ -191,8 +191,9 @@ All new.
     - **With no words left,** the number decides through `level_for_inches`, after centimetres are converted and a range is taken at its upper value.
     - **Special cases:** a word in `STATUS_WORDS` gives `status`, and `OTHER_WORDS` gives `unmapped`.
   - **Passability:** the same normalising. A lone code (`patv`, `nplv` or `npatv`) or an exact phrase gives its class. A phrase with a code in parentheses, or a code with a phrase in parentheses, gives the class only when both agree. Anything else is `unmapped`.
-- [ ] **Step 5:** Run the tests. Expected: PASS.
-- [ ] **Step 6:** Run the two leak checks (Global Constraints), then commit `feat(eval): add the level scale, the label mapping and the test runner`.
+- [x] **Step 5:** Run the tests. Expected: PASS.
+- [x] **Step 6:** Run the two leak checks (Global Constraints), then commit `feat(eval): add the level scale, the label mapping and the test runner`.
+  - **Evidence:** `1411538`, fix round `268dec3`. RED: `ModuleNotFoundError` for `scoring`; then 17 passed with no warnings, and the lock resolves scikit-learn 1.9.1. Ruff, the leak check, the account-ID scan and gitleaks clean. Review: Approved (w4.md, 4:41 PM Oct 28; `w4-ms6-ledger.md`).
 
 ### Task 2: Rows: the loader and its allow-list
 
@@ -289,7 +290,7 @@ All new.
   - `estimates`. It must include `geometry`, holds only names from `SET_B_VARIANTS`, and has the same names on every row of a file. `geometry_no_self_check` is allowed only when `self_check` is `on`. Each estimate is `{measured, depthInPoint, depthInMin, depthInMax, fail}`. A measured one has all three decimals and a null `fail`. An unmeasured one has three nulls and a token `fail`.
 - **A latency row** has exactly `test_id` and `seconds`, a decimal above 0 and under 3,600.
 
-- [ ] **Step 1: Write the failing tests** in `test_rows.py`, building each folder with `builders.write_run(tmp_path, ...)`:
+- [x] **Step 1: Write the failing tests** in `test_rows.py`, building each folder with `builders.write_run(tmp_path, ...)`:
   - `test_loads_a_valid_run`: 3 Set A rows, 2 A-neg rows, 2 Set B rows and 2 latency rows load. The types are `Run`, `PhotoRow` and `WheelRow`; `true_depth_in` is `Decimal("11.25")`; and an absent `set_d.jsonl` gives `run.set_d is None`.
   - `test_refuses_fields_outside_the_contract`, parametrized over a top-level `reason`, `post_url`, `spot_text`, `city`, `alert_time_pht` and `conflicting_alerts`: a `RowError` naming the file and line 1.
   - `test_refuses_free_text`: `waterline: "Rim quarter"`, `waterline: "hubcap"`, a `reason` key inside `answer`, and a refusal reason with a space are each refused.
@@ -319,13 +320,14 @@ All new.
     - a null `answer` gives `answered=False`
   - `test_set_b_estimates`: a measured estimate missing `depthInPoint`, an unmeasured one with numbers, a row without `geometry`, an unknown variant, and two rows with different variant sets are each refused. All five variants load together.
   - `test_load_run_refuses_sealed_first` (C411): `load_run(tmp_path / "sealed")`, which doesn't exist, raises `SealedPath`, not `RowError` or `OSError`, and nothing is created.
-- [ ] **Step 1b: Write the failing tests** in `test_paths.py`:
+- [x] **Step 1b: Write the failing tests** in `test_paths.py`:
   - `test_refuses_sealed_paths`, parametrized over `tmp_path/"sealed"`, `tmp_path/"a"/"Sealed"/"x"`, `tmp_path/"sealed"/"sub"/".."` and `tmp_path/"sealed"/".."/"x"`: `refuse_sealed(p)` raises `SealedPath`, its message is `path inside a folder named sealed`, and nothing is created.
   - `test_allows_other_paths`: `refuse_sealed` doesn't raise for `tmp_path/"unsealed"/"x"`, `tmp_path/"sealed_notes"` or `tmp_path/"final"`.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `paths.py`, then `rows.py`: one validator per kind of object, with the messages above, and `load_run` assembling a `Run` from them. Rows keep their file order; sorting is the report's job.
-- [ ] **Step 4:** Run the tests. Expected: PASS.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): load results through an allow-list`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement `paths.py`, then `rows.py`: one validator per kind of object, with the messages above, and `load_run` assembling a `Run` from them. Rows keep their file order; sorting is the report's job.
+- [x] **Step 4:** Run the tests. Expected: PASS.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): load results through an allow-list`.
+  - **Evidence:** `18eb891`, fix round `bbe1edf`. RED: `Result`'s arity `TypeError`, `ModuleNotFoundError` for `scoring.paths`, a `RowError` in place of `SealedPath`; then 143 passed, and 39 single-rule mutations of the loader plus 7 targeted ones were each caught. Checks clean (plan-leak 165 files, account-ID 129). Review: fixed, then re-reviewed clean (w4.md, 5:53 PM).
 
 ### Task 3: Exclusions, Set A's level metrics and kappa
 
@@ -373,7 +375,7 @@ All new.
   - `fmt_rate(rate: Rate) -> str`: `3 of 17 (17.6%)`, or `0 of 0 (undefined)`, with percentages rounded half up to 0.1% through `Decimal`
   - `fmt_inches(value: Decimal | None) -> str`: `2.10 in`, or `undefined`. Both formatters live here, so the gate and the report share one rounding path.
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `test_exclusions.py`:
     - `test_reasons_match_rules_md`: each bullet of `rules_md.section(9)`, with its backticked parenthetical removed, equals `REASONS`, in order.
     - `test_each_reason`: one `Facts` per reason gives that reason, and a row that triggers 2 and 6 gives 2.
@@ -424,10 +426,11 @@ All new.
     - `test_undefined_matches_scikit_learn_nan`: `[(3, 3), (3, 3)]` gives `None`, and scikit-learn gives NaN for the same pairs.
     - `test_scikit_learn_drops_values_outside_labels`: this documents why C405 maps "no flood seen" to 0. scikit-learn's kappa on `[(4, -1), (4, 4), (2, 2), (6, 5)]` with `labels=range(9)` equals its kappa without the first pair.
     - `test_no_flood_seen_counts_as_below_gutter`: `score_set_a` on the hand-computed set gives `kappa == quadratic_kappa([(4, 4), (4, 3), (5, 0), (2, 5), (0, 0), (7, 7)])` and `kappa_n == 6`.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `exclusions.py` and the Set A part of `metrics.py`. Use `Fraction` for every rate and for kappa. A level metric counts a photo only when its level label's kind is `level`, and passability only when its class label's kind is `class`.
-- [ ] **Step 4:** Run the tests. Expected: PASS.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): score Set A and apply the exclusions`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement `exclusions.py` and the Set A part of `metrics.py`. Use `Fraction` for every rate and for kappa. A level metric counts a photo only when its level label's kind is `level`, and passability only when its class label's kind is `class`.
+- [x] **Step 4:** Run the tests. Expected: PASS.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): score Set A and apply the exclusions`.
+  - **Evidence:** `15aff38`, fix round `a5ce561`. RED: item 14's case (`assert None == 'unmapped label'`); then 163 passed with `-W error`. Ruff, the 3.9 parse check, the leak checks and gitleaks clean. Review: fixed, then re-reviewed clean (w4.md, 8:29 PM).
 
 ### Task 4: Landmark agreement, A-neg, the quality subset, subsets, the baseline and replay
 
@@ -457,7 +460,7 @@ All new.
   - **Per level:** `LevelRow(level: str, n: int, answered: int, exact: int, within_one: int, under: int)`, and `score_by_level(rows, config: str) -> tuple[LevelRow, ...]`, over scored rows with a mapped level, in level order. Only levels present get a row.
   - **Replay (spec C425):** `ReplayComparison(config: str, in_sample: SetAScores, replay: SetAScores, within_one_drop: int)`, and `replay_comparison(rows, config: str) -> ReplayComparison | None`. It returns `None` when no row carries `<config>_replay`. `within_one_drop` is `in_sample.within_one.k - replay.within_one.k`. `score_set_a` accepts a replay key as its `config`.
   - **The loader's replay rule (spec C425):** every row of a results file carries the same replay keys. `load_run` refuses a file where they differ, at the first row whose replay keys differ from the file's first row, with the message `replay results must be the same on every row (C425)`, as Set B's same-variants rule does. So a replay is always compared over the same photos, and `score_set_a(rows, "<config>_replay")` never meets a row without the key.
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `test_landmark_agreement`: wheels at `hub`/`hub` and `hub`/`rim_top`, a body at `door_sill`/`door_sill`, and a person at `knee`/`knee` give `wheel Rate(1, 2)`, `body Rate(1, 1)`, `person Rate(1, 1)` and `all Rate(3, 4)`.
   - `test_landmark_agreement_counts_unanswered_and_unmatched` (Review Focus 3):
     - an M8 wheel on a box the answer lacks gives `wheel Rate(0, 1)` and `unanswered == 1`
@@ -479,10 +482,11 @@ All new.
   - `test_by_level`: on the same set, `knee` gives `LevelRow("knee", 2, 2, 1, 2, 1)`, and `waist` gives `LevelRow("waist", 1, 0, 0, 0, 0)` (A06 failed).
   - `test_replay_comparison`: rows whose `landmark` results put 5 of 6 within one level, and whose `landmark_replay` results put 2 of 6, give `within_one_drop == 3`; rows without replay results give `None`.
   - `test_replays_are_the_same_on_every_row`, in `test_rows.py` (C425): a development `set_a.jsonl` with `landmark_replay` on rows 1 and 3 of 3 is refused at line 2, with a message naming the rule; with it on all three rows, or on none, the file loads.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement the functions in `metrics.py`.
-- [ ] **Step 4:** Run the tests. Expected: PASS.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): add landmark agreement, A-neg, quality and subset scores`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement the functions in `metrics.py`.
+- [x] **Step 4:** Run the tests. Expected: PASS.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): add landmark agreement, A-neg, quality and subset scores`.
+  - **Evidence:** `32a16ae`. RED: `ImportError` for the new names, and the loader accepting a partial replay file; then 177 passed with `-W error`, and 29 single-rule mutations were each caught. Checks clean. Review: Approved (w4.md, 9:04 PM).
 
 ### Task 5: Set B, Set D and latency
 
@@ -501,7 +505,7 @@ All new.
   - `wheel_groups(rows, by: str) -> tuple[tuple[str, tuple[WheelRow, ...]], ...]`, where `by` is `vehicle_type` or a bin name. Groups are sorted, and rows without that bin are left out.
   - `measured_errors(rows, variant: str) -> tuple[Decimal, ...]`, sorted, for the chart
   - `LatencyScores(n: int, median: Decimal | None, p95: Decimal | None)` and `score_latency(samples: Sequence[tuple[str, Decimal]]) -> LatencyScores`, where p95 is the nearest rank: the `ceil(0.95 × n)`-th smallest value
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `test_hand_computed_wheels`, on five wheels:
 
     | crop | true depth | measured | point | envelope | error | inside? |
@@ -518,10 +522,11 @@ All new.
   - `test_groups_by_type_and_bins`: two `sedan_hatch` rows and one `suv_mpv` row, two of them with `bins` `{"view": "side"}`, give the type groups `sedan_hatch` and `suv_mpv`, and a view group `side` of 2 rows.
   - `test_nothing_measured`: `measured == Rate(0, 2)`, `median_error is None` and `envelope.value is None`.
   - `test_latency_nearest_rank`: `1` to `20` seconds give `median == Decimal("10.5")` and `p95 == Decimal("19")`. One sample gives that sample as both, and none gives `None`.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement the functions in `metrics.py`.
-- [ ] **Step 4:** Run the tests. Expected: PASS.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): score Set B, Set D and latency`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement the functions in `metrics.py`.
+- [x] **Step 4:** Run the tests. Expected: PASS.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): score Set B, Set D and latency`.
+  - **Evidence:** `68a9329`. RED: `ImportError`; then 183 passed with `-W error`, and 28 single-rule mutations were each caught. Checks clean. Review: Approved (w4.md, 9:32 PM).
 
 ### Task 6: The release gate and the outcome rule
 
@@ -543,7 +548,7 @@ All new.
     - **with `set_b` given:** `median_error <= MEDIAN_ERROR_MAX_IN`, `measured.value >= MEASURED_MIN` and `envelope.value >= ENVELOPE_MIN`. **Without it,** those three checks are not shown, and fail.
     - `inches_shown` when `geometry_stays` and all three Set B checks pass
     - The self-check's extra row never reaches `decide`, so it can't be chosen. When geometry was dropped before the freeze (C418), `decide` isn't called (Task 8).
-- [ ] **Step 1: Write the failing tests.** Each builds `SetAScores` and `WheelScores` from small row sets with Tasks 3 and 5's functions.
+- [x] **Step 1: Write the failing tests.** Each builds `SetAScores` and `WheelScores` from small row sets with Tasks 3 and 5's functions.
   - `test_numbers_match_rules_md`: `rules_md.section(8)` contains `≤ **3 in**`, `**70%**`, `≥ **80%**`, `**10 percentage points**` and `**5 percentage points**`, matching the constants.
   - `test_geometry_stays_with_inches`: no rise, small drops, and a Set B of 25 wheels (20 measured, a 2 in median error, 18 of the 20 inside their envelope) give `geometry_stays`, `inches_shown` and `shipped == "geometry"`.
   - `test_geometry_stays_without_inches`, parametrized over each Set B target missed by one wheel: `geometry_stays`, but no `inches_shown`, and `reasons` names the target.
@@ -557,10 +562,11 @@ All new.
   - `test_undefined_rate_drops_geometry` (Review Focus 2): geometry answering no Set A photo gives `no_rise` with `shown False`, and `shipped == "landmark"`.
   - `test_no_set_b_means_no_inches`: `set_b=None` gives `inches_shown False`, and the reasons say Set B wasn't run.
   - `test_rates_compare_exactly`: geometry's `under` of 2/6, against landmark's 1/3 with a count of 2 against 1, fails only on the count. `under` of 1/3 against 1/3 passes.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `gate.py`. `found` and `target` are display strings, such as `2 of 17 (11.8%)` and `at most 10 points`.
-- [ ] **Step 4:** Run the tests. Expected: PASS.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): decide the release gate and the outcome rule`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement `gate.py`. `found` and `target` are display strings, such as `2 of 17 (11.8%)` and `at most 10 points`.
+- [x] **Step 4:** Run the tests. Expected: PASS.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): decide the release gate and the outcome rule`.
+  - **Evidence:** `30c097f`. 206 passed with `-W error`, and 35 of 36 mutants were caught (the survivor is equivalent at any realistic n). Checks clean. Review: Approved (w4.md, 10:26 PM). RED, run Oct 29 at 9:06 PM because the ledger didn't record it: `test_gate.py` from `30c097f` on `68a9329`'s `eval/` fails collection with `ModuleNotFoundError: No module named 'scoring.gate'` (exit 2).
 
 ### Task 7: The charts
 
@@ -593,7 +599,7 @@ All new.
     - each dot with a `<title>` such as `wheel 3: 0.75 in`
     - gridlines as solid hairlines
   - **Determinism:** coordinates are written with at most 2 decimals, attributes always come in the same order, and there are no random ids, so the output is the same every time.
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `test_level_matrix_parses`:
     - `xml.etree.ElementTree.fromstring` accepts it, and the root is `{http://www.w3.org/2000/svg}svg` with `role="img"`
     - it has one `title` and one `desc`
@@ -605,15 +611,16 @@ All new.
   - `test_charts_are_deterministic`: two calls give equal strings, for both charts.
   - `test_dark_mode_and_no_dashes`: each chart contains `prefers-color-scheme: dark` and no `stroke-dasharray`.
   - `test_empty_inputs`: an empty matrix and an empty error list still give valid SVG, which says "no answered photos" or "no measured wheels".
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `svg.py`, escaping text with `xml.sax.saxutils.escape`.
-- [ ] **Step 4: Check the colours** with the dataviz skill's validator (Node 22). The skill's base directory is in the controller's brief.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement `svg.py`, escaping text with `xml.sax.saxutils.escape`.
+- [x] **Step 4: Check the colours** with the dataviz skill's validator (Node 22). The skill's base directory is in the controller's brief.
   - `node <dataviz>/scripts/validate_palette.js "#86b6ef,#3987e5,#1c5cab,#0d366b" --ordinal --mode light`, and `"#184f95,#2a78d6,#6da7ec,#b7d3f6" --ordinal --mode dark --surface "#1a1a19"`
   - `node <dataviz>/scripts/validate_palette.js "#2a78d6" --mode light`, and `"#3987e5"` with `--mode dark`
 
   Record each result in the task report. A FAIL changes the colour step, never the check. A contrast WARN is met by the counts and the table twins, under the skill's relief rule.
-- [ ] **Step 5:** Run the tests. Then write one matrix and one error plot into the session's scratchpad, open each with the Playwright plugin at its `file://` URL (never claude-in-chrome), take a screenshot, and look for label collisions and overflow. Expected: PASS, with nothing clipped.
-- [ ] **Step 6:** Run the leak checks, then commit `feat(eval): draw the level matrix and the Set B error chart`.
+- [x] **Step 5:** Run the tests. Then write one matrix and one error plot into the session's scratchpad, open each with the Playwright plugin at its `file://` URL (never claude-in-chrome), take a screenshot, and look for label collisions and overflow. Expected: PASS, with nothing clipped.
+- [x] **Step 6:** Run the leak checks, then commit `feat(eval): draw the level matrix and the Set B error chart`.
+  - **Evidence:** `c44ad0e`, fix round `001f0a1`. RED: `ModuleNotFoundError`; then 220, and after the fix 221, passed with `-W error`; 14 planted defects caught. The dataviz validator passed all 4 runs. The Playwright plugin blocks `file:` URLs, so each scratch SVG was opened through a `data:` URL with the same bytes; the screenshots showed no collision or overflow, and the plugin's `.playwright-mcp/` folder was deleted before the commit. Checks clean. Review: fixed, then re-reviewed clean (w4.md, 11:31 PM).
 
 ### Task 8: The report and the summary
 
@@ -676,7 +683,7 @@ All new.
   - per configuration: `underestimation`, `passability`, `coverage`, `exact` and `within_one`, each `{"k", "n"}`, plus `refused` and `failed`. `exact` and `within_one` were added on Oct 29, for MS5-M1 (the cross-spec audit's row 20).
   - for Set B's `geometry` variant: `wheels`, `measured` (`{"k", "n"}`), `median_error_in` and `worst_error_in` (strings, or null), and `envelope`
   - `baseline_level` and `baseline_class`, which the freeze copies into the sealed run's `run.json` (C424)
-- [ ] **Step 1: Write the failing tests,** on runs built with `builders.write_run` and `rows.load_run`:
+- [x] **Step 1: Write the failing tests,** on runs built with `builders.write_run` and `rows.load_run`:
   - `test_sections_in_order`: the headings above appear in order.
   - `test_every_metric_row_has_n`: every Markdown table row, apart from header and separator rows, under "Reported first", "Release gate", the Set A, A-neg, quality, subset, Set B and Set D sections and "Latency" matches ` of [0-9]+ ` or `n = [0-9]+`. The chart twins' count tables are exempt.
   - `test_each_chart_has_its_twin`: every `![…](….svg)` link is followed, before the next heading, by a Markdown table.
@@ -698,10 +705,11 @@ All new.
   - `test_report_ignores_row_order` (Review Focus 1): shuffled rows give byte-identical output for every file.
   - `test_summary_json`: it parses, its keys are sorted, and `shipped` and the Set A rates match the report's.
   - `test_exclusions_listed`: each excluded Set A and A-neg id appears with its reason, the counts add up to the number excluded, and a photo whose passability phrase didn't map is listed on the passability line.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `report.py`. Rows are sorted by id before anything is written, and no value comes from the clock.
-- [ ] **Step 4:** Run the tests. Expected: PASS.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): write the evaluation report and its summary`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement `report.py`. Rows are sorted by id before anything is written, and no value comes from the clock.
+- [x] **Step 4:** Run the tests. Expected: PASS.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): write the evaluation report and its summary`.
+  - **Evidence:** `c6bd75b`, pre-review fixes `ad82c29`. 249, then 250, passed with `-W error`; 22 planted defects caught; the same bytes on Python 3.10, 3.11 and 3.13. Checks clean. Review: Approved (w4.md, 2:55 AM Oct 29). RED, run Oct 29 at 9:06 PM because the ledger didn't record it: `test_report.py` from `c6bd75b` on `8234395`'s `eval/` fails collection with `ModuleNotFoundError: No module named 'scoring.report'` (exit 2).
 
 ### Task 9: The one command, and the fixture it rebuilds
 
@@ -734,7 +742,7 @@ All new.
   - 5 latency rows
 
   Its report is created once with `--write` and committed.
-- [ ] **Step 1: Write the fixture's rows, then the failing tests:**
+- [x] **Step 1: Write the fixture's rows, then the failing tests:**
   - `test_refuses_sealed_paths`, parametrized over `tmp_path/"sealed"`, `tmp_path/"a"/"Sealed"/"x"`, `tmp_path/"sealed"/"sub"/".."` and `tmp_path/"sealed"/".."/"x"`:
     - `main(["--from-saved", "--results", str(p)]) == 2`
     - the output says `refused: path inside a folder named sealed`
@@ -753,15 +761,16 @@ All new.
   - `test_no_network`: with `socket.socket.connect`, `socket.create_connection` and `socket.getaddrinfo` patched to raise, `main([... fixture])` returns 0.
   - `test_standard_library_only`: an AST walk over `run_eval.py` and `scoring/*.py` finds only imports in `sys.stdlib_module_names`, or `scoring` and its modules, and no `os.environ` or `getenv`. Each file parses with `ast.parse(source, feature_version=(3, 9))`.
   - `test_output_is_ascii` (Review Focus 4): every printed character of the runs above is below 128.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement `run_eval.py`.
-- [ ] **Step 4:** Create the fixture's report with `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run --write`. Read `report.md` once in full against spec §4.4 and the Global Constraints' copy rules, and look at each SVG.
-- [ ] **Step 5:** Run the whole suite. Expected: PASS.
-- [ ] **Step 6: Run the literal command on plain Pythons** (spec E10), on the fixture. Each must exit 0:
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement `run_eval.py`.
+- [x] **Step 4:** Create the fixture's report with `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run --write`. Read `report.md` once in full against spec §4.4 and the Global Constraints' copy rules, and look at each SVG.
+- [x] **Step 5:** Run the whole suite. Expected: PASS.
+- [x] **Step 6: Run the literal command on plain Pythons** (spec E10), on the fixture. Each must exit 0:
   - `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run`, on the laptop's own `python` (3.10.11)
   - the same with `python3` (3.11.9)
   - `uv run --no-project --python 3.9 python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run`. uv downloads CPython 3.9 once (spec §3). If that download fails, record the error; the after-merge CI step then covers 3.9.
-- [ ] **Step 7:** Run the leak checks, then commit `feat(eval): rebuild the report with one command`.
+- [x] **Step 7:** Run the leak checks, then commit `feat(eval): rebuild the report with one command`.
+  - **Evidence:** `159cb7f`, pre-review fix `941743f`. RED: the module missing, then 22 failing on their own assertions; then 284, and 286, passed with `-W error`; 21 mutations caught. Step 6: `python eval/run_eval.py --from-saved` exits 0 with `report: 5 files identical` on `python` 3.10.11, `python3` 3.11.9 and uv's CPython 3.9.25. Checks clean. Review: Approved (w4.md, 4:05 AM).
 
 ### Task 10: Two more label readings (MS6E-Q1, items 15 and 16)
 
@@ -787,7 +796,7 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
   - A `+` left in the label after its measures are removed also marks a floor: the label is unmapped unless it reads `above_chest`, so `Knee+` and `Waist+ (37+ inches)` are unmapped while `Head+` maps. A `+` on a passability label leaves the class unmapped. (This is Window 4's ruling, from Task 10's review.)
   - A number followed by `+` and a unit, or by its unit and then `+` (`13 in+`), means "at least that depth". It maps to `above_chest` when the number is over 45 in, and otherwise leaves the label unmapped. "At least 13 in" could be deeper than half tire, and a label never sets a floor.
 
-- [ ] **Step 1: Write the failing tests** in `test_labels.py`:
+- [x] **Step 1: Write the failing tests** in `test_labels.py`:
   - `test_measures_decide_unmapped_words` (item 15):
     - `ANKLE DEEP (9 inches)` gives `LevelLabel("level", "half_knee")`, and `Ankle Deep` gives `unmapped`
     - `knee deep (25 inches)` still gives `knee`, because words win
@@ -799,14 +808,19 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
     - `13+ in` and `13 in+` give `unmapped`
     - `Knee+`, `Gutter+`, `Waist+ (37+ inches)`, `knee deep +` and `+13 inches` give `unmapped`, and `map_passability("NPLV+")` gives an unmapped class
   - `test_label_words_take_ankle_head_and_plus`: `label_words_ok` passes `ANKLE DEEP (9 inches)` and `Head+ (60+ inches)`, and still refuses `Espana Maceda` and `knee deep 8:00 AM`. `head` and `ankle` are in `LABEL_WORDS`.
-- [ ] **Step 2:** Run the tests. Expected: FAIL.
-- [ ] **Step 3:** Implement the two readings in `labels.py`, and update its docstring, so it no longer says that only §2's phrases map.
-- [ ] **Step 4:** Run the whole suite. Expected: PASS. Task 1's drift tests still pass, because they read `eval/rules.md` toward the code only. The final review's bidirectional drift test, if it adds one, must allow `head` until v0.7 lands.
-- [ ] **Step 5:** Run the leak checks, then commit `feat(eval): read alert labels by their inches when the words don't map (MS6E-Q1 items 15, 16)`.
+- [x] **Step 2:** Run the tests. Expected: FAIL.
+- [x] **Step 3:** Implement the two readings in `labels.py`, and update its docstring, so it no longer says that only §2's phrases map.
+- [x] **Step 4:** Run the whole suite. Expected: PASS. Task 1's drift tests still pass, because they read `eval/rules.md` toward the code only. The final review's bidirectional drift test, if it adds one, must allow `head` until v0.7 lands.
+- [x] **Step 5:** Run the leak checks, then commit `feat(eval): read alert labels by their inches when the words don't map (MS6E-Q1 items 15, 16)`.
+  - **Evidence:** `215c337`, `6683b6d`, fix round `ded7106`. The new cases red first; then 224 passed with `-W error`; 6 swapped-in wrong implementations caught. Checks clean. Review: fixed, then re-reviewed clean (w4.md, 12:11 AM).
+
+**Whole branch (Oct 29, 9:05 PM, at `b0f8a5c`):** after the final review and its fix wave (`2e9a958`, re-reviewed clean) and `9ca7464`, `uv run --locked --script eval/tests/run_tests.py -W error` gives 320 passed, exit 0, and `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` (Python 3.10.11) exits 0 with `report: 5 files identical`.
 
 ---
 
 ## After the merge (the merging window, not this branch)
+
+Still open: `w4-independent` isn't merged, and `main` is `98e8266` (Oct 29, 9:07 PM). The merging window ticks these.
 
 - [ ] Add `uv run --locked --script eval/tests/run_tests.py` to `check:py` in the root `package.json`, so `npm run check` runs the eval tests.
 - [ ] Add the same command to `.github/workflows/ci.yml`, plus a step that runs `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` on Python 3.9 (for example with `actions/setup-python`, pinned to a commit SHA like the workflow's other actions).
@@ -818,6 +832,8 @@ Added on Oct 28 at 11:27 PM, after Quezon City's official road-status pages turn
 - [ ] Record the changes on the board and in the day's log.
 
 ## When `eval/rules.md` becomes v0.7 (the same commit as the rules change)
+
+Still open: v0.7 isn't approved yet (Oct 29, 9:07 PM).
 
 Rene approves v0.7, and the log owner applies it. The harness changes in the same commit, or CI fails:
 - [ ] Set `RULES_VERSION = "0.7"` in `eval/scoring/__init__.py`, and `rules_version: "0.7"` in the fixture's `run.json`.
