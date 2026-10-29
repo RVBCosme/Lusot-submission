@@ -14,7 +14,7 @@ Hi [name]! For my flood-depth app Lusot, built for the Meta Global AI Developer 
 
 - You need to be 18 or older.
 - Each recording goes to Meta's transcription service, paid with my hackathon credits. When Ask Lusot answers it, its transcript also goes to Meta's AI service. Meta may keep both with no fixed period, and may use them to improve its products.
-- An AI assistant (Claude, by Anthropic) may help me check the transcripts, so Anthropic may receive them, under Anthropic's own terms. Anthropic keeps what it receives for 30 days, or for up to 5 years if model improvement is on in my account [Rene confirms his setting].
+- An AI assistant (Claude, by Anthropic) may help me check the transcripts, so Anthropic may receive them, under Anthropic's own terms. Anthropic keeps what it receives for 30 days, or for up to 5 years if model improvement is on in my account.
 - I keep the recording (a WAV file) and its transcript privately. They never go into the code repository or the demo video, and I delete them by [date].
 
 If that's OK, please reply: "Yes, I'm 18 or older, and you may use my recordings for Lusot's voice tests."
@@ -26,6 +26,6 @@ If that's OK, please reply: "Yes, I'm 18 or older, and you may use my recordings
 - *Taglish draft (M20):* Hi [name]! Para sa flood-depth app kong Lusot, na ginawa para sa Meta Global AI Developer Hackathon, puwede ka bang mag-record ng isa o dalawang maikling tanong sa Taglish, na parang nagtatanong ka tungkol sa baha, halimbawa "Gaano kalalim ang baha sa España ngayon?" OK lang kung may ingay ng kalsada sa background. Pakiusap, huwag sabihin ang pangalan mo o anumang iba pa tungkol sa iyo.
 - *Taglish draft (M20):* Kailangang 18 taong gulang ka pataas.
 - *Taglish draft (M20):* Mapupunta ang bawat recording sa transcription service ng Meta, na binabayaran ng hackathon credits ko. Kapag sinagot ito ng Ask Lusot, mapupunta rin ang transcript nito sa AI service ng Meta. Puwedeng i-save ng Meta ang dalawa nang walang takdang tagal, at puwedeng gamitin para pagandahin ang mga produkto nito.
-- *Taglish draft (M20):* Puwede akong tulungan ng isang AI assistant (Claude, ng Anthropic) na suriin ang mga transcript, kaya puwede rin itong matanggap ng Anthropic, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 5 taon kung naka-on ang model improvement sa account ko [kinukumpirma ni Rene ang setting niya].
+- *Taglish draft (M20):* Puwede akong tulungan ng isang AI assistant (Claude, ng Anthropic) na suriin ang mga transcript, kaya puwede rin itong matanggap ng Anthropic, ayon sa sariling terms ng Anthropic. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 5 taon kung naka-on ang model improvement sa account ko.
 - *Taglish draft (M20):* Itinatago ko nang pribado ang recording (isang WAV file) at ang transcript nito. Hindi sila kailanman ilalagay sa code repository o sa demo video, at buburahin ko sila bago ang [petsa].
 - *Taglish draft (M20):* Kung OK sa iyo, paki-reply ng: "Oo, 18 taong gulang na ako pataas, at puwede mong gamitin ang mga recording ko para sa mga voice test ng Lusot."
