@@ -19,9 +19,9 @@ never descends a folder whose name guards.is_sealed_name calls sealed, the rule 
 path guard applies, nor a folder link: a symbolic link or a junction (S-R33). A folder
 it can't read stops the run before --out is written. An image (.jpg, .jpeg or .png, in
 any case) gets a row when a folder below --root named Level0 to Level4, in any case,
-holds it, and the nearest such folder sets its level. A file link is never read: it
-and every other file count as skipped. The rows, sorted by path, go into a CSV of path
-(relative to --root, with /), level and sha256.
+holds it, and the nearest such folder sets its level. A symbolic file link is never
+read: it and every other file count as skipped. The rows, sorted by path, go into a
+CSV of path (relative to --root, with /), level and sha256.
 
 It prints files=<n>, the count per level and skipped=<k>, never a file name or path.
 Exit codes: 0 written; 1 a folder the walk can't read, or another error, of which only

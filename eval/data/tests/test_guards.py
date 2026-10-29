@@ -78,12 +78,14 @@ def test_is_sealed_name(name, sealed):
 
 
 # Spellings of sealed with trailing dots and spaces, which is_sealed_name strips, as
-# Windows does from a path's last name (MS3b's R156).
+# Windows does from a path's last name (MS3b's R156). Each case's id names its
+# spelling, so no id ends in a space and -k can select it.
 TRAILING = ["sealed.", "sealed ", "SEALED.", "Sealed .."]
+TRAILING_IDS = ["sealed-dot", "sealed-space", "upper-dot", "title-space-dots"]
 
 
 @pytest.mark.parametrize("leaf", [False, True], ids=["inside", "leaf"])
-@pytest.mark.parametrize("form", TRAILING)
+@pytest.mark.parametrize("form", TRAILING, ids=TRAILING_IDS)
 def test_refuse_sealed_trailing_dots_and_spaces(tmp_path, capsys, form, leaf):
     """Each spelling is refused inside a path and as its last name. On Windows, making
     the path absolute already turns "sealed." and "SEALED." into a plain sealed
@@ -97,9 +99,16 @@ def test_refuse_sealed_trailing_dots_and_spaces(tmp_path, capsys, form, leaf):
     assert capsys.readouterr().err == "refused: path inside a folder named sealed\n"
 
 
-@pytest.mark.parametrize("form", TRAILING)
-def test_require_sealed_takes_trailing_dots_and_spaces(tmp_path, form):
-    guards.require_sealed(tmp_path / form / "a.7z", flag="--archive")
+@pytest.mark.parametrize("leaf", [False, True], ids=["inside", "leaf"])
+@pytest.mark.parametrize("form", TRAILING, ids=TRAILING_IDS)
+def test_require_sealed_takes_trailing_dots_and_spaces(tmp_path, form, leaf):
+    """Each spelling is taken as the folder a sealed path lies in, and as the last
+    name, since a folder flag such as set_b_masks' --photos names the sealed folder
+    itself."""
+    if leaf:
+        guards.require_sealed(tmp_path / form, flag="--photos")
+    else:
+        guards.require_sealed(tmp_path / form / "a.7z", flag="--archive")
 
 
 def test_require_sealed(tmp_path, capsys):
