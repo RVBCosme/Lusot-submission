@@ -70,7 +70,7 @@ def plan_crops(
     The draws come in a fixed order, so a rerun gives the same plans: the bands kept,
     in BANDS order, are shuffled, and crop numbers 1 to n follow that order; then each
     crop's depth, evenly within its band, in crop order; then which two crops shrink;
-    then each shrunk crop's target, evenly from 50 to 80 px, in crop order.
+    then each shrunk crop's target, evenly from 50.5 to 79.5 px, in crop order.
     """
     kept = [
         (band, limits)
@@ -80,7 +80,11 @@ def plan_crops(
     rng.shuffle(kept)
     depths = [rng.uniform(*limits) for _, limits in kept]
     shrunk = rng.sample(range(len(kept)), min(2, len(kept)))
-    targets = [rng.uniform(50, 80) if n in shrunk else None for n in range(len(kept))]
+    # Half a pixel inside C211's 50 to 80 (S-R26): INTER_NEAREST can move a shrunk
+    # wheel's height a pixel from its target, so this margin keeps it in 50 to 80.
+    targets = [
+        rng.uniform(50.5, 79.5) if n in shrunk else None for n in range(len(kept))
+    ]
     return [
         CropPlan(
             f"{car_id}-{photo_no}-{n + 1}", band, depth, target is not None, target

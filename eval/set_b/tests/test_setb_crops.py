@@ -79,8 +79,8 @@ def test_band_limits():
 
 def test_plan_crops():
     """Four plans, B01-1-1 to B01-1-4, one per band in a seeded order. Each depth lies
-    within its band, exactly two shrink, to targets of 50 to 80 px, and the same seed
-    gives the same plans."""
+    within its band, exactly two shrink, to targets of 50.5 to 79.5 px (S-R26), and the
+    same seed gives the same plans."""
     plans = crops.plan_crops("B01", 1, DIAMETER, random.Random(7))
     assert [plan.crop_id for plan in plans] == [f"B01-1-{n}" for n in range(1, 5)]
     assert all(table.is_id(plan.crop_id) for plan in plans)
@@ -89,7 +89,7 @@ def test_plan_crops():
         low, high = crops.band_limits(plan.band, DIAMETER)
         assert low <= plan.depth_in <= high
         if plan.shrink:
-            assert 50 <= plan.target_px <= 80
+            assert 50.5 <= plan.target_px <= 79.5
         else:
             assert plan.target_px is None
     assert sum(plan.shrink for plan in plans) == 2
@@ -115,7 +115,9 @@ def test_plan_crops_draw_order(diameter, count):
     check.shuffle(kept)
     depths = [check.uniform(*crops.band_limits(name, diameter)) for name in kept]
     shrunk = check.sample(range(len(kept)), min(2, len(kept)))
-    targets = [check.uniform(50, 80) if n in shrunk else None for n in range(len(kept))]
+    targets = [
+        check.uniform(50.5, 79.5) if n in shrunk else None for n in range(len(kept))
+    ]
     assert len(plans) == count
     assert plans == [
         crops.CropPlan(f"B01-2-{n + 1}", name, depth, target is not None, target)
