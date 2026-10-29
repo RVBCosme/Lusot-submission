@@ -130,14 +130,14 @@ def test_dates_and_times():
     assert "8:20" not in str(error.value)
 
 
-def test_no_consent_version_is_approved_yet():
-    """Rene hasn't approved a consent text yet (C218). This test changes with the
-    constant: when he approves a text, its version joins APPROVED_CONSENT, and this
-    test names it."""
+def test_approved_consent_versions():
+    """The three consent texts approved on Oct 29 by Claude under Rene's delegation
+    (C218). Only M9-v4 counts for M9: no donor answered an earlier version, and v3 was
+    never sent. This test changes with the constant when another text is approved."""
     assert formats.APPROVED_CONSENT == {
-        "m9": frozenset(),
-        "set_b": frozenset(),
-        "m11": frozenset(),
+        "m9": frozenset({"M9-v4"}),
+        "set_b": frozenset({"SETB-v1"}),
+        "m11": frozenset({"M11-v1"}),
     }
 
 

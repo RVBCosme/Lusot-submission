@@ -251,12 +251,13 @@ METRO_MANILA = (
     "Valenzuela",
 )
 
-# The consent texts' versions Rene has approved, per log (C218). A text's version joins
-# its set when he approves that text; Window 4 drafts all three.
+# The consent texts' versions Rene has approved, per log (C218). M9-v4, SETB-v1 and
+# M11-v1 were approved on Oct 29 by Claude under Rene's delegation; only a v4 reply
+# counts for M9. M12's voice recordings aren't an MS2 log, so M12 has no entry.
 APPROVED_CONSENT: dict[str, frozenset[str]] = {
-    "m9": frozenset(),
-    "set_b": frozenset(),
-    "m11": frozenset(),
+    "m9": frozenset({"M9-v4"}),
+    "set_b": frozenset({"SETB-v1"}),
+    "m11": frozenset({"M11-v1"}),
 }
 
 # Id patterns, each inside C221's (table.ID_PATTERN), and the photo file extensions.
