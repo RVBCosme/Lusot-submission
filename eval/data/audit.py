@@ -35,6 +35,7 @@ missing path (<flag> missing), a --dev record that isn't the split's, or no yes.
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from itertools import combinations
@@ -54,6 +55,9 @@ FOLDERS = {"A": "set_a", "A-neg": "a_neg"}
 DEV_FILES = {"A": "set_a_manifest", "A-neg": "a_neg_manifest"}
 _ZERO = {"events": 0, "rows": 0}
 _NOT_WRITTEN = "not a file the tools wrote"
+# An archive's file name, as a record gives it: a bare ASCII name, at most 100
+# characters before .7z, which is safe to open beside RUN_DIR and to print (S-R18).
+_ARCHIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.7z")
 
 Row = Mapping[str, str]
 
@@ -108,7 +112,8 @@ def check_split(
 
     sides is {"dev": rows, "sealed": rows}, each side holding both sets' manifest rows,
     told apart by their set. groups is {set: record["sets"][set]["groups"]}, or None
-    before the record exists, which skips count_mismatch. Events and event ids are
+    before the record exists, which skips count_mismatch. With groups, a set the record
+    names is checked even when neither side holds a row of it. Events and event ids are
     compared within each set, since ids are numbered per set (§5.9), and photos across
     both sets, by copy_check.
     """
@@ -121,7 +126,12 @@ def _split(
     """check_split's count lines and violations."""
     counts: list[str] = []
     violations: list[str] = []
-    for set_name in sorted({row["set"] for rows in sides.values() for row in rows}):
+    names = {row["set"] for rows in sides.values() for row in rows}
+    if groups is not None:
+        # S-R18: a set the record names but neither side holds, as when both its
+        # manifests are emptied, is compared too, so it can't pass unseen.
+        names |= groups.keys()
+    for set_name in sorted(names):
         own = {
             side: [row for row in rows if row["set"] == set_name]
             for side, rows in sides.items()
@@ -290,6 +300,10 @@ def _manifest(path: Path) -> list[dict[str, str]]:
 
 
 def _record_groups(record: Mapping) -> dict[str, Mapping]:
+    """The record's groups by set. Its set names may print in a violation, so a record
+    naming a set other than A and A-neg isn't the split's and raises ValueError."""
+    if not record["sets"].keys() <= FOLDERS.keys():
+        raise ValueError(_NOT_WRITTEN)
     return {name: found["groups"] for name, found in record["sets"].items()}
 
 
@@ -305,9 +319,9 @@ def _bare(name: str) -> bool:
 
 def audit_sealed(run_dir: Path, dev_root: Path, records: Sequence[Path]) -> list[str]:
     """The violations at the sealed run (C220), record by record. First archive_name,
-    when the record's archive.file isn't a bare name ending in .7z, or archive_hash
-    <file>, when run_dir.parent / <file> is missing or doesn't hash to the record's
-    archive.sha256. Then, by the record's kind:
+    when the record's archive.file isn't a plain ASCII name ending in .7z (S-R18), or
+    archive_hash <file>, when run_dir.parent / <file> is missing or doesn't hash to the
+    record's archive.sha256. Then, by the record's kind:
     - split: check_split on Set A's and A-neg's dev manifests under dev_root and the
       sealed manifests under run_dir, with the record's groups
     - set_b_final: car_on_both_sides <dev car id> across the final truth.csv under
@@ -340,10 +354,11 @@ def _sealed(
 
 
 def _archive(run_dir: Path, record: Mapping) -> list[str]:
-    """The record's archive, beside run_dir, checked against its hash (C220). Only a
-    bare name ending in .7z is opened, so a record can't steer the read elsewhere."""
+    """The record's archive, beside run_dir, checked against its hash (C220). The name
+    is opened and printed only when it is _ARCHIVE_NAME's, so a record can neither steer
+    the read elsewhere nor print text of its own."""
     name = record["archive"]["file"]
-    if not (_bare(name) and name.endswith(".7z")):
+    if not isinstance(name, str) or _ARCHIVE_NAME.fullmatch(name) is None:
         return ["archive_name"]
     path = run_dir.parent / name
     if not path.is_file() or table.sha256_file(path) != record["archive"]["sha256"]:

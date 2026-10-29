@@ -98,11 +98,13 @@ SET_B_COUNTS = {
 # What the clean split prints after PASS, in --dev and in --sealed.
 SET_A_DEV_COUNTS = ["A deep dev events=1 rows=2", "A other dev events=2 rows=2"]
 A_NEG_DEV_COUNTS = ["A-neg other dev events=2 rows=3"]
-SPLIT_COUNTS = [
+SET_A_SPLIT_COUNTS = [
     "A deep dev events=1 rows=2",
     "A deep sealed events=1 rows=1",
     "A other dev events=2 rows=2",
     "A other sealed events=1 rows=1",
+]
+SPLIT_COUNTS = SET_A_SPLIT_COUNTS + [
     "A-neg other dev events=2 rows=3",
     "A-neg other sealed events=1 rows=1",
 ]
@@ -371,6 +373,17 @@ def test_event_split_across_sides(audit_of, join):
     assert audit_of(rows) == ["event_on_both_sides A004"]
 
 
+def test_event_split_names_every_dev_row(audit_of):
+    """A sealed photo at E01's date and spot splits an event of two dev rows: each dev
+    row is named, and the sealed one never."""
+    rows = manifest_rows()
+    rows["A003"].update(event_date="2026-08-01", spot_key="espana|lacson")
+    assert audit_of(rows) == [
+        "event_on_both_sides A001",
+        "event_on_both_sides A002",
+    ]
+
+
 def test_event_id_on_both_sides(audit_of):
     rows = manifest_rows()
     rows["A004"]["event_id"] = rows["A005"]["event_id"]
@@ -519,6 +532,53 @@ def test_check_split_without_a_record_skips_the_counts():
     assert audit.check_split(sides_of(rows), None) == ["group_one_sided A deep"]
 
 
+def test_a_set_gone_from_both_sides_fails(tmp_path, monkeypatch, capsys):
+    """S-R18: a set the record names, whose two manifests are both header-only, can't
+    match the record's counts, so the split's check given the record's groups, and the
+    sealed run, both fail on it. groups=None, the split's own call, sees only the sets
+    that have rows."""
+    record = core_record(sides_of(manifest_rows()))
+    rows = {key: row for key, row in manifest_rows().items() if row["set"] == "A"}
+    expected = [
+        "set_one_sided A-neg",
+        "count_mismatch A-neg other dev",
+        "count_mismatch A-neg other sealed",
+    ]
+    assert audit.check_split(sides_of(rows), groups_of(record)) == expected
+    assert audit.check_split(sides_of(rows), None) == []
+
+    paths = lay_out(tmp_path)
+    for manifest in (paths["A-neg"], paths["run_dir"] / "a_neg" / "manifest.csv"):
+        manifest.unlink()
+        synth.write_csv(manifest, formats.MANIFEST_COLUMNS, [])
+    found = audit.audit_sealed(paths["run_dir"], paths["data"], [paths["record"]])
+    assert found == expected
+    synth.console(monkeypatch)
+    synth.typed(monkeypatch, "yes")
+    args = sealed_args(paths["run_dir"], paths["data"], paths["record"])
+    assert audit.main(args) == 1
+    printed = [summary(1), "FAIL", *SET_A_SPLIT_COUNTS, *expected]
+    assert capsys.readouterr() == ("\n".join(printed) + "\n", "")
+
+
+def test_a_record_naming_another_set_is_refused(tmp_path, monkeypatch, capsys):
+    """A set the record names may now print in a violation, so a record naming a set
+    other than A and A-neg isn't the split's: --dev and --sealed raise ValueError, and
+    the name never prints."""
+
+    def tweak(record):
+        record["sets"][SENTINEL] = json.loads(json.dumps(record["sets"]["A-neg"]))
+
+    paths = lay_out(tmp_path, tweak=tweak)
+    with pytest.raises(ValueError):
+        audit.audit_dev(paths["A"], paths["record"])
+    synth.console(monkeypatch)
+    synth.typed(monkeypatch, "yes")
+    args = sealed_args(paths["run_dir"], paths["data"], paths["record"])
+    assert audit.main(args) == 1
+    assert capsys.readouterr() == (summary(1) + "\n", "stopped: ValueError\n")
+
+
 def test_set_on_one_side_only(tmp_path):
     """S-R14: a Set A of exactly 2 events, one deep and one other, passes TooFewEvents
     but seals nothing, so its rows sit on one side only. The split stops on it, and so
@@ -547,8 +607,8 @@ def test_only_dev_ids_print(tmp_path, monkeypatch, capsys):
     """Every violation names a dev id, in the split's check and in --sealed, and the
     output holds no sealed photo id, event id, car id, crop id, hash, spot, label, path
     or file text. Every text cell of the sealed rows, and of the final truth, holds a
-    sentinel, with an event, an event id, an identical photo, a near photo and a car on
-    both sides."""
+    sentinel, and every sealed date no dev row shares is one no output may hold. An
+    event, an event id, an identical photo, a near photo and a car sit on both sides."""
     rows = manifest_rows()
     rows["A005"].update(event_date="2026-08-03", spot_key=f"quezon|{SENTINEL}")
     rows["A006"]["event_id"] = rows["A003"]["event_id"]
@@ -557,7 +617,7 @@ def test_only_dev_ids_print(tmp_path, monkeypatch, capsys):
     kept = {"photo_id", "set", "split", "event_id", "event_date", "spot_key"}
     kept |= {"duplicate_of", "photo_sha256", "photo_dhash"}
     sealed = [row for row in rows.values() if row["split"] == "sealed"]
-    for row in sealed:
+    for number, row in enumerate(sealed, start=1):
         row.update(
             {
                 column: SENTINEL
@@ -565,8 +625,10 @@ def test_only_dev_ids_print(tmp_path, monkeypatch, capsys):
                 if column not in kept
             }
         )
+        # A005 keeps A004's date and a name of its spot, to join its event. Each other
+        # sealed row gets a date no dev row has, which must never print.
         if row["photo_id"] != "A005":
-            row["spot_key"] = SENTINEL
+            row.update(spot_key=SENTINEL, event_date=f"1999-12-{number:02d}")
     dev_ids = {row["photo_id"] for row in rows.values() if row["split"] == "dev"}
     sides = sides_of(rows)
     in_split = audit.check_split(sides, None)
@@ -609,6 +671,8 @@ def test_only_dev_ids_print(tmp_path, monkeypatch, capsys):
     for row in sealed:
         for column in ("photo_id", "photo_sha256", "photo_dhash"):
             assert row[column] not in text
+    assert [row["event_date"] for row in sealed if row["event_date"] in text] == []
+    assert "1999" not in text
     assert re.search(r"E[0-9]", text) is None
     assert "B02" not in text and "B03-" not in text
     assert str(tmp_path) not in text
@@ -842,13 +906,40 @@ def test_sealed_audit_hashes_each_archive(tmp_path):
 
 @pytest.mark.parametrize(
     "name",
-    ["../lusot-sealed-set-d.7z", "..\\lusot-sealed-set-d.7z"]
-    + ["run-1/lusot-sealed-set-d.7z", "C:lusot-sealed-set-d.7z"]
-    + ["lusot-sealed-set-d.7z:x.7z", "lusot-sealed-set-d.zip", ""],
+    [
+        "../lusot-sealed-set-d.7z",
+        "..\\lusot-sealed-set-d.7z",
+        "run-1/lusot-sealed-set-d.7z",
+        "C:lusot-sealed-set-d.7z",
+        "lusot-sealed-set-d.7z:x.7z",
+        "lusot-sealed-set-d.zip",
+        "",
+        "lusot sealed.7z",
+        "lusot-se\N{LATIN SMALL LETTER N WITH TILDE}al.7z",
+        "a" * 101 + ".7z",
+        ".lusot.7z",
+        5,
+    ],
+    ids=[
+        "parent",
+        "parent_backslash",
+        "folder",
+        "drive",
+        "stream",
+        "zip",
+        "empty",
+        "a_space",
+        "not_ascii",
+        "too_long",
+        "a_leading_dot",
+        "not_text",
+    ],
 )
 def test_sealed_archive_name_must_be_bare(tmp_path, monkeypatch, name):
-    """A record can't steer the hash check out of RUN_DIR's parent: an archive.file
-    that isn't a bare name ending in .7z is a violation, and nothing is hashed."""
+    """A record can't steer the hash check out of RUN_DIR's parent, or print what it
+    likes: an archive.file that isn't 1 to 100 ASCII letters, digits, dots, hyphens or
+    underscores, starting with a letter or digit, then .7z (S-R18), is a violation, and
+    nothing is hashed or printed."""
     hashed = []
 
     def spy(path):
@@ -866,6 +957,20 @@ def test_sealed_archive_name_must_be_bare(tmp_path, monkeypatch, name):
     monkeypatch.setattr(table, "sha256_file", spy)
     assert audit.audit_sealed(run_dir, tmp_path / "data", [set_d]) == ["archive_name"]
     assert hashed == []
+
+
+def test_sealed_archive_name_may_be_103_characters(tmp_path):
+    """The longest name the pattern takes, 100 characters before .7z, is checked by
+    its hash."""
+    set_d = committed(tmp_path, "a" * 100, set_d_core())
+    data = tmp_path / "data"
+    run_dir = data / "sealed" / "run-1"
+    run_dir.mkdir()
+    assert audit.audit_sealed(run_dir, data, [set_d]) == []
+    change_a_byte(data / "sealed" / ("a" * 100 + ".7z"))
+    assert audit.audit_sealed(run_dir, data, [set_d]) == [
+        "archive_hash " + "a" * 100 + ".7z"
+    ]
 
 
 @pytest.mark.parametrize(
