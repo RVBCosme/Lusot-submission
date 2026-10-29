@@ -6,7 +6,6 @@ text and looks for each owner's OK with a stat.
 """
 
 import re
-import sys
 
 import cars
 import formats
@@ -98,12 +97,16 @@ def test_each_problem(tmp_path, cells, expected):
     "consent",
     ["../b01-ok.png", "a/../b01-ok.png", "C:/b01-ok.png", "C:b01-ok.png", "/b01-ok.png"]
     + ["\\b01-ok.png", "\\\\server\\share\\b01-ok.png", "b01-ok.png:x", "./b01-ok.png"]
-    + ["a//b01-ok.png", "a\\..\\b01-ok.png"],
+    + ["a//b01-ok.png", "a\\..\\b01-ok.png", "oks/b01-ok.png", "oks\\b01-ok.png"]
+    + ["..", ".", "cars.csv", "CARS.CSV"],
 )
-def test_consent_path_outside_the_folder(tmp_path, consent):
-    """Addition 3: an owner's OK is named by its path relative to cars.csv, so one that
-    could lead outside the cars folder is a problem, and is never looked for."""
+def test_consent_file_must_be_a_bare_name(tmp_path, consent):
+    """S-R29's M3 (amends addition 3): an owner's OK is a bare file name beside
+    cars.csv, as set_b_masks takes it, and never cars.csv's own name. Any other is a
+    problem, and is never looked for. A subfolder that holds the file doesn't help."""
     folder = tmp_path / "set_b" / "dev"
+    (folder / "oks").mkdir(parents=True)
+    (folder / "oks" / "b01-ok.png").write_bytes(b"ok")
     path = synth.write_csv(
         folder / "cars.csv",
         formats.CARS_COLUMNS,
@@ -114,37 +117,13 @@ def test_consent_path_outside_the_folder(tmp_path, consent):
     assert found.drops == {}
 
 
-@pytest.mark.parametrize(
-    "consent",
-    [
-        "oks/b01-ok.png",
-        pytest.param(
-            "oks\\b01-ok.png",
-            marks=pytest.mark.skipif(
-                sys.platform != "win32", reason="a backslash separates on Windows"
-            ),
-        ),
-    ],
-)
-def test_consent_in_a_subfolder_passes(tmp_path, consent):
-    (tmp_path / "oks").mkdir()
-    (tmp_path / "oks" / "b01-ok.png").write_bytes(b"ok")
-    path = synth.write_csv(
-        tmp_path / "cars.csv",
-        formats.CARS_COLUMNS,
-        [synth.car_row(consent_file=consent)],
-    )
-    found = cars.check_cars(path, side="dev")
-    assert (found.problems, found.drops) == ([], {})
-
-
 def test_dev_consent_path_inside_sealed_is_refused(tmp_path, capsys):
-    """C222: on the development side an owner's OK under a folder named sealed is
-    refused before its stat."""
+    """C222: on the development side an owner's OK named sealed is refused before its
+    stat."""
     path = synth.write_csv(
         tmp_path / "cars.csv",
         formats.CARS_COLUMNS,
-        [synth.car_row(consent_file="sealed/b01-ok.png")],
+        [synth.car_row(consent_file="sealed")],
     )
     with pytest.raises(SystemExit) as stop:
         cars.check_cars(path, side="dev")
@@ -217,7 +196,7 @@ def test_no_consent_comes_before_the_tire_code(tmp_path):
 
 def test_unapproved_version_warns(tmp_path):
     """C218: a version Rene hasn't approved, a blank one included, only warns, once per
-    car on the development side."""
+    row on either side (S-R29's M4), so the record counts rows."""
     rows = [
         synth.car_row(consent_version="SETB-v0"),
         synth.car_row(photo_file="B01-2.jpg", consent_version="SETB-v0"),
@@ -225,6 +204,7 @@ def test_unapproved_version_warns(tmp_path):
     ]
     found = check(tmp_path, rows)
     assert found.warnings == [
+        Fact("B01", "consent_version", "unapproved"),
         Fact("B01", "consent_version", "unapproved"),
         Fact("B03", "consent_version", "unapproved"),
     ]

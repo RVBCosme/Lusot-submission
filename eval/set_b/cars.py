@@ -60,10 +60,12 @@ def check_cars(path: Path, *, side: str) -> CarsCheck:
     - vehicle_type: missing, or not_in_list unless one of formats.SET_B_TYPES
     - view: missing, or not_in_list unless side or angled
     - taken_on: missing, or bad_date unless YYYY-MM-DD
-    - consent_file: bad_path unless inside_folder holds, so it never names a file
-      outside cars.csv's folder (addition 3)
-    A row whose consent_version Rene hasn't approved, a blank one included, warns
-    consent_version=unapproved (C218).
+    - consent_file: bad_path unless it is a bare file name beside cars.csv, as
+      set_b_masks takes it, and not cars.csv's own name in any case (S-R29's M3,
+      amending addition 3)
+    Each row whose consent_version Rene hasn't approved, a blank one included, warns
+    consent_version=unapproved (C218), once per row on either side, so the warnings
+    count rows (S-R29's M4).
 
     Each car is then dropped by its first cause, in this order: no_consent when any of
     its rows has a blank consent_file or names a file that isn't there, so nothing of a
@@ -97,14 +99,12 @@ def check_cars(path: Path, *, side: str) -> CarsCheck:
         first = cars.setdefault(car, [row])[0]
         if row is not first:
             cars[car].append(row)
-        for column, kind in _row_problems(row, first, numbers, final=final):
+        for column, kind in _row_problems(row, first, numbers, path, final=final):
             problem = Finding(ref, column, kind)
             if problem not in problems:
                 problems.append(problem)
-        warning = Fact(ref, "consent_version", "unapproved")
-        approved = row["consent_version"] in formats.APPROVED_CONSENT["set_b"]
-        if not approved and warning not in warnings:
-            warnings.append(warning)
+        if row["consent_version"] not in formats.APPROVED_CONSENT["set_b"]:
+            warnings.append(Fact(ref, "consent_version", "unapproved"))
     drops = {}
     for car, rows in cars.items():
         cause = _drop(path, rows, final=final)
@@ -113,18 +113,23 @@ def check_cars(path: Path, *, side: str) -> CarsCheck:
     return CarsCheck(found.rows, problems, warnings, drops)
 
 
-def inside_folder(text: str) -> bool:
-    """True when a relative path, as typed, stays inside its folder: no ":" (a drive or
-    an NTFS stream), and no empty, "." or ".." part, with / and \\ both read as
-    separators, so no root either."""
-    parts = text.replace("\\", "/").split("/")
-    return ":" not in text and all(part not in ("", ".", "..") for part in parts)
+def bare_name(text: str) -> bool:
+    """True for a bare file name, which can't lead out of its folder: not empty, "." or
+    "..", and with no "/", "\\" or ":" (a drive or an NTFS stream)."""
+    return text not in ("", ".", "..") and not any(mark in text for mark in "/\\:")
+
+
+def _consent_name_ok(name: str, log: Path) -> bool:
+    """True when an owner's OK is named as set_b_masks takes it: a bare file name
+    beside cars.csv, never cars.csv's own, so its arcname can't clash (S-R29's M3)."""
+    return bare_name(name) and name.casefold() != log.name.casefold()
 
 
 def _row_problems(
     row: dict[str, str],
     first: dict[str, str],
     numbers: set[tuple[str, int]],
+    log: Path,
     *,
     final: bool,
 ) -> list[tuple[str, str]]:
@@ -161,7 +166,7 @@ def _row_problems(
         found.append(("taken_on", "missing"))
     elif not formats.is_date(row["taken_on"]):
         found.append(("taken_on", "bad_date"))
-    if row["consent_file"] and not inside_folder(row["consent_file"]):
+    if row["consent_file"] and not _consent_name_ok(row["consent_file"], log):
         found.append(("consent_file", "bad_path"))
     return found
 
@@ -172,7 +177,7 @@ def _drop(log: Path, rows: list[dict[str, str]], *, final: bool) -> str | None:
         consent = row["consent_file"]
         if not consent:
             return "no_consent"
-        if not inside_folder(consent):
+        if not _consent_name_ok(consent, log):
             continue  # a bad_path problem, never looked for
         file = log.parent / consent
         if not final:

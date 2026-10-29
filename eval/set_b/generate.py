@@ -24,18 +24,23 @@ Final cars, Rene alone, from his own Windows PowerShell window (C202, C214):
         --dev-cars <data>\set_b\dev\cars.csv --dev-masks <data>\set_b\dev\masks
         --archive <data>\sealed\lusot-sealed-set-b.7z
         --record eval\data\records\<date>-set-b-final.json
-Every path but the record's is absolute, and the archive's folder must exist. It checks
-cars.csv, the files the archive will hold and C214's overlap with the development cars,
-generates in memory and encodes the record, and only then asks for the password. No
-crop, truth row or overlay is ever written in plaintext: they go into the archive in
-one pass (C205), with the record, cars.csv, the raw photos, the owners' OKs and the
-masks. The committed record follows. A stop before the password writes nothing.
+Every path but the record's is absolute, the archive's folder must exist, and each masks
+folder must hold set_b_masks' files.txt. Each owner's OK is a bare file name beside
+cars.csv. It checks cars.csv, the files the archive will hold, hashing each mask again
+against files.txt, and C214's overlap with the development cars; it generates in
+memory and encodes the record, and only then asks for the password. No crop, truth row
+or overlay is ever written in plaintext: they go into the archive in one pass (C205),
+with the record, cars.csv, the raw photos, the owners' OKs, and the masks listed under
+those photos with a files.txt of their own. A car without its owner's OK leaves only
+its row in cars.csv. The committed record follows. A stop before the password writes
+nothing.
 
 It prints each problem as <ref> <column>: <kind>, each warning as <ref> <fact>=<value>,
 then the drops by cause, the cars, photos, crops and wheels, and the seconds; --final
-also prints the archive's size and SHA-256. --final names a final car by its row in
-cars.csv, never by its id, and prints no model, tire code, file name or path. A stop
-on an overlap prints overlap: <dev car id>, or dev row <n>.
+prints the archive's size and SHA-256 as soon as it is written, before the counts.
+--final names a final car by its row in cars.csv, never by its id, and prints no model,
+tire code, file name or path. A stop on an overlap prints overlap: <dev car id>, or dev
+row <n>.
 
 Exit codes: 0 written; 1 a problem in cars.csv or the files to archive, an overlap with
 the development cars, a record that would hold an id, or an error, of which only the
@@ -181,9 +186,13 @@ def draw_overlay(crop: Crop) -> np.ndarray:
 def counts(check: CarsCheck, made: Generated) -> dict:
     """The record's counts (C214, addition 1), all numbers keyed by fact values, never
     by an id: cars, photos, crops and wheels that reach truth.csv, so a dropped car
-    counts under drops alone; wheels_without_rim; drops, the cars' causes and the
-    photos' and crops'; warnings by kind; and the crops by band, size_bin,
-    vehicle_type and view."""
+    counts under drops alone; wheels_without_rim; drops by cause; warnings by kind;
+    and the crops by band, size_bin, vehicle_type and view.
+
+    The units differ (S-R29's M4): drops counts a car once for each of no_consent,
+    no_aspect_ratio and bad_tire_code, a photo for each of its causes, and a crop for
+    shrink_out_of_range; warnings counts cars.csv rows; wheels counts each photo's
+    chosen wheels, not truth rows."""
     rows = made.rows
     each_crop = list({row["crop_id"]: row for row in rows}.values())
     found = {
@@ -220,7 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for flag, text in (
         ("--out", "without --final: the folder to create, an absolute path"),
         ("--dev-cars", "with --final: the development cars.csv, an absolute path"),
-        ("--dev-masks", "with --final: the development masks, an absolute path"),
+        ("--dev-masks", "with --final: the development masks and files.txt, absolute"),
         (
             "--archive",
             (
@@ -318,7 +327,7 @@ def _final(args: argparse.Namespace) -> int:
             ("--cars", args.cars.is_file()),
             ("--masks", args.masks.is_dir()),
             ("--dev-cars", args.dev_cars.is_file()),
-            ("--dev-masks", args.dev_masks.is_dir()),
+            ("--dev-masks files.txt", (args.dev_masks / "files.txt").is_file()),
         )
         if not found
     ]
@@ -329,8 +338,9 @@ def _final(args: argparse.Namespace) -> int:
     if stops:
         return 2
 
-    # 4. cars.csv, then each file the archive will hold, found by a stat, then C214's
-    # overlap check. Each stop comes before the password, and names rows only.
+    # 4. cars.csv, then each file the archive will hold, then the development side,
+    # then C214's overlap check. Each stop comes before the password, and names rows
+    # only.
     check = _check(args.cars, side="final")
     if check is None:
         return 1
@@ -344,22 +354,29 @@ def _final(args: argparse.Namespace) -> int:
         for row in archived
         if not (photos_folder / row["photo_file"]).is_file()
     ]
-    listing, mask_files, missing = _masks_listing(args.masks)
-    for problem in problems + missing:
+    kept = [row for row in archived if row["car_id"] not in check.drops]
+    listing, mask_files, missing = _masks_listing(args.masks, archived, kept)
+    problems += missing
+    for problem in problems:
         print(problem)
-    if problems or missing:
+    if problems:
         return 1
-    dev = table.read_table(args.dev_cars)
+    dev = cars.check_cars(args.dev_cars, side="dev")
     absent = [
-        Finding("dev cars log", column, "missing_column")
-        for column in ("car_id", "photo_file")
-        if column not in dev.columns
+        Finding("dev cars log", problem.column, problem.kind)
+        for problem in dev.problems
+        if problem.kind == "missing_column"
     ]
     for problem in absent:
         print(problem)
     if absent:
         return 1
-    found = _overlaps(check, args.masks, dev.rows, args.dev_masks)
+    compared, gaps = _dev_compared(dev, args.dev_masks)
+    for problem in gaps:
+        print(problem)
+    if gaps:
+        return 1
+    found = _overlaps(check, args.masks, dev.rows, compared, args.dev_masks)
     for ref in found:
         print(f"overlap: {ref}")
     if found:
@@ -386,18 +403,21 @@ def _final(args: argparse.Namespace) -> int:
     except ValueError as error:
         print(error.args[0])
         return 1
-    members = _members(core_bytes, made, args, cars_bytes, archived, mask_files)
+    members = _members(
+        core_bytes, made, args, cars_bytes, archived, mask_files, listing
+    )
 
     # 6. The password, C202's confirmation, then the archive in one pass (C205, C206).
+    # Its size and SHA-256 print at once, so a failed record write still leaves them.
     password = guards.ask_password()
     facts = archive.write_sealed_archive(args.archive, password, members)
+    print(f"archive {facts.size} bytes sha256 {facts.sha256}")
 
     # 7. The committed record: the core and the archive's facts (C216).
     record_io.write_record(
         args.record, core | {"archive": record_io.archive_block(facts)}
     )
     _print_counts(tally, made.seconds)
-    print(f"archive {facts.size} bytes sha256 {facts.sha256}")
     return 0
 
 
@@ -500,46 +520,116 @@ def _png(mask: np.ndarray) -> bytes:
     return cv2.imencode(".png", mask.astype(np.uint8) * 255)[1].tobytes()
 
 
-def _masks_listing(masks: Path) -> tuple[bytes, list[str], list[Finding]]:
-    """The final masks' files.txt as read, the paths it lists, and its problems: the
-    file missing, or a line that isn't `<sha256>  <path>` with a path inside the masks
-    folder (bad_line), or names no file there (missing), each by its line number."""
+def _masks_listing(
+    masks: Path,
+    archived: Sequence[Mapping[str, str]],
+    kept: Sequence[Mapping[str, str]],
+) -> tuple[bytes, list[str], list[Finding]]:
+    """The masks the archive holds, from the final masks' files.txt (S-R29's I1, M2).
+
+    Only the lines whose path starts with an archived row's photo stem, compared by
+    casefold, are read. Any other line, such as one for a car whose owner's OK was
+    withdrawn after an earlier set_b_masks run, or for a car no longer in cars.csv, is
+    never opened or archived. Each line read must be `<sha256>  <stem>/<file>`, its
+    path listed once (bad_line), with its file there (missing) and hashing to it
+    (hash_mismatch). Each of the four files generate reads for a kept row must be
+    listed when it is there (unlisted), so every crop comes from masks the archive
+    holds.
+
+    Return those lines as a files.txt of their own, sorted by path, with \\n endings;
+    their paths; and the problems, each naming its photo's row, once per kind. A
+    missing files.txt is `masks files.txt: missing`.
+    """
     path = masks / "files.txt"
     if not path.is_file():
         return b"", [], [Finding("masks", "files.txt", "missing")]
-    data = path.read_bytes()
-    names, problems = [], []
-    for number, line in enumerate(data.decode("utf-8").splitlines(), start=1):
+    rows = {Path(row["photo_file"]).stem.casefold(): row for row in archived}
+    entries: dict[str, str] = {}
+    listed: set[str] = set()
+    problems: list[Finding] = []
+    for line in path.read_bytes().decode("utf-8").splitlines():
         digest, _, name = line.partition("  ")
-        where = f"files.txt line {number}"
-        if not (
-            re.fullmatch(_DIGEST, digest)
-            and "\\" not in name
-            and cars.inside_folder(name)
+        parts = name.split("/")
+        row = rows.get(parts[0].casefold())
+        if row is None:
+            continue  # another photo's line: never opened or archived (I1)
+        if (
+            re.fullmatch(_DIGEST, digest) is None
+            or len(parts) != 2
+            or not cars.bare_name(parts[1])
+            or name.casefold() in listed
         ):
-            problems.append(Finding("masks", where, "bad_line"))
+            kind = "bad_line"
         elif not (masks / name).is_file():
-            problems.append(Finding("masks", where, "missing"))
+            kind = "missing"
+        elif table.sha256_file(masks / name) != digest:
+            kind = "hash_mismatch"
         else:
-            names.append(name)
-    return data, names, problems
+            kind = None
+            entries[name] = digest
+        listed.add(name.casefold())
+        if kind is not None:
+            _add(problems, Finding(f"row {row['#']}", "masks", kind))
+    for row in kept:
+        stem = Path(row["photo_file"]).stem
+        for file in ("blurred.jpg", *MASK_FILES):
+            name = f"{stem}/{file}"
+            if (masks / name).is_file() and name.casefold() not in listed:
+                _add(problems, Finding(f"row {row['#']}", "masks", "unlisted"))
+    names = sorted(entries)
+    data = "".join(f"{entries[name]}  {name}\n" for name in names)
+    return data.encode("utf-8"), names, problems
+
+
+def _dev_compared(
+    dev: CarsCheck, dev_masks: Path
+) -> tuple[list[Mapping[str, str]], list[Finding]]:
+    """The development rows the overlap check compares by photo, and the gaps among
+    them (S-R29's M1). Each row set_b_masks masks, an odd car's own photo with its
+    owner's OK on record, must have its <stem>/blurred.jpg listed in --dev-masks'
+    files.txt (unlisted) and there (missing), each gap named as dev row <n>. A car
+    without its OK was never masked, so it is left out."""
+    text = (dev_masks / "files.txt").read_bytes().decode("utf-8")
+    listed = {line.partition("  ")[2].casefold() for line in text.splitlines()}
+    compared, gaps = [], []
+    for row in dev.rows:
+        car, name = row["car_id"], row["photo_file"]
+        if (
+            re.fullmatch(formats.CAR_ID, car) is None
+            or int(car[1:]) % 2 == 0
+            or cars.PHOTO_FILE.fullmatch(name) is None
+            or name[:3].upper() != car
+            or dev.drops.get(car) == "no_consent"
+        ):
+            continue
+        blurred = f"{Path(name).stem}/blurred.jpg"
+        ref = f"dev row {row['#']}"
+        if blurred.casefold() not in listed:
+            gaps.append(Finding(ref, "masks", "unlisted"))
+        elif not (dev_masks / blurred).is_file():
+            gaps.append(Finding(ref, "masks", "missing"))
+        else:
+            compared.append(row)
+    return compared, gaps
 
 
 def _overlaps(
     check: CarsCheck,
     masks: Path,
     dev_rows: Sequence[Mapping[str, str]],
+    compared: Sequence[Mapping[str, str]],
     dev_masks: Path,
 ) -> list[str]:
     """C214's overlap check: the development rows a final car shares an id or a photo
     with, each named as its development car id, or as dev row <n> when its id isn't a
     development car's odd number, so no final car id prints.
 
-    A dev row shares an id when its car_id is a final car's. It shares a photo when its
-    blurred photo's SHA-256 equals a final blurred photo's, or its dHash is near one's
-    (§5.5). Each blurred photo is read by name as <masks>/<stem>/blurred.jpg, and one
-    that isn't there, as for a car without its owner's OK, has nothing to compare. An
-    odd final car number is check_cars' wrong_side problem, which stops the run first.
+    A dev row shares an id when its car_id is a final car's. A compared dev row, as
+    _dev_compared gives them, shares a photo when its blurred photo's SHA-256 equals a
+    final blurred photo's, or its dHash is near one's (§5.5). Each blurred photo is
+    read by name as <masks>/<stem>/blurred.jpg; a final one that isn't there has
+    nothing to compare. An odd final car number is check_cars' wrong_side problem,
+    which stops the run first.
     """
     finals = []
     for row in check.rows:
@@ -547,19 +637,14 @@ def _overlaps(
         if blurred.is_file():
             finals.append(photos.photo_facts(blurred.read_bytes()))
     final_ids = {row["car_id"] for row in check.rows}
-    found = []
-    for row in dev_rows:
-        shared = row["car_id"] in final_ids
-        if not shared and cars.PHOTO_FILE.fullmatch(row["photo_file"]):
-            blurred = dev_masks / Path(row["photo_file"]).stem / "blurred.jpg"
-            if blurred.is_file():
-                facts = photos.photo_facts(blurred.read_bytes())
-                shared = any(
-                    facts.sha256 == other.sha256
-                    or events.near(facts.dhash, other.dhash)
-                    for other in finals
-                )
-        if shared:
+    found = [_dev_ref(row) for row in dev_rows if row["car_id"] in final_ids]
+    for row in compared:
+        blurred = dev_masks / Path(row["photo_file"]).stem / "blurred.jpg"
+        facts = photos.photo_facts(blurred.read_bytes())
+        if any(
+            facts.sha256 == other.sha256 or events.near(facts.dhash, other.dhash)
+            for other in finals
+        ):
             found.append(_dev_ref(row))
     return list(dict.fromkeys(found))
 
@@ -580,12 +665,13 @@ def _members(
     cars_bytes: bytes,
     archived: Sequence[Mapping[str, str]],
     mask_files: Sequence[str],
+    listing: bytes,
 ) -> list[tuple[str, bytes | Path]]:
     """The archive's members, in step 6's order: the core record, the truth and the
     crops, from memory; then cars.csv as read; then by name each archived row's raw
-    photo, each distinct owner's OK once, at its path relative to cars.csv with \\
-    turned to / and compared by casefold (addition 3), and each file the masks'
-    files.txt lists."""
+    photo, each distinct owner's OK once, by its bare name, compared by casefold
+    (S-R29's M3), and each masks file _masks_listing keeps; then the files.txt that
+    lists them (S-R29's M2)."""
     members: list[tuple[str, bytes | Path]] = [
         ("records/set_b_final.json", core),
         ("set_b/truth.csv", table.csv_bytes(formats.TRUTH_COLUMNS, made.rows)),
@@ -605,14 +691,21 @@ def _members(
     ]
     seen = set()
     for row in archived:
-        arcname = "set_b/source/" + row["consent_file"].replace("\\", "/")
-        if arcname.casefold() not in seen:
-            seen.add(arcname.casefold())
-            members.append((arcname, folder / row["consent_file"]))
+        consent = row["consent_file"]
+        if consent.casefold() not in seen:
+            seen.add(consent.casefold())
+            members.append((f"set_b/source/{consent}", folder / consent))
     members += [
         (f"set_b/source/masks/{name}", args.masks / name) for name in mask_files
     ]
+    members.append(("set_b/source/masks/files.txt", listing))
     return members
+
+
+def _add(found: list[Finding], problem: Finding) -> None:
+    """Append the problem unless it is already there."""
+    if problem not in found:
+        found.append(problem)
 
 
 def _archive_name_ok(path: Path) -> bool:

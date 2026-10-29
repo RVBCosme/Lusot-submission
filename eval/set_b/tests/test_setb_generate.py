@@ -68,22 +68,22 @@ RIMS = [
     synth.ellipse_mask(SHAPE, (250, 150), 30, 27),
     synth.ellipse_mask(SHAPE, (250, 470), 26, 24),
 ]
-# The final cars: B02 with two photos and B04 with one, whose owners' OK is one file in
-# a subfolder, and B06 with its own OK beside cars.csv (addition 3). Their rows are
-# rows 1 to 4 of the final cars.csv.
+# The final cars: B02 with two photos and B04 with one, whose owners' OK is one file,
+# and B06 with its own OK, each a bare name beside cars.csv (S-R29's M3). Their rows
+# are rows 1 to 4 of the final cars.csv.
 FINAL_ROWS = (
-    {"car_id": "B02", "consent_file": "oks/owner.png"},
+    {"car_id": "B02", "consent_file": "owner.png"},
     {
         "car_id": "B02",
         "photo_file": "B02-2.jpg",
         "view": "angled",
-        "consent_file": "oks/owner.png",
+        "consent_file": "owner.png",
     },
     {
         "car_id": "B04",
         "vehicle_type": "suv_mpv",
         "tire_code": "205/55R16",
-        "consent_file": "oks/owner.png",
+        "consent_file": "owner.png",
     },
     {"car_id": "B06"},
 )
@@ -653,34 +653,59 @@ def test_archive_folder_must_exist(data, prompts, capsys):
     assert prompts == []
 
 
-@pytest.mark.parametrize("flag", FINAL_FLAGS[:4])
-def test_missing_input_is_refused(data, prompts, capsys, flag):
-    """A missing input is named by its flag, so a mistyped --dev-masks can't let the
-    overlap check pass with nothing to compare."""
+# Missing inputs, each as the flag it changes, the path it gives, and the refusal.
+# --dev-masks must hold set_b_masks' files.txt, so a folder that exists but isn't the
+# development masks can't let the overlap check compare nothing (S-R29's M1).
+MISSING_INPUTS = {
+    "cars": (
+        "--cars",
+        lambda paths: paths["--cars"].parent / "missing",
+        "--cars missing\n",
+    ),
+    "masks": (
+        "--masks",
+        lambda paths: paths["--masks"].parent / "missing",
+        "--masks missing\n",
+    ),
+    "dev cars": (
+        "--dev-cars",
+        lambda paths: paths["--dev-cars"].parent / "missing",
+        "--dev-cars missing\n",
+    ),
+    "dev masks": (
+        "--dev-masks",
+        lambda paths: paths["--dev-masks"].parent / "missing",
+        "--dev-masks files.txt missing\n",
+    ),
+    "dev masks without files.txt": (
+        "--dev-masks",
+        lambda paths: paths["--dev-cars"].parent,
+        "--dev-masks files.txt missing\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", MISSING_INPUTS.values(), ids=list(MISSING_INPUTS))
+def test_missing_input_is_refused(data, prompts, capsys, case):
+    """A missing input is named by its flag, before the password."""
+    flag, make, expected = case
     paths = final_layout(data)
-    paths[flag] = paths[flag].parent / "missing"
+    paths[flag] = make(paths)
     assert run(paths, "--final") == 2
-    assert capsys.readouterr() == ("", f"{flag} missing\n")
+    assert capsys.readouterr() == ("", expected)
     assert nothing_written(paths)
     assert prompts == []
 
 
-def masks_line(paths, name: str) -> int:
-    """The number of the final masks' files.txt line that lists name."""
-    lines = (paths["--masks"] / "files.txt").read_text(encoding="utf-8").splitlines()
-    return [line.split("  ", 1)[1] for line in lines].index(name) + 1
-
-
 def test_missing_source_stops_before_the_password(data, prompts, capsys):
     """A source the archive would hold is checked by a stat before the password: a raw
-    photo, named by its row, and a file the masks' files.txt lists, by its line."""
+    photo, and a file the masks' files.txt lists, each named by its photo's row."""
     paths = final_layout(data)
     (paths["--cars"].parent / "photos" / "B04-1.jpg").unlink()
     (paths["--masks"] / "B02-2" / "sam_wheel_rim_masks.npz").unlink()
-    line = masks_line(paths, "B02-2/sam_wheel_rim_masks.npz")
     assert run(paths, "--final") == 1
     assert capsys.readouterr() == (
-        f"row 3 photo_file: missing\nmasks files.txt line {line}: missing\n",
+        "row 3 photo_file: missing\nrow 2 masks: missing\n",
         "",
     )
     (paths["--masks"] / "files.txt").unlink()
@@ -688,6 +713,107 @@ def test_missing_source_stops_before_the_password(data, prompts, capsys):
     assert capsys.readouterr().out.splitlines()[-1] == "masks files.txt: missing"
     assert nothing_written(paths)
     assert prompts == []
+
+
+def rewrite_listing(listing: Path, keep) -> None:
+    """Rewrite a masks folder's files.txt with the lines keep returns True for, and in
+    place of a line, any text keep returns for it."""
+    lines = []
+    for line in listing.read_text(encoding="utf-8").splitlines():
+        kept = keep(line)
+        if kept:
+            lines.append(line if kept is True else kept)
+    listing.write_bytes("".join(f"{line}\n" for line in lines).encode("utf-8"))
+
+
+def changed_byte(paths) -> None:
+    path = paths["--masks"] / "B04-1" / "sam_wheel_masks.npz"
+    data = bytearray(path.read_bytes())
+    data[-1] ^= 1
+    path.write_bytes(bytes(data))
+
+
+def unlisted_mask(paths) -> None:
+    rewrite_listing(
+        paths["--masks"] / "files.txt",
+        lambda line: not line.endswith("  B02-2/sam_vehicle_masks.npz"),
+    )
+
+
+def bad_digest(paths) -> None:
+    rewrite_listing(
+        paths["--masks"] / "files.txt",
+        lambda line: (
+            "x" * 64 + "  B04-1/blurred.jpg"
+            if line.endswith("  B04-1/blurred.jpg")
+            else True
+        ),
+    )
+
+
+MASK_GAPS = {
+    "changed byte": (changed_byte, "row 3 masks: hash_mismatch"),
+    "used but unlisted": (unlisted_mask, "row 2 masks: unlisted"),
+    "bad line": (bad_digest, "row 3 masks: bad_line"),
+}
+
+
+@pytest.mark.parametrize("case", MASK_GAPS.values(), ids=list(MASK_GAPS))
+def test_masks_are_verified_before_the_password(data, prompts, capsys, case):
+    """S-R29's M2: each masks file to be archived is hashed again against its files.txt
+    line, and each one generate reads must be listed, all before the password. A stop
+    names the photo's row, never a file."""
+    change, expected = case
+    paths = final_layout(data)
+    change(paths)
+    assert run(paths, "--final") == 1
+    out, err = capsys.readouterr()
+    assert (out, err) == (f"{expected}\n", "")
+    printed_nothing_final(out)
+    assert nothing_written(paths)
+    assert prompts == []
+
+
+def dev_unlisted(paths) -> None:
+    rewrite_listing(
+        paths["--dev-masks"] / "files.txt",
+        lambda line: not line.endswith("  B01-1/blurred.jpg"),
+    )
+
+
+def dev_missing(paths) -> None:
+    (paths["--dev-masks"] / "B01-1" / "blurred.jpg").unlink()
+
+
+DEV_GAPS = {
+    "unlisted": (dev_unlisted, "dev row 1 masks: unlisted"),
+    "missing": (dev_missing, "dev row 1 masks: missing"),
+}
+
+
+@pytest.mark.parametrize("case", DEV_GAPS.values(), ids=list(DEV_GAPS))
+def test_dev_masks_must_hold_the_compared_photos(data, prompts, capsys, case):
+    """S-R29's M1: each development photo set_b_masks would have masked must be listed
+    in --dev-masks' files.txt and there, or the overlap check stops before the
+    password, naming the development row."""
+    change, expected = case
+    paths = final_layout(data)
+    change(paths)
+    assert run(paths, "--final") == 1
+    assert capsys.readouterr() == (f"{expected}\n", "")
+    assert nothing_written(paths)
+    assert prompts == []
+
+
+def test_dev_car_without_consent_needs_no_masks(data, prompts):
+    """A development car without its owner's OK was never masked, so the overlap check
+    doesn't ask for its photo."""
+    paths = final_layout(data)
+    folder = paths["--dev-cars"].parent
+    rows = [synth.car_row(), synth.car_row(car_id="B03"), synth.car_row(car_id="B05")]
+    synth.set_b_cars(folder, rows)
+    (folder / "b05-ok.png").unlink()
+    assert run(paths, "--final") == 0
 
 
 def same_photo(paths) -> None:
@@ -763,15 +889,16 @@ def test_final_writes_no_plaintext(data, tmp_path, prompts, monkeypatch, capsys)
     assert before <= after
     assert prompts == PROMPTS
     lines = capsys.readouterr().out.splitlines()
-    assert lines[:2] == [
-        "drops: none",
-        "cars=3 photos=4 crops=16 wheels=8 wheels_without_rim=0",
-    ]
     size, digest = (
         paths["--archive"].stat().st_size,
         table.sha256_file(paths["--archive"]),
     )
-    assert lines[3:] == [f"archive {size} bytes sha256 {digest}"]
+    assert lines[:3] == [
+        f"archive {size} bytes sha256 {digest}",
+        "drops: none",
+        "cars=3 photos=4 crops=16 wheels=8 wheels_without_rim=0",
+    ]
+    assert len(lines) == 4
 
     out = tmp_path / "x"
     names = extract(paths["--archive"], out)
@@ -785,9 +912,10 @@ def test_final_writes_no_plaintext(data, tmp_path, prompts, monkeypatch, capsys)
         *[f"set_b/crops/{crop.plan.crop_id}.jpg" for crop in direct.crops],
         "set_b/source/cars.csv",
         *[f"set_b/source/photos/{name}" for name in raw],
-        "set_b/source/oks/owner.png",
+        "set_b/source/owner.png",
         "set_b/source/b06-ok.png",
         *[f"set_b/source/masks/{name}" for name in masks],
+        "set_b/source/masks/files.txt",
     ]
     assert len(direct.crops) == 16
     assert rows_of(out / "set_b" / "truth.csv") == [
@@ -803,7 +931,7 @@ def test_final_writes_no_plaintext(data, tmp_path, prompts, monkeypatch, capsys)
         assert (source / "photos" / name).read_bytes() == (
             folder / "photos" / name
         ).read_bytes()
-    for name in ("oks/owner.png", "b06-ok.png"):
+    for name in ("owner.png", "b06-ok.png"):
         assert (source / name).read_bytes() == (folder / name).read_bytes()
     for name in masks:
         assert (source / "masks" / name).read_bytes() == (
@@ -814,9 +942,13 @@ def test_final_writes_no_plaintext(data, tmp_path, prompts, monkeypatch, capsys)
     assert record == archived | {
         "archive": {"file": "lusot-sealed-set-b.7z", "size": size, "sha256": digest}
     }
+    # Every photo's masks are archived here, so the archived files.txt is the whole
+    # listing, and the record's hash can be checked from the archive (S-R29's M2).
+    archived_listing = (source / "masks" / "files.txt").read_bytes()
+    assert archived_listing == (paths["--masks"] / "files.txt").read_bytes()
     assert record["inputs"] == {
         "cars": table.sha256_file(paths["--cars"]),
-        "masks_files": table.sha256_file(paths["--masks"] / "files.txt"),
+        "masks_files": table.sha256_bytes(archived_listing),
         "dev_cars": table.sha256_file(paths["--dev-cars"]),
     }
     assert record["overlap_check"] == "PASS"
@@ -827,21 +959,30 @@ def test_final_writes_no_plaintext(data, tmp_path, prompts, monkeypatch, capsys)
 
 
 def test_final_car_without_consent_leaves_only_its_row(data, tmp_path, prompts):
-    """C218: a final car without its owner's OK is dropped as no_consent, and nothing
-    of it but its row in cars.csv reaches the archive: no crop, raw photo or OK. The
-    masks are archived as files.txt lists them, and set_b_masks never masks such a
-    car."""
+    """C218, S-R29's I1: a final car without its owner's OK is dropped as no_consent,
+    and nothing of it but its row in cars.csv reaches the archive: no crop, raw photo,
+    OK or mask, though files.txt still lists the masks an earlier run made while its OK
+    stood. Nor do the masks of B08, which isn't in cars.csv at all; its blurred photo,
+    deleted but still listed, is never looked for."""
     paths = final_layout(data)
     (paths["--cars"].parent / "b06-ok.png").unlink()
+    photo_masks(paths["--masks"], "B08-1")
+    (paths["--masks"] / "B08-1" / "blurred.jpg").unlink()
     assert run(paths, "--final") == 0
-    names = extract(paths["--archive"], tmp_path / "x")
-    assert [
-        name
-        for name in names
-        if "B06" in name and not name.startswith("set_b/source/masks/")
-    ] == []
+    out = tmp_path / "x"
+    names = extract(paths["--archive"], out)
+    assert [name for name in names if re.search("B0[68]", name)] == []
     assert "set_b/source/b06-ok.png" not in names
+    archived_listing = (out / "set_b" / "source" / "masks" / "files.txt").read_bytes()
+    listed = [line.split("  ", 1)[1] for line in archived_listing.decode().splitlines()]
+    assert listed == [
+        name.removeprefix("set_b/source/masks/")
+        for name in names
+        if name.startswith("set_b/source/masks/") and not name.endswith("files.txt")
+    ]
+    assert {name.split("/")[0] for name in listed} == {"B02-1", "B02-2", "B04-1"}
     record = json.loads(paths["--record"].read_bytes().decode("ascii"))
+    assert record["inputs"]["masks_files"] == table.sha256_bytes(archived_listing)
     assert record["counts"]["drops"] == {"no_consent": 1}
     assert record["counts"]["cars"] == 2
 
@@ -872,7 +1013,7 @@ def test_audit_sealed_passes_on_the_final_cars_it_wrote(data, prompts):
 # What --final may never print (addition 6): a final car's id, a model, a tire code, a
 # file name or a path.
 NEVER_PRINTED = ("Toyota", "Vios", "175/65R14", "205/55R16", "195R14C", ".jpg", ".png")
-NEVER_PRINTED += ("oks", "sealed", "set_b", "data")
+NEVER_PRINTED += ("owner", "sealed", "set_b", "data")
 
 
 def printed_nothing_final(text: str) -> None:
@@ -890,12 +1031,16 @@ def test_final_prints_no_final_car_id(data, prompts, capsys):
     paths = final_layout(data, rows)
     assert run(paths, "--final") == 0
     out, err = capsys.readouterr()
-    assert out.splitlines()[:3] == [
-        "row 3 consent_version=unapproved",
+    lines = out.splitlines()
+    assert lines[0] == "row 3 consent_version=unapproved"
+    assert lines[1].startswith("archive ")
+    assert lines[2:4] == [
         "drops: no_aspect_ratio=1",
         "cars=2 photos=3 crops=12 wheels=6 wheels_without_rim=0",
     ]
     printed_nothing_final(out + err)
+    record = json.loads(paths["--record"].read_bytes().decode("ascii"))
+    assert record["counts"]["warnings"] == {"consent_version=unapproved": 1}
 
     paths["--archive"].unlink()
     paths["--record"].unlink()
@@ -949,6 +1094,27 @@ def test_record_refusal_stops_before_the_password(data, prompts, monkeypatch, ca
     assert capsys.readouterr() == ("the record holds an id-shaped token\n", "")
     assert nothing_written(paths)
     assert prompts == []
+
+
+def test_archive_hash_prints_before_the_record(data, prompts, monkeypatch, capsys):
+    """S-R29's M4: the archive's size and SHA-256 print as soon as it is written, so a
+    record write that fails still leaves Rene its hash."""
+
+    def fails(path, record):
+        raise OSError("the record can't be written")
+
+    monkeypatch.setattr(record_io, "write_record", fails)
+    paths = final_layout(data)
+    assert run(paths, "--final") == 1
+    size, digest = (
+        paths["--archive"].stat().st_size,
+        table.sha256_file(paths["--archive"]),
+    )
+    assert capsys.readouterr() == (
+        f"archive {size} bytes sha256 {digest}\n",
+        "stopped: OSError\n",
+    )
+    assert not paths["--record"].exists()
 
 
 def test_password_mismatch_writes_nothing(data, prompts, monkeypatch, capsys):
