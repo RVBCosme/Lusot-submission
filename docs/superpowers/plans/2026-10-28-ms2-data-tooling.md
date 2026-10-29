@@ -882,7 +882,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - `--sealed` runs Rene's order: on the strings, `RUN_DIR` must be inside `sealed`, and `--dev-root` and every `--record` must not be; then `require_console()`; then the existence checks; then `confirm(...)`. Its body runs through `quiet`.
     - It prints `PASS` or `FAIL`, the counts per set, group and side, and each violation. It exits 0 on PASS, 1 on FAIL and 2 when refused.
 
-- [ ] **Step 1: Write the failing tests** (V1: every violation, in both modes). Records are built with `record_io`'s builders, and archives are synthetic files written with `write_sealed_archive`.
+- [x] **Step 1: Write the failing tests** (V1: every violation, in both modes). Records are built with `record_io`'s builders, and archives are synthetic files written with `write_sealed_archive`.
   - On both sides (the split's check and `--sealed`):
     - `test_clean_split_passes`
     - `test_event_split_across_sides`: the same date and spot on both sides, under different event ids
@@ -906,10 +906,19 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
     - `test_sealed_refuses_without_a_console`: a subprocess with stdin on NUL and stdout piped exits 2 before any given path, none of which exists, is read
     - `test_sealed_needs_yes`
   - `test_audit_imports_only_the_standard_library`: in a fresh interpreter.
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k audit`. Expected: FAIL, with `ModuleNotFoundError: No module named 'audit'`.
-- [ ] **Step 3:** Implement, then run `uv lock --script eval/data/audit.py`.
-- [ ] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/audit.py --help` exits 0.
-- [ ] **Step 5:** Commit `feat(data): add the split audit for the development side and the sealed run`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k audit`. Expected: FAIL, with `ModuleNotFoundError: No module named 'audit'`.
+- [x] **Step 3:** Implement, then run `uv lock --script eval/data/audit.py`.
+- [x] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/data/audit.py --help` exits 0.
+- [x] **Step 5:** Commit `feat(data): add the split audit for the development side and the sealed run`.
+
+*Evidence (Task 12, Oct 29):*
+- **Commits:** ca3dffc and fe85b3a.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 592 passed. `uv run --locked --script eval/data/audit.py --help` exits 0.
+- **Checks:** ruff format and check, the plan-leak check (213 files), the account-ID scan (174 files) and gitleaks are clean.
+- **RED:** the expected `ModuleNotFoundError: No module named 'audit'`.
+- **Every "both sides" test runs twice,** through `check_split` in memory and through `audit_sealed` on a disk layout, and both must give the same violations.
+- **The review held all five named risks:** only development ids print; no manifest or record cell steers a read outside its folder; `--sealed` runs Rene's order; the event rebuild matches the split's; a `photo_file` named `sealed` is refused.
+- **One fix round (S-R18):** a set the record names but whose manifests are both empty now fails `--sealed` instead of passing. The sealed rows' dates join the leak test, an event split across sides names every development row, and `archive.file` must be a plain ASCII `.7z` name before it is opened or printed. A record naming a set other than A or A-neg stops the audit, so its text never prints. The scoped re-review found every finding addressed.
 
 ### Task 13: The split command (M19, C204, C205, C219)
 
