@@ -16,7 +16,7 @@
   - MS7 (`ms7-harden-specs`, `8be1b9e`): §5's Ask row, S2, L9, P14, the copy check (C819) and the rush (C828)
   - MS8 (`ms8-submit-specs`, `1ae4913`): C905's Ask scene, C915's agentic paragraph and N4
   - MS9 (`ms9-ms10-specs`, `406f044`): F5, F6, N6 and N8
-  - Window 4's consent and privacy drafts and PRIV-Q3 (`w4-independent`, `c6edc82`)
+  - Window 4's consent and privacy drafts and PRIV-Q3 (`w4-independent`: the consent texts approved on Oct 29 at `fe5e4da`, `0c6643c` and `d6e5986`, and the privacy draft at `cbdc5b3`)
 - **Needs first:** MS4 merged into `main` before the wiring (pins, limits and the Metro Manila test), and MS5 merged before the screen. The probe, the spot list and most modules can be built earlier on fakes (the plan's order).
 - **Not here:** MS6's evaluation (its own spec leaves Ask out), and anything that changes how depth is measured.
 
@@ -230,7 +230,7 @@ The order (C713):
 - **Where:** MS4's `limits` table, keyed by the SHA-256 of the device id, never the id (C520), with its 2-hour TTL.
 - **The app** never retries `question_limit` or `question_cap`, and shows a line for each. A 429 without one of Lusot's codes is API Gateway's throttle, retried once (C635). Ask's client retries nothing else: never a 503 (`voice_failed` or `ask_unavailable` were counted, and may have been paid), and never a request already sent when the connection drops, since the server may have counted and paid for it. So `ask` and `askVoice` don't use MS5's `retryOnce`, which also retries 503s and network errors.
 - **The cap alarm** (C727): a metric filter on the API log counts `question_cap` refusals by that term (the function logs in Lambda's text format, so a JSON filter wouldn't match), and an alarm emails Rene through MS1's topic when any happen in an hour, with `OKActions`.
-- **N6's API alarm** stays at 5,000 invocations an hour, which this spec sets (C735).
+- **MS4's API alarm** (the tracker's N6, from MS9) stays at 5,000 invocations an hour, which this spec sets (C735).
 
 | Switch | Effect on Ask |
 |---|---|
@@ -286,7 +286,7 @@ Every Muse Spark request sends `store: false` (F2, F8). Transcription has no suc
   - three example questions to tap, such as "Gaano kalalim ang baha sa España cor. Maceda?" and "May baha ba dito?", each naming a point, never a bare road (C733)
   - the answer (§4.4), the transcript of a spoken question, and the attribution line
   - the notice line (§4.9)
-- **Its lines** live under `ask.` keys in MS5's tables. The answer's lines are `ask.answer.*`, which MS5's `isScreenLineKey` treats as screen-line keys (C724; the name follows the tracker's 9:50 PM ruling, §14).
+- **Its lines** live under `ask.` keys in MS5's tables. The answer's lines are `ask.answer.*`, which MS5's `isScreenLineKey` treats as screen-line keys (C724; the name follows the tracker's ruling of 9:50 PM by its clock, §14).
 - **The visual work** loads `ui-ux-pro-max` and `frontend-design`, as CLAUDE.md asks, and follows MS5's tokens.
 
 ### 4.11 Cost
@@ -385,7 +385,7 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 | C724 | **The app renders answers** with MS5's wording functions and new `ask.*` keys. The `ask.answer.*` keys are screen-line keys (MS5's `isScreenLineKey`), so their Taglish shows only once reviewed. | One wording for a reading wherever it appears; MS5's C609 and C619; MS7's copy check reads the same tables. |
 | C725 | **The prompt, the tool, the answer schema and the word lists** are versioned files in `backend/api/prompts/` (`ask_v1.*`), copied into the bundle. | CLAUDE.md keeps prompts and schemas in versioned files. MS7's copy check reads prompt files for review only, since they name banned words to forbid them. |
 | C726 | **The question is data, never instructions.** Prompt injection can only change an enum or a ref, which code checks, or a place string, which is trimmed to 100 characters and stripped of control characters before it reaches Nominatim. | The model's reply can't carry text to the person (C704), so injection has nowhere to show. |
-| C727 | **An alarm on the global cap** (§4.8), which N6's API alarm doesn't catch: a cap that holds keeps invocations low. | MS9's F6 and N8 ask for the cap; Rene should hear when it is reached. |
+| C727 | **An alarm on the global cap** (§4.8), which MS4's API alarm (the tracker's N6) doesn't catch: a cap that holds keeps invocations low. | MS9's F6 and N8 ask for the cap; Rene should hear when it is reached. |
 | C728 | **The test questions run in a harness** with real Meta calls, the real code and fixture pins, and their answers are saved outside the repo. A smaller check runs on the deployed API (§8; AskL-Q5). | No test may put a pin on the public map (MS4's C513), and Nominatim runs only from the Lambda. Fixture pins let each question test one rule. |
 | C729 | **Voice waits for M12's recordings,** with synthetic clips for plumbing only (§4.7; AskL-Q6). | Plan M12 and Table 18. |
 | C730 | **Cost:** about $0.005 a typed question, $0.006 a spoken one, $0.01 as the planning figure, and at most $1 for Ask's own build and tests (§4.11). | MS7's C828 and MS9's N8 take Ask's figure; the probe replaces the estimate. |
@@ -393,7 +393,7 @@ The API's CORS exposes `Retry-After` (audit row 23), so the app can read it.
 | C732 *(from the builder check)* | **A shorter window needs a stated time.** A `since_minutes` under 180 counts only when the question states a time, such as "in the last hour" or "30 minuto", and never below that time; otherwise the window stays 180. | A model that read "ngayon" as the last hour would drop the deepest report from the answer and its count, which the plain list would have shown. |
 | C733 *(from the builder check)* | **An answer is always about a point, never a road or an area.** A Nominatim result inside Metro Manila wider than 300 m corner to corner, or a bare road name with several listed spots, answers `place_too_broad` with up to 3 listed spots to ask about instead. A result outside Metro Manila answers `outside_metro_manila` first, however wide. Spots are named as points (C715). | CLAUDE.md: never describe a whole road or route. "No recent reports within 300 m of Barangay Tatalon" would read as the whole barangay. |
 | C734 *(from the builder check)* | **Turn 1 carries the crossing and vehicle parts, and the final turn adds only the citations.** A late or failed final turn leaves the answer with its crossing line and vehicle line, without "Used" marks. The budget's ends stay fixed. The probe's rulings may move the transcription slot between 3.0 and 5.0 s, so that one turn still fits after it. If a 14.5 s clip doesn't fit even then, AskL-Q9 lowers the recording cap. | Plan §12's 10 s can't move without Rene, so what gives way is decided now, not on Nov 2. MS8's C915 then describes what the probe leaves (§10). |
-| C735 *(from the accuracy review)* | **N6's API alarm stays at 5,000 invocations an hour,** the threshold MS4 left for this spec to set (its §4.7). | Ask adds at most 300 counted questions an hour in all, plus refused ones, which are cheap invocations, well inside 5,000. A rush that passes it is the unusual traffic the alarm is for. |
+| C735 *(from the accuracy review)* | **MS4's API alarm (the tracker's N6, from MS9) stays at 5,000 invocations an hour,** the threshold MS4 left for this spec to set (its §4.7). | Ask adds at most 300 counted questions an hour in all, plus refused ones, which are cheap invocations, well inside 5,000. A rush that passes it is the unusual traffic the alarm is for. |
 
 ## 7. Left to the builder
 
@@ -451,7 +451,7 @@ Design R6 bears on Ask too: the fewer consented demo pins exist, the more answer
 | N3 | MS4 | `metroManila.ts` exports `inMetroManila` | Ask imports the polygon test as MS4 wrote it. |
 | N4 | MS4 | CORS exposes `Retry-After` (audit row 23) and allows `X-Lusot-Device` | **Answered:** MS4's §4.7 does both. |
 | N5 | MS4 | Demo pins carry `credit`, `place` and `event` in public pins (audit row 1) | **Answered:** MS4's C523. |
-| N6 | MS4 | *(Dropped.)* MS4's C522 kept `device_limit` and `global_cap`, which MS5, MS7 and MS9 follow. | Ask's codes stand on their own. |
+| N6 (Ask's own hand-off, not MS9's N6) | MS4 | *(Dropped.)* MS4's C522 kept `device_limit` and `global_cap`, which MS5, MS7 and MS9 follow. | Ask's codes stand on their own. |
 | N7 | MS5 | The fifth slot `#/ask`, the gate before the first question, `isScreenLineKey` covering `ask.answer.`, and the wording functions as exports | Ask's app tasks add them on Ask's branch. |
 | N8 | Window 4 | The policy and the notice take AskL-Q3's answer: no stored questions, the location kept in the Lambda, `store: false`, the cache's 7 days, Nominatim, no `store` setting for audio, and a notice heading that covers questions as well as photos | The texts keep their PRIV-Q3 brackets, which M21 can't approve as they are. |
 | N9 | MS7 | The copy check reads `ask.*` keys, the `ask_v1.*` prompt files (review only), and the saved answers' `rendered.en` and `rendered.fil` fields (the `transcript` field is the speaker's words, review only; the shown transcript is masked, AskL-Q11). The crossing line joins the allowed sentences once Rene approves it. The switch test covers `/lusot/stop/nominatim`. The APK's permission list adds `RECORD_AUDIO` and `MODIFY_AUDIO_SETTINGS`. C828's questions name spot-list places, so the rush makes no Nominatim call. | Ask's own copy test runs on its keys; the rest waits for MS7. |
@@ -460,7 +460,7 @@ Design R6 bears on Ask too: the fewer consented demo pins exist, the more answer
 - **MS7:** §5's contract; the plain list marked `source: "plain_list"` with `fallback: "model_calls_paused"` and `meta_calls` 0 (S2); 10 s at the client (L9); no audio in any bucket or table (P14); the spot list at `backend/api/src/data/spots.json`; the saved answers at `LUSOT_DATA_DIR\ask\<date>\` (§8); the cost per question from AK1, else $0.01.
 - **MS9:** N8 answered: the 300 cap and its alarm, the log fields, the plain list under `model-calls` and `voice_paused` for voice. Ask's 402s appear in the API log as `meta_status` 402 with `fallback: "key_rejected"`.
 - **MS8:** C915's facts: the tool is `get_reports`; Muse Spark reads the question, decides the lookup, calls the tool, reads its results and cites the reports it used; code checks every citation; the spoken answer shows its transcript; the counts come from AK1 and AK2. N4: answers show their cited pins ("Used") and the transcript. If the probe drops the final turn (C734), C915 says instead that Muse Spark reads the question, decides the lookup and calls the tool, and code picks the reports from what it returns.
-- **MS4:** N6's API alarm threshold, set at 5,000 an hour (C735), with at most 300 counted questions an hour from Ask; and the `GetItem` grant on `limits` (C701), which Ask's template task adds.
+- **MS4:** its API alarm's threshold (the tracker's N6), set at 5,000 an hour (C735), with at most 300 counted questions an hour from Ask; and the `GetItem` grant on `limits` (C701), which Ask's template task adds.
 
 ## 11. Risks
 
@@ -500,8 +500,8 @@ A fresh reviewer (Opus 5.5 at xhigh) checked this spec and the plan against MS4'
 - **Code's checks on the model:** `on_foot` now needs a walking word (§4.3, C712). A final turn can't turn a question `off_topic` (§4.3). The two calls' readings are combined, and a stated time is never shortened (C732).
 - **Turn 1's fallback form:** tools with no `text.format`, if Meta refuses the two together (§4.3, F4).
 - **The client:** Ask's client never retries a 503 or a request already sent (§4.8).
-- **N6's alarm:** it stays at 5,000 an hour (C735).
+- **MS4's API alarm (the tracker's N6):** it stays at 5,000 an hour (C735).
 - **New lines:** a busy place lookup gets its own line, `lookup_unavailable` (§4.4, §5.3).
 - **Copy questions for Rene:** the `heavy` line beside NPLV (AskL-Q10), and a transcript that holds a banned word (AskL-Q11).
-- **Wording:** every avoidable form of the banned word is gone from this spec's prose. MS5's `isSafetyKey` becomes `isScreenLineKey` by the tracker's 9:50 PM ruling, and only quoted rules and detection lists still name the word.
-- **Housekeeping:** the refs to MS4 and MS5 are re-pinned, and N4 and N5 are answered. N6 is dropped.
+- **Wording:** every avoidable form of the banned word is gone from this spec's prose. MS5's `isSafetyKey` becomes `isScreenLineKey` by the tracker's ruling of 9:50 PM by its clock, and only quoted rules and detection lists still name the word.
+- **Housekeeping:** the refs to MS4 and MS5 are re-pinned, and N4 and N5 are answered. Ask's own N6 hand-off is dropped.
