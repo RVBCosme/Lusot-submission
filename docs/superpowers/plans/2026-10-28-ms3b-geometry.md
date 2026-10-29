@@ -1236,13 +1236,29 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
   It holds no photo names, paths, images, key or account ID.
 - [x] **Step 2:** Add a "Result" column to the spec's §6, with ✅ or "partly met" and the evidence line for each of D1 to D10. Evidence: spec §6 has the column 'Result (Oct 30)': D1 partly met, D3 and D10 ✅, D2 and D4 to D9 wait, with an evidence line each; D11 is left to Task 19.
 - [x] **Step 3: Confirm v0.7 is applied (§D9).** Check that `eval/rules.md`'s status line says v0.7, approved by Rene, and that its §10 freeze list names the reasoning effort, the drawing version, the SAM phrases and MS3b's tuning values (v0.7 item 10.1, which carries MS3b-Q4). If it doesn't, record MS3b-Q4 and those freeze items as pending in `docs/PROGRESS.md`. MS3b edits nothing under `eval/`. Evidence: `eval/rules.md` says DRAFT v0.6 on ms3b-geometry and on w4-independent (checked 5:43 AM), so v0.7 isn't applied. MS3b-Q4, v0.7 item 10.1's freeze items (reasoning effort, drawing version, SAM phrases, MS3b's tuning values) and MS3b-Q3 are recorded as pending in docs/PROGRESS.md. MS3b edits nothing under eval/.
-- [ ] **Step 4:** Run the checks. Expected: all clean.
+- [x] **Step 4:** Run the checks. Expected: all clean. Evidence (6:10 AM, Oct 30), on `7cc3374`, with `main` (`7bc2bbe`, MS2) merged in with no conflicts:
+  - `npm run check`: exit 0 in 267 s. Analysis 920 passed, 3 skipped; `backend/scripts` 82 passed; MS2's tools 978 passed, 2 skipped; gitleaks, plan-leak and account-ID scans clean.
+  - `ruff format --check .`: 60 files already formatted (`check:py` runs `ruff check` only).
+  - The whole-word "safe" grep: only rules that ban the word, and `quote_plus(key, safe="/")` in `test_handler.py`. Nothing describes flood conditions. The substring form adds only "safety", in PROGRESS.md's W23 row and MS3a's plan.
   - `uv run pytest -q`, `uv run ruff check .` and `uv run ruff format --check .`
   - `npm run check`
   - `node scripts/check_account_ids.mjs` and `uv run --python 3.13 scripts/check_no_plan_leak.py`, from the repo root
   - In Git Bash, since PowerShell has no `xargs` (R135, M13): `git diff --name-only main | xargs grep -n -i -w "safe"`: nothing about flood conditions. Run it once more without `-w`, as MS3a's Task 17 did.
-- [ ] **Step 5:** Run `security-review` (the dev tools build Meta clients from the key), then `superpowers:requesting-code-review` on the whole branch. Fix anything confirmed, and re-run Step 4.
-- [ ] **Step 6 (P17):** Run `claude-md-management:revise-claude-md` for what MS3b adds: the commands `probes/dev_eval.py` and `probes/set_b.py`, the smoke script's `--bound` and `--geometry`, and the `GEOMETRY_IN_LEVEL` literal in the template, which a deploy applies. Rene approves the CLAUDE.md change before it is committed.
+- [x] **Step 5:** Run `security-review` (the dev tools build Meta clients from the key), then `superpowers:requesting-code-review` on the whole branch. Fix anything confirmed, and re-run Step 4. Evidence (Oct 30):
+  - **`security-review`:** the finder (Opus 5.5 at `xhigh`) reported nothing at confidence 7 or above. The one item below that threshold, bare names in dev_eval's manifest, is M6 below.
+  - **The final review** (Opus 5.5 at `xhigh`, `7bc2bbe..7cc3374`): "With fixes", with 0 Critical, 1 Important and 6 Minor.
+    - **I1** (R158): `0955428`. When step 3 drops a van's or `unknown` vehicle's covered wheel, the wheel now still holds R143's floor, as a sedan's dropped wheel holds its landmark (C317). Before, a shallower geometry level could publish where a sedan refuses.
+    - **M4 and M6** (R160): `2549cb7`. dev_eval's export refuses another export's leftover rows, and `parse_manifest` requires bare `photo_id`, `set` and `photo_file`. All 6,443 Set C image names pass.
+    - **M1:** `f84c375`. The spend files are re-copied as at MS4's `36adff5` (R151).
+    - **M2 and M3** (R159) carry into Task 13 or 17, whichever runs first. **M5** is a question for Rene.
+  - **The scoped re-review** (Sonnet 5.5 at `xhigh`): I1, M4 and M6 addressed, with no new breakage.
+  - **Step 4 re-run** on the final tree: in the Oct 30 log.
+- [x] **Step 6 (P17):** Run `claude-md-management:revise-claude-md` for what MS3b adds: the commands `probes/dev_eval.py` and `probes/set_b.py`, the smoke script's `--bound` and `--geometry`, and the `GEOMETRY_IN_LEVEL` literal in the template, which a deploy applies. Rene approves the CLAUDE.md change before it is committed. Evidence (6:10 AM, Oct 30): three proposals are drafted in Window 3's handoff folder for Rene, as `rene\ms3b-claude-md-proposals.md`:
+  - the smoke test's exit 3, with `--fallback`, `--geometry` and `--bound`
+  - MS3b's offline tools: `run_pipeline.py`, `dev_eval.py` and `set_b.py`
+  - the quoted `GEOMETRY_IN_LEVEL` literal
+
+  CLAUDE.md isn't changed: it waits for Rene's approval.
 - [ ] **Step 7:** Commit `docs: record MS3b results and tick its done-checks`. Then use `superpowers:finishing-a-development-branch`: merge `ms3b-geometry` into `main`, and push to the private repo (D16).
 
 ### Task 19: The sealed-run entry point, `run_sealed.py` (MS6's C412; R117, C329)

@@ -25,7 +25,7 @@ Markers: ✅ as expected · ⚠️ needs action or a decision · ➕ new fact.
 ## 2. What was built
 
 - **Tasks 1 to 12, 10a and 15** are built, each with its own review (Opus 5.5 at `xhigh`). Every task's tests were written first and seen to fail. The mutant checks killed every mutant they ran, for example 17 in Task 3, 15 in Task 5, 13 in Task 6, 11 in Task 7 and 22 in Task 8.
-- **The suite grew from 535 passed (1 skipped) before MS3b to 852 passed, 3 skipped** at Task 15's commit. The 3 skips are MS3a's real-run B3 test, which needs a saved run, and two harness-gated tests that skip because `eval/scoring/` isn't in this tree. Those two passed against Window 4's copy, read-only, in the Task 12 review. `backend/scripts` has 82 passed and the API 42.
+- **The suite grew from 535 passed (1 skipped) before MS3b to 852 passed, 3 skipped** at Task 15's commit. With MS2's merge it was 920, and after the final review's fixes it is 928 passed, 3 skipped. The 3 skips are MS3a's real-run B3 test, which needs a saved run, and two harness-gated tests that skip because `eval/scoring/` isn't in this tree. Those two passed against Window 4's copy, read-only, in the Task 12 review. `backend/scripts` has 82 passed and the API 42.
 - **Not built:** Task 13 (the tuning sweep and event replay, Could, skipped), Task 12b (the runner's `record_spend` calls, which wait for MS4's deployed limits table, R154), and Tasks 14, 16 and 17 (they wait, see §14). Task 19 (the sealed-run entry point) comes after the close.
 
 ## 3. D1: the offline search, the deploy and the cloud checks
@@ -108,7 +108,7 @@ Every row is indicative. Nothing below is scored, and the headline numbers wait 
 | W3, eyeballed waterline | G4 keeps the deeper of a wheel's two readings, and drops the wheel as `wheel_methods_disagree` when they are more than one level apart | None | The ablation and Set B |
 | W4, reflections | Step 3's cut at the waterline, with synthetic reflection tests | None | Development photos with reflections |
 | W5, the width of the error | Inch levels, with the range rounded outward and never landing shallower | None | Passability and within-one-level agreement |
-| W6, deep water | C53's floor stays with sedans and SUVs (MS3b-Q7 a); vans and `unknown` read from geometry only; R143 gives a van's covered wheel a tire floor that refuses a shallower exact reading | 20 Commons photos in the cloud, 0 levels (§3). This is not the deep subset. | Development Set A photos whose alert gave tire or deeper, with their refusals by cause |
+| W6, deep water | C53's floor stays with sedans and SUVs (MS3b-Q7 a); vans and `unknown` read from geometry only; R143 gives a van's covered wheel a tire floor that refuses a shallower exact reading, even when step 3 drops the wheel (R158, the final review's I1) | 20 Commons photos in the cloud, 0 levels (§3). This is not the deep subset. | Development Set A photos whose alert gave tire or deeper, with their refusals by cause |
 | W7, angles and small wheels | The 40 px rule and the 0.5 axis-ratio limit | Axis ratios of 0.880 to 0.994 on 6 side-on rims | Set B by angle and size |
 | W8, splash and waves | The median water edge, and a refusal when the edge is ragged | None | The splash subset's coverage |
 | W9, wet road as flood | Step 3's touch check (T = 5 px, touch share 0.25) | Step 3 dropped 6 dry references on one real photo and 2 on another, verified on an overlay (§4); `no_water_contact` 2 in each of 2 more photos | Development A-neg, with C326's false water |
@@ -197,5 +197,13 @@ C309 sets the live default from the final ablation, after Set B's k and the tuni
   - **MS3b-Q3**, the self-check's 10 s condition.
   - Until v0.7, no Set A or A-neg development result may be scored or shown (C322).
 - ⚠️ **D1's cloud half** moves to the integrated deploy (R155). Until a real photo measures a wheel, geometry is on in the cloud but unproven there. At start values, check 9 refused 4 of 6 real rims (§5), so geometry will often leave the landmark reading in place until Set B calibrates it.
-- **Tasks 14, 16 and 17** wait for the split, v0.7, Set B and Rene's usage reading. Task 13 is skipped. Task 12b waits for MS4's deployed limits table.
+- ⚠️ **No deploy from `ms3b-geometry` or from `main` between MS4's Task 10a and its integrated Task 15** (R155, which the tracker extended at 6:11 AM, Oct 30). Neither template has MS4's limits table, routes or alarms until MS4 merges, so CloudFormation would delete them. Only MS4 deploys in that window.
+- **Tasks 14, 16 and 17** wait for the split, v0.7, Set B and Rene's usage reading. Task 13 is skipped. Task 12b waits for MS4's deployed limits table, and its copy of the spend files waits for the sha of MS4 Task 8a's fix round (R151).
+- **The final review** (Opus 5.5 at `xhigh`, after the security review found nothing at confidence 7 or above): one Important, I1, fixed before the merge (R158).
+  - **What I1 was:** when step 3 dropped a van's or `unknown` vehicle's covered wheel, R143's floor was lost, so a shallower geometry level could publish where a sedan refuses.
+  - **Still live in the cloud:** the bug stays in the deployed stack until MS4's integrated deploy (Task 15), under R155 as extended. It's rare there, since at start values check 9 refuses most real rims. Nobody uses the stack before Rene's QA on Nov 3, which runs on that deploy.
+  - **M4 and M6 were fixed too** (R160): dev_eval's export refuses another export's leftover rows, and manifests need bare names.
+- **For Rene (M5):** should each answered wheel of a van or `unknown` vehicle hold its sedan Table 8 row as a floor that never decides, as R143 does for a covered wheel? It would only ever add refusals. Claude recommends yes. Until he answers: no change (C318).
+- **Carried into Task 13 or 17, whichever runs first (R159):** range checks on `Tuning` (C310's 0.50 and 1.55, k > 0), and a count of replays that end `pipeline_error`, with any such export refused.
+- **Carried into Task 19's brief:** catch `InputError` on sealed crops and print a fixed message or the row number, never a cell. Wherever Task 19 reads a manifest through `parse_manifest`, it gets that function's bare-name check (M6). Any other ids or file names it reads need the same check.
 - **Carried into Task 17:** the other tests in `test_prepare_boxes.py` still read the live 40 px and cap-of-6 constants, and the live-TUNING hubcap test runs at brightness 128 and score 0.9, so it should pass 255.0 and 1.0 before daylight or the rim score is tuned.
