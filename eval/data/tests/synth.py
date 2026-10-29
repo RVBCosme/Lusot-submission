@@ -234,6 +234,91 @@ def split_inputs(root: Path) -> dict[str, Path]:
     return paths
 
 
+def ellipse_mask(
+    shape: tuple[int, int], centre: tuple[float, float], half_h: float, half_w: float
+) -> np.ndarray:
+    """A bool mask of shape (height, width), true at each pixel (y, x) where
+    ((y - cy) / half_h)^2 + ((x - cx) / half_w)^2 <= 1, with centre as (cy, cx), numpy's
+    order. The bound is inclusive, so an ellipse centred on row 200 with a half-height
+    of 50 spans rows 150 to 250."""
+    rows, columns = np.ogrid[: shape[0], : shape[1]]
+    cy, cx = centre
+    return ((rows - cy) / half_h) ** 2 + ((columns - cx) / half_w) ** 2 <= 1
+
+
+# The npz files set_b_masks writes for each car photo, one per SAM phrase.
+_MASK_FILES = (
+    "sam_vehicle_masks.npz",
+    "sam_wheel_masks.npz",
+    "sam_wheel_rim_masks.npz",
+)
+
+
+def masks_folder(
+    root: Path,
+    stem: str,
+    photo: bytes,
+    vehicles: Sequence[np.ndarray],
+    wheels: Sequence[np.ndarray],
+    rims: Sequence[np.ndarray],
+) -> Path:
+    """Lay out one car photo's masks under the masks root as set_b_masks does, and
+    return root/stem. The layout is copied, never imported (C200).
+
+    root/stem gets the four files the generator reads: blurred.jpg, holding the photo's
+    bytes, and sam_vehicle_masks.npz, sam_wheel_masks.npz and sam_wheel_rim_masks.npz
+    from the vehicle, wheel and rim masks. Each npz holds what set_b_masks.save_result
+    writes: ids; boxes, N x 4 floats, half-open, from each mask's own extent (zeros for
+    an empty mask); scores, all NaN, as SAM's None, since the generator never reads
+    them; and masks, N x height x width bool, so an empty list still has the photo's
+    shape. No raw .txt and no meta.json are written.
+
+    The four files merge into root/files.txt as set_b_masks.write_files_txt merges
+    them: lines of "<sha256>  <path relative to root, with />", sorted by path, with
+    \\n endings and no BOM. The entries already there are kept, unless a path is
+    written again, which takes its new hash.
+    """
+    # Imported here, as in jpeg, so the decode cap photos.py sets holds (R25).
+    import cv2
+
+    image = cv2.imdecode(np.frombuffer(photo, np.uint8), cv2.IMREAD_GRAYSCALE)
+    height, width = image.shape
+    folder = root / stem
+    folder.mkdir(parents=True, exist_ok=True)
+    blurred = folder / "blurred.jpg"
+    blurred.write_bytes(photo)
+    written = [blurred]
+    for name, masks in zip(_MASK_FILES, (vehicles, wheels, rims), strict=True):
+        boxes = []
+        for mask in masks:
+            rows = np.flatnonzero(mask.any(axis=1))
+            columns = np.flatnonzero(mask.any(axis=0))
+            if rows.size == 0:
+                boxes.append((0, 0, 0, 0))
+            else:
+                boxes.append((columns[0], rows[0], columns[-1] + 1, rows[-1] + 1))
+        path = folder / name
+        np.savez_compressed(
+            path,
+            ids=np.arange(len(masks)),
+            boxes=np.array(boxes, float).reshape(-1, 4),
+            scores=np.full(len(masks), np.nan),
+            masks=np.array(masks, bool).reshape(-1, height, width),
+        )
+        written.append(path)
+    listing = root / "files.txt"
+    entries = {}
+    if listing.is_file():
+        for line in listing.read_bytes().decode("utf-8").splitlines():
+            digest, relative = line.split("  ", 1)
+            entries[relative] = digest
+    for path in written:
+        entries[path.relative_to(root).as_posix()] = table.sha256_file(path)
+    text = "".join(f"{entries[relative]}  {relative}\n" for relative in sorted(entries))
+    listing.write_bytes(text.encode("utf-8"))
+    return folder
+
+
 def console(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make guards.console_ok() hold, as it does in Rene's own window."""
     monkeypatch.setattr(guards, "console_ok", lambda **_: True)
