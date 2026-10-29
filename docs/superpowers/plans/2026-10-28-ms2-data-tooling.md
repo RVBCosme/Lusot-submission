@@ -1149,7 +1149,7 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
       No crop, truth row or overlay is ever written in plaintext. Problems, drops and warnings print as `row <n> …` with counts, never a final car id.
     - It prints the counts by cause, the crops and wheels, and the seconds.
 
-- [ ] **Step 1: Write the failing tests.** The masks folders come from `synth.masks_folder`, under `tmp_path/"data"` laid out like `lusot-data`.
+- [x] **Step 1: Write the failing tests.** The masks folders come from `synth.masks_folder`, under `tmp_path/"data"` laid out like `lusot-data`.
   - In `test_setb_cars.py`: one test per problem, drop and warning; `test_final_side_needs_even_numbers`; `test_final_refs_are_row_numbers`.
   - `test_dev_generation_writes_crops_truth_overlays`: cars `B01` and `B03`, with one photo and 2 wheels each, give 8 crops and 16 truth rows. Every `crop_id` and `car_id` passes `is_id`, `true_depth_in` has at most 4 decimals, `files.txt` lists every file with its hash, and each crop has an overlay.
   - `test_drops_are_counted_by_cause`: a `195R14C` car gives `no_aspect_ratio`, a car without its consent file gives `no_consent`, and a masks folder without a vehicle gives `no_vehicle`.
@@ -1163,10 +1163,19 @@ Starts only after Task 1, Step 4. MS2-Q3 (b) would hold this task until MS3a mer
   - `test_final_refuses_without_a_console`: a subprocess with stdin on NUL and stdout piped exits 2.
   - `test_final_prints_no_final_car_id`: stdout and stderr of a `--final` run with a drop and a warning hold no `B02` or `B04`.
   - `test_final_record_holds_no_ids`
-- [ ] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "setb_cars or setb_generate"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'cars'`.
-- [ ] **Step 3:** Implement, then run `uv lock --script eval/set_b/generate.py`.
-- [ ] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/set_b/generate.py --help` exits 0.
-- [ ] **Step 5:** Commit `feat(set_b): add the generator, with the sealed final-car run`.
+- [x] **Step 2:** Run `uv run --locked --script eval/data/tests/run_tests.py -k "setb_cars or setb_generate"`. Expected: FAIL, with `ModuleNotFoundError: No module named 'cars'`.
+- [x] **Step 3:** Implement, then run `uv lock --script eval/set_b/generate.py`.
+- [x] **Step 4:** Run the tests again. Expected: all pass. `uv run --locked --script eval/set_b/generate.py --help` exits 0.
+- [x] **Step 5:** Commit `feat(set_b): add the generator, with the sealed final-car run`.
+
+*Evidence (Task 16, Oct 30):*
+- **Commits:** 3e72094 and 8a0a166.
+- **Tests:** `uv run --locked --script eval/data/tests/run_tests.py -W error` gives 853 passed. `uv run --locked --script eval/set_b/generate.py --help` exits 0.
+- **Checks:** ruff format and check, the plan-leak check (266 files), the account-ID scan (225 files), gitleaks and the banned-forms check are clean. 12 of 12 mutants caught.
+- **RED:** the expected `ModuleNotFoundError: No module named 'cars'`.
+- **The review held six named risks:** no final car id, model, tire code, file name or path in any `--final` line or in the record, and drops counted by cause; the `--final` order fails closed with nothing in plaintext; the archive's members; `audit --sealed` passes on the extracted archive and fails on a changed byte; `photos` loads before cv2, so the 50 MP cap holds; `ShrinkOutOfRange` is a drop.
+- **Ruling S-R28:** generation runs in memory before the password (as the split and Set D's seal do); a car without its owner's OK is never archived; a shared car id prints as a development row number, since it is also a final car id.
+- **One fix round (S-R29), re-reviewed:** only consented, archived cars' masks are read and archived, each re-hashed against `files.txt` before the password, with a filtered `files.txt` archived and hashed into the record; the overlap check needs the development masks' `files.txt`; owners' OKs are plain file names.
 
 ### Task 17: The freeze check and the freeze record (C213, C216, V8)
 
@@ -1352,7 +1361,7 @@ Remove-Item -Force C:\Systems\Lusot\lusot-data\set_a\set_a_log.csv, C:\Systems\L
 
 Then tell Claude: "split done, 7-Zip test passed, inputs deleted".
 
-**R6. Set B's final cars** (C214), after C213's generator freeze and by Nov 1. The summary shows the planned calls and their cost before you type `yes`: 3 SAM calls per photo at $0.0025 a call, about $0.04 for 5 photos. A car without its owner's OK is skipped and never sent. Close the window afterwards, because the key stays set in it.
+**R6. Set B's final cars** (C214), after C213's generator freeze and by Nov 1. The summary shows the planned calls and their cost before you type `yes`: 3 SAM calls per photo at $0.0025 a call, about $0.04 for 5 photos. A car without its owner's OK is skipped and never sent. Close the window afterwards, because the key stays set in it. Each owner's OK sits beside `cars.csv` as a plain file name (S-R29). If `generate --final` stops on a development photo that `set_b_masks` couldn't decode, remove that row from the development `cars.csv` and run it again.
 
 ```powershell
 $env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --locked --directory backend/analysis python probes/set_b_masks.py --final --cars C:\Systems\Lusot\lusot-data\set_b\sealed\cars.csv --photos C:\Systems\Lusot\lusot-data\set_b\sealed\photos --out C:\Systems\Lusot\lusot-data\set_b\sealed\masks
