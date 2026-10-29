@@ -42,7 +42,9 @@ def test_templates_match_the_constants():
     """Each template is its header line alone: UTF-8 without a BOM, ending in \\n."""
     assert formats.TEMPLATES == {
         "set_a_log.csv": formats.SET_A_COLUMNS + formats.SET_A_OPTIONAL,
-        "a_neg_log.csv": formats.A_NEG_COLUMNS + ("same_spot_as",),
+        "a_neg_log.csv": formats.A_NEG_COLUMNS
+        + ("same_spot_as",)
+        + formats.A_NEG_OPTIONAL,
         "m8_labels.csv": formats.M8_COLUMNS,
         "set_b_cars.csv": formats.CARS_COLUMNS,
         "set_d_log.csv": formats.SET_D_COLUMNS,
@@ -72,6 +74,24 @@ def test_set_a_template_keeps_the_17_columns_first():
     assert formats.SET_A_OPTIONAL == ("same_spot_as", "alert_poster", "alert_spot_text")
     assert formats.SET_A_COLUMNS == TODAYS_TEMPLATE
     assert formats.A_NEG_COLUMNS == TODAYS_TEMPLATE + ("surface",)
+
+
+def test_a_neg_template_ends_with_licence_and_credit():
+    """S-R20: A-neg's template gains a Commons photo's licence and credit as its last two
+    columns, after same_spot_as, so a log without them still reads. A Commons row's
+    licence is CC0, PD or CC BY, never BY-SA (C209)."""
+    columns = table.read_table(TEMPLATE_DIR / "a_neg_log.csv").columns
+    assert columns == TODAYS_TEMPLATE + ("surface", "same_spot_as", "licence", "credit")
+    assert formats.A_NEG_OPTIONAL == ("licence", "credit")
+    assert formats.A_NEG_POSTERS == ("own", "friend", "commons")
+    assert formats.COMMONS_LICENCES == (
+        "cc0",
+        "pd",
+        "cc-by-2.0",
+        "cc-by-2.5",
+        "cc-by-3.0",
+        "cc-by-4.0",
+    )
 
 
 def test_table5_lists_match_schema_v1():

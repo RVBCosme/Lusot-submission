@@ -148,19 +148,28 @@ Fix only your own transcription slips, never the post's words.
 
 ## A-neg (about 15 photos, no social media needed)
 
-Wet streets that aren't flooded, and dry streets, ideally with parked cars or people in view. Take them yourself, or use a friend's photos with their OK.
+Wet streets that aren't flooded, and dry streets, ideally with parked cars or people in view. From Oct 29 they come from Wikimedia Commons (C209). Your own photos, and a friend's with their OK, still count.
 
 - **Spread them out:** at least **5 places, over at least 2 days**, so the split has events to draw from.
 - **Files:** `N001.jpg`, `N002.jpg` and so on, in `C:\Systems\Lusot\lusot-data\a_neg\raw\`.
 - **The log:** `a_neg\a_neg_log.csv`, made from `eval/templates/a_neg_log.csv`, or the checklist's copy of the Set A template plus `surface`. Its columns are Set A's, except:
   - `candidate_id`: `N001`, `N002`, …
-  - `poster`: `own` or `friend`
+  - `poster`: `own`, `friend` or `commons`
   - `post_time_pht`: when the photo was taken, `YYYY-MM-DD HH:MM`
-  - `spot_text` and `city`: where you took it, in Metro Manila, as for Set A
+  - `spot_text` and `city`: where it was taken, in Metro Manila, as for Set A
   - `level_label_raw`: `none`
   - `surface`: `wet` or `dry`
   - `same_spot_as`: optional, as for Set A, with `N` ids
-  - `platform`, `post_url`, `alert_time_pht`, `passability_raw` and `photo_in_alert_post` stay blank. The template has no `alert_poster` or `alert_spot_text`; if your log has them, leave them blank too, since A-neg ignores them.
+  - `licence` and `credit`: the template's last two columns, for Commons photos only (below). A log without them still works for your own and friends' photos.
+  - On your own or a friend's row, `platform`, `post_url`, `alert_time_pht`, `passability_raw`, `photo_in_alert_post`, `licence` and `credit` stay blank. The template has no `alert_poster` or `alert_spot_text`; if your log has them, leave them blank too, since A-neg ignores them.
+- **A Commons photo** is CC0, public domain or CC BY, never BY-SA. The tracker's script downloads each one unopened into `lusot-data\a_neg_commons_staging\` and fills its row's text columns; you review them and move the photos into `raw\`. Its row differs from your own:
+  - `poster`: `commons`
+  - `platform`: `other`
+  - `post_url`: the photo's file page on Commons. No tool ever opens it.
+  - `licence`: `cc0`, `pd`, `cc-by-2.0`, `cc-by-2.5`, `cc-by-3.0` or `cc-by-4.0`, as the file page gives it. Any other licence, BY-SA included, is a problem.
+  - `credit`: the author's credit, as Commons gives it. The intake checks only that it isn't empty, and never prints it.
+  - `post_time_pht`: the date the photo was taken. When the page gives a date only, write `00:00` for the time and "time unknown" in `notes`; for A-neg only the date is used.
+  - `reference_visible`, `label_in_image` and `faces_or_plates`, and `surface` when the page doesn't say: you fill these after looking at each photo, because no Claude opens an A-neg photo before the split.
 - **A friend's photo** needs their OK to send it to Meta with faces blurred, for evaluation only. It never goes into the repo or the demo.
 
 ## M8: your labels for each Set A photo (C208)

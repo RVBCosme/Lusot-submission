@@ -65,6 +65,7 @@ class _Rules:
     checked: tuple[str, ...]  # the columns read, in the order they are checked
     required: tuple[str, ...]  # the values every row needs
     separate_required: tuple[str, ...]  # what a separate-post row needs as well
+    commons_only: tuple[str, ...]  # what only a Commons row reads, and needs
     lists: Mapping[str, tuple[str, ...]]
     photo_columns: tuple[str, ...]
 
@@ -90,14 +91,16 @@ _RULES = {
             "faces_or_plates",
         ),
         separate_required=("alert_poster", "alert_spot_text", "alert_time_pht"),
+        commons_only=(),
         lists=_LISTS,
         photo_columns=PHOTO_COLUMNS,
     ),
-    # A-neg ignores the alert's poster and spot, and its level is always none.
+    # A-neg ignores the alert's poster and spot, and its level is always none. A row of
+    # a Wikimedia Commons photo also needs its licence and credit (S-R20).
     "A-neg": _Rules(
         id_pattern=formats.A_NEG_ID,
         columns=formats.A_NEG_COLUMNS,
-        checked=formats.A_NEG_COLUMNS + ("same_spot_as",),
+        checked=formats.A_NEG_COLUMNS + ("same_spot_as",) + formats.A_NEG_OPTIONAL,
         required=(
             "candidate_id",
             "logged_on",
@@ -113,11 +116,13 @@ _RULES = {
             "surface",
         ),
         separate_required=(),
+        commons_only=formats.A_NEG_OPTIONAL,
         lists=_LISTS
         | {
             "poster": formats.A_NEG_POSTERS,
             "level_label_raw": ("none",),
             "surface": formats.SURFACES,
+            "licence": formats.COMMONS_LICENCES,
         },
         photo_columns=PHOTO_COLUMNS + ("surface",),
     ),
@@ -186,7 +191,8 @@ def check_set_log(log: Path, photos_dir: Path, *, set_name: str) -> SetCheck:
     ]
     # A misspelt name, such as same_spot for same_spot_as, would otherwise read as a
     # blank column in silence. It is named by its place, never by its text (S-R10).
-    known = rules.columns + formats.SET_A_OPTIONAL
+    # The set knows each column it reads, and the alert columns A-neg ignores.
+    known = rules.checked + formats.SET_A_OPTIONAL
     unknown = [
         Finding("log", f"column {number}", "unknown")
         for number, name in enumerate(found.columns, start=1)
@@ -286,12 +292,18 @@ def _distance(row: Mapping[str, str]) -> timedelta:
 def _row_problems(
     photo_id: str, cells: Mapping[str, str], rules: _Rules, photos_dir: Path
 ) -> list[Finding]:
-    """A row's problems, column by column in the template's order."""
+    """A row's problems, column by column in the template's order. A-neg's licence and
+    credit are read only on a Commons row, which needs both (S-R20)."""
     required = rules.required
     if cells["photo_in_alert_post"].lower() == "no":
         required += rules.separate_required
+    commons = cells["poster"].lower() == "commons"
+    if commons:
+        required += rules.commons_only
     problems = []
     for column in rules.checked:
+        if column in rules.commons_only and not commons:
+            continue  # an own or friend row's licence and credit aren't read
         value = cells[column]
         if not value:
             kind = "missing" if column in required else None

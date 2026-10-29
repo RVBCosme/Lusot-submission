@@ -643,6 +643,77 @@ def test_a_neg_log_from_the_template_reads_cleanly(tmp_path):
     assert (found.problems, found.warnings) == ([], [])
 
 
+def commons_row(**cells):
+    """A-neg's row for a Wikimedia Commons photo, as the tracker fills one (C209, S-R20):
+    its file page in post_url, the date taken at 00:00 when the page gives no time, and
+    its licence and credit. Each keyword sets one cell."""
+    commons = {
+        "platform": "other",
+        "post_url": "https://example.invalid/file/1",
+        "poster": "commons",
+        "post_time_pht": "2026-10-27 00:00",
+        "notes": "time unknown",
+        "licence": "cc-by-4.0",
+        "credit": "A. Photographer",
+    }
+    return synth.a_neg_row(**(commons | cells))
+
+
+def test_a_neg_accepts_commons_rows(tmp_path):
+    """A Commons row reads with no problem beside Rene's own, its licence in any case,
+    as the log's other list values are. Every A-neg poster stays other (§5.9)."""
+    rows = [
+        commons_row(),
+        synth.a_neg_row(candidate_id="N002"),
+        commons_row(candidate_id="N003", licence="CC0"),
+    ]
+    found = check(tmp_path, rows, set_name="A-neg")
+    assert (found.problems, found.warnings) == ([], [])
+    assert [photo.poster_kind for photo in found.photos] == ["other"] * 3
+
+
+@pytest.mark.parametrize(
+    ("cells", "problem"),
+    [
+        ({"licence": ""}, Finding("N001", "licence", "missing")),
+        ({"licence": "cc-by-sa-4.0"}, Finding("N001", "licence", "not_in_list")),
+        ({"credit": ""}, Finding("N001", "credit", "missing")),
+        ({"poster": "Commons", "licence": ""}, Finding("N001", "licence", "missing")),
+    ],
+    ids=["blank_licence", "by_sa", "blank_credit", "poster_in_capitals"],
+)
+def test_commons_row_needs_licence_and_credit(tmp_path, cells, problem):
+    """A Commons row needs a licence from formats.COMMONS_LICENCES, never BY-SA, and a
+    credit. A finding names the row's id and column only: the credit is free text, like
+    notes, and never prints."""
+    row = commons_row(**({"credit": SENTINEL} | cells))
+    found = check(tmp_path, [row], set_name="A-neg")
+    assert found.problems == [problem]
+    printed = [str(item) for item in found.problems + found.warnings]
+    assert [line for line in printed if SENTINEL.casefold() in line.casefold()] == []
+
+
+def test_own_and_friend_rows_leave_licence_and_credit_unread(tmp_path):
+    """On Rene's own or a friend's row, licence and credit may be blank and aren't
+    checked, even when filled."""
+    rows = [
+        synth.a_neg_row(licence="cc-by-sa-4.0"),
+        synth.a_neg_row(candidate_id="N002", poster="friend", credit=SENTINEL),
+    ]
+    columns = formats.A_NEG_COLUMNS + ("same_spot_as", "licence", "credit")
+    found = check(tmp_path, rows, set_name="A-neg", columns=columns)
+    assert (found.problems, found.warnings) == ([], [])
+
+
+def test_a_neg_log_without_the_new_columns_still_reads(tmp_path):
+    """A log on A-neg's template before S-R20, with no licence or credit column, still
+    reads for Rene's own and a friend's photos."""
+    rows = [synth.a_neg_row(), synth.a_neg_row(candidate_id="N002", poster="friend")]
+    columns = formats.A_NEG_COLUMNS + ("same_spot_as",)
+    found = check(tmp_path, rows, set_name="A-neg", columns=columns)
+    assert (found.problems, found.warnings) == ([], [])
+
+
 def test_spreadsheet_saved_log_reads_cleanly(tmp_path):
     """Review Focus 1: a log saved from Excel or Google Sheets, with a BOM, CRLF endings,
     capitals in list values, stray spaces, A001.JPG and blank rows at the end, reads

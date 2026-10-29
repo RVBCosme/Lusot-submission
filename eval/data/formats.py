@@ -33,6 +33,8 @@ SET_A_OPTIONAL = ("same_spot_as", "alert_poster", "alert_spot_text")
 # A-neg's required columns: Set A's plus surface, the log the tracker's checklist v2
 # has Rene make (C209).
 A_NEG_COLUMNS = SET_A_COLUMNS + ("surface",)
+# A-neg's optional last columns, which a Wikimedia Commons row needs (C209, S-R20).
+A_NEG_OPTIONAL = ("licence", "credit")
 # Rene's M8 export, one row per labelled item (C208).
 M8_COLUMNS = (
     "photo_id",
@@ -161,7 +163,7 @@ SIDEWALLS_COLUMNS = (
 # Each template in eval/templates, by file name, and its header.
 TEMPLATES: dict[str, tuple[str, ...]] = {
     "set_a_log.csv": SET_A_COLUMNS + SET_A_OPTIONAL,
-    "a_neg_log.csv": A_NEG_COLUMNS + ("same_spot_as",),
+    "a_neg_log.csv": A_NEG_COLUMNS + ("same_spot_as",) + A_NEG_OPTIONAL,
     "m8_labels.csv": M8_COLUMNS,
     "set_b_cars.csv": CARS_COLUMNS,
     "set_d_log.csv": SET_D_COLUMNS,
@@ -174,8 +176,10 @@ PLATFORMS = ("facebook", "x", "other")
 YES_NO = ("yes", "no")
 REFERENCE_VISIBLE = ("wheel", "person", "both", "none")
 LABEL_IN_IMAGE = ("no", "cropped", "yes")
-A_NEG_POSTERS = ("own", "friend")
+A_NEG_POSTERS = ("own", "friend", "commons")
 SURFACES = ("wet", "dry")
+# A Commons photo's licence: CC0, public domain or CC BY, never BY-SA (C209, S-R20).
+COMMONS_LICENCES = ("cc0", "pd", "cc-by-2.0", "cc-by-2.5", "cc-by-3.0", "cc-by-4.0")
 
 # Table 5's lists: photo schema v1's enums, in its order. A test compares them with
 # backend/analysis/prompts/muse_spark_photo_v1.schema.json, read as data (C200).
