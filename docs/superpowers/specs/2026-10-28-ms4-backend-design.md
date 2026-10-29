@@ -190,7 +190,7 @@ The Metro Manila test uses the final point, after the nudge. `nudgeM` is optiona
 - **The roles** (least privilege, MS1's R19):
   - **The analysis role:** put and delete on `blurred/*`, `overlay/*` and `demo/*`.
   - **The API role:** get, for presigning, on `blurred/*`, `overlay/*` and `demo/*`, and get on `samples/*` with put on `raw/*` to copy a sample.
-  - **The API role's database access:** `Query` on the table, `reportId-index` and `feed-index`; `UpdateItem` for flags; and `PutItem` and `UpdateItem` on `limits`, which nothing reads.
+  - **The API role's database access:** `Query` on the table, `reportId-index` and `feed-index`; `UpdateItem` for flags; and `PutItem` and `UpdateItem` on `limits`, which nothing in MS4 reads. Ask Lusot adds `GetItem` there for its place cache, in its own task (its C701), and updates `test_roles` to match.
 - **API tests** (section D, item 4): the handler's lazy setup, missing environment variables, the presigned URLs' host and region, and a sentinel test. The sentinel test shows that a sentinel IP (`requestContext.http.sourceIp`), a sentinel location (a `GET /reports` point, which is the viewer's own location) and a sentinel device id reach no log on any endpoint.
 - **Script guards:** every script that reads `lusot-data` refuses any path with a part named `sealed`, as C66 does, and prints counts and ids only. That covers `demo_pins.py`, `samples.py`, `redrive_dlq.py`, `hide_pin.py` and the recovery runs.
 - **Logs stay off** (section D, item 4): HTTP API access logs on both APIs, S3 server access logs and CloudTrail data events, unless the privacy policy covers them and Rene agrees (MS4-Q6).
