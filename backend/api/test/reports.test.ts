@@ -84,13 +84,15 @@ function without(item: Record<string, unknown>, ...names: string[]): Record<stri
   return copy;
 }
 
-// Each URL names the bucket and its key, and lasts 300 s (C503).
+// Each URL names the bucket and its key, and lasts 300 s (C503). It signs only host, so a browser's
+// plain GET, which sends no other signed header, still matches the signature.
 function expectLink(url: unknown, key: string): void {
   expect(typeof url).toBe("string");
   const parsed = new URL(url as string);
   expect(parsed.hostname).toBe(`${BUCKET}.s3.ap-southeast-1.amazonaws.com`);
   expect(parsed.pathname).toBe(`/${key}`);
   expect(parsed.searchParams.get("X-Amz-Expires")).toBe("300");
+  expect(parsed.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
 }
 
 beforeEach(() => {
@@ -355,11 +357,17 @@ describe("GET /reports/{id}", () => {
       [{ ...level, visibleUntil: oneSecondPast }, false],
       [{ ...level, visibleUntil: NOW_S }, false],
       [{ ...level, visibleUntil: NOW_S + 1 }, true],
+      // A pin without visibleUntil gets none, so a check written as `visibleUntil <= now` fails here.
+      [without(level, "visibleUntil"), false],
       [{ ...level, ...DEMO, mode: "demo", visibleUntil: oneSecondPast }, false],
       [{ ...level, ...DEMO, mode: "demo", visibleUntil: NOW_S + 1 }, true],
+      [without({ ...level, ...DEMO, mode: "demo" }, "visibleUntil"), false],
       [{ ...level, mode: "private", visibleUntil: oneSecondPast }, true],
       [without({ ...level, pk: "SAMPLE", mode: "sample" }, "visibleUntil"), true],
       [without({ ...level, pk: "EVAL", mode: "eval" }, "visibleUntil"), true],
+      // An unknown mode, or none, gets no links, even while visible.
+      [{ ...level, mode: "bogus" }, false],
+      [without(level, "mode"), false],
     ];
 
     for (const [item, linked] of cases) {

@@ -94,12 +94,11 @@ function reading(stored: ReportItem, inchesShown: boolean): Record<string, unkno
   return { id, kind, landmark, level, used, dropped, ...(inchesShown && { inches: stored.inches }) };
 }
 
-// C503: a pin's links last while it is visible, and other modes' until expiresAt, which the 404 already
-// bounds. Each is signed locally from its stored key, with no S3 call, so a link to an object already
-// gone gets S3's own error and the app shows the text alone. A key that isn't stored gives no link.
+// C503: a pin's links are issued while it is visible (linksIssued, below), and each lasts 300 s. Each is
+// signed locally from its stored key, with no S3 call, so a link to an object already gone gets S3's own
+// error and the app shows the text alone. A key that isn't stored gives no link.
 async function links(report: ReportItem, nowS: number, deps: ReportDeps): Promise<Record<string, string>> {
-  const pin = report.mode === "live" || report.mode === "demo";
-  if (pin && !(typeof report.visibleUntil === "number" && report.visibleUntil > nowS)) return {};
+  if (!linksIssued(report, nowS)) return {};
   const signed: Record<string, string> = {};
   for (const [field, key] of LINKS) {
     const objectKey = report[key];
@@ -109,4 +108,20 @@ async function links(report: ReportItem, nowS: number, deps: ReportDeps): Promis
     });
   }
   return signed;
+}
+
+// C503: links are issued for a live or demo pin while it is visible, and for a private, sample or eval
+// report until expiresAt, which the 404 already bounds. Any other mode, or none, gets no links.
+function linksIssued(report: ReportItem, nowS: number): boolean {
+  switch (report.mode) {
+    case "live":
+    case "demo":
+      return typeof report.visibleUntil === "number" && report.visibleUntil > nowS;
+    case "private":
+    case "sample":
+    case "eval":
+      return true;
+    default:
+      return false;
+  }
 }
