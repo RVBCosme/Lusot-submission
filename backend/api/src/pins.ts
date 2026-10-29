@@ -6,6 +6,11 @@ import type { StopSwitch } from "./stopSwitch";
 
 const MAX_RADIUS_M = 300; // C509: nine 6-character cells cover any 300 m circle
 const MAX_PINS = 200;
+// How long a change to the publish switch takes to show (S6, C516):
+// - the feed: about 90 s at the API (the 30 s switch cache plus its 60 s memo), plus up to 60 s
+//   more in a client's cache that honours max-age=60
+// - the map: about 60 s (the switch cache plus its 30 s memo)
+// - nearby: 30 s (the switch cache alone)
 const MAP_MEMO_MS = 30_000; // F18, C519: at most two feed-index reads per container per 30 s
 const FEED_MEMO_MS = 60_000; // matches the feed's max-age
 const EARTH_RADIUS_M = 6_371_008.8; // the mean radius

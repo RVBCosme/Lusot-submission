@@ -223,6 +223,21 @@ describe("GET /reports (nearby)", () => {
     expect(ids(res)).toEqual([kept.reportId, demo.reportId]);
   });
 
+  it("floors now to the second and leaves out a pin whose visibleUntil is that second", async () => {
+    // 999 ms past NOW: unfloored, now would be NOW + 0.999 s (F3).
+    const late = deps({ now: () => Date.parse(NOW) + 999 });
+    const nowS = Date.parse(NOW) / 1000;
+    const kept = item();
+    store([item({ visibleUntil: nowS }), kept]);
+
+    expect(ids(await nearby(POINT, late))).toEqual([kept.reportId]);
+    await createMapPins(late)();
+    await createFeed(late)();
+
+    // Nearby's 9 cells, the map's 2 partitions and the feed's 1, each sent the whole second.
+    expect(queries().map((input) => input.ExpressionAttributeValues?.[":now"])).toEqual(Array(12).fill(nowS));
+  });
+
   it("defaults radius to 300 m and refuses 301 with 400 bad_radius", async () => {
     for (const radius of ["301", "0", "-5", "abc", "", "Infinity"]) {
       const res = await nearby({ ...POINT, radius }, deps());
@@ -329,7 +344,8 @@ describe("GET /map/pins and GET /pins.geojson", () => {
   });
 
   it("hides live pins from nearby, the map and the feed while publish is set, and keeps demo pins", async () => {
-    ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: "on" } });
+    // Only the publish switch is on, so a route that read any other switch would still show live pins.
+    ssmMock.on(GetParameterCommand, { Name: "/lusot/stop/publish" }).resolves({ Parameter: { Value: "on" } });
     const demo = demoItem();
     store([item(), demo]);
 
@@ -420,5 +436,24 @@ describe("GET /map/pins and GET /pins.geojson", () => {
 
     clock.ms = Date.parse(NOW) + 91_000;
     expect(features(await feed())).toEqual([]);
+  });
+
+  it("stops showing live pins on the map within 60 s of publish being set", async () => {
+    const live = item();
+    const demo = demoItem();
+    store([live, demo]);
+    const clock = { ms: Date.parse(NOW) };
+    const shared = deps({ now: () => clock.ms });
+    // The same worst case: the switch is read as off at 0 s and cached for 30 s, then set.
+    expect(await shared.isStopped("publish", clock.ms)).toBe(false);
+    ssmMock.on(GetParameterCommand, { Name: "/lusot/stop/publish" }).resolves({ Parameter: { Value: "on" } });
+
+    // At 29 s the map is built on the cached switch, and keeps that answer for 30 s.
+    clock.ms = Date.parse(NOW) + 29_000;
+    const map = createMapPins(shared);
+    expect(ids(await map())).toEqual([live.reportId, demo.reportId]);
+
+    clock.ms = Date.parse(NOW) + 61_000;
+    expect(ids(await map())).toEqual([demo.reportId]);
   });
 });
