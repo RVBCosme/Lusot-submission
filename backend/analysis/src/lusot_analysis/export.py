@@ -182,6 +182,20 @@ _DEPTH_PLACES = 4
 # Set B has no Muse Spark answer: any wheel waterline but not_visible passes check 1.
 _ANSWERED = "hub"
 
+# Set D (MS6's §4.3: as Set B, with the ruler depth as the truth). The set_d_log.csv
+# columns read, of MS2's (its §5.9), and each `wheel` with its MS6 number, 1 the
+# leftmost. Set D has no known waterline, so it has only the SAM-waterline variants.
+_SET_D_NEEDS = (
+    "photo_id",
+    "photo_file",
+    "wheel",
+    "vehicle_type",
+    "tire_code",
+    "ruler_depth_in",
+)
+_SET_D_WHEELS = {"left": 1, "right": 2}
+SET_D_VARIANTS = ("geometry", "geometry_uncalibrated")
+
 
 class InputError(ValueError):
     """Input breaks its format: MS2's files, or run.json's datasets. The message names
@@ -801,6 +815,151 @@ def set_b_row(
     }
 
 
+@dataclasses.dataclass(frozen=True)
+class SetDRow:
+    """One wheel in one Set D photo: a row of MS2's set_d_log.csv (its §5.9), checked.
+
+    `photo_id` is its opaque id, and `photo_file` its bare file name in the photos
+    folder. `wheel` is `left` or `right` in the photo. `vehicle_type` is one of
+    SET_B_TYPES, `tire_code` its true code as MS2's reader reads a sidewall's, and
+    `ruler_depth_in` the depth Rene's ruler gave, the truth.
+    """
+
+    photo_id: str
+    photo_file: str
+    wheel: str
+    vehicle_type: str
+    tire_code: TireCode
+    ruler_depth_in: float
+
+
+def parse_set_d(text: str) -> list[SetDRow]:
+    """MS2's Set D set_d_log.csv, from its text: one SetDRow per row, in file order.
+
+    A byte-order mark is dropped, and only the columns SetDRow holds are read: the
+    time, the place, the model and the notes stay out. Every field is checked: an
+    opaque photo_id, as MS6's loader has its ids; a bare photo file name; the wheel
+    left or right; Set B's types; a metric radial tire code; and a ruler depth from 0
+    to under 100 in with at most 4 decimal places. Each (photo_id, wheel) comes once,
+    and a photo's rows name one file. A bad field raises InputError naming its row
+    and column, never a cell's text.
+    """
+    reader = csv.DictReader(io.StringIO(text.removeprefix(_BOM)))
+    for column in _SET_D_NEEDS:
+        if column not in (reader.fieldnames or ()):
+            raise InputError(f"set_d_log.csv has no {column} column")
+    rows: list[SetDRow] = []
+    seen: set[tuple[str, str]] = set()
+    files: dict[str, str] = {}
+    for number, cells in enumerate(reader, start=1):
+        where = f"set_d_log.csv row {number}"
+        row = _set_d_row({key: cells[key] or "" for key in _SET_D_NEEDS}, where)
+        if (row.photo_id, row.wheel) in seen:
+            raise InputError(f"{where}: photo_id and wheel repeat an earlier row's")
+        if files.setdefault(row.photo_id, row.photo_file) != row.photo_file:
+            raise InputError(f"{where}: photo_file differs from the photo's first row")
+        seen.add((row.photo_id, row.wheel))
+        rows.append(row)
+    return rows
+
+
+def set_d_estimates(
+    row: SetDRow,
+    sam: Mapping[str, SamResult],
+    brightness: float,
+    *,
+    tuning: Tuning,
+) -> dict[str, dict]:
+    """The wheel's estimate in each of SET_D_VARIANTS, from SAM's `wheel`, `wheel rim`
+    and `floodwater` results for its photo.
+
+    The row's wheel is SAM's leftmost or rightmost wheel, by its box's centre, as
+    `row.wheel` says; with no SAM wheel, every variant is `wheel_not_found`. Then, as
+    wheel_estimates' `geometry` variants: its rims link by C300, step 3 finds the
+    waterline under its mask, and wheel_geometry runs with the type's tire codes and
+    SAM's box, with the frozen k (`geometry`) and with k = 1
+    (`geometry_uncalibrated`). Each estimate has wheel_estimates' shape.
+    """
+    wheels = sam["wheel"].instances
+    if not wheels:
+        return {variant: _unmeasured("wheel_not_found") for variant in SET_D_VARIANTS}
+    centres = [(box_xyxy(wheel)[0] + box_xyxy(wheel)[2]) / 2 for wheel in wheels]
+    pick = min if row.wheel == "left" else max
+    index = pick(range(len(wheels)), key=centres.__getitem__)
+    wheel = wheels[index]
+    rims = link_rims(wheels, sam["wheel rim"].instances)[index]
+    water = water_mask(sam["floodwater"], wheel.mask.shape)
+    found = find_waterline(wheel.mask, water, tuning)  # step 3, on SAM's wheel
+    ks = {"geometry": tuning.rim_edge_k, "geometry_uncalibrated": 1.0}
+    return {
+        variant: _estimate(
+            row,
+            rims,
+            found,
+            box_xyxy(wheel),
+            brightness,
+            dataclasses.replace(tuning, rim_edge_k=k),
+        )
+        for variant, k in ks.items()
+    }
+
+
+def set_d_row(
+    row: SetDRow, estimates: Mapping[str, Mapping], sam_water_found: bool
+) -> dict:
+    """One set_d.jsonl row, in MS6's Set B names (its §4.3): the photo's id as its
+    `crop_id` and, as Set D has no car id, its `car_id`; the wheel, 1 for left and 2
+    for right; the true type and tire code; the ruler depth as `true_depth_in`;
+    whether SAM found any water; and the `estimates`. Set D has no bins."""
+    return {
+        "crop_id": row.photo_id,
+        "wheel": _SET_D_WHEELS[row.wheel],
+        "car_id": row.photo_id,
+        "vehicle_type": row.vehicle_type,
+        "tire_code": row.tire_code.code,
+        "true_depth_in": row.ruler_depth_in,
+        "sam_water_found": sam_water_found,
+        "estimates": {variant: dict(found) for variant, found in estimates.items()},
+    }
+
+
+def _set_d_row(cells: Mapping[str, str], where: str) -> SetDRow:
+    """One set_d_log.csv row, checked as parse_set_d says. `where` names its row."""
+    photo_id, photo_file = cells["photo_id"], cells["photo_file"]
+    if not _ID.fullmatch(photo_id):
+        raise InputError(f"{where}: photo_id must be an opaque id")
+    if not _FILE_NAME.fullmatch(photo_file) or ".." in photo_file:
+        raise InputError(f"{where}: photo_file must be a bare file name")
+    if cells["wheel"] not in _SET_D_WHEELS:
+        raise InputError(f"{where}: wheel must be left or right")
+    if cells["vehicle_type"] not in SET_B_TYPES:
+        allowed = ", ".join(SET_B_TYPES)
+        raise InputError(f"{where}: vehicle_type must be one of {allowed}")
+    code = _sidewall_code(cells["tire_code"])
+    if code is None:
+        raise InputError(f"{where}: tire_code isn't a metric radial code")
+    text = cells["ruler_depth_in"].strip()
+    try:
+        depth = float(text)
+    except ValueError:
+        depth = math.nan
+    # A finite float's text is a finite Decimal's, so its places are only read then.
+    in_range = math.isfinite(depth) and 0 <= depth < _MAX_DEPTH_IN
+    if not in_range or -Decimal(text).as_tuple().exponent > _DEPTH_PLACES:
+        raise InputError(
+            f"{where}: ruler_depth_in must be from 0 to under 100, with at most 4"
+            " decimal places"
+        )
+    return SetDRow(
+        photo_id=photo_id,
+        photo_file=photo_file,
+        wheel=cells["wheel"],
+        vehicle_type=cells["vehicle_type"],
+        tire_code=code,
+        ruler_depth_in=depth,
+    )
+
+
 def _truth_row(cells: Mapping[str, str], number: int) -> WheelRow:
     """One truth.csv row, checked as parse_truth says. `number` counts from 1."""
     crop_id, wheel = cells["crop_id"], cells["wheel"]
@@ -883,7 +1042,7 @@ def _sidewall_code(text: str) -> TireCode | None:
 
 
 def _estimate(
-    row: WheelRow,
+    row: WheelRow | SetDRow,
     rims: Sequence[SamInstance],
     waterline: Waterline,
     wheel_box: tuple[float, float, float, float],
