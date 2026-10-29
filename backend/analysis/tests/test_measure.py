@@ -10,12 +10,26 @@ from collections import Counter
 from collections.abc import Mapping
 
 import pytest
+from fakes import answer, vehicle, wheel
 
+from lusot_analysis.annotate import NumberedBox
 from lusot_analysis.pipeline.geometry import GeometryReading
 from lusot_analysis.pipeline.measure import measure
-from lusot_analysis.pipeline.references import Kept, KeptPerson, KeptVehicle
+from lusot_analysis.pipeline.references import (
+    Kept,
+    KeptPerson,
+    KeptVehicle,
+    Layout,
+    apply_drops,
+)
 from lusot_analysis.pipeline.types import Reference
-from lusot_analysis.rules import HIDDEN_WHEEL, PEOPLE_ROWS, WHEEL_ROWS, Reading
+from lusot_analysis.rules import (
+    GEOMETRY_ONLY_TYPES,
+    HIDDEN_WHEEL,
+    PEOPLE_ROWS,
+    WHEEL_ROWS,
+    Reading,
+)
 
 TIRE_FLOOR = Reading("tire", floor=True)  # tire or deeper (C54)
 
@@ -453,6 +467,64 @@ def test_a_c43_dropped_vehicle_gives_nothing():
         [],
         {"vehicle_wheels_disagree": 1, "wheel_vehicle_dropped": 3},
     )
+
+
+@pytest.mark.parametrize(
+    ("type_", "expected"),
+    [
+        *(
+            pytest.param(
+                type_,
+                (
+                    [
+                        Reference(
+                            "wheel",
+                            3,
+                            "hub",
+                            KNEE,
+                            level_from="geometry",
+                            depth_in=(13.47, 13.47),
+                        )
+                    ],
+                    {},
+                ),
+                id=type_,
+            )
+            for type_ in ("van", "unknown")
+        ),
+        *(
+            pytest.param(
+                type_,
+                (
+                    [],
+                    {"vehicle_body_below_covered_wheel": 1, "wheel_vehicle_dropped": 2},
+                ),
+                id=type_,
+            )
+            for type_ in ("sedan_hatch", "suv_mpv")
+        ),
+    ],
+)
+def test_c53_drops_only_sedans_and_suvs(type_, expected):
+    # R142: C53's drop rests on a sedan's or SUV's door sill sitting below the top of
+    # its wheels, so like the body reading it is for READING_TYPES only. Vehicle 1's
+    # body is at door_sill, below its covered wheel 2, and wheel 3 has a geometry
+    # reading. With geometry on, apply_drops keeps every one of these types.
+    given = answer(
+        vehicles=[vehicle(1, type=type_, body="door_sill")],
+        wheels=[wheel(2, "wheel_covered"), wheel(3, "hub")],
+    )
+    boxes = Layout(
+        boxes=tuple(
+            NumberedBox(i, kind, (0, 0, 10, 10))
+            for i, kind in ((1, "vehicle"), (2, "wheel"), (3, "wheel"))
+        ),
+        wheel_vehicle={2: 1, 3: 1},
+        small_wheel_vehicles=frozenset(),
+    )
+    kept, drops = apply_drops(given, boxes, geometry_types=GEOMETRY_ONLY_TYPES)
+    assert not drops
+    assert measured(*kept.vehicles, geometry={3: KNEE_GEOMETRY}) == expected
 
 
 def test_a_dropped_vehicle_counts_a_g4_drop_once():

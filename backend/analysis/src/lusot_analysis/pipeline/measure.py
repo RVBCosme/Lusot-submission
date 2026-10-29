@@ -34,8 +34,9 @@ def measure(
     The vehicles' references come first, then the adults', each in id order as `kept`
     holds them. A vehicle gives the reference that speaks for it, then those step 3
     dropped. It is read in this order, and a drop counts under its first cause:
-    1. A `wheel_covered` wheel beside a body waterline at `door_sill` or lower drops
-       it as `vehicle_body_below_covered_wheel` (C53).
+    1. For rules.READING_TYPES, a `wheel_covered` wheel beside a body waterline at
+       `door_sill` or lower drops it as `vehicle_body_below_covered_wheel` (C53). Like
+       the body reading, this rule is for sedans and SUVs only (R142).
     2. Each wheel's reading. Its landmark is its Table 8 row for rules.READING_TYPES,
        and none for a type kept for geometry (C318). A wheel step 3 dropped gives its
        landmark reading, if it has one, as a reference that doesn't decide (C317).
@@ -92,8 +93,9 @@ def measure(
                     )
                 )
         covered = any(line == "wheel_covered" for _, line in vehicle.wheels)
-        if covered and vehicle.body_waterline in rules.BODY_AT_OR_BELOW_SILL:
-            cause = "vehicle_body_below_covered_wheel"  # C53
+        low_body = vehicle.body_waterline in rules.BODY_AT_OR_BELOW_SILL
+        if reads_rows and covered and low_body:  # C53, sedans and SUVs only (R142)
+            cause = "vehicle_body_below_covered_wheel"
         elif rules.disagree(r.reading for r in wheels):
             cause = "vehicle_wheels_disagree"  # C43, with C54's test
         else:
