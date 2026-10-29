@@ -175,7 +175,7 @@ The Metro Manila test uses the final point, after the nudge. `nudgeM` is optiona
 - **The stop switches** (plan §13, MS1):
   - **`uploads`:** stops `POST /uploads` and `POST /samples/{id}`.
   - **`model-calls`:** stops every Meta call (MS1, MS3a).
-  - **`publish`** acts twice (C516). A result written while it is set is never published. While it is set, nearby and the feed return no `live` pins, though demo pins stay. Each Lambda caches the switch for 30 s, and the feed adds its 60 s cache, so a change takes effect within about 90 s. The uploader's own `GET /reports/{id}` still works.
+  - **`publish`** acts twice (C516). A result written while it is set is never published. While it is set, nearby and the feed return no `live` pins, though demo pins stay. Each Lambda caches the switch for 30 s, and the feed adds its 60 s cache, so a change takes effect within about 90 s at the API, plus up to 60 s more in a client's cache that honours the feed's `max-age=60` (the map within about 60 s, nearby within 30 s; Window 4's ruling on Task 3's review, Oct 30). The uploader's own `GET /reports/{id}` still works.
   - As in MS1, only an explicit `off` lets traffic through, and an unreadable switch fails closed.
 
 ### 4.7 Operations and guards (section D)
