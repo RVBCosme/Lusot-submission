@@ -52,5 +52,6 @@
     "wheels": 60,
     "worst_error_in": "9.00"
   },
-  "shipped": "landmark"
+  "shipped": "landmark",
+  "synthetic": false
 }

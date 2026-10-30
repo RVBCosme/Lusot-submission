@@ -23,19 +23,21 @@ it("MS6's own committed fixture, synthetic in both files, gives no figures", () 
   expect(loadSummary({ summary, run })).toBeNull()
 })
 
-it("the app's fixtures have MS6's keys, and the sealed and rerun ones carry no synthetic flag", () => {
+it("the app's fixtures have MS6's keys, and the sealed and rerun summaries say synthetic: false, as MS6 writes", () => {
   const ms6 = ms6Fixture()
-  const ms6Summary = keyPaths(ms6.summary).filter((path) => path !== 'synthetic').sort()
+  const ms6Summary = keyPaths(ms6.summary).sort()
+  expect(ms6Summary).toContain('synthetic')
   for (const name of ['sealed', 'synthetic'] as const) {
     const { summary } = fixture(name)
-    expect(keyPaths(summary).filter((path) => path !== 'synthetic').sort(), name).toEqual(ms6Summary)
+    expect(keyPaths(summary).sort(), name).toEqual(ms6Summary)
   }
   // The rerun dropped geometry (MS6's C418), so its summary has no geometry configuration.
   const rerunPaths = keyPaths(fixture('rerun').summary).sort()
   expect(rerunPaths).toEqual(ms6Summary.filter((path) => !path.startsWith('configurations.geometry')))
   for (const name of ['sealed', 'rerun'] as const) {
     const { summary, run } = fixture(name)
-    expect(Object.hasOwn(asJson(summary), 'synthetic'), name).toBe(false)
+    expect(asJson(summary).synthetic, name).toBe(false)
+    // MS6's manifest leaves synthetic out of a real run's run.json (rows.py's _SEALED_OPTIONAL).
     expect(Object.hasOwn(asJson(run), 'synthetic'), name).toBe(false)
   }
 })
@@ -88,11 +90,16 @@ it('a synthetic flag that is anything but false fails closed', () => {
     asJson(pair.summary).synthetic = flag
     expect(loadSummary(pair), String(flag)).toBeNull()
   }
-  // MS6 writes "synthetic": false in a real run's summary.
+  // MS6 writes "synthetic": false in a real run's summary, as the fixture does, and may write it in run.json too.
   const real = fixture('sealed')
-  asJson(real.summary).synthetic = false
+  expect(asJson(real.summary).synthetic).toBe(false)
   asJson(real.run).synthetic = false
   expect(loadSummary(real)).not.toBeNull()
+  // Absent in both files passes too.
+  const absent = fixture('sealed')
+  delete asJson(absent.summary).synthetic
+  expect(Object.hasOwn(asJson(absent.run), 'synthetic')).toBe(false)
+  expect(loadSummary(absent)).not.toBeNull()
 })
 
 it('no files, or a summary without its run.json, give no figures', () => {

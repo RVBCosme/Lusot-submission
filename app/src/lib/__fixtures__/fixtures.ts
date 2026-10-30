@@ -1,7 +1,8 @@
 // The Tested page's test fixtures, for tests only. Each is a summary.json with its run.json, laid out as MS6 writes
 // them (run.json beside report/, MS6 §4.3), with MS6's keys. Every figure in them is made up: round numbers and dates
-// in 2000. `sealed` and `rerun` say kind "sealed" with no synthetic flag, so only a test ever hands them to
-// loadSummary; `synthetic` carries the flag in both files, as MS6's own committed fixture does.
+// in 2000. `sealed` and `rerun` say kind "sealed", and their summaries "synthetic": false, as MS6's _summary() writes
+// for a real run (their run.json leaves it out, as MS6's manifest allows), so only a test ever hands them to
+// loadSummary; `synthetic` carries "synthetic": true in both files, as MS6's own committed fixture does.
 const files = import.meta.glob<unknown>('./*/**/*.json', { eager: true, import: 'default' })
 
 // MS6's committed fixture (eval/tests/fixtures/small_run), read, never copied: synthetic test data in both files.

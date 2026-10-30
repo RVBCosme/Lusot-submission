@@ -291,6 +291,15 @@ describe('the figures', () => {
 })
 
 describe('words', () => {
+  it('the words allow for the disclosed rerun and the pause: scored once with any rerun disclosed, and a live or saved reading', () => {
+    renderPage({ apiUrl: '' })
+    expect(pageText()).toContain('scored once')
+    expect(pageText()).toContain('any rerun is disclosed with its reason')
+    expect(pageText()).not.toContain('runs on them once')
+    expect(pageText()).toContain('a live reading of the credited photo, or a saved one while new analyses are paused')
+    expect(pageText()).not.toMatch(/fresh/i)
+  })
+
   it('the page\'s text never contains "accuracy" or a banned word, in either language, before and after a sample runs', async () => {
     adult()
     for (const lang of ['en', 'fil'] as const) {
@@ -489,6 +498,31 @@ describe('the samples', () => {
     expect(pollReport).not.toHaveBeenCalled()
     await advance(5000)
     expect(runSample).toHaveBeenCalledOnce()
+  })
+
+  it('after a 503 uploads_paused the sample keeps its button, and a second tap runs it again exactly once', async () => {
+    adult()
+    await openWithSamples('uploads_paused')
+    await runFirst()
+    expect(runSample).toHaveBeenCalledOnce()
+    // Nothing was started, and the switch can come back off (C638): the paused line, then the sample's own button.
+    const item = screen.getByText(text('result.paused')).closest('li') as HTMLElement
+    const again = within(item).getByRole('button', { name: text('sample.run') }) as HTMLButtonElement
+    expect(again.disabled).toBe(false)
+    expect(runButtons()).toHaveLength(3)
+    const paused = within(item).getByText(text('result.paused'))
+    expect(paused.compareDocumentPosition(again) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // Two taps in one tick: the once-only guard still holds, so one more run.
+    act(() => {
+      again.click()
+      again.click()
+    })
+    await settle()
+    expect(runSample).toHaveBeenCalledTimes(2)
+    expect(shows('result.paused')).toBe(true)
+    await advance(5000)
+    expect(runSample).toHaveBeenCalledTimes(2)
   })
 
   it("a sample that ends failed/model_calls_paused shows Task 8's paused card", async () => {

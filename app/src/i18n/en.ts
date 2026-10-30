@@ -435,7 +435,7 @@ export const EN = {
     reviewed: false,
   },
   'tested.how.sealed': {
-    text: 'Part of those photos was set aside and sealed before any tuning. Lusot runs on them once, with its settings frozen, and every figure here comes from that run.',
+    text: "Part of those photos was set aside and sealed before any tuning. They are scored once, with Lusot's settings frozen, and any rerun is disclosed with its reason.",
     reviewed: false,
   },
   'tested.how.rules': { text: 'The scoring rules were fixed and approved before any result was seen.', reviewed: false },
@@ -497,7 +497,7 @@ export const EN = {
   },
   'tested.samples.title': { text: 'Samples', reviewed: false },
   'tested.samples.intro': {
-    text: "Credited flood photos you can run through Lusot now, for a fresh reading. A sample's result never goes on the map.",
+    text: "Credited flood photos you can run through Lusot. A run gives a live reading of the credited photo, or a saved one while new analyses are paused. A sample's result never goes on the map.",
     reviewed: false,
   },
   'tested.samples.loading': { text: 'Loading samples.', reviewed: false },

@@ -33,8 +33,10 @@ type Run =
   | { phase: 'failed' } // the server said no before any run, so the person may try again
 
 const inFlight = (run: Run | undefined) => run?.phase === 'starting' || run?.phase === 'waiting'
-// A sample's button shows before any run, and again only after a refusal that started nothing and may pass next time.
-const runnable = (run: Run | undefined) => run === undefined || run.phase === 'failed'
+// A sample's button shows before any run, and again only after a refusal that started nothing and may pass next time:
+// a plain refusal, or MS1's 503 uploads_paused, since MS4 checks that switch before any run and it can come back off
+// (C638, as an upload's "Try again" stays).
+const runnable = (run: Run | undefined) => run === undefined || run.phase === 'failed' || run.phase === 'paused'
 
 // A card's stand-in result while there is none yet: the card shows "No result yet" for it (C601).
 const NO_RESULT: ReportResult = { reportId: '', status: 'pending', mode: 'sample', published: false }
@@ -304,6 +306,12 @@ function SampleItem({
                 <T k="sample.failed" />
               </p>
             )}
+            {run?.phase === 'paused' && (
+              // The Tested page is where this is, so the paused line links to the map only (C638).
+              <div className="mt-3">
+                <PausedNotice links={['map']} />
+              </div>
+            )}
             <button type="button" disabled={busy} aria-describedby={captionId} onClick={onRun} className={BUTTON}>
               <T k="sample.run" />
             </button>
@@ -359,7 +367,7 @@ function Preview({ sample, captionId, onPhotoError }: { sample: Sample; captionI
   )
 }
 
-// Where a run stands, below its preview: under way, paused, refused, or unanswered.
+// Where a run stands, below its preview: under way, refused, or unanswered.
 function RunStatus({ run }: { run: Run | undefined }) {
   switch (run?.phase) {
     case 'starting':
@@ -369,13 +377,6 @@ function RunStatus({ run }: { run: Run | undefined }) {
           <LoaderCircleIcon aria-hidden="true" className="size-5 shrink-0 animate-spin motion-reduce:animate-none" />
           <T k="sample.reading" />
         </p>
-      )
-    case 'paused':
-      // The Tested page is where this is, so the paused line links to the map only (C638).
-      return (
-        <div className="mt-3">
-          <PausedNotice links={['map']} />
-        </div>
       )
     case 'refused':
       return (

@@ -429,7 +429,7 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: false,
   },
   'tested.how.sealed': {
-    text: 'Itinabi at sinelyuhan ang bahagi ng mga photo na iyon bago ang anumang tuning. Isang beses lang pinapatakbo ang Lusot sa mga ito, naka-freeze ang settings, at doon galing ang bawat figure dito.',
+    text: 'Itinabi at sinelyuhan ang bahagi ng mga photo na iyon bago ang anumang tuning. Isang beses lang sila sinu-score, naka-freeze ang settings ng Lusot, at ipinapaalam ang anumang rerun kasama ang dahilan nito.',
     reviewed: false,
   },
   'tested.how.rules': {
@@ -496,7 +496,7 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'tested.samples.title': { text: 'Mga sample', reviewed: false },
   'tested.samples.intro': {
-    text: 'Mga credited na photo ng baha na puwede mong patakbuhin sa Lusot ngayon, para sa bagong reading. Hindi kailanman napupunta sa mapa ang result ng sample.',
+    text: 'Mga credited na photo ng baha na puwede mong patakbuhin sa Lusot. Ang run ay nagbibigay ng live na reading ng credited na photo, o naka-save na reading habang naka-pause ang mga bagong analysis. Hindi kailanman napupunta sa mapa ang result ng sample.',
     reviewed: false,
   },
   'tested.samples.loading': { text: 'Nilo-load ang mga sample.', reviewed: false },
