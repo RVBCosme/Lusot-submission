@@ -35,7 +35,9 @@ export function roadKey(road: string): string {
   return words.join(" ");
 }
 
-// Does the normalised text name two different roads of the spot, one after the other without overlapping?
+// Does the normalised text hold "<road A> cor <road B>" for two different roads of the spot, with nothing else
+// between them? A road's occurrence takes in the road-type word after its key ("UN Ave" in "UN Ave cor Taft").
+// Two roads in one text without a corner word between them are not a corner ("EDSA north bound").
 function holdsTwoRoads(text: string, spot: Spot): boolean {
   const words = text.split(" ");
   const spans: { key: string; start: number; end: number }[] = [];
@@ -43,10 +45,12 @@ function holdsTwoRoads(text: string, spot: Spot): boolean {
     if (key === "") continue;
     const parts = key.split(" ");
     for (let start = 0; start + parts.length <= words.length; start++) {
-      if (parts.every((part, i) => words[start + i] === part)) spans.push({ key, start, end: start + parts.length });
+      if (!parts.every((part, i) => words[start + i] === part)) continue;
+      const end = start + parts.length;
+      spans.push({ key, start, end: ROAD_TYPES.has(words[end]) ? end + 1 : end });
     }
   }
-  return spans.some((a) => spans.some((b) => a.key !== b.key && a.end <= b.start));
+  return spans.some((a) => spans.some((b) => a.key !== b.key && words[a.end] === "cor" && b.start === a.end + 1));
 }
 
 // A corner by its roads: the spot that is the only one holding two different roads of the text.

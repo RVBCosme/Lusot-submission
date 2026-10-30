@@ -126,6 +126,30 @@ describe("matchPlace", () => {
     }
   });
 
+  it("EDSA and a word that is also a road's name, with nothing joining them, find no spot (north bound)", () => {
+    expect(findSpotIn("may baha ba sa EDSA north bound?")).toBeUndefined();
+    expect(matchPlace("EDSA north bound")).toBeUndefined();
+  });
+
+  it("EDSA and a word that is also a road's name, with nothing joining them, find no spot (the main road)", () => {
+    expect(findSpotIn("the main road on EDSA")).toBeUndefined();
+    expect(matchPlace("Taft Avenue Quirino Avenue")).toBeUndefined();
+  });
+
+  it("two roads joined by a corner word still find their spot", () => {
+    // None of these is a name or an alias.
+    expect(findSpotIn("may baha ba sa EDSA at North?")?.id).toBe("edsa-north-avenue");
+    expect(findSpotIn("baha ba sa EDSA & Main?")?.id).toBe("edsa-main-avenue");
+    for (const [place, id] of [
+      ["Roxas at EDSA", "roxas-edsa"],
+      ["UN Ave cor. Taft", "un-ave-taft"],
+      ["Maceda cor. España", "espana-maceda"],
+    ]) {
+      expect(idOf(matchPlace(place)), place).toBe(id);
+      expect(findSpotIn(`May baha ba sa ${place}?`)?.id, place).toBe(id);
+    }
+  });
+
   it("the two roads of a corner must be two roads, apart, and held by one spot", () => {
     const taftA = spot("taft-a", "Taft Ave cor. A St", ["Taft Avenue", "A Street"]);
     const taftB = spot("taft-b", "Taft Ave cor. B St", ["Taft Avenue", "B Street"]);
