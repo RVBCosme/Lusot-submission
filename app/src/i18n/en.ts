@@ -40,6 +40,33 @@ export const EN = {
   'consent.continue': { text: 'Continue', reviewed: false },
   'consent.notNow': { text: 'Not now', reviewed: false },
   'consent.readPolicy': { text: 'Read the privacy policy', reviewed: false },
+  // The in-app camera (C602). Its problem lines say what to do and point to the samples. They aren't screen-line
+  // keys, so their Taglish drafts show. 'camera.inApp' is the plan's own line for Messenger's and Facebook's browsers.
+  'camera.title': { text: 'Take a photo', reviewed: false },
+  'camera.hint': {
+    text: "From a dry spot, point the camera at the water, with a parked car's wheel or a person standing still in view.",
+    reviewed: false,
+  },
+  'camera.starting': { text: 'Starting the camera. If your phone asks, allow it.', reviewed: false },
+  'camera.preview': { text: 'Live view from the camera', reviewed: false },
+  'camera.shutter': { text: 'Take photo', reviewed: false },
+  'camera.taking': { text: 'Preparing the photo', reviewed: false },
+  'camera.samples': { text: 'Look at the samples instead', reviewed: false },
+  'camera.denied': {
+    text: "Lusot can't use the camera. Allow the camera for this page in your browser or phone settings, then try again.",
+    reviewed: false,
+  },
+  'camera.noCamera': {
+    text: "Lusot couldn't open a camera on this device. Close any other app that is using the camera, then try again.",
+    reviewed: false,
+  },
+  'camera.unsupported': { text: "This browser can't open a camera for Lusot. Try Chrome or Safari.", reviewed: false },
+  'camera.timeout': {
+    text: "The camera didn't start. Close any other app that is using it, then try again.",
+    reviewed: false,
+  },
+  'camera.capture': { text: "Lusot couldn't take the photo. Try again.", reviewed: false },
+  'camera.inApp': { text: 'Open this page in Chrome or Safari to take a photo.', reviewed: false },
   // About (C619, C633, C636). Its links to the policy and the licences use those screens' titles.
   'about.what': {
     text: "Lusot estimates the depth of a flood at one spot from a photo you take. It reads the depth against MMDA's flood gauge and shows the evidence, or it says it can't tell.",

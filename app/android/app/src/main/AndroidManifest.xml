@@ -44,5 +44,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.location.gps" />
 
-    <!-- Camera Plugin: no permissions without saveToGallery. Declaring CAMERA would make the plugin ask for it. -->
+    <!-- In-app camera (C602): the page's own camera stream. With CAMERA declared, Capacitor's WebView client asks
+         Android for it when the page opens the stream (BridgeWebChromeClient.onPermissionRequest). Not required,
+         so the app still installs on a device without a camera, where it points to the samples. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

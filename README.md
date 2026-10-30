@@ -45,7 +45,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | [marked](https://github.com/markedjs/marked) | Renders the app's own consent notice and privacy policy from Markdown, bundled in the web build and the APK | MIT |
 | [Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next), through [`@fontsource/atkinson-hyperlegible-next`](https://github.com/fontsource/font-files) | The app's typeface (weights 400 and 700), bundled in the web build and the APK, never loaded from Google Fonts or a CDN | SIL Open Font License 1.1 (OFL-1.1). Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors. |
 | [Capacitor](https://github.com/ionic-team/capacitor) (core, CLI and Android) | Wraps the app for Android; `app/android/` comes from its template | MIT |
-| Capacitor's [Camera](https://github.com/ionic-team/capacitor-camera) and [Geolocation](https://github.com/ionic-team/capacitor-geolocation) plugins | Taking the photo and reading the GPS fix | MIT |
+| Capacitor's [Geolocation](https://github.com/ionic-team/capacitor-geolocation) plugin | Reading the GPS fix. The photo comes from the app's own camera view, the browser's camera stream, so no camera plugin is used | MIT |
 | [Gradle](https://github.com/gradle/gradle) wrapper | Runs the Android build; part of Capacitor's Android template | Apache-2.0 |
 | [AWS SAM CLI](https://github.com/aws/aws-sam-cli) | Builds and deploys `backend/template.yaml` | Apache-2.0 |
 | [AWS SDK for JavaScript v3](https://github.com/aws/aws-sdk-js-v3) | The API Lambda's calls to DynamoDB, S3 and SSM, and its upload links | Apache-2.0 |

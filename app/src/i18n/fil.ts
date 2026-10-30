@@ -35,6 +35,34 @@ export const FIL: Record<StringKey, Entry> = {
   'consent.continue': { text: 'Magpatuloy', reviewed: false },
   'consent.notNow': { text: 'Mamaya na lang', reviewed: false },
   'consent.readPolicy': { text: 'Basahin ang privacy policy', reviewed: false },
+  'camera.title': { text: 'Kumuha ng photo', reviewed: false },
+  'camera.hint': {
+    text: 'Mula sa tuyong lugar, itutok ang camera sa tubig, at isama sa kuha ang gulong ng nakaparadang kotse o taong nakatayo lang.',
+    reviewed: false,
+  },
+  'camera.starting': { text: 'Binubuksan ang camera. Kung magtanong ang phone mo, payagan ito.', reviewed: false },
+  'camera.preview': { text: 'Live na kuha mula sa camera', reviewed: false },
+  'camera.shutter': { text: 'Kumuha ng photo', reviewed: false },
+  'camera.taking': { text: 'Inihahanda ang photo', reviewed: false },
+  'camera.samples': { text: 'Tingnan na lang ang mga sample', reviewed: false },
+  'camera.denied': {
+    text: 'Hindi magamit ng Lusot ang camera. Payagan ang camera para sa page na ito sa settings ng browser o phone mo, saka subukan ulit.',
+    reviewed: false,
+  },
+  'camera.noCamera': {
+    text: 'Hindi nakapagbukas ng camera ang Lusot sa device na ito. Isara ang ibang app na gumagamit ng camera, saka subukan ulit.',
+    reviewed: false,
+  },
+  'camera.unsupported': {
+    text: 'Hindi mabuksan ng browser na ito ang camera para sa Lusot. Subukan ang Chrome o Safari.',
+    reviewed: false,
+  },
+  'camera.timeout': {
+    text: 'Hindi nagsimula ang camera. Isara ang ibang app na gumagamit nito, saka subukan ulit.',
+    reviewed: false,
+  },
+  'camera.capture': { text: 'Hindi nakuha ng Lusot ang photo. Subukan ulit.', reviewed: false },
+  'camera.inApp': { text: 'Buksan ang page na ito sa Chrome o Safari para makakuha ng photo.', reviewed: false },
   'about.what': {
     text: 'Tinatantya ng Lusot ang lalim ng baha sa isang spot mula sa photo na kinunan mo. Binabasa nito ang lalim ayon sa flood gauge ng MMDA at ipinapakita ang ebidensya, o sinasabi nitong hindi nito masabi.',
     reviewed: false,
