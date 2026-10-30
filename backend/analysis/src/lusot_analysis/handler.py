@@ -2,8 +2,9 @@
 
 For each uploaded photo it finds the report, loads what the run needs, and claims the
 report before any paid Meta call (G2, C46). It then runs the pipeline, stores a photo
-for a level result only (C61), writes the result under the claim, and deletes the raw
-photo, so no raw photo outlives its report's result (W25).
+for a level result (C61) or a sample seed's no flood seen (C512), writes the result
+under the claim, and deletes the raw photo, so no raw photo outlives its report's
+result (W25).
 
 An AWS error returns the message for an SQS retry, which comes after the claim's
 lease has expired (C46). A fault in what the run loads, and a key or account that
@@ -382,13 +383,19 @@ def _pause_model_calls(fields: dict) -> None:
 
 
 def analyse(
-    data: bytes, client: ModelClient, *, deadline: float | None = None
+    data: bytes,
+    client: ModelClient,
+    *,
+    deadline: float | None = None,
+    keep_photo: bool = False,
 ) -> PipelineRun:
     """The handler's pipeline call, with every SAM phrase and the geometry setting (B3).
 
     The face and plate phrases are what the publish blur reads, so a level result gets
     its photo to store (C61). `deadline` is the run's deadline as a time.monotonic()
-    value (C84). GEOMETRY_IN_LEVEL sets geometry_in_level (C309).
+    value (C84). `keep_photo`, set for a sample seed only, gives any run past SAM its
+    copy (C512); _finish decides what is stored. GEOMETRY_IN_LEVEL sets
+    geometry_in_level (C309).
     """
     from lusot_analysis.meta_client import SAM_PHRASES
     from lusot_analysis.pipeline import run_pipeline
@@ -399,6 +406,7 @@ def analyse(
         _prompt(),
         phrases=SAM_PHRASES,
         deadline=deadline,
+        keep_photo=keep_photo,
         geometry_in_level=_geometry_in_level(),
     )
 
@@ -486,9 +494,9 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         # message returns with the queue's own visibility timeout, not R92's 10 s:
         # its copy comes back once the report is final or the lease has expired (C89).
         return "lease_held"
-    # An earlier attempt may have saved its level's photo and overlay and then failed
-    # its write. Every attempt starts with none, so only a written level keeps them
-    # (C72).
+    # An earlier attempt may have saved its level's photo and overlay, or a seed's
+    # copy, and then failed its write. Every attempt starts with none, so only a
+    # written result keeps them (C72).
     for stored in _photo_keys(report):
         _delete(stored)
 
@@ -520,7 +528,9 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     # Step 7: the pipeline, its Meta calls counted (C527).
     counted = _CountedClient(client)
     try:
-        run = analyse(data, counted, deadline=_deadline(context))
+        run = analyse(
+            data, counted, deadline=_deadline(context), keep_photo=_keep_photo(report)
+        )
     except ModelKeyRejected as exc:
         # The key or the account, not the photo (C73). The report stays processing
         # until a redelivery claims it again, and that delivery reads the key again.
@@ -561,24 +571,34 @@ def _finish(
 ) -> str:
     """Store the photo, if any, write the result, then delete the raw photo (spec §3.2).
 
-    It returns the outcome to log. `photo` comes with a level result only (C61), and
-    it is stored before the write, so a level is never written without its photo. The
-    write carries the publish fields, if any, and errors join `line`, the report's
-    one log line. The write is under the claim: a lost lease writes nothing and
-    leaves the raw photo to the worker that holds the report. If the delete fails,
-    the message returns, and the retry finds the report finished and only deletes.
+    It returns the outcome to log. A level stores its `photo` (C61). A sample seed's
+    run carries one for any outcome past SAM, and stores it for no flood seen too,
+    with no overlay (C505): the outcomes that ship as samples. A seed that ends
+    refused or failed stores none (C512; the tracker's ruling, Oct 30, 10:31 AM).
+    The photo is stored before the write, so a failed put writes nothing. A seed's
+    level or no flood seen without its copy adds `kept_copy: false` to `line`
+    (Window 3's review, Minor 3). The write carries the publish fields, if any, and
+    errors join `line`, the report's one log line. The write is under the claim: a
+    lost lease writes nothing and leaves the raw photo to the worker that holds the
+    report. If the delete fails, the message returns, and the retry finds the report
+    finished and only deletes.
     """
     fields = outcome.item_fields()
-    if photo is not None:
-        photo_key = _photo_keys(report)[0]
-        _client("s3").put_object(
-            Bucket=os.environ["BUCKET_NAME"],
-            Key=photo_key,
-            Body=photo,
-            ContentType="image/jpeg",
-        )
-        fields["photoKey"] = photo_key
-    fields |= _publish_fields(report, outcome, {} if line is None else line)
+    line = {} if line is None else line
+    seed = _keep_photo(report)
+    if outcome.level is not None or (seed and outcome.no_flood_seen):
+        if photo is not None:
+            photo_key = _photo_keys(report)[0]
+            _client("s3").put_object(
+                Bucket=os.environ["BUCKET_NAME"],
+                Key=photo_key,
+                Body=photo,
+                ContentType="image/jpeg",
+            )
+            fields["photoKey"] = photo_key
+        elif seed:
+            line["kept_copy"] = False
+    fields |= _publish_fields(report, outcome, line)
     written = write_result(
         _client("dynamodb"), os.environ["TABLE_NAME"], _item_key(report), token, fields
     )
@@ -654,6 +674,16 @@ def _now_s() -> int:
 
 def _item_key(report: dict) -> dict:
     return {"pk": report["pk"], "sk": report["sk"]}
+
+
+def _keep_photo(report: dict) -> bool:
+    """Whether the report is a sample's seeding run (C512, MS4-Q14).
+
+    Only an `eval` report that samples.py seed marked `seed`, as
+    eval_runs.eval_item(seed=True) writes it (T11). Its run carries its blurred copy
+    for any outcome past SAM, and _finish stores it for a level or no flood seen only.
+    """
+    return report["mode"]["S"] == "eval" and report.get("seed") == {"BOOL": True}
 
 
 def _photo_keys(report: dict) -> tuple[str, str, str]:

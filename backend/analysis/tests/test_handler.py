@@ -942,6 +942,156 @@ def test_demo_photo_goes_under_demo(aws, fake):
     assert stored == publish_jpeg(blur_for_meta(LEVEL_PHOTO), sam)
 
 
+# A sample seed's copy (C512, MS4-Q14; the tracker's ruling, Oct 30, 10:31 AM)
+
+# A sample's seeding run, as eval_runs.eval_item(seed=True) writes it (T11).
+SAMPLE_SEED = {"mode": {"S": "eval"}, "seed": {"BOOL": True}}
+
+
+def spy_keep_photo(monkeypatch) -> list[bool]:
+    """Record the keep_photo each pipeline run gets through the handler, then run it."""
+    flags = []
+
+    def spy(*args, keep_photo=False, **kwargs):
+        flags.append(keep_photo)
+        return run_pipeline(*args, keep_photo=keep_photo, **kwargs)
+
+    monkeypatch.setattr("lusot_analysis.pipeline.run_pipeline", spy)
+    return flags
+
+
+@pytest.mark.parametrize(
+    ("attributes", "keeps"),
+    [
+        pytest.param(SAMPLE_SEED, True, id="eval-seed"),
+        pytest.param({"mode": {"S": "eval"}}, False, id="eval"),
+        pytest.param(
+            SAMPLE_SEED | {"seed": {"BOOL": False}}, False, id="eval-seed-false"
+        ),
+        *(
+            pytest.param(SAMPLE_SEED | {"mode": {"S": mode}}, False, id=f"{mode}-seed")
+            for mode in ("live", "private", "sample", "demo")
+        ),
+    ],
+)
+def test_keep_photo_only_for_a_seed(attributes, keeps):
+    # C512: only samples.py's seeding run, an eval report marked seed, keeps a copy
+    # past C61. The mark means nothing in any other mode.
+    assert handler._keep_photo(ITEM | attributes) is keeps
+
+
+@pytest.mark.parametrize(
+    ("attributes", "judged", "final", "fields"),
+    [
+        pytest.param(
+            SAMPLE_SEED,
+            answer(standing_water="no"),
+            "done",
+            {"noFloodSeen": {"BOOL": True}, "photoKey": {"S": PHOTO_KEY}},
+            id="seed-no-flood-seen",
+        ),
+        pytest.param(SAMPLE_SEED, None, "done", KNEE_UNPUBLISHED, id="seed-level"),
+        pytest.param(
+            SAMPLE_SEED,
+            answer(photo_usable="no"),
+            "refused",
+            {"refusalReason": {"S": "photo_unusable"}},
+            id="seed-refused",
+        ),
+        pytest.param(
+            SAMPLE_SEED,
+            meta_error(500),
+            "failed",
+            {"refusalReason": {"S": "model_error"}},
+            id="seed-failed",
+        ),
+        pytest.param(
+            {"mode": {"S": "eval"}},
+            answer(standing_water="no"),
+            "done",
+            {"noFloodSeen": {"BOOL": True}},
+            id="not-a-seed",
+        ),
+    ],
+)
+def test_a_seed_keeps_its_copy_only_for_a_level_or_no_flood_seen(
+    aws, fake, monkeypatch, caplog, attributes, judged, final, fields
+):
+    # The tracker's ruling: a seed stores its copy only for the outcomes that ship
+    # as samples, a level or no flood seen. A refused or failed seed stores none,
+    # though its run carried one, and any other report keeps C61.
+    if judged is not None:
+        fake.answer = judged
+    flags = spy_keep_photo(monkeypatch)
+    before = seed(aws, photo=LEVEL_PHOTO, **attributes)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    assert item == before | claimed(item["claimToken"]["S"], NOW_S, final) | fields
+    # The copy alone, at the report's photo key: no overlay for it (C505), and no
+    # raw/ left (W25).
+    stored = [PHOTO_KEY] if "photoKey" in fields else []
+    assert keys(aws) == stored
+    if stored:
+        _, sam, _ = level_case()
+        kept = aws.s3.get_object(Bucket=BUCKET, Key=PHOTO_KEY)
+        assert kept["ContentType"] == "image/jpeg"
+        assert kept["Body"].read() == publish_jpeg(blur_for_meta(LEVEL_PHOTO), sam)
+    assert flags == ["seed" in attributes]  # the flag reached the pipeline
+    (line,) = report_lines(caplog)
+    assert "kept_copy" not in line
+
+
+def no_kept_copy(image, sam):
+    raise ValueError("the copy failed")
+
+
+def copy_lost(monkeypatch) -> None:
+    """The run's copy comes back None, as a level's would if it ever went missing."""
+    analyse = handler.analyse
+
+    def without_copy(*args, **kwargs):
+        return dataclasses.replace(analyse(*args, **kwargs), publish_jpeg=None)
+
+    monkeypatch.setattr(handler, "analyse", without_copy)
+
+
+@pytest.mark.parametrize(
+    ("judged", "lose_copy", "outcome", "fields"),
+    [
+        pytest.param(
+            answer(standing_water="no"),
+            lambda mp: mp.setattr("lusot_analysis.pipeline.publish_jpeg", no_kept_copy),
+            "done/no_flood_seen",
+            {"noFloodSeen": {"BOOL": True}},
+            id="no-flood-seen",
+        ),
+        pytest.param(
+            None,
+            copy_lost,
+            "done/level",
+            {k: v for k, v in KNEE_UNPUBLISHED.items() if k != "photoKey"},
+            id="level",
+        ),
+    ],
+)
+def test_a_seed_without_its_copy_traces_the_gap(
+    aws, fake, monkeypatch, caplog, judged, lose_copy, outcome, fields
+):
+    # Window 3's review Minor 3: a seed's level or no flood seen whose copy couldn't
+    # be made is written without one, and its line says so.
+    if judged is not None:
+        fake.answer = judged
+    lose_copy(monkeypatch)
+    before = seed(aws, photo=LEVEL_PHOTO, **SAMPLE_SEED)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    assert item == before | claimed(item["claimToken"]["S"], NOW_S, "done") | fields
+    assert keys(aws) == []
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == outcome
+    assert line.get("kept_copy") is False
+
+
 # A rejected key (C73)
 
 
@@ -1819,7 +1969,7 @@ def test_unreported_tokens_are_charged_the_fallback(
     assert (line["input_tokens"], line["output_tokens"]) == tokens  # the pipeline's
 
 
-def raise_after_two_calls(data, client, *, deadline=None):
+def raise_after_two_calls(data, client, *, deadline=None, keep_photo=False):
     """An analyse() that pays for two SAM calls and then fails outside the pipeline."""
     image = object()
     client.segment(image, "vehicle", deadline=deadline)
