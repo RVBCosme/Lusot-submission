@@ -774,6 +774,14 @@ def test_datasets_are_required(tmp_path, capsys):
         )
         assert code == 2
         assert "--datasets" in capsys.readouterr().err
+    # Windows PowerShell 5.1 strips the inner quotes, so the JSON arrives broken: the
+    # refusal says how to quote it.
+    stripped = [*argv[: at + 1], "{set_a: {version: v1}}", *argv[at + 2 :]]
+    code = tool.main(
+        stripped, make_client=fail, git=fail, is_console=fail, ask=fail, tuning=START
+    )
+    assert code == 2
+    assert 'write each " as \\"' in capsys.readouterr().err
     assert not (tmp_path / "data").exists()
     assert not (tmp_path / "results").exists()
 

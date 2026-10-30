@@ -108,7 +108,7 @@ def test_only_sedans_and_suvs_are_read(type_):
         *((type_, False) for type_ in ("tricycle", "motorcycle", "bus_truck")),
     ],
 )
-def test_vans_and_unknown_are_kept_only_for_geometry(type_, for_geometry):
+def test_geometry_only_types_are_kept_only_for_geometry(type_, for_geometry):
     # C318 narrows C45: with geometry on, the types that have tire codes but no Table
     # 8 wheel rows are kept for geometry, pickup and jeepney too since M11's codes.
     # The other types have no codes yet (C304).

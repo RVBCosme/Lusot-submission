@@ -513,7 +513,11 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
     try:
         named = json.loads(args.datasets) != {}
     except json.JSONDecodeError:
-        named = True  # _settings refuses it, by its rule
+        # Windows PowerShell 5.1 strips the inner quotes from a native command's
+        # argument, so '{"a": 1}' arrives as {a: 1}: say so, before anything is read.
+        parser.error(
+            '--datasets is not JSON; in Windows PowerShell 5.1, write each " as \\"'
+        )
     if not named:
         parser.error(
             "--datasets must name MS2's datasets, which run.json can't add later"
