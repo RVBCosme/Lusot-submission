@@ -48,10 +48,10 @@ LEVEL_WORDS: Mapping[str, str] = {
     "above_chest": "Above chest deep",
 }
 
-# A floor reading (C54) is "this level or deeper", so its label says so. PLACEHOLDER for
-# Rene's own wording, which he reviews with the rest of the copy (M20), with its Taglish
-# to come. `{level}` takes the level's words from LEVEL_WORDS.
-FLOOR_WORDS = "{level} or deeper"
+# A floor reading (C54) is "this level or deeper", so its label says so, in Rene's
+# wording (Oct 30, M20) as the app's result card has it: `{level}` takes the level's
+# words from LEVEL_WORDS, lowercased. The app's Taglish is "Hindi bababa sa {level}".
+FLOOR_WORDS = "At least {level}"
 
 # Muse Spark's categories, as they read after a box number: where the water is on the
 # wheel, the person or the vehicle's body. One table, since "not_visible" is in three.
@@ -244,7 +244,7 @@ def label(entry: EvidenceEntry) -> str:
     - a landmark reading: `2 rim three-quarters: Knee deep`
     - a geometry reading: `2 Half-knee deep`
     - a floor reading (the entry's `level_is_floor`, C54): its level's words take
-      FLOOR_WORDS, as `1 window: Tire deep or deeper`
+      FLOOR_WORDS, as `1 window: At least tire deep`
     - dropped or unread: `3 knee`, or just `3` without a landmark. A dropped
       reference carries no level, even one the record kept.
     """
@@ -252,7 +252,7 @@ def label(entry: EvidenceEntry) -> str:
     if entry.dropped is None and entry.level is not None:
         level = LEVEL_WORDS[entry.level]
         if entry.level_is_floor:
-            level = FLOOR_WORDS.format(level=level)
+            level = FLOOR_WORDS.format(level=level.lower())
         if entry.level_from == "geometry" or words is None:
             return f"{entry.id} {level}"
         return f"{entry.id} {words}: {level}"

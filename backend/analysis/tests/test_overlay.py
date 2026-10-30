@@ -344,11 +344,11 @@ def test_words_follow_the_copy_rules():
             assert not re.search(pattern, word, re.IGNORECASE), (pattern, word)
     # No two levels read alike.
     assert len(set(overlay.LEVEL_WORDS.values())) == len(rules.LEVELS)
-    # A floor's words (C54) follow the same rules, for every level. FLOOR_WORDS is a
-    # placeholder until Rene's M20 review, so this holds whatever he writes.
+    # A floor's words (C54) follow the same rules, for every level, with the level's
+    # words lowercased as the app's result card has them.
     assert overlay.FLOOR_WORDS.count("{level}") == 1
     for level in overlay.LEVEL_WORDS.values():
-        floor = overlay.FLOOR_WORDS.format(level=level)
+        floor = overlay.FLOOR_WORDS.format(level=level.lower())
         assert floor.isascii() and not re.search(r"\d", floor), floor
         for pattern in COPY_PATTERNS:
             assert not re.search(pattern, floor, re.IGNORECASE), (pattern, floor)
@@ -366,10 +366,9 @@ def test_a_floor_reading_says_so(
     assert [ref["level_is_floor"] for ref in layers["refs"]] == [True, True]
     assert [r["levelIsFloor"] for r in overlay.readings(floor_record)] == [True, True]
     tire = overlay.LEVEL_WORDS["tire"]
-    floor = overlay.FLOOR_WORDS.format(level=tire)
-    assert floor != tire
-    assert overlay.label(body) == f"1 window: {floor}"
-    assert overlay.label(covered) == f"2 wheel covered: {floor}"
+    # Rene's wording (Oct 30), as the app's result card says it (App.tsx).
+    assert overlay.label(body) == "1 window: At least tire deep"
+    assert overlay.label(covered) == "2 wheel covered: At least tire deep"
     assert json.loads(json.dumps(layers)) == layers
     # An exact landmark reading and a geometry reading are not floors, and read as before.
     for evidence, id, text in (
@@ -384,7 +383,7 @@ def test_a_floor_reading_says_so(
     exact = entry_of(level_record, 2)
     assert exact.level_is_floor is False
     assert overlay.label(dataclasses.replace(exact, level_is_floor=True)) == (
-        f"2 rim three-quarters: {overlay.FLOOR_WORDS.format(level='Knee deep')}"
+        "2 rim three-quarters: At least knee deep"
     )
     assert overlay.label(dataclasses.replace(covered, level_is_floor=False)) == (
         f"2 wheel covered: {tire}"
@@ -426,7 +425,7 @@ def test_the_floor_flag_comes_from_the_record_not_the_landmark(
         (found,) = (r for r in overlay.readings(evidence) if r["id"] == 2)
         assert (ref["level_is_floor"], found["levelIsFloor"]) == (floor, floor)
     half_tire = overlay.LEVEL_WORDS["half_tire"]
-    assert overlay.label(van) == f"2 hub: {overlay.FLOOR_WORDS.format(level=half_tire)}"
+    assert overlay.label(van) == "2 hub: At least half-tire deep"
     assert overlay.label(sedan) == f"2 hub: {half_tire}"
 
 
