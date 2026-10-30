@@ -18,7 +18,7 @@ const API_URL = apiBaseUrl(import.meta.env.VITE_API_URL)
 function Screen({ route, apiUrl }: { route: Route; apiUrl: string }) {
   switch (route.name) {
     case 'map':
-      return <MapScreen />
+      return <MapScreen apiUrl={apiUrl} />
     case 'report':
       // The notice guards the screen itself, so a typed #/report meets it before the camera opens (C605).
       return (
@@ -35,7 +35,8 @@ function Screen({ route, apiUrl }: { route: Route; apiUrl: string }) {
     case 'licences':
       return <LicencesScreen />
     case 'pin':
-      return <PinScreen />
+      // The pin screen asks the API for a pin's report only for an id that `GET /map/pins` holds (S5-R5).
+      return <PinScreen apiUrl={apiUrl} id={route.id} />
   }
 }
 

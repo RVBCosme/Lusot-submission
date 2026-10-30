@@ -16,6 +16,13 @@ it('canvas getContext gives null, until a test gives it a context', () => {
   expect(canvas.getContext('2d')).toBe(context)
 })
 
+it('fetch finds no network, until a test gives it an answer', async () => {
+  await expect(fetch('https://api.example.test/map/pins')).rejects.toBeInstanceOf(TypeError)
+
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+  await expect(fetch('https://api.example.test/map/pins')).resolves.toBeInstanceOf(Response)
+})
+
 it('media play gives a promise that resolves', async () => {
   await expect(document.createElement('video').play()).resolves.toBeUndefined()
 })

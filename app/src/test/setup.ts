@@ -6,6 +6,11 @@ HTMLCanvasElement.prototype.getContext = () => null
 
 HTMLMediaElement.prototype.play = () => Promise.resolve()
 
+// No network until a test gives fetch an answer: a screen that reads the API in a test finds no signal at once, as a
+// phone with none would, instead of calling a host. A test that wants an answer swaps the API's fetch (vi.mock of
+// lib/apiFetch) or spies on this one.
+globalThis.fetch = () => Promise.reject(new TypeError('No network in the test environment'))
+
 // No camera until a test gives getUserMedia a stream.
 Object.defineProperty(navigator, 'mediaDevices', {
   configurable: true,

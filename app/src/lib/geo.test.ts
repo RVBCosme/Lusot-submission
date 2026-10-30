@@ -9,6 +9,7 @@ import {
   clampToRadius,
   distanceM,
   LocationDenied,
+  locateOnce,
   locationLine,
   moveM,
   nudgeM,
@@ -684,5 +685,98 @@ describe('the errors', () => {
     expect(new LocationDenied('PERMISSION_DENIED')).toMatchObject({ name: 'LocationDenied', code: 'PERMISSION_DENIED' })
     expect(new PoorFix(1)).toBeInstanceOf(Error)
     expect(new LocationDenied('x')).not.toBeInstanceOf(PoorFix)
+  })
+})
+
+// A one-shot position source: the plugin's getCurrentPosition, answered by hand.
+function fakeLocate(answer: () => Promise<Position>) {
+  return { getCurrentPosition: vi.fn(async (_options?: PositionOptions) => answer()) }
+}
+
+describe('locateOnce on the web', () => {
+  it('asks for one position, with high accuracy and a 10 s timeout, and gives back its latitude and longitude only', async () => {
+    const locate = fakeLocate(async () => position(900, { lat: 14.6123, lng: 121.0456 }))
+    await expect(locateOnce({ locate })).resolves.toEqual({ lat: 14.6123, lng: 121.0456 })
+    expect(locate.getCurrentPosition).toHaveBeenCalledExactlyOnceWith({ enableHighAccuracy: true, timeout: 10_000 })
+    expect(Geolocation.requestPermissions).not.toHaveBeenCalled()
+  })
+
+  it('takes any accuracy: it only centres a map', async () => {
+    await expect(locateOnce({ locate: fakeLocate(async () => position(5000)) })).resolves.toEqual(ORIGIN)
+  })
+
+  it.each([
+    [1, 'PERMISSION_DENIED', 'location.denied'],
+    [2, 'POSITION_UNAVAILABLE', 'location.unavailable'],
+    [3, 'TIMEOUT', 'location.unavailable'],
+    ['OS-PLUG-GLOC-0010', 'TIMEOUT', 'location.unavailable'],
+    ['OS-PLUG-GLOC-0007', 'OS-PLUG-GLOC-0007', 'location.servicesOff'],
+    [undefined, 'unknown', 'location.unavailable'],
+  ] as const)('an error with code %s rejects with LocationDenied(%s) and the line %s', async (code, named, line) => {
+    const locate = fakeLocate(() => Promise.reject(Object.assign(new Error('where it was'), { code })))
+    const err = await locateOnce({ locate }).catch((reason: unknown) => reason)
+    expect(err).toEqual(new LocationDenied(named))
+    expect(locationLine(err)).toBe(line)
+    expect(JSON.stringify(err) + String((err as Error).message)).not.toMatch(/where it was|14\.6/)
+  })
+
+  it('treats a position that is not a finite place as a failure', async () => {
+    const bad = fakeLocate(async () => position(10, { lat: Number.NaN, lng: 121 }))
+    await expect(locateOnce({ locate: bad })).rejects.toEqual(new LocationDenied('POSITION_UNAVAILABLE'))
+  })
+
+  it('asks nothing when it is aborted first, and rejects with the reason when it is aborted while it waits', async () => {
+    const early = new AbortController()
+    early.abort()
+    const never = fakeLocate(async () => position(10))
+    await expect(locateOnce({ locate: never, signal: early.signal })).rejects.toBe(early.signal.reason)
+    expect(never.getCurrentPosition).not.toHaveBeenCalled()
+
+    const late = new AbortController()
+    const pending = fakeLocate(() => new Promise(() => {}))
+    const outcome = track(locateOnce({ locate: pending, signal: late.signal }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcome.state).toBe('pending')
+    late.abort()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(outcome).toEqual({ state: 'rejected', value: late.signal.reason })
+  })
+})
+
+describe('locateOnce in the APK', () => {
+  beforeEach(() => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true)
+  })
+
+  it('asks for the location permission first, then for one position', async () => {
+    const order: string[] = []
+    vi.mocked(Geolocation.requestPermissions).mockImplementation(async () => {
+      order.push('permission')
+      return { location: 'granted', coarseLocation: 'granted' }
+    })
+    const locate = fakeLocate(async () => {
+      order.push('position')
+      return position(20)
+    })
+    await expect(locateOnce({ locate })).resolves.toEqual(ORIGIN)
+    expect(order).toEqual(['permission', 'position'])
+    expect(Geolocation.requestPermissions).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it("a refusal on both aliases rejects with the plugin's denial code and asks for no position", async () => {
+    vi.mocked(Geolocation.requestPermissions).mockResolvedValue({ location: 'denied', coarseLocation: 'denied' })
+    const locate = fakeLocate(async () => position(20))
+    const err = await locateOnce({ locate }).catch((reason: unknown) => reason)
+    expect(err).toEqual(new LocationDenied('OS-PLUG-GLOC-0003'))
+    expect(locationLine(err)).toBe('location.denied')
+    expect(locate.getCurrentPosition).not.toHaveBeenCalled()
+  })
+
+  it('with location services off, the permission call throws and the line says so', async () => {
+    vi.mocked(Geolocation.requestPermissions).mockRejectedValue({ code: 'OS-PLUG-GLOC-0007' })
+    const locate = fakeLocate(async () => position(20))
+    const err = await locateOnce({ locate }).catch((reason: unknown) => reason)
+    expect(locationLine(err)).toBe('location.servicesOff')
+    expect(locate.getCurrentPosition).not.toHaveBeenCalled()
   })
 })

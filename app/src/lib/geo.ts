@@ -234,6 +234,37 @@ export async function waitForFix({
   })
 }
 
+// The map's "Locate me" asks for one position, only to centre the map: no accuracy is needed, so the answer is a bare
+// place. It is the one place the app uses the plugin's one-shot read. There is nothing to cancel on the plugin's side, so
+// a caller that has gone away aborts the signal, and the answer, which can't be called back, is dropped here.
+const LOCATE_TIMEOUT_MS = 10_000
+
+export type GeoLocate = Pick<typeof Geolocation, 'getCurrentPosition'>
+
+// One position, as { lat, lng } only. The APK asks for permission first, as waitForFix does. It rejects with
+// LocationDenied for a refusal or any other error (a timeout reads as 'TIMEOUT', so locationLine words it as "couldn't
+// get your location", not as a poor fix on a report), carrying only a code, and with the signal's reason when aborted.
+export async function locateOnce({
+  locate = Geolocation,
+  signal,
+}: { locate?: GeoLocate; signal?: AbortSignal } = {}): Promise<LatLng> {
+  signal?.throwIfAborted()
+  if (Capacitor.isNativePlatform()) await askNativePermission(signal)
+  signal?.throwIfAborted()
+  let coords: { latitude: number; longitude: number }
+  try {
+    const asking = locate.getCurrentPosition({ enableHighAccuracy: true, timeout: LOCATE_TIMEOUT_MS })
+    coords = (await orAbort(asking, signal)).coords
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason
+    const code = errorCode(err)
+    throw new LocationDenied(isTimeout(code) ? 'TIMEOUT' : code)
+  }
+  const { latitude: lat, longitude: lng } = coords
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new LocationDenied('POSITION_UNAVAILABLE')
+  return { lat, lng }
+}
+
 // Which line says why the location couldn't be used (the strings are in i18n/en.ts). The plugin's codes, from its
 // error table: 0003 permission refused, 0007 location services off, 0009 the request to turn them on refused, 0010
 // timed out (which waitForFix reports as PoorFix, so it shares that line), 0017 location and network both off.

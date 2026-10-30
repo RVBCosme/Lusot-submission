@@ -386,6 +386,46 @@ export const EN = {
   // The gauge's captions, beside its cells (the gauge is hidden from screen readers; the level line says it all).
   'gauge.outside': { text: "Outside MMDA's gauge", reviewed: true },
   'gauge.orDeeper': { text: 'or deeper', reviewed: true },
+  // The live map, its list and pin detail (MS5 Task 13). Every line that says what a pin shows keeps "at this spot"
+  // through the level line, and none says anything about a place with no report, since no report is not a dry spot.
+  'map.noApi': { text: "This build can't show reports.", reviewed: false },
+  'map.loading': { text: 'Loading reports.', reviewed: false },
+  'map.loadFailed': { text: "Lusot couldn't load the reports just now. It will try again.", reviewed: false },
+  'map.viewGroup': { text: 'Show reports as', reviewed: false },
+  'map.list': { text: 'List', reviewed: false },
+  'map.listLabel': { text: 'Reports, newest first', reviewed: false },
+  'map.mapLabel': { text: 'Map of reports', reviewed: false },
+  'map.locate': { text: 'Locate me', reviewed: false },
+  'map.zoomIn': { text: 'Zoom in', reviewed: false },
+  'map.zoomOut': { text: 'Zoom out', reviewed: false },
+  // The map's own way in to the report flow. It is not named 'Report', as the bar's link is, so the two don't read alike.
+  'map.report': { text: 'Report a spot', reviewed: false },
+  'map.own': { text: 'Your report', reviewed: false },
+  'map.back': { text: 'Back to the map', reviewed: false },
+  // The empty map (C618): an invitation, with one card that says it is an example and is never pinned.
+  'map.empty.title': { text: 'No reports in the last 3 hours', reviewed: false },
+  'map.empty.note': { text: 'A spot with no report may still be flooded.', reviewed: false },
+  'map.trySample': { text: 'Try a sample', reviewed: false },
+  'badge.example': { text: 'Example', reviewed: false },
+  'map.example.note': { text: 'An example of a reading, not a report from anywhere.', reviewed: false },
+  'pin.gone': { text: 'This pin is no longer on the map.', reviewed: false },
+  'pin.loading': { text: 'Loading this pin.', reviewed: false },
+  'pin.loadFailed': { text: "Lusot couldn't load this pin just now.", reviewed: false },
+  'pin.photoFailed': { text: "Lusot couldn't load the photo just now.", reviewed: false },
+  'pin.nearby': { text: 'Other reports within 300 m, last 3 hours: {count}', reviewed: false },
+  'pin.flags.one': { text: '1 phone has flagged this report as wrong or fake.', reviewed: false },
+  'pin.flags.other': { text: '{count} phones have flagged this report as wrong or fake.', reviewed: false },
+  'pin.flag': { text: 'Flag as wrong or fake', reviewed: false },
+  'pin.flagged': { text: 'Flagged', reviewed: false },
+  'pin.flagFailed': { text: "Lusot couldn't send the flag. Try again.", reviewed: false },
+  // The flag's confirmation, in a dialog of the app's own (C613).
+  'flag.title': { text: 'Flag this report?', reviewed: false },
+  'flag.body': {
+    text: "Flag it if the reading looks wrong or the photo looks fake. A flag adds to the count shown on this pin. It doesn't remove the pin.",
+    reviewed: false,
+  },
+  'flag.confirm': { text: 'Flag it', reviewed: false },
+  'flag.cancel': { text: 'Cancel', reviewed: false },
 } satisfies Record<string, Entry>
 
 export type StringKey = keyof typeof EN

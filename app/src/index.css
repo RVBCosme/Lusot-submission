@@ -142,6 +142,102 @@
   box-shadow: 0 0 0 2px var(--lusot-text);
 }
 
+/* The live map's markers (Task 13). A marker is a 48 px touch target centred on its spot, with a 28 px dot inside. The dot's
+   fill is the depth hue (one hue, deeper with the level) and an ink ring around it shows on any tile in either theme.
+   What colour can't say, the edge and the shape do: a dashed ring is a faded pin (past an hour), a diamond is a demo
+   photo, and a second ring is the person's own pin. Depth 1 to 9 is the level's place among the 9 levels. */
+:root .map-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--lusot-tap);
+  height: var(--lusot-tap);
+  margin-top: calc(var(--lusot-tap) / -2);
+  margin-left: calc(var(--lusot-tap) / -2);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+:root .map-pin:focus-visible {
+  outline: 3px solid var(--lusot-focus);
+  outline-offset: 2px;
+}
+
+:root .map-pin-dot {
+  box-sizing: border-box;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 3px solid var(--lusot-surface);
+  border-radius: 50%;
+  outline: 2px solid var(--lusot-text);
+}
+
+:root .map-pin-depth-1 .map-pin-dot { background: var(--lusot-depth-1); }
+:root .map-pin-depth-2 .map-pin-dot { background: var(--lusot-depth-2); }
+:root .map-pin-depth-3 .map-pin-dot { background: var(--lusot-depth-3); }
+:root .map-pin-depth-4 .map-pin-dot { background: var(--lusot-depth-4); }
+:root .map-pin-depth-5 .map-pin-dot { background: var(--lusot-depth-5); }
+:root .map-pin-depth-6 .map-pin-dot { background: var(--lusot-depth-6); }
+:root .map-pin-depth-7 .map-pin-dot { background: var(--lusot-depth-7); }
+:root .map-pin-depth-8 .map-pin-dot { background: var(--lusot-depth-8); }
+:root .map-pin-depth-9 .map-pin-dot { background: var(--lusot-depth-9); }
+
+:root .map-pin-demo .map-pin-dot {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  transform: rotate(45deg);
+}
+
+:root .map-pin-faded .map-pin-dot {
+  opacity: 0.7;
+  outline-style: dashed;
+}
+
+:root .map-pin-own .map-pin-dot {
+  box-shadow: 0 0 0 5px var(--lusot-surface), 0 0 0 7px var(--lusot-text);
+}
+
+/* The zoom buttons, as 48 px targets in the tokens: Leaflet's own are 30 px, grey and hover-tinted. */
+:root .leaflet-container .leaflet-bar {
+  border: 2px solid var(--lusot-outline);
+  box-shadow: none;
+}
+
+:root .leaflet-container .leaflet-bar a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--lusot-tap);
+  height: var(--lusot-tap);
+  border-bottom: 1px solid var(--lusot-outline);
+  background-color: var(--lusot-surface);
+  color: var(--lusot-text);
+  font-family: var(--lusot-font);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+:root .leaflet-container .leaflet-bar a:last-child {
+  border-bottom: none;
+}
+
+:root .leaflet-container .leaflet-bar a:hover,
+:root .leaflet-container .leaflet-bar a:focus {
+  background-color: var(--lusot-surface);
+  color: var(--lusot-text);
+}
+
+:root .leaflet-container .leaflet-bar a:active {
+  background-color: var(--lusot-text);
+  color: var(--lusot-surface);
+}
+
+:root .leaflet-container .leaflet-bar a.leaflet-disabled {
+  background-color: var(--lusot-surface);
+  color: var(--lusot-text-2);
+}
+
 /* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). */
 @media (prefers-reduced-motion: reduce) {
   *,
