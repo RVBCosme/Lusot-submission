@@ -13,11 +13,16 @@ const ms6 = import.meta.glob<unknown>(
 
 export type FixturePair = { summary: unknown; run: unknown }
 
+// Each fixture's folder. `sealed`'s is `sealed-run`: the project keeps agents out of any folder named exactly `sealed`
+// (C39), and this one holds made-up figures, not sealed data.
+const FOLDER = { sealed: 'sealed-run', rerun: 'rerun', synthetic: 'synthetic' } as const
+
 // A fresh copy each time, so a test can change it.
-export function fixture(name: 'sealed' | 'rerun' | 'synthetic'): FixturePair {
+export function fixture(name: keyof typeof FOLDER): FixturePair {
+  const folder = FOLDER[name]
   return {
-    summary: structuredClone(files[`./${name}/report/summary.json`]),
-    run: structuredClone(files[`./${name}/run.json`]),
+    summary: structuredClone(files[`./${folder}/report/summary.json`]),
+    run: structuredClone(files[`./${folder}/run.json`]),
   }
 }
 

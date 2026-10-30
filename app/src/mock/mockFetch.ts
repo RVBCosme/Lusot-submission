@@ -5,7 +5,7 @@
 //
 // Choosing a state. `scenarioNames()` in fixtures.ts lists every scenario and says what each one does. Pick one with
 //   - `?mock=<scenario>` on the page's URL (read when the page loads, so a reload switches it),
-//   - else VITE_API_MOCK_SCENARIO in .env.local,
+//   - else VITE_API_MOCK_SCENARIO in .env.development.local,
 //   - else `level_knee`.
 // In a test, pass `createMockFetch({ scenario })` as the client function's `fetchFn`.
 //
