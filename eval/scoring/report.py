@@ -539,9 +539,8 @@ def _every_metric(run: Run, outcome: _Outcome | None) -> list[str]:
     """Every Set A metric by configuration, with each configuration's replay beside
     it on a development run (C425)."""
     heading = "## Set A: every metric"
-    retried = _retried(run)
     if outcome is None:
-        return _section(heading, _NOT_RUN, retried)
+        return _section(heading, _NOT_RUN)
     columns = []
     comparisons = []
     for config, scores in outcome.scores.items():
@@ -597,21 +596,7 @@ def _every_metric(run: Run, outcome: _Outcome | None) -> list[str]:
         f" ({_fewer(comparison.within_one_drop)})."
         for comparison in comparisons
     ]
-    return _section(heading, lead, table, replays, retried)
-
-
-def _retried(run: Run) -> list[str]:
-    """MS6E-Q6's count of photos retried once after a Meta service failure: always in
-    a sealed report, and in a development one only when there were some. It states the
-    count and nothing about it."""
-    if run.kind == "development" and run.service_retries == 0:
-        return []
-    return [
-        (
-            "Photos retried once after a Meta service failure (MS6E-Q6):"
-            f" {run.service_retries}."
-        )
-    ]
+    return _section(heading, lead, table, replays)
 
 
 def _share(count: int, scores: SetAScores) -> str:
@@ -1048,7 +1033,7 @@ def _wheels(
         _table(header, table),
         (
             f"SAM found water on {fmt_rate(geometry.sam_water_found)} wheels; left out:"
-            f" {geometry.no_answer} with no answer from Meta (model_error)."
+            f" {geometry.no_answer} with no usable answer from Meta (model_error)."
         ),
     ]
     if chart:
@@ -1225,8 +1210,23 @@ def _frozen(run: Run) -> list[str]:
         )
     else:
         blocks.append("The run recorded no stops.")
+    blocks.append(_retried(run))
     blocks.append(_FACE_BLUR)
     return _section("## Frozen versions and data", *blocks)
+
+
+def _retried(run: Run) -> list[str]:
+    """MS6E-Q6's count of photos retried once after a Meta service failure, across
+    every set of the run: always in a sealed report, and in a development one only when
+    there were some. It states the count and nothing about it."""
+    if run.kind == "development" and run.service_retries == 0:
+        return []
+    return [
+        (
+            "Photos retried once after a Meta service failure in this run (MS6E-Q6):"
+            f" {run.service_retries}."
+        )
+    ]
 
 
 def _geometry_default(run: Run) -> str:

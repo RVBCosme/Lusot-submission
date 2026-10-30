@@ -14,7 +14,8 @@ writes nothing. Then it compares the files with the committed copies in each
 folder's report/, or with --write writes them there. --label-words prints the words a
 committed label may hold, for the export (C420). --rules-version prints the rules
 version this harness scores, alone and with no results folder, so the sealed-run
-entry point can check its own by subprocess before it pays for a run.
+entry point can check its own by subprocess before it pays for a run. The two flags
+exclude each other.
 
 Exit codes: 0 identical or written, 1 different, 2 refused or invalid. Every printed
 line is ASCII, with any run of 12 digits masked.
@@ -96,7 +97,7 @@ def _run(argv: list[str] | None) -> int:
     if not args.from_saved:
         raise _Stop(
             "invalid: give --from-saved to rebuild the report from the saved results"
-            " (nothing calls a model), or --label-words"
+            " (nothing calls a model), --label-words or --rules-version"
         )
     results = args.results
     # The sealed guard runs here, before anything is read; the loader's own call is
@@ -145,12 +146,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the report's files instead of comparing them",
     )
-    parser.add_argument(
+    printing = parser.add_mutually_exclusive_group()
+    printing.add_argument(
         "--label-words",
         action="store_true",
         help="print the words a committed label may hold, one per line",
     )
-    parser.add_argument(
+    printing.add_argument(
         "--rules-version",
         action="store_true",
         help="print the rules version this harness scores, and nothing else",

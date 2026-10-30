@@ -162,6 +162,23 @@ def test_from_saved_is_required(tmp_path, capsys):
     assert not (folder / "report").exists()
 
 
+def test_the_print_flags_exclude_each_other(capsys):
+    for flags in (
+        ("--rules-version", "--label-words"),
+        ("--label-words", "--rules-version"),
+    ):
+        code, lines = run(capsys, *flags)
+        assert code == 2, flags
+        assert len(lines) == 1, flags
+        assert lines[0].startswith("invalid: ") and "not allowed with" in lines[0], (
+            flags
+        )
+    # The refusal that asks for --from-saved names every flag that can stand alone.
+    code, lines = run(capsys)
+    assert code == 2
+    assert "--label-words" in lines[-1] and "--rules-version" in lines[-1]
+
+
 def test_label_words(capsys):
     code, lines = run(capsys, "--label-words")
     assert code == 0
