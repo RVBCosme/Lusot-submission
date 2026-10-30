@@ -874,3 +874,150 @@ def test_a_bad_tuning_fails_before_any_meta_call(prompt, changes):
     assert run.log == {"meta_calls": 0, "error": "ValueError"}
     assert client.calls == []
     assert run.evidence is None
+
+
+# MS4: keep_photo, a sample seed's blurred copy whatever its outcome (C512, MS4-Q14)
+
+
+@pytest.mark.parametrize(
+    "judged",
+    [
+        pytest.param(None, id="level"),
+        pytest.param(answer(standing_water="no"), id="no-flood-seen"),
+        pytest.param(answer(photo_usable="no"), id="photo-unusable"),
+        pytest.param(meta_error(500), id="judge-500"),
+    ],
+)
+def test_keep_photo_never_changes_the_outcome(prompt, judged):
+    # MS4-Q14: the flag adds the stored copy and nothing else, so a seed's outcome
+    # and log are the ones any other report of the same photo gets.
+    photo, sam, given = level_case()
+    without, kept = (
+        run_pipeline(
+            photo,
+            FakeClient(sam, given if judged is None else judged),
+            prompt,
+            keep_photo=keep,
+        )
+        for keep in (False, True)
+    )
+    assert kept.publish_jpeg is not None  # the flag acted on this run
+    assert kept.outcome == without.outcome
+    assert kept.log == without.log
+    assert list(kept.log) == list(without.log)  # in the same order, too
+    assert kept.evidence == without.evidence
+
+
+@pytest.mark.parametrize(
+    ("judged", "sam_people", "expected"),
+    [
+        pytest.param(None, False, KNEE, id="level"),
+        pytest.param(
+            answer(standing_water="no"), False, Outcome.no_flood(), id="no-flood-seen"
+        ),
+        pytest.param(
+            answer(photo_usable="no"),
+            False,
+            Outcome.refused("photo_unusable"),
+            id="photo-unusable",
+        ),
+        pytest.param(
+            ModelRefused("Muse Spark refused to answer"),
+            False,
+            Outcome.refused("model_declined"),
+            id="model-declined",
+        ),
+        pytest.param(
+            answer(
+                vehicles=[vehicle(1, moving="yes")],
+                wheels=[wheel(2, "rim_three_quarters")],
+            ),
+            False,
+            Outcome.refused("no_usable_reference"),
+            id="no-usable-reference",
+        ),
+        pytest.param(
+            answer(
+                vehicles=[vehicle(1)],
+                wheels=[wheel(2, "tire_only")],
+                people=[person(3, "chest")],
+            ),
+            True,
+            Outcome.refused("references_disagree"),
+            id="references-disagree",
+        ),
+        pytest.param(
+            meta_error(500), False, Outcome.failed("model_error"), id="model-error"
+        ),
+        pytest.param(
+            KeyError("boom-marker"),
+            False,
+            Outcome.failed("pipeline_error"),
+            id="pipeline-error",
+        ),
+    ],
+)
+def test_keep_photo_returns_a_copy_after_sam(prompt, judged, sam_people, expected):
+    # C512: once SAM has sent its faces and plates, any outcome can keep step 8.1's
+    # copy. Without the flag, C61 holds: a copy for a level result only.
+    photo, sam, given = level_case()
+    sam = with_person(sam) if sam_people else sam
+    copy = publish_jpeg(blur_for_meta(photo), sam)
+    answered = given if judged is None else judged
+    kept = run_pipeline(photo, FakeClient(sam, answered), prompt, keep_photo=True)
+    assert kept.outcome == expected
+    assert kept.publish_jpeg == copy
+    plain = run_pipeline(photo, FakeClient(sam, answered), prompt)
+    assert plain.outcome == expected
+    assert plain.publish_jpeg == (copy if expected == KNEE else None)
+
+
+def test_keep_photo_needs_sam_and_both_phrases(prompt):
+    # The copy blurs SAM's faces and plates, so a run that never got SAM's answer,
+    # or never asked for both, has none to keep, flag or not.
+    _, sam, given = level_case()
+    dark = run_pipeline(flat_jpeg(10), FakeClient(sam, given), prompt, keep_photo=True)
+    assert dark.outcome == Outcome.refused("too_dark")  # refused before SAM
+    assert dark.publish_jpeg is None
+    photo, sam, given = level_case()
+    lost = FakeClient(sam, given, on_segment=failing(meta_error(500)))
+    unsegmented = run_pipeline(photo, lost, prompt, keep_photo=True)
+    assert unsegmented.outcome == Outcome.failed("model_error")  # SAM never returned
+    assert unsegmented.publish_jpeg is None
+    dry = answer(standing_water="no")
+    for answered, expected in ((given, KNEE), (dry, Outcome.no_flood())):
+        client = FakeClient(sam, answered)  # C66: offline, no face or plate phrase
+        reading = run_pipeline(
+            photo, client, prompt, phrases=READING_PHRASES, keep_photo=True
+        )
+        assert reading.outcome == expected
+        assert reading.publish_jpeg is None
+    # With both phrases, the same dry run keeps its copy, so the phrases decide.
+    full = run_pipeline(photo, FakeClient(sam, dry), prompt, keep_photo=True)
+    assert full.publish_jpeg == publish_jpeg(blur_for_meta(photo), sam)
+
+
+def test_a_failed_kept_copy_keeps_the_outcome(prompt, monkeypatch):
+    # The outcome is settled before the kept copy is made, so a copy that fails
+    # leaves the outcome and the log as they were, with no copy.
+    tried = []
+
+    def broken(image, sam):
+        tried.append(image)
+        raise ValueError("JPEG encoding failed")
+
+    monkeypatch.setattr("lusot_analysis.pipeline.publish_jpeg", broken)
+    photo, sam, given = level_case()
+    dry = answer(standing_water="no")
+    plain = run_pipeline(photo, FakeClient(sam, dry), prompt)
+    kept = run_pipeline(photo, FakeClient(sam, dry), prompt, keep_photo=True)
+    assert len(tried) == 1  # the flagged run tried, and only it
+    assert kept.outcome == Outcome.no_flood()
+    assert kept.publish_jpeg is None
+    assert kept.log == plain.log
+    # A level run whose copy fails is still a pipeline error with the flag (C61).
+    level = run_pipeline(photo, FakeClient(sam, given), prompt, keep_photo=True)
+    assert level.outcome == Outcome.failed("pipeline_error")
+    assert level.publish_jpeg is None
+    assert level.log["error"] == "ValueError"
+    assert len(tried) == 3  # the level copy, then its one retry under keep_photo
