@@ -77,8 +77,38 @@ async function sleep(ms: number): Promise<void> {
   clock += ms;
 }
 
-// The mock never evaluates a ConditionExpression, so this fake does what DynamoDB would with the one
-// condition the slot sends (attribute_not_exists on the key). Its exact text is checked below.
+// The mock never evaluates a ConditionExpression, so this does what DynamoDB would with the conditions the
+// slot sends. The exact text of the current one is checked below.
+function conditionHolds(input: PutCommandInput, existing: Record<string, unknown> | undefined): boolean {
+  switch (input.ConditionExpression) {
+    case undefined:
+      return true;
+    case "attribute_not_exists(#pk)":
+      return existing === undefined;
+    case "attribute_not_exists(#pk) OR #writtenMs <= :limit":
+      return existing === undefined || (existing.writtenMs as number) <= (input.ExpressionAttributeValues?.[":limit"] as number);
+    default:
+      throw new Error(`the fake table doesn't know the condition ${input.ConditionExpression}`);
+  }
+}
+
+// Every claim that reached the table, in the order it landed, with the write times it carried.
+let claimsAttempted: number[];
+let claimsApplied: number[];
+
+// A write lands: its condition is checked against the item as it stands now.
+function applyPut(input: PutCommandInput): Record<string, never> {
+  const pk = input.Item?.pk as string;
+  const isClaim = pk.startsWith("nominatim#");
+  if (isClaim) claimsAttempted.push(input.Item?.writtenMs as number);
+  if (!conditionHolds(input, table.get(pk))) {
+    throw new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} });
+  }
+  if (isClaim) claimsApplied.push(input.Item?.writtenMs as number);
+  table.set(pk, input.Item ?? {});
+  return {};
+}
+
 function fakeTable(): void {
   ddbMock.on(GetCommand).callsFake((input: GetCommandInput) => {
     clock += tickPerCall;
@@ -86,12 +116,7 @@ function fakeTable(): void {
   });
   ddbMock.on(PutCommand).callsFake((input: PutCommandInput) => {
     clock += tickPerCall;
-    const pk = input.Item?.pk as string;
-    if (input.ConditionExpression !== undefined && table.has(pk)) {
-      throw new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} });
-    }
-    table.set(pk, input.Item ?? {});
-    return {};
+    return applyPut(input);
   });
 }
 
@@ -133,6 +158,8 @@ beforeEach(() => {
   clock = T0 + 5300; // 0.3 s into second 5
   tickPerCall = 0;
   table = new Map();
+  claimsAttempted = [];
+  claimsApplied = [];
   fetches = [];
   sleeps = [];
   reply = respond([MAGINHAWA]);
@@ -190,6 +217,13 @@ describe("the request", () => {
     expect(first).toMatch(/^Rizal Park Manila z+$/);
     expect(first).not.toMatch(/\p{Cc}/u);
     expect(fetches[1].url.searchParams.get("q")).toBe("a".repeat(99));
+  });
+
+  it("with the switch on, a place with no words is off too", async () => {
+    const out = await makeGeocoder({ isStopped: async () => true }).geocode("?!", deadline());
+
+    expect(out).toEqual({ trace: "off" });
+    expect(ddbMock.calls()).toHaveLength(0);
   });
 
   it("a place with no words in it sends nothing and touches nothing", async () => {
@@ -253,7 +287,8 @@ describe("the result", () => {
 });
 
 describe("failures", () => {
-  it("a 1.5 s timeout gives failed", async () => {
+  it("a 1.5 s timeout gives failed, even when the model's mark leaves far more", async () => {
+    // 7,500 ms left, and a fetch that never settles until it is aborted: the timer is 1,500 ms, not the 7,500.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const aborted: boolean[] = [];
     reply = (init) =>
@@ -273,6 +308,30 @@ describe("failures", () => {
     expect(fetches).toHaveLength(1);
     expect(cachePuts()).toHaveLength(0);
     expect(JSON.parse(errorSpy.mock.calls[0][0] as string)).toMatchObject({ msg: "nominatim_request_failed", error: "AbortError" });
+  });
+
+  it("the call's timer is cut to what the model's mark leaves", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // 2,500 ms are left at the start, enough to ask. The claim takes 1,300 ms to land, so the call starts with 1,200.
+    ddbMock.on(PutCommand).callsFake((input: PutCommandInput) => {
+      clock += 1300;
+      return applyPut(input);
+    });
+    const aborted: boolean[] = [];
+    reply = (init) =>
+      new Promise((_resolve, reject) => {
+        const signal = init.signal as AbortSignal;
+        signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+        vi.advanceTimersByTime(1199);
+        aborted.push(signal.aborted);
+        vi.advanceTimersByTime(1);
+        aborted.push(signal.aborted);
+      });
+
+    const out = await makeGeocoder().geocode(PLACE, deadline(BUDGET.modelBy - 2500));
+
+    expect(aborted).toEqual([false, true]);
+    expect(out).toEqual({ trace: "failed" });
   });
 
   it.each([429, 500, 503])("a %i gives failed, with no retry and nothing cached", async (status) => {
@@ -310,8 +369,9 @@ describe("failures", () => {
     expect(logged()).not.toMatch(/Kanor|Rate exceeded/i);
   });
 
-  it("a previous slot that can't be read sends no request", async () => {
-    // The cache read passes, then the previous second's slot can't be read.
+  it("a taken slot that can't be read sends no request", async () => {
+    table.set("nominatim#last", { pk: "nominatim#last", writtenMs: clock });
+    // The cache read passes and the claim is refused, then the slot can't be read.
     ddbMock.on(GetCommand).callsFake((input: GetCommandInput) => {
       if (String(input.Key?.pk).startsWith("nominatim#")) {
         throw new ProvisionedThroughputExceededException({ message: "x", $metadata: {} });
@@ -501,21 +561,22 @@ describe("the caches", () => {
 });
 
 describe("the slot", () => {
-  it("claims its second with a conditional put, and reads the previous second consistently", async () => {
+  const CLAIM_CONDITION = "attribute_not_exists(#pk) OR #writtenMs <= :limit";
+
+  it("claims the one slot item with one conditional put, and reads nothing but the cache first", async () => {
     await makeGeocoder().geocode(PLACE, deadline());
 
-    expect(gets()).toEqual([
-      { TableName: "limits", Key: { pk: cacheKey(PLACE) } },
-      { TableName: "limits", Key: { pk: `nominatim#${SECOND_0 + 4}` }, ConsistentRead: true },
-    ]);
+    expect(gets()).toEqual([{ TableName: "limits", Key: { pk: cacheKey(PLACE) } }]);
     expect(slotPuts()).toEqual([
       {
         TableName: "limits",
-        Item: { pk: `nominatim#${SECOND_0 + 5}`, writtenMs: T0 + 5300, expiresAt: SECOND_0 + 5 + 2 * 3600 },
-        ConditionExpression: "attribute_not_exists(#pk)",
-        ExpressionAttributeNames: { "#pk": "pk" },
+        Item: { pk: "nominatim#last", writtenMs: T0 + 5300, expiresAt: SECOND_0 + 5 + 2 * 3600 },
+        ConditionExpression: CLAIM_CONDITION,
+        ExpressionAttributeNames: { "#pk": "pk", "#writtenMs": "writtenMs" },
+        ExpressionAttributeValues: { ":limit": T0 + 5300 - 1100 },
       },
     ]);
+    expect(CLAIM_CONDITION.match(/#\w+/g)).toEqual(["#pk", "#writtenMs"]); // every name goes through a placeholder
   });
 
   it("two geocoders in one second make one request", async () => {
@@ -526,15 +587,13 @@ describe("the slot", () => {
     expect(first.trace).toBe("called");
     expect(second.trace).toBe("called");
     expect(fetches).toHaveLength(2);
-    // The second found the second taken, waited for 6.000 s, then for the 1 s after the first's write, and asked at 6.300 s.
-    expect(sleeps).toEqual([700, 300]);
-    expect(fetches.map((f) => f.atMs)).toEqual([T0 + 5300, T0 + 6300]);
-    expect(slotPuts().map((input) => input.Item)).toEqual([
-      expect.objectContaining({ pk: `nominatim#${SECOND_0 + 5}`, writtenMs: T0 + 5300 }),
-      expect.objectContaining({ pk: `nominatim#${SECOND_0 + 5}`, writtenMs: T0 + 5300 }), // refused: the slot was taken
-      expect.objectContaining({ pk: `nominatim#${SECOND_0 + 6}`, writtenMs: T0 + 6300 }),
-    ]);
-    expect(table.get(`nominatim#${SECOND_0 + 5}`)?.writtenMs).toBe(T0 + 5300); // the first's write stands
+    // The second's claim was refused, so it read the slot (strongly consistent), slept until 1.1 s after the
+    // first's write and claimed again: it asked at 6.400 s.
+    expect(sleeps).toEqual([1100]);
+    expect(fetches.map((f) => f.atMs)).toEqual([T0 + 5300, T0 + 6400]);
+    expect(slotPuts().map((input) => input.Item?.writtenMs)).toEqual([T0 + 5300, T0 + 5300, T0 + 6400]); // the middle one was refused
+    expect(claimsApplied).toEqual([T0 + 5300, T0 + 6400]);
+    expect(gets().at(-1)).toEqual({ TableName: "limits", Key: { pk: "nominatim#last" }, ConsistentRead: true });
   });
 
   it("a taken slot with under 2,500 ms left gives busy", async () => {
@@ -561,26 +620,186 @@ describe("the slot", () => {
     expect(enough.trace).toBe("called");
   });
 
-  it("two requests across a second's boundary stay 1 s apart", async () => {
-    // A request at 0.990 s. The next geocoder arrives at 1.000 s, in the next clock second.
-    table.set(`nominatim#${SECOND_0}`, { pk: `nominatim#${SECOND_0}`, writtenMs: T0 + 990 });
+  it("two requests across a second's boundary stay 1.1 s apart", async () => {
+    // A request's write at 0.990 s. The next geocoder arrives at 1.000 s, in the next clock second.
+    table.set("nominatim#last", { pk: "nominatim#last", writtenMs: T0 + 990 });
     clock = T0 + 1000;
 
     const out = await makeGeocoder().geocode(PLACE, deadline());
 
     expect(out.trace).toBe("called");
-    expect(sleeps).toEqual([990]);
-    expect(fetches[0].atMs).toBe(T0 + 1990);
-    expect(table.get(`nominatim#${SECOND_0 + 1}`)?.writtenMs).toBe(T0 + 1990);
+    expect(sleeps).toEqual([1090]); // from the read's return at 1.000 s to 2.090 s
+    expect(fetches[0].atMs).toBe(T0 + 2090);
+    expect(table.get("nominatim#last")?.writtenMs).toBe(T0 + 2090);
   });
 
-  it("a slot written exactly 1 s ago holds nothing", async () => {
-    table.set(`nominatim#${SECOND_0}`, { pk: `nominatim#${SECOND_0}`, writtenMs: T0 + 1000 });
-    clock = T0 + 2000;
+  it("the wait counts from when the read returned, not from when the geocoder started", async () => {
+    table.set("nominatim#last", { pk: "nominatim#last", writtenMs: T0 + 5300 });
+    tickPerCall = 40; // the refused claim and the read each take 40 ms
+
+    await makeGeocoder().geocode(PLACE, deadline());
+
+    // Started at 5.300 s (cache read 40, claim 40, slot read 40): 5.420 s. The wait ends at 6.400 s.
+    expect(sleeps).toEqual([980]);
+  });
+
+  it("a slot written exactly 1.1 s ago holds nothing", async () => {
+    table.set("nominatim#last", { pk: "nominatim#last", writtenMs: T0 + 1000 });
+    clock = T0 + 2100;
 
     await makeGeocoder().geocode(PLACE, deadline());
 
     expect(sleeps).toEqual([]);
-    expect(fetches[0].atMs).toBe(T0 + 2000);
+    expect(fetches[0].atMs).toBe(T0 + 2100);
+  });
+
+  it("a claim refused again after the wait gives busy, and never tries a third time", async () => {
+    table.set("nominatim#last", { pk: "nominatim#last", writtenMs: T0 + 5300 });
+    // While this Lambda sleeps, another one claims the slot.
+    const out = await makeGeocoder({
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock += ms;
+        table.set("nominatim#last", { pk: "nominatim#last", writtenMs: clock });
+      },
+    }).geocode(PLACE, deadline());
+
+    expect(out).toEqual({ trace: "busy" });
+    expect(slotPuts()).toHaveLength(2);
+    expect(sleeps).toHaveLength(1);
+    expect(fetches).toHaveLength(0);
+  });
+
+  it("a slot that is gone when it is read is claimed again at once", async () => {
+    ddbMock.on(PutCommand).callsFakeOnce(() => {
+      throw new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} });
+    }).callsFake((input: PutCommandInput) => applyPut(input));
+
+    const out = await makeGeocoder().geocode(PLACE, deadline());
+
+    expect(out.trace).toBe("called");
+    expect(sleeps).toEqual([]);
+    expect(slotPuts()).toHaveLength(2);
+  });
+});
+
+// Review Focus 4 for real: Lambdas whose DynamoDB calls are in flight at the same time. Each call lands at
+// its send time plus a latency, and a write checks its condition when it lands. The tests below never look
+// at how a claim is built, only at the write times of the claims that landed and the requests that followed.
+describe("Lambdas at once", () => {
+  type Event = { atMs: number; seq: number; run: () => void };
+  let events: Event[];
+  let seq: number;
+
+  function at(atMs: number, run: () => void): void {
+    events.push({ atMs, seq: seq++, run });
+  }
+
+  // One Lambda: its own client over the one shared table. A claim takes `claim` ms to land and any other call `other` ms.
+  function lambda(latency: { claim: number; other: number }) {
+    const client = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "ap-southeast-1" }));
+    const stub = mockClient(client);
+    const lands = <T>(ms: number, apply: () => T) =>
+      new Promise<T>((resolve, reject) => {
+        at(clock + ms, () => {
+          try {
+            resolve(apply());
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+    stub.on(GetCommand).callsFake((input: GetCommandInput) => lands(latency.other, () => ({ Item: table.get(input.Key?.pk as string) })));
+    stub.on(PutCommand).callsFake((input: PutCommandInput) =>
+      lands(String(input.Item?.pk).startsWith("nominatim#") ? latency.claim : latency.other, () => applyPut(input)),
+    );
+    return makeGeocoder({
+      ddb: client,
+      sleep: (ms) => {
+        sleeps.push(ms);
+        return new Promise((resolve) => at(clock + ms, resolve));
+      },
+    });
+  }
+
+  // A handler starts at `startMs` and asks for `place`.
+  function startAt(startMs: number, geocoder: ReturnType<typeof makeGeocoder>, place: string): void {
+    at(startMs, () => {
+      void geocoder.geocode(place, new Deadline(startMs, () => clock));
+    });
+  }
+
+  // Runs the events in time order. Between them every Lambda runs until it waits on the table or a sleep.
+  async function runAll(): Promise<void> {
+    for (;;) {
+      await new Promise((resolve) => setImmediate(resolve));
+      events.sort((a, b) => a.atMs - b.atMs || a.seq - b.seq);
+      const next = events.shift();
+      if (next === undefined) return;
+      clock = Math.max(clock, next.atMs);
+      next.run();
+    }
+  }
+
+  // The rule: claims that landed are at least 1.1 s apart, and each one sent one request.
+  function expectOneRequestPerClaimAndTheGap(): void {
+    const landed = [...claimsApplied].sort((a, b) => a - b);
+    const gaps = landed.slice(1).map((ms, i) => ms - landed[i]);
+    expect(gaps.filter((gap) => gap < 1100), `claims landed at ${landed.join(", ")}`).toEqual([]);
+    expect(fetches).toHaveLength(landed.length);
+  }
+
+  beforeEach(() => {
+    events = [];
+    seq = 0;
+    clock = T0; // the events set the time from here
+  });
+
+  it("interleaving 1: a slow claim lands after a later Lambda's claim", async () => {
+    // A starts 6 ms before the next second and its claim takes 12 ms to land. B starts at the second, and
+    // its claim takes 2 ms, so it lands first.
+    startAt(T0 + 5994, lambda({ claim: 12, other: 1 }), PLACE);
+    startAt(T0 + 6000, lambda({ claim: 2, other: 1 }), OTHER_PLACE);
+
+    await runAll();
+
+    expectOneRequestPerClaimAndTheGap();
+    expect(fetches.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("interleaving 2: a Lambda that waited out a gap lands its claim over the boundary", async () => {
+    // P asks at 5.990 s. A arrives at 6.100 s and has to wait; its claim takes 15 ms to land. B arrives at 7.000 s.
+    startAt(T0 + 5989, lambda({ claim: 1, other: 1 }), "Ayala Triangle");
+    startAt(T0 + 6100, lambda({ claim: 15, other: 1 }), PLACE);
+    startAt(T0 + 7000, lambda({ claim: 2, other: 1 }), OTHER_PLACE);
+
+    await runAll();
+
+    expectOneRequestPerClaimAndTheGap();
+    expect(fetches.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("two claims 1,099 ms apart: the second is refused, waits 1 ms and goes", async () => {
+    startAt(T0 + 5100, lambda({ claim: 0, other: 0 }), PLACE);
+    startAt(T0 + 6199, lambda({ claim: 0, other: 0 }), OTHER_PLACE);
+
+    await runAll();
+
+    expect(claimsAttempted).toEqual([T0 + 5100, T0 + 6199, T0 + 6200]); // 6199 was refused
+    expect(claimsApplied).toEqual([T0 + 5100, T0 + 6200]);
+    expect(sleeps).toEqual([1]);
+    expect(fetches.map((f) => f.atMs)).toEqual([T0 + 5100, T0 + 6200]);
+  });
+
+  it("two claims 1,100 ms apart: both go, with no wait", async () => {
+    startAt(T0 + 5100, lambda({ claim: 0, other: 0 }), PLACE);
+    startAt(T0 + 6200, lambda({ claim: 0, other: 0 }), OTHER_PLACE);
+
+    await runAll();
+
+    expect(claimsAttempted).toEqual([T0 + 5100, T0 + 6200]);
+    expect(claimsApplied).toEqual([T0 + 5100, T0 + 6200]);
+    expect(sleeps).toEqual([]);
+    expect(fetches.map((f) => f.atMs)).toEqual([T0 + 5100, T0 + 6200]);
   });
 });

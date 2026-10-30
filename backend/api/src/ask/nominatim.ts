@@ -35,8 +35,11 @@ const MAX_PLACE_CHARS = 100; // C726
 const MEMORY_ENTRIES = 500;
 const FOUND_TTL_S = 7 * 24 * 3600;
 const MISS_TTL_S = 24 * 3600;
+const SLOT_PK = "nominatim#last";
 const SLOT_TTL_S = 2 * 3600;
-const SLOT_GAP_MS = 1000; // Nominatim's policy: at most 1 request a second
+// Nominatim's policy is at most 1 request a second. Each Lambda compares write times against its own clock, so the
+// gap is 1,100 ms: the extra 100 ms covers small skew between the Lambdas' clocks.
+const SLOT_GAP_MS = 1100;
 
 const NOT_FOUND: GeoResult = { status: "not_found" };
 
@@ -70,7 +73,9 @@ export function createGeocoder(deps: GeocoderDeps): Geocoder {
     return result && { result, expiresAtMs: Item.expiresAt * 1000 };
   }
 
-  // Both caches. The table write may fail without losing the answer.
+  // Both caches. The table write may fail without losing the answer. The caches are read before the slot wait and
+  // written only after an answer, so two Lambdas that miss on the same uncached place a moment apart each send it
+  // once. The requests stay 1.1 s apart, so the policy holds, and the cache prevents repeats once an answer is stored.
   async function store(hash: string, result: GeoResult): Promise<void> {
     const expiresAt = Math.floor(deps.now() / 1000) + (result.status === "found" ? FOUND_TTL_S : MISS_TTL_S);
     remember(hash, result, expiresAt * 1000);
@@ -82,40 +87,49 @@ export function createGeocoder(deps: GeocoderDeps): Geocoder {
     }
   }
 
-  // True once this Lambda holds its second's slot, with the previous request at least a second behind.
-  // False when there is too little time to wait for one. The wait is at most 1 s from the moment the slot is
-  // found taken, and the check leaves 1.5 s for the call after it. A failed read or write throws.
+  // One conditional write to the one slot item, `nominatim#last`, claims the right to make a request. It succeeds
+  // only when no item exists or the item's writtenMs is at least SLOT_GAP_MS older than this write. A single-item
+  // conditional write is atomic: DynamoDB checks the condition against the item as it stands when the write lands.
+  // So every claim that succeeds saw the previous successful claim's writtenMs and needed it to be 1.1 s older, and
+  // across all Lambdas the stored write times rise by at least SLOT_GAP_MS per request, whatever the order the
+  // writes were sent or landed in. The gap is measured between write times; a request leaves one round trip after its write.
+  // True when the claim succeeded. False when another Lambda holds the slot. Any other failure throws.
+  async function claim(): Promise<boolean> {
+    const writtenMs = deps.now(); // taken just before the put
+    try {
+      await deps.ddb.send(
+        new PutCommand({
+          TableName: deps.limitsTableName,
+          Item: { pk: SLOT_PK, writtenMs, expiresAt: Math.floor(writtenMs / 1000) + SLOT_TTL_S },
+          ConditionExpression: "attribute_not_exists(#pk) OR #writtenMs <= :limit",
+          ExpressionAttributeNames: { "#pk": "pk", "#writtenMs": "writtenMs" },
+          ExpressionAttributeValues: { ":limit": writtenMs - SLOT_GAP_MS },
+        }),
+      );
+      return true;
+    } catch (err) {
+      if ((err as { name?: string } | undefined)?.name === "ConditionalCheckFailedException") return false;
+      throw err;
+    }
+  }
+
+  // True once this Lambda holds the slot. False (busy) when there is too little time to ask: under 2,500 ms at the
+  // start, or at the moment the slot is found taken, or when the claim is refused again after one wait. A taken
+  // slot is waited out once: read the slot's writtenMs, sleep until 1,100 ms after it, claim again, never loop.
+  // The wait is at most 1,100 ms, so the call that follows has about 1,400 ms; its timer is cut to what remains.
+  // A failed read or write throws.
   async function takeSlot(deadline: Deadline): Promise<boolean> {
     const hasTime = () => deadline.remainingMs(BUDGET.modelBy) >= BUDGET.minNominatim;
     if (!hasTime()) return false;
-    for (;;) {
-      const startMs = deps.now();
-      const second = Math.floor(startMs / 1000);
-      // Strongly consistent, so a request another Lambda made a moment ago can't be missed.
-      const { Item: previous } = await deps.ddb.send(
-        new GetCommand({ TableName: deps.limitsTableName, Key: { pk: `nominatim#${second - 1}` }, ConsistentRead: true }),
-      );
-      if (typeof previous?.writtenMs === "number" && startMs - previous.writtenMs < SLOT_GAP_MS) {
-        await deps.sleep(previous.writtenMs + SLOT_GAP_MS - startMs);
-      }
-      try {
-        await deps.ddb.send(
-          new PutCommand({
-            TableName: deps.limitsTableName,
-            Item: { pk: `nominatim#${second}`, writtenMs: deps.now(), expiresAt: second + SLOT_TTL_S },
-            ConditionExpression: "attribute_not_exists(#pk)",
-            ExpressionAttributeNames: { "#pk": "pk" },
-          }),
-        );
-        return true;
-      } catch (err) {
-        if ((err as { name?: string } | undefined)?.name !== "ConditionalCheckFailedException") throw err;
-      }
-      // Another Lambda holds this second. Wait for the next one if the budget allows; the loop then also waits
-      // out the gap since that Lambda's write.
-      if (!hasTime()) return false;
-      await deps.sleep(Math.max(0, (second + 1) * 1000 - deps.now()));
-    }
+    if (await claim()) return true;
+    if (!hasTime()) return false;
+    // Strongly consistent, so a claim another Lambda made a moment ago can't be missed.
+    const { Item: last } = await deps.ddb.send(
+      new GetCommand({ TableName: deps.limitsTableName, Key: { pk: SLOT_PK }, ConsistentRead: true }),
+    );
+    // The wait counts from the moment the read returned.
+    if (typeof last?.writtenMs === "number") await deps.sleep(Math.max(0, last.writtenMs + SLOT_GAP_MS - deps.now()));
+    return claim();
   }
 
   // Asks Nominatim. Undefined when the call or its answer failed; the reason is logged without the place.
@@ -158,8 +172,8 @@ export function createGeocoder(deps: GeocoderDeps): Geocoder {
     async geocode(place, deadline) {
       const text = cleanPlace(place);
       const key = normalize(text);
-      if (key === "") return { result: NOT_FOUND, trace: "not_found" }; // nothing to ask about
       if (await deps.isStopped("nominatim", deps.now())) return { trace: "off" };
+      if (key === "") return { result: NOT_FOUND, trace: "not_found" }; // nothing to ask about
 
       const hash = createHash("sha256").update(key).digest("hex");
       const remembered = fromMemory(hash);
