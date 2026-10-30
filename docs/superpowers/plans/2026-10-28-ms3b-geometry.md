@@ -1352,3 +1352,15 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
 - [x] **M11 (`tire-codes-v2`):** the four Hilux codes and the Tamaraw AT's. Evidence: `eaae0f4` added six codes. Then `d9914dd` took the jeepney code out (R170, after the combined review's Important: one Fuso code can't stand for every jeepney), leaving 17 codes for `unknown`. Spec §4 is amended.
 - [x] **Checks:** pytest 1002 passed and 1 skipped on `d9914dd`. The combined review (Opus 5.5 `xhigh`) found M5 ready and the codes checked.
 
+### Task 12b: laptop Meta spend reaches MS4's counter (R126, R154, C527; added Oct 30)
+
+*The tracker turned it on at 10:31 AM, Oct 30: MS4's counter has been live since Task 10a at 8:40 AM. Its brief came from the ledger's R126, R154 and C527.*
+
+- [x] **The helper:** `lusot_analysis/laptop_spend.py` wraps the Meta client and counts each call by MS4's rule.
+  - **Before paying:** it reads the counter, and refuses with exit 2 before any client is built when the counter is unseeded, unreadable or at `/lusot/spend/stop-usd`.
+  - **After paying:** it records the cost. A failed record prints `spend_error` and exits nonzero.
+  - **Where it records:** `run_pipeline live`, `dev_eval run`, `set_b segment` and `rims`, `set_b_masks`, `run_probe` and `run_sealed`. Never `smoke_upload`.
+  - Evidence: `6ee55a9`. `spend.py` is unchanged.
+- [x] **Review:** one Opus 5.5 `xhigh` review approved it, with 0 Critical, 0 Important and 7 Minor, and nothing on security. Minor 1, the test guard, was fixed in `7e852e2`; the rest are bounded and deferred (R175). pytest: 1066 passed and 1 skipped.
+- [ ] **Live check,** after Rene's AWS sign-in: one paid tool under `--with "botocore[crt]==1.43.120"` against the seeded counter.
+
