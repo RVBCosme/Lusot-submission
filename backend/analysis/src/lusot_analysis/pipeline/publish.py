@@ -1,6 +1,8 @@
 """Step 8.1: the blur before storage (spec §3.2; C48, C61).
 
-Only a level result stores a photo, as `blurred/{id}.jpg`. Plates reach Meta
+A level result stores a photo, as `blurred/{id}.jpg`. With run_pipeline's
+`keep_photo`, a seed's run past SAM carries one too, which the handler stores only
+for a level or no flood seen (C512). Plates reach Meta
 unblurred, so before the photo is stored, SAM's `face` and `license plate` matches are
 blurred on the face-blurred image, with MS1's blur_faces: plates for the first time,
 faces again. The blur covers each mask's bounding box, grown by 25% on every side. The

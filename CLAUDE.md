@@ -71,7 +71,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
   - Set B's final cars: `lusot-data\set_b\sealed\`
   - Set D: `lusot-data\set_d\sealed\`
 
-  The deny rules in `.claude/settings.json` match `**/sealed/**`.
+  The deny rules in `.claude/settings.json` match `**/sealed/**`, plus the spellings Windows opens as the same folder: `sealed.`, `sealed ` (with a trailing space) and `sealed::$INDEX_ALLOCATION` (Rene, Oct 30).
 - **Before the split, open no Set A or A-neg photo**, because any of them could end up sealed. After the split, development photos, their masks and their overlays are open for tuning and debugging.
 - Tune cutoffs on development data only.
 - Once Rene approves `eval/rules.md`, every change needs his written OK in its change log. After the sealed run, the scoring rules don't change at all (`eval/rules.md` §10 covers fixes and the one disclosed rerun).
@@ -157,8 +157,9 @@ Coding guardrails throughout come from `andrej-karpathy-skills:karpathy-guidelin
 ## Model routing (this project only, D18)
 
 Rene set this for Lusot on Oct 28. His global settings stay as they are.
-- **Easy tasks:** subagents run on Sonnet 5.5 with `effort: "xhigh"`. That covers mechanical edits, lookups, boilerplate and document updates.
-- **Medium and harder tasks:** Opus 5.5 with `effort: "xhigh"` (Rene, Oct 29, 8:48 PM; it was `"max"`). Never `"max"`, even where a ledger, brief or plan says "Opus 5.5 max". That covers most code, reviews, debugging and design.
+- **Implementers:** Sonnet 5.5 with `effort: "xhigh"` by default. Opus 5.5 with `effort: "xhigh"` implements only the measuring path, security- or money-sensitive code, or a task Sonnet failed twice (Rene, Oct 30, 7:34 AM).
+- **Reviews:** Opus 5.5 with `effort: "xhigh"` for code and each milestone's final review, and Sonnet 5.5 with `effort: "xhigh"` for docs-only or test-only reviews.
+- Never `"max"` for Opus, even where a ledger, brief or plan says "Opus 5.5 max" (Rene, Oct 29, 8:48 PM).
 - **Only when Opus 5.5 can't do it:** Fable 5.1 with `effort: "max"`. Judge the severity first. When both models can do the task, Opus uses tokens better.
 - **Workflows (ultracode):** only when necessary, with at most 50 agents.
 
@@ -220,6 +221,8 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.
   - It also turns the uploads stop switch on for about 35 s, then off. With the API's 30 s cache, uploads can be refused for about a minute. Never run it during a phone test (M14).
+  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but none of the photos it sent gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
+  - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). `--bound S` sets each photo's wait in seconds for a final status (default 120).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **Probe** (spends Meta credits, about $0.21 with these numbers). Two steps:
   1. From `backend/analysis`, in Windows PowerShell: `.\probes\make_test_wav.ps1`. It writes the synthetic test clip into today's probe folder. Without it the run stops before it spends anything.
@@ -239,6 +242,12 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - **Tests:** `uv run --locked --script eval/data/tests/run_tests.py` (also part of `check:py`).
   - **Claude runs:** `eval/data/intake.py`, `eval/data/m8_sheet.py`, `eval/data/audit.py --dev`, `eval/set_b/generate.py` without `--final`, `eval/set_b/water_check.py` and `eval/data/freeze_record.py`. `backend/analysis/probes/set_b_masks.py` on development cars (it spends Meta credits; log each run's cost).
   - **Rene runs, never an agent:** `eval/data/split.py`, `eval/data/audit.py --sealed`, `set_b_masks.py --final` and `generate.py --final` (Set D's `seal_set_d.py` comes with MS2's Task 18, after MS5's core screens). They refuse to run without his own console. The archive writers ask for the password twice; `audit --sealed` asks for `yes`.
+- **MS3b's offline tools.** Each runs as `uv run python probes/<file> ...` from `backend/analysis`. Data paths are absolute, and outputs go under `$env:LUSOT_DATA_DIR`, never into the repo. `dev_eval.py run`, `set_b.py segment` and `set_b.py rims` print the count and cost first, and stop there without `--yes`.
+  - `run_pipeline.py live <photo>` (paid: one photo, about $0.03, with no `--yes` check or cost line) runs one photo through the whole pipeline into a run folder. `replay <photo> <run folder>` is free and makes no Meta call.
+  - `dev_eval.py run --manifest F` (paid) and `export ... --out DIR --rules-version V` (free; MS6's §4.3 rows).
+  - `set_b.py segment --truth F` and `rims --folder DIR` (both paid); `export` and `overlay` (both free).
+  - Each tool refuses a path under a `sealed` folder, and a data folder inside the repo, before any call.
+- **`GEOMETRY_IN_LEVEL`** in `backend/template.yaml` is a quoted literal, `"on"` or `"off"`, not a parameter (C309, C515). To change it, edit the line and deploy. Unquoted, YAML 1.1 reads `on` as `true`.
 
 Notes:
 - **AWS:**

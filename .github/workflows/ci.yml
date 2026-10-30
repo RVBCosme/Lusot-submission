@@ -39,6 +39,8 @@ jobs:
         with:
           version: "0.13.6"
       - run: npm run check:py
+      # MS6's harness also runs on Python 3.9 (its spec §3); uv downloads that CPython.
+      - run: uv run --no-project --python 3.9 python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run
 
   secrets:
     name: check:secrets

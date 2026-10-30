@@ -282,7 +282,8 @@ def test_r147_a_van_wheel_with_two_readings_shows_its_deciding_one(prompt):
         False,
         None,
     )
-    assert wheel_entry.inches == pytest.approx((9.887, 9.887), abs=0.02)
+    # The van's two codes: the Tamaraw's depth, then the Hiace's (M11).
+    assert wheel_entry.inches == pytest.approx((9.464, 9.887), abs=0.02)
     assert wheel_entry.rim is not None
 
 
