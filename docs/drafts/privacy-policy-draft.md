@@ -28,7 +28,7 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 
 | What | When | Why |
 |---|---|---|
-| A photo you take in the app [or a 5-second clip, if clip mode ships] | when you report | to estimate the depth at that spot |
+| A photo you take in the app | when you report | to estimate the depth at that spot |
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |
@@ -47,10 +47,6 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 5. **The original is deleted.** Lusot deletes your original photo as soon as the result is saved. An automatic rule removes any original left behind, usually within two days, for example after a failed analysis.
 6. **Only a blurred copy is kept,** and only when Lusot gives a level.
 
-[If clip mode ships: faces in a clip are blurred first, as in a photo. The clip is uploaded to Meta's file storage with a 1-hour expiry, and deleted from it after analysis.]
-
-[If Meta's service needs it (MS4): Lusot may send a face-blurred photo to Meta's file storage instead, with a 1-hour expiry, and delete it there after analysis.]
-
 ### What Meta keeps
 
 - **Meta may keep what it receives with no fixed period,** under its own terms. Lusot's 7-day deletion covers only Lusot's own copies, and can't delete what Meta keeps.
@@ -60,15 +56,15 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 
 ### Public pins
 
-- **When a result becomes a pin.** A photo taken inside Metro Manila that Lusot reads a level from becomes a public pin, on the map and in Lusot's public pin feed. [Whether a "no flood seen" result also becomes a pin is still being decided (PRIV-Q2).]
+- **When a result becomes a pin.** A photo taken inside Metro Manila that Lusot reads a level from becomes a public pin, on the map and in Lusot's public pin feed. A "no flood seen" result never becomes a pin; only the person who took the photo sees it.
 - **What a pin shows:**
   - the spot: your phone's GPS position, or where you nudged the pin, with the GPS accuracy
   - the time the photo was taken
   - the level, the landmark it was read from, and its passability class (PATV, NPLV or NPATV)
   - how many reference objects the reading used
   - [an inches range, only if Lusot's measurement passes its own tests]
-- **The photo on a pin.** [In the app, a pin also shows the blurred photo with the outlines Lusot used, so anyone can check how the reading was made (PRIV-Q2).]
-- **How long a pin stays.** A pin fades after 1 hour and leaves the map after 3 hours. The report and its blurred photo are deleted 7 days after the photo was taken. The storage services remove them in the background, usually within a few days after that. [Whether a pin's photo can still be opened through its link until then is checked when the backend is built (PRIV-Q2).]
+- **The photo on a pin.** In the app, a pin also shows the blurred photo with the outlines Lusot used, so anyone can check how the reading was made.
+- **How long a pin stays.** A pin fades after 1 hour and leaves the map after 3 hours. The report and its blurred photo are deleted 7 days after the photo was taken. The storage services remove them in the background, usually within a few days after that. Anyone can open a pin's photo only while the pin is on the map, through a link that lasts 5 minutes. A result that isn't a pin shows its photo only to the person who took it, until it is deleted.
 - **The pin feed** carries only what the map shows, never photos, outlines or device ids. Other flood maps may copy pins from the feed, and Lusot can't delete their copies.
 - **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos. They come from people who agreed to share their photos for this, or from openly licensed photos (CC0, public domain or CC BY, never BY-SA, from Wikimedia Commons and Flickr). Each is credited on screen with its author, licence and a link to the file. Faces and plate numbers are blurred in all of them. An open-licensed demo pin shows the photo's own date, marked as an archive photo, and is always shown as a demo pin. They stay up longer than 3 hours and 7 days, and never count as reports.
 - **Outside Metro Manila.** A photo taken outside Metro Manila is analysed, and the result is shown only to you. It never becomes a pin. The photo still goes to Meta as described above, and the report is kept for 7 days like any other.
@@ -153,7 +149,7 @@ Not affiliated with MMDA.
 
 ### What Lusot collects
 
-- *Taglish draft (M20):* Ang photo na kinunan mo sa app [o 5-second clip, kung isasama ang clip mode]. Kapag nag-report ka. Para tantyahin ang lalim sa spot na iyon.
+- *Taglish draft (M20):* Ang photo na kinunan mo sa app. Kapag nag-report ka. Para tantyahin ang lalim sa spot na iyon.
 - *Taglish draft (M20):* Ang lokasyon (GPS) ng phone mo, gaano ito katumpak, at gaano kalayo mo inilipat ang pin. Sa bawat report. Para mailagay ang pin sa spot.
 - *Taglish draft (M20):* Ang oras na kinunan ang photo, at ang oras na dumating ito sa Lusot. Sa bawat report. Para makita kung gaano kabago ang reading, at para tanggihan ang lumang photo.
 - *Taglish draft (M20):* Isang random na device id, ginagawa sa unang pagbukas mo ng Lusot, sa phone o sa browser. Sa bawat report, tanong o flag. Para limitahan kung ilang report at tanong ang maipapadala ng isang device kada oras, at para isang flag lang ang mabilang mula sa bawat device sa isang pin.
@@ -171,9 +167,6 @@ Not affiliated with MMDA.
 5. *Taglish draft (M20):* **Binubura ang orihinal.** Binubura ng Lusot ang orihinal mong photo kapag na-save na ang resulta. May awtomatikong rule na nag-aalis ng anumang orihinal na naiwan, kadalasan sa loob ng dalawang araw, halimbawa pagkatapos ng isang bigong analysis.
 6. *Taglish draft (M20):* **Naka-blur na kopya lang ang sine-save,** at kapag may nabasang level lang ang Lusot.
 
-- *Taglish draft (M20):* [Kung isasama ang clip mode: bina-blur din muna ang mga mukha sa clip, gaya sa photo. Ina-upload ang clip sa file storage ng Meta na mag-e-expire sa loob ng 1 oras, at binubura roon pagkatapos ng analysis.]
-- *Taglish draft (M20):* [Kung kailangan ito ng service ng Meta (MS4): puwedeng ipadala ng Lusot ang photo na naka-blur ang mga mukha sa file storage ng Meta, na mag-e-expire sa loob ng 1 oras, at burahin ito roon pagkatapos ng analysis.]
-
 ### What Meta keeps
 
 - *Taglish draft (M20):* **Puwedeng i-save ng Meta ang natatanggap nito nang walang takdang tagal,** ayon sa sarili nitong terms. Sakop lang ng 7-day deletion ng Lusot ang sariling kopya ng Lusot, at hindi nito mabubura ang sine-save ng Meta.
@@ -183,10 +176,10 @@ Not affiliated with MMDA.
 
 ### Public pins
 
-- *Taglish draft (M20):* **Kailan nagiging pin ang resulta.** Ang photo na kinunan sa loob ng Metro Manila at may nabasang level ay nagiging public pin, sa mapa at sa public pin feed ng Lusot. [Pinagpapasyahan pa kung magiging pin din ang resultang "no flood seen" (PRIV-Q2).]
+- *Taglish draft (M20):* **Kailan nagiging pin ang resulta.** Ang photo na kinunan sa loob ng Metro Manila at may nabasang level ay nagiging public pin, sa mapa at sa public pin feed ng Lusot. Hindi kailanman nagiging pin ang resultang "no flood seen"; ang kumuha lang ng photo ang nakakakita nito.
 - *Taglish draft (M20):* **Ano ang ipinapakita ng pin:** ang spot, na GPS position ng phone mo o kung saan mo inilipat ang pin, kasama ang katumpakan ng GPS; ang oras na kinunan ang photo; ang level, ang landmark na pinagbasahan nito, at ang passability class nito (PATV, NPLV o NPATV); kung ilang reference object ang ginamit sa reading; [at inches range, kung pumasa lang ang sariling test ng Lusot].
-- *Taglish draft (M20):* **Ang photo sa pin.** [Sa app, makikita rin sa pin ang naka-blur na photo kasama ang mga outline na ginamit ng Lusot, para masuri ng kahit sino kung paano nabasa ang lalim (PRIV-Q2).]
-- *Taglish draft (M20):* **Gaano katagal ang pin.** Lumalabo ang pin pagkalipas ng 1 oras, at nawawala sa mapa pagkalipas ng 3 oras. Binubura ang report at ang naka-blur na photo nito 7 araw pagkatapos kunan ang photo. Inaalis ito ng mga storage service sa background, kadalasan sa loob ng ilang araw pagkatapos. [Titingnan kapag binuo na ang backend kung mabubuksan pa ang photo ng pin sa link nito hanggang noon (PRIV-Q2).]
+- *Taglish draft (M20):* **Ang photo sa pin.** Sa app, makikita rin sa pin ang naka-blur na photo kasama ang mga outline na ginamit ng Lusot, para masuri ng kahit sino kung paano nabasa ang lalim.
+- *Taglish draft (M20):* **Gaano katagal ang pin.** Lumalabo ang pin pagkalipas ng 1 oras, at nawawala sa mapa pagkalipas ng 3 oras. Binubura ang report at ang naka-blur na photo nito 7 araw pagkatapos kunan ang photo. Inaalis ito ng mga storage service sa background, kadalasan sa loob ng ilang araw pagkatapos. Mabubuksan ng kahit sino ang photo ng pin habang nasa mapa lang ang pin, sa link na tumatagal nang 5 minuto. Ang resultang hindi pin ay ipinapakita ang photo nito sa kumuha lang nito, hanggang mabura ito.
 - *Taglish draft (M20):* **Ang pin feed** ay may dala lang na nakikita sa mapa, hindi kailanman photo, outline o device id. Puwedeng kopyahin ng ibang flood map ang mga pin mula sa feed, at hindi mabubura ng Lusot ang kopya nila.
 - *Taglish draft (M20):* **Demo pin at sample.** Nagpapakita rin ang Lusot ng mga demo pin at sample photo na may label. Galing ang mga ito sa mga taong pumayag na ibahagi ang photo nila para rito, o sa mga photo na bukas ang lisensya (CC0, public domain o CC BY, hindi kailanman BY-SA, mula sa Wikimedia Commons at Flickr). May credit sa screen ang bawat isa, kasama ang author, ang lisensya at link sa file. Naka-blur ang mga mukha at plate number sa lahat ng ito. Ang demo pin na galing sa photo na bukas ang lisensya ay nagpapakita ng sariling petsa ng photo, na may markang archive photo, at laging ipinapakita bilang demo pin. Mas matagal sila kaysa 3 oras at 7 araw, at hindi kailanman binibilang bilang report.
 - *Taglish draft (M20):* **Sa labas ng Metro Manila.** Sinusuri ang photo na kinunan sa labas ng Metro Manila, at ikaw lang ang makakakita ng resulta. Hindi ito nagiging pin. Mapupunta pa rin ang photo sa Meta gaya ng nasa itaas, at sine-save ang report nang 7 araw, tulad ng iba.
@@ -254,6 +247,7 @@ The full questions, with options and defaults, are in Window 4's handoff note.
   - whether a pin's detail shows the blurred photo with its outlines to everyone (the plan's overlay feature says anyone can check the reading)
   - whether a pin's photo link still opens until day 7
   - **MS4's defaults** (spec draft 4, for Rene with these): "no flood seen" isn't a pin (MS4-Q2 (b), C506). A pin's detail shows the blurred photo and its overlay through 5-minute links, issued to anyone holding the pin's id while the pin is on the map (3 hours); an unpublished result's links are issued to the holder of its id for its 7 days (MS4-Q10 (a), C503). Past day 7 the report answers "not found" (C526). The page's brackets change to the chosen rule once Rene picks.
+  - **Proposed Oct 31 (Window 4, for Rene's review; not merged until he approves):** the page now states MS4's defaults as built: no "no flood seen" pin (C506), the photo with its outlines on a pin (MS5-Q3 (a)), and a pin's photo opened only while the pin is on the map, through 5-minute links (C503); the "Meta's file storage" bracket is gone, since the pipeline sends each photo inline and never uses Meta's file storage.
 - **PRIV-Q3: Ask Lusot. Approved on its default (a)** by Claude under Rene's delegation (Oct 29, the tracker's check): no stored questions, `store: false` on Muse Spark, a place cache keyed by a hash (7 days, 1 day for a miss), a "dito" location that never leaves the server, and the 18+ check and notice before the first question. The page's brackets are filled to match (Ask Lusot's spec C720 and AskL-Q3). Ask Lusot is typed only since Oct 30 (7:28 AM), when its voice tasks were dropped: both drafts now describe typed questions only.
 - **PRIV-Q4:** the contact for privacy requests. Held for Rene. No email address may be committed (CLAUDE.md; MS8's C903 scans the history), so the address reaches the page at build time from a git-ignored config, as the alarm email reaches the template from `samconfig.toml`, and never enters a committed file. Window 2 builds MS5's side.
 - **PRIV-Q5:** whether to name OpenStreetMap's map servers. **Approved as drafted** (OpenStreetMap named), Oct 29. On Oct 30 (Window 2, MS5 Task 11, through the tracker at 1:51 PM), the line gained the place step: it loads the map's images around the person's own position, so OpenStreetMap also sees the area on screen, within about 300 m of them. The consent notice gained a line to match.
@@ -268,4 +262,4 @@ The full questions, with options and defaults, are in Window 4's handoff note.
   - The options were: (a) Amplify connected to GitHub; (b) Amplify in the SAM template, builds uploaded by script; (c) Amazon S3 and CloudFront in the template, access logging off, deployed by the same script.
   - Why (c): Amplify keeps access logs, with visitors' IP addresses, "until you delete the app", with no off switch (its user guide, checked through Context7), which breaks CLAUDE.md's "Keep data 7 days". (c) keeps no visitor IP address, inside AWS's free tier.
 - **PRIV-Q10: Anthropic, through the developer's AI assistant.** Approved, policy only (Oct 29). Claude, the assistant Rene builds and runs Lusot with, can see app data while checking it: the service logs (timings, model names, reasons and report ids; never photos, locations, IP addresses or device ids, by design), a flagged report and its blurred photo when a pin is checked or hidden, privacy requests (MS9's C1013), the demo video's frames (MS8's C906), and Ask's test answers. The policy says so, with Anthropic's retention as Rene confirmed it (30 days with his model-improvement setting off; up to 2 years if flagged).
-- **[clip mode]** and **[inches range]** stay only if clip mode ships and the release gate passes.
+- **[inches range]** stays only if the release gate passes. Clip mode doesn't ship (MS5 is photo only), so its brackets are gone (Oct 31, Window 4, for Rene's review).
