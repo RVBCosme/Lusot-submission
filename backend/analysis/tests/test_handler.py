@@ -6,6 +6,7 @@ loader, with MetaClient replaced by a recorder. A guard fails any test that buil
 real MetaClient by accident.
 """
 
+import builtins
 import dataclasses
 import importlib.util
 import json
@@ -210,6 +211,7 @@ def aws(monkeypatch, prompts):
     monkeypatch.setattr(handler, "_now_s", lambda: NOW_S)
     handler._client.cache_clear()
     handler._post_run_ssm.cache_clear()
+    handler._post_run_s3.cache_clear()
     handler._spend_ddb.cache_clear()
     with mock_aws():
         s3, ddb, ssm = (boto3.client(name) for name in ("s3", "dynamodb", "ssm"))
@@ -230,6 +232,7 @@ def aws(monkeypatch, prompts):
     # Their clients belong to the mock that just ended.
     handler._client.cache_clear()
     handler._post_run_ssm.cache_clear()
+    handler._post_run_s3.cache_clear()
     handler._spend_ddb.cache_clear()
 
 
@@ -721,19 +724,23 @@ def test_publish_switch_is_read_once_after_the_result(aws, fake, monkeypatch):
     assert at_judge == [[SWITCH, SPEND_STOP]]
 
 
+@pytest.mark.parametrize(("mode", "prefix"), [("live", ""), ("demo", "demo/")])
 @pytest.mark.parametrize(
     ("switch", "expected"),
     [("off", ("done", None)), ("on", ("failed", "model_calls_paused"))],
     ids=["no-flood-seen", "model-calls-paused"],
 )
-def test_stale_photo_is_removed_after_the_claim(aws, fake, switch, expected):
+def test_stale_photo_is_removed_after_the_claim(
+    aws, fake, switch, expected, mode, prefix
+):
     # An earlier attempt saved its level's photo and overlay and then failed its
-    # write, and its lease has expired. Every attempt starts with none of them (C72).
+    # write, and its lease has expired. Every attempt starts with none of them (C72):
+    # a demo report's three, under demo/, as well (Minor 5).
     fake.answer = answer(standing_water="no")
     aws.ssm.put_parameter(Name=SWITCH, Value=switch, Type="String", Overwrite=True)
-    seed(aws, photo=LEVEL_PHOTO, **claimed("old", NOW_S - 901))
+    seed(aws, photo=LEVEL_PHOTO, mode={"S": mode}, **claimed("old", NOW_S - 901))
     for key in STORED_KEYS:
-        aws.s3.put_object(Bucket=BUCKET, Key=key, Body=b"a stale level object")
+        aws.s3.put_object(Bucket=BUCKET, Key=prefix + key, Body=b"a stale level object")
     assert handler.handler(message(), None) == NO_FAILURES
     assert status(aws) == expected
     assert "photoKey" not in report(aws)
@@ -1121,6 +1128,34 @@ def test_overlay_failure_keeps_the_result(aws, fake, monkeypatch, caplog):
     assert "MESSAGE-MARKER" not in caplog.text
 
 
+def test_overlay_import_failure_keeps_the_result(aws, fake, monkeypatch, caplog):
+    # Minor 1: the overlay module, and OpenCV with it, loads inside each guard, so a
+    # failed import after the paid run is a fault in the readings and in the drawing:
+    # the result is written without either, never retried.
+    real_import = builtins.__import__
+
+    def failing_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "lusot_analysis.overlay" or (
+            name == "lusot_analysis" and "overlay" in (fromlist or ())
+        ):
+            raise ImportError("the overlay didn't load: MESSAGE-MARKER")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", failing_import)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_WITHOUT_RECORD
+    assert keys(aws) == [PHOTO_KEY]
+    assert len(fake.calls) == 8  # paid once
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["readings_error"] == "ImportError"
+    assert line["overlay_error"] == "ImportError"
+    assert "MESSAGE-MARKER" not in caplog.text
+
+
 def test_readings_failure_keeps_the_result(aws, fake, monkeypatch, caplog):
     # Review Focus 3: a record the readings can't take (MS3b checks finiteness only on
     # the outcome's inches) writes the result without them, never retried.
@@ -1143,10 +1178,38 @@ def test_readings_failure_keeps_the_result(aws, fake, monkeypatch, caplog):
     assert "overlay_error" not in line
 
 
+def test_readings_the_table_cant_take_keep_the_result(aws, fake, monkeypatch, caplog):
+    # Minor 2: the final write encodes the readings, so they are encoded once inside
+    # their own guard first. A value the table can't take, such as a NumPy bool from
+    # a change to the record, writes the result without them. It never raises at the
+    # final write, which would return the message to claim and pay again.
+    readings = overlay.readings
+
+    def numpy_used(evidence):
+        found = readings(evidence)
+        found[1]["used"] = np.bool_(found[1]["used"])  # wheel 2
+        return found
+
+    monkeypatch.setattr(overlay, "readings", numpy_used)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | {
+        name: value for name, value in KNEE.items() if name != "readings"
+    }
+    assert keys(aws) == LEVEL_KEYS  # the overlay and its layers are still drawn
+    assert len(fake.calls) == 8  # paid once
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["readings_error"] == "AttributeError"
+    assert "overlay_error" not in line
+
+
 def test_failed_overlay_put_keeps_the_result(aws, fake, monkeypatch, caplog):
     # A put of the overlay or its layers is as much a part of the drawing as the
     # drawing: losing either writes the result without both keys, never retried.
-    s3 = handler._client("s3")
+    s3 = handler._post_run_s3()
     put_object = s3.put_object
 
     def put(**kwargs):
@@ -1164,10 +1227,62 @@ def test_failed_overlay_put_keeps_the_result(aws, fake, monkeypatch, caplog):
         for name, value in KNEE.items()
         if name not in ("overlayKey", "layersKey")
     }
+    # The photo is kept. The overlay, put before its layers, stays unreferenced, as
+    # no item names it, until the lifecycle rule removes it (Minor 9).
+    assert keys(aws) == sorted([OVERLAY_KEY, PHOTO_KEY])
     assert len(fake.calls) == 8
     (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
     assert line["overlay_error"] == "ClientError"
     assert "arn:" not in caplog.text
+
+
+def test_post_run_puts_have_their_own_bounded_client(aws, fake, monkeypatch, caplog):
+    # Minor 3: the photo's, the overlay's and the layers' puts come after the paid
+    # run, inside its 30 s margin, so a hung put mustn't outlast it and make a
+    # redelivery pay again. Their client has 2 s timeouts and 2 retries, as the
+    # post-run SSM client has. The raw photo's read and the deletes keep the shared
+    # client. A timeout on the layers' put lands in the drawing's guard: the result is
+    # written without the overlay's keys, never retried.
+    config = handler._post_run_s3().meta.config
+    assert (config.connect_timeout, config.read_timeout) == (2, 2)
+    # botocore stores Config's max_attempts, a count of retries, as total attempts.
+    assert config.retries["total_max_attempts"] == 2 + 1
+    assert handler._post_run_s3() is handler._post_run_s3()  # made once
+    shared, bounded = handler._client("s3"), handler._post_run_s3()
+    shared_put, bounded_put = shared.put_object, bounded.put_object
+    shared_puts, bounded_puts = [], []
+
+    def put_shared(**kwargs):
+        shared_puts.append(kwargs["Key"])
+        return shared_put(**kwargs)
+
+    def put_bounded(**kwargs):
+        bounded_puts.append(kwargs["Key"])
+        if kwargs["Key"] == LAYERS_KEY:
+            raise ReadTimeoutError(
+                endpoint_url="https://s3.ap-southeast-1.amazonaws.com/"
+            )
+        return bounded_put(**kwargs)
+
+    monkeypatch.setattr(shared, "put_object", put_shared)
+    monkeypatch.setattr(bounded, "put_object", put_bounded)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert (shared_puts, bounded_puts) == ([], STORED_KEYS)
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | {
+        name: value
+        for name, value in KNEE.items()
+        if name not in ("overlayKey", "layersKey")
+    }
+    assert keys(aws) == sorted([OVERLAY_KEY, PHOTO_KEY])
+    assert len(fake.calls) == 8  # paid once
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["overlay_error"] == "ReadTimeoutError"
+    assert "Read timeout" not in caplog.text  # the class name only
 
 
 # A sample seed's copy (C512, MS4-Q14; the tracker's ruling, Oct 30, 10:31 AM)
@@ -1767,7 +1882,7 @@ def test_other_s3_errors_retry(aws, fake, monkeypatch, caplog, code, http_status
 
 def test_aws_error_after_meta_calls_retries(aws, fake, monkeypatch, caplog):
     seed(aws, photo=LEVEL_PHOTO)
-    s3 = handler._client("s3")
+    s3 = handler._post_run_s3()  # the photo's put comes after the paid run
     put_object = s3.put_object
 
     def put(**kwargs):
@@ -2213,7 +2328,7 @@ def raise_after_two_calls(data, client, *, deadline=None, keep_photo=False):
 
 
 def fail_photo_put(aws, fake, monkeypatch) -> None:
-    s3 = handler._client("s3")
+    s3 = handler._post_run_s3()
     put_object = s3.put_object
 
     def put(**kwargs):

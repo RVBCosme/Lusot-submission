@@ -55,7 +55,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from lusot_analysis.prompts import PromptSpec, load_prompt
-from lusot_analysis.report_store import claim, write_result
+from lusot_analysis.report_store import _attribute_value, claim, write_result
 from lusot_analysis.spend import (
     SPARK_TOKENS_IF_UNREPORTED,
     SPEND_CONFIG,
@@ -91,6 +91,10 @@ _PUBLISHED_MODES = frozenset({"live", "demo"})  # the modes that pin (C516)
 # SSM after the paid run: 2 s timeouts and 2 retries (3 tries), so a hung call ends
 # well inside DEADLINE_MARGIN_S and can't make a redelivery pay again.
 _POST_RUN_SSM_CONFIG = Config(
+    connect_timeout=2, read_timeout=2, retries={"max_attempts": 2}
+)
+# S3 after the paid run, for a level's photo, overlay and layers: the same bounds.
+_POST_RUN_S3_CONFIG = Config(
     connect_timeout=2, read_timeout=2, retries={"max_attempts": 2}
 )
 
@@ -137,6 +141,17 @@ def _post_run_ssm():
     before the run keep `_client("ssm")`.
     """
     return boto3.client("ssm", config=_POST_RUN_SSM_CONFIG)
+
+
+@functools.cache
+def _post_run_s3():
+    """The S3 client for every put after the paid run, made on first use.
+
+    It stores a level's photo, overlay and layers, and its short timeouts bound each
+    put inside the run's margin, as `_post_run_ssm` does. The raw photo's read and the
+    deletes keep `_client("s3")`.
+    """
+    return boto3.client("s3", config=_POST_RUN_S3_CONFIG)
 
 
 @functools.cache
@@ -602,7 +617,7 @@ def _finish(
     if outcome.level is not None or (seed and outcome.no_flood_seen):
         if photo is not None:
             photo_key = _photo_keys(report)[0]
-            _client("s3").put_object(
+            _post_run_s3().put_object(
                 Bucket=os.environ["BUCKET_NAME"],
                 Key=photo_key,
                 Body=photo,
@@ -631,22 +646,28 @@ def _evidence_fields(
     The overlay is drawn on `photo`, the stored one. Each of the two runs inside its
     own guard and is never retried: the result is paid for, and a message returned for
     a fault here would claim the report again and pay again (Review Focus 3). A fault
-    in `readings` adds `readings_error` to `line`, with its class name only, and the
-    result goes without them. One in the drawing, or in storing it, adds
-    `overlay_error` the same way, and the result goes without `overlayKey` and
-    `layersKey`. The two keys come only after both objects are stored. A level with no
-    photo gets readings but no overlay.
+    in `readings`, or a value in them the final write couldn't encode, adds
+    `readings_error` to `line`, with its class name only, and the result goes without
+    them. One in the drawing, or in storing it, adds `overlay_error` the same way, and
+    the result goes without `overlayKey` and `layersKey`. The two keys come only after
+    both objects are stored. A level with no
+    photo gets readings but no overlay. The overlay module loads inside each guard, so
+    a failed import is a fault in both.
     """
-    from lusot_analysis import overlay  # OpenCV: loaded here, not at import
-
     fields: dict[str, object] = {}
     try:
-        fields["readings"] = overlay.readings(evidence)
+        from lusot_analysis import overlay  # OpenCV: loaded here, not at import
+
+        found = overlay.readings(evidence)
+        _attribute_value(found)  # as write_result encodes them, so it can't raise there
+        fields["readings"] = found
     except Exception as exc:  # noqa: BLE001
         line["readings_error"] = type(exc).__name__
     if photo is None:
         return fields
     try:
+        from lusot_analysis import overlay  # already loaded, unless it failed above
+
         image, layers = overlay.draw_overlay(photo, evidence)
         document = json.dumps(layers, allow_nan=False).encode()
         _, overlay_key, layers_key = _photo_keys(report)
@@ -654,7 +675,7 @@ def _evidence_fields(
             (overlay_key, image, "image/jpeg"),
             (layers_key, document, "application/json"),
         ):
-            _client("s3").put_object(
+            _post_run_s3().put_object(
                 Bucket=os.environ["BUCKET_NAME"],
                 Key=stored,
                 Body=body,
