@@ -123,7 +123,7 @@ export const FIL: Record<StringKey, Entry> = {
   'report.notSent': { text: 'Hindi naipadala ang photo', reviewed: false },
   'report.nothingUploaded': { text: 'Walang na-upload.', reviewed: false },
   'report.uploadFailed': { text: 'Tingnan ang connection mo, saka subukan ulit.', reviewed: false },
-  'report.sendFailed': { text: 'Hindi naipadala ng Lusot ang photo.', reviewed: false },
+  'report.sendFailed': { text: 'Hindi naipadala ng Lusot ang photo. Subukan ulit.', reviewed: false },
   'report.limit.device_limit': {
     text: 'Naabot na ng phone na ito ang dami ng photo na tinatanggap ng Lusot sa isang oras. Subukan ulit mamaya.',
     reviewed: false,

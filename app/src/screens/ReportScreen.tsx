@@ -3,7 +3,7 @@ import { PausedNotice, ResultCard } from '../components/ResultCard'
 import { T } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { useGate } from '../lib/consent'
-import type { FlowState, Problem, RefusedCode } from '../report/flow'
+import { retryKind, type FlowState, type RefusedCode } from '../report/flow'
 import { useReportFlow, type ReportFlow } from '../report/ReportFlowProvider'
 import { routeHash } from '../router'
 import { CameraStep } from './report/CameraStep'
@@ -109,11 +109,14 @@ function Step({
       return <CameraStep key={state.shot} onPhoto={flow.photoTaken} onStreamOpen={flow.streamOpened} />
     case 'place':
       return <PlaceView state={state} flow={flow} onSend={onSend} />
+    // A key per phase: the heading is a new element when the photo is sent, so focus moves to it and a screen reader
+    // says so.
     case 'sending':
-      return <WaitingStep phase="sending" />
+      return <WaitingStep key="sending" phase="sending" />
     case 'waiting':
       return (
         <WaitingStep
+          key="waiting"
           phase="waiting"
           uploadedAt={state.uploadedAt}
           timedOut={state.timedOut}
@@ -162,10 +165,11 @@ function TooOld({ onNewPhoto }: { onNewPhoto(): void }) {
   )
 }
 
-// C602: a still under 1,600 px on its longer side may be too small to read. It can still be sent.
+// C602: a still under 1,600 px on its longer side may be too small to read. It can still be sent. It sits under the
+// step's heading, so it is read after it.
 function SmallStill({ onNewPhoto }: { onNewPhoto(): void }) {
   return (
-    <div className="mb-4 max-w-prose rounded-control border border-dashed border-outline p-3">
+    <div className="mt-3 max-w-prose rounded-control border border-dashed border-outline p-3">
       <p className="text-small">
         <T k="report.smallStill" />
       </p>
@@ -195,18 +199,13 @@ function PlaceView({
   const small = photo.smallStill ? <SmallStill onNewPhoto={flow.start} /> : null
   if (fix.status === 'found') {
     // A key per fix, so a retried fix starts a fresh place step.
-    return (
-      <>
-        {small}
-        <PlaceStep key={fix.gen} fix={fix.fix} onSend={onSend} onRetryFix={flow.retryFix} />
-      </>
-    )
+    return <PlaceStep key={fix.gen} fix={fix.fix} notice={small} onSend={onSend} onRetryFix={flow.retryFix} />
   }
   return (
     <Section title="report.locationTitle">
-      <div className="mt-3">{small}</div>
+      {small}
       {fix.status === 'failed' ? (
-        <div role="alert" className="max-w-prose">
+        <div role="alert" className="mt-3 max-w-prose">
           <p>
             <T k={fix.line} />
           </p>
@@ -215,7 +214,7 @@ function PlaceView({
           </button>
         </div>
       ) : (
-        <p role="status" className="max-w-prose">
+        <p role="status" className="mt-3 max-w-prose">
           <T k="report.locating" />
         </p>
       )}
@@ -241,9 +240,6 @@ function StillWorks() {
   )
 }
 
-const isLimit = (problem: Problem) =>
-  problem.kind === 'refused' && (problem.code === 'device_limit' || problem.code === 'global_cap')
-
 // Why the photo wasn't sent, and what can be done. Every line here is the app's own, never "Processing failed":
 // nothing was analysed (C638).
 function ProblemView({
@@ -256,6 +252,7 @@ function ProblemView({
   onRetry(): void
 }) {
   const { problem, photo } = state
+  const retry = retryKind(problem)
   const nothing = (
     <p className="mt-2">
       <T k="report.nothingUploaded" />
@@ -266,9 +263,11 @@ function ProblemView({
   if (problem.kind === 'paused') {
     body = <PausedNotice links={['map', 'tested']}>{nothing}</PausedNotice>
   } else if (problem.kind === 'upload') {
+    // The connection is named only when the browser said it was offline; any other failure gets the neutral line. No
+    // "Nothing was uploaded." here: a photo whose upload timed out may have reached S3.
     body = (
       <p role="alert">
-        <T k="report.uploadFailed" />
+        <T k={problem.offline === true ? 'report.uploadFailed' : 'report.sendFailed'} />
       </p>
     )
   } else {
@@ -278,7 +277,7 @@ function ProblemView({
           <T k={problem.kind === 'refused' ? REFUSED_LINE[problem.code] : 'report.sendFailed'} />
         </p>
         {nothing}
-        {isLimit(problem) && <StillWorks />}
+        {retry === 'none' && <StillWorks />}
       </div>
     )
   }
@@ -286,20 +285,18 @@ function ProblemView({
   // A resend (after an upload problem or a pause) or a new fix (after a location refusal) reuses the photo while it is
   // under 15 minutes old; past that, only a new photo. A limit has no retry; other refusals ask for a new photo.
   let action: ReactNode = null
-  const resends = problem.kind === 'upload' || problem.kind === 'paused'
-  const refixes = problem.kind === 'refused' && (problem.code === 'gps_too_coarse' || problem.code === 'nudge_too_far')
-  if (resends || refixes) {
+  if (retry === 'resend' || retry === 'refix') {
     action =
       photo === undefined ? (
         <TooOld onNewPhoto={flow.start} />
       ) : (
         <div className="mt-4">
-          <button type="button" onClick={resends ? onRetry : flow.retryFix} className={PRIMARY}>
-            <T k={resends ? 'result.tryAgain' : 'location.retry'} />
+          <button type="button" onClick={retry === 'resend' ? onRetry : flow.retryFix} className={PRIMARY}>
+            <T k={retry === 'resend' ? 'result.tryAgain' : 'location.retry'} />
           </button>
         </div>
       )
-  } else if (!isLimit(problem)) {
+  } else if (retry === 'newPhoto') {
     action = (
       <div className="mt-4">
         <NewPhoto onClick={flow.start} />

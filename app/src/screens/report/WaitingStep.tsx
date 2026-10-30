@@ -15,9 +15,9 @@ type Props = { phase: 'sending' } | { phase: 'waiting'; uploadedAt: number; time
 // "Check again" polls the same report. The person may leave; the wait goes on and the result waits here.
 export function WaitingStep(props: Props) {
   const headingId = useId()
-  const busy = props.phase === 'sending' || !props.timedOut
+  // No aria-busy: a screen reader may hold back a live region inside a busy element, and the queue note must be heard.
   return (
-    <section aria-labelledby={headingId} aria-busy={busy} className="flex flex-col">
+    <section aria-labelledby={headingId} className="flex flex-col">
       <h1 id={headingId} className="text-title font-bold">
         <T k={props.phase === 'sending' ? 'report.sendingTitle' : 'report.waitingTitle'} />
       </h1>

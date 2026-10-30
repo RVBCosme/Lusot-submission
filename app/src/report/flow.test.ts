@@ -6,13 +6,14 @@ import type { Photo } from '../screens/report/CameraStep'
 import type { Place } from '../screens/report/PlaceStep'
 import {
   flowReducer,
+  firstWindow,
   initialFlow,
-  keepsPhoto,
   LINK_LIFE_MS,
   linkReusable,
   ownPinOf,
   PHOTO_LIFE_MS,
   photoUsable,
+  retryKind,
   type FlowAction,
   type FlowState,
   type Problem,
@@ -214,6 +215,42 @@ describe('the flow reducer', () => {
     }
   })
 
+  it('an S3 failure that may have landed (a timeout or a network error) is marked so with its link', () => {
+    const state = run(sending(), { type: 'linked', link: LINK }, { type: 'failed', problem: { kind: 'upload' }, mayHaveLanded: true })
+    expect(state).toMatchObject({ step: 'problem', again: { link: LINK, mayHaveLanded: true } })
+    // Without a link, nothing reached S3, so nothing can have landed.
+    expect(run(sending(), { type: 'failed', problem: { kind: 'upload' }, mayHaveLanded: true })).toEqual({
+      step: 'problem',
+      shot: 0,
+      problem: { kind: 'upload' },
+      photo: PHOTO,
+      again: { fix: FIX, place: PLACE },
+    })
+  })
+
+  it('"landed" waits on the old report: the photo goes, the sent position stays, and the window is fresh', () => {
+    const resending = run(
+      sending(),
+      { type: 'linked', link: LINK },
+      { type: 'failed', problem: { kind: 'upload' }, mayHaveLanded: true },
+      { type: 'resend' },
+    )
+    const state = flowReducer(resending, { type: 'landed', reportId: LINK.reportId, at: T0 + 400_000 })
+    expect(state).toEqual({
+      step: 'waiting',
+      shot: 0,
+      reportId: LINK.reportId,
+      sent: { lat: PLACE.lat, lng: PLACE.lng, accuracyM: FIX.accuracyM, capturedAt: PHOTO.capturedAt },
+      uploadedAt: T0 + 400_000,
+      window: firstWindow(T0 + 400_000),
+      timedOut: false,
+    })
+    expect(holdsPhoto(state)).toBe(false)
+    for (const other of [atPlace(), waiting(), failedWith({ kind: 'upload' }, true)]) {
+      expect(flowReducer(other, { type: 'landed', reportId: LINK.reportId, at: T0 })).toBe(other)
+    }
+  })
+
   it('the result keeps the answer and the accuracy of the fix, and no position', () => {
     const state = run(waiting(), { type: 'result', result: LEVEL })
     expect(state).toEqual({ step: 'result', shot: 0, result: LEVEL, fixAccuracyM: FIX.accuracyM })
@@ -284,14 +321,16 @@ describe('uploadProblem, for a failed POST /uploads', () => {
     expect(uploadProblem(err)).toEqual(problem)
   })
 
-  it('keepsPhoto: a retry with the same photo after an upload problem, a pause or a location refusal only', () => {
-    expect(keepsPhoto({ kind: 'upload' })).toBe(true)
-    expect(keepsPhoto({ kind: 'paused' })).toBe(true)
-    expect(keepsPhoto({ kind: 'refused', code: 'gps_too_coarse' })).toBe(true)
-    expect(keepsPhoto({ kind: 'refused', code: 'nudge_too_far' })).toBe(true)
-    expect(keepsPhoto({ kind: 'refused', code: 'device_limit' })).toBe(false)
-    expect(keepsPhoto({ kind: 'refused', code: 'capture_too_old' })).toBe(false)
-    expect(keepsPhoto({ kind: 'other' })).toBe(false)
+  it('retryKind: a resend after an upload problem or a pause, a new fix after a location refusal, no retry after a limit', () => {
+    expect(retryKind({ kind: 'upload' })).toBe('resend')
+    expect(retryKind({ kind: 'paused' })).toBe('resend')
+    expect(retryKind({ kind: 'refused', code: 'gps_too_coarse' })).toBe('refix')
+    expect(retryKind({ kind: 'refused', code: 'nudge_too_far' })).toBe('refix')
+    expect(retryKind({ kind: 'refused', code: 'capture_too_old' })).toBe('newPhoto')
+    expect(retryKind({ kind: 'refused', code: 'capture_in_future' })).toBe('newPhoto')
+    expect(retryKind({ kind: 'other' })).toBe('newPhoto')
+    expect(retryKind({ kind: 'refused', code: 'device_limit' })).toBe('none')
+    expect(retryKind({ kind: 'refused', code: 'global_cap' })).toBe('none')
   })
 })
 

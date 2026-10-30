@@ -47,7 +47,7 @@ let fixes: ReturnType<typeof deferred<Fix>>[] = []
 // ---- the fake API ----
 
 type Kind = 'upload' | 's3' | 'report' | 'other'
-type Scripted = Response | Error | 'hang' | ((url: string) => Response)
+type Scripted = Response | Error | 'hang' | ((url: string) => Response | Promise<Response>)
 type Call = { kind: Kind; url: string; init?: RequestInit }
 
 const reply = (status: number, body?: unknown) =>
@@ -330,6 +330,8 @@ describe('the whole path', () => {
     await send()
 
     expect(heading().textContent).toBe(text('report.waitingTitle'))
+    // Nothing on the screen is busy, so a screen reader announces the queue note when it comes.
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull()
     await advance(59_000)
     expect(screen.getByText(EN['report.elapsed'].text.replace('{seconds}', '59'))).toBeTruthy()
     expect(shows('report.queue')).toBe(false)
@@ -337,6 +339,22 @@ describe('the whole path', () => {
     expect(screen.getByText(text('report.queue'))).toBeTruthy()
     expect(text('report.queue')).not.toMatch(/\d/)
     expect(document.body.textContent?.split(SCREEN_LINE)).toHaveLength(2)
+  })
+
+  it('when the photo is sent, focus moves from the sending heading to the waiting heading', async () => {
+    const hold = deferred<void>()
+    fakeApi('pending_forever', { s3: [() => hold.promise.then(() => reply(204))] })
+    await reachPlace()
+    await send()
+    const sendingHeading = heading()
+    expect(sendingHeading.textContent).toBe(text('report.sendingTitle'))
+    expect(document.activeElement).toBe(sendingHeading)
+
+    await act(async () => hold.resolve())
+    await settle()
+    expect(heading().textContent).toBe(text('report.waitingTitle'))
+    expect(heading()).not.toBe(sendingHeading)
+    expect(document.activeElement).toBe(heading())
   })
 })
 
@@ -406,7 +424,7 @@ describe('retries (pay once)', () => {
     await advance(2_000)
 
     expect(heading().textContent).toBe(text('report.notSent'))
-    expect(screen.getByText(text('report.uploadFailed'))).toBeTruthy()
+    expect(screen.getByText(text('report.sendFailed'))).toBeTruthy()
     expect(api.of('s3')).toHaveLength(2)
 
     await advance(4 * 60_000)
@@ -415,24 +433,89 @@ describe('retries (pay once)', () => {
     expect(api.of('upload')).toHaveLength(1)
     expect(api.of('s3')).toHaveLength(3)
     expect(api.of('s3')[2]?.url).toBe(api.of('s3')[0]?.url)
+    // A link still in its 5 minutes is used again without asking about the old report.
+    expect(api.calls.findIndex((call) => call.kind === 'report')).toBeGreaterThan(
+      api.calls.indexOf(api.of('s3')[2] as Call),
+    )
     expect(getUserMedia).toHaveBeenCalledOnce()
     expect(heading().textContent).toBe(text('report.waitingTitle'))
   })
 
-  it('"Try again" asks for a new upload link only when the old one is over 5 minutes old', async () => {
+  it('past 5 minutes after a network failure, "Try again" asks about the old report once, and a pending one gets a new link', async () => {
     const api = fakeApi('level_knee', { s3: [new TypeError('offline'), new TypeError('offline')] })
     await reachPlace()
     await send()
     await advance(2_000)
+    const oldUrl = api.of('s3')[0]?.url ?? ''
+    const oldId = oldUrl.split('/').pop()
     // The link came at T0; it is now over 5 minutes old, and the photo is still under 15.
     await advance(5 * 60_000)
 
     fireEvent.click(button('result.tryAgain'))
     await settle()
+    // The mock never got the photo, so the old report is still pending.
+    const kinds = api.calls.map((call) => call.kind)
+    expect(kinds.slice(3, 6)).toEqual(['report', 'upload', 's3'])
+    expect(api.of('report')[0]?.url).toBe(`${API}/reports/${oldId}`)
     expect(api.of('upload')).toHaveLength(2)
     expect(api.uploadBody(1).capturedAt).toBe(new Date(T0).toISOString())
     expect(api.of('s3')).toHaveLength(3)
-    expect(api.of('s3')[2]?.url).not.toBe(api.of('s3')[0]?.url)
+    expect(api.of('s3')[2]?.url).not.toBe(oldUrl)
+  })
+
+  it('an old report that already reads processing is waited on: no second POST /uploads, and the poll reads the old id', async () => {
+    const api = fakeApi('level_knee', {
+      s3: [new TypeError('offline'), new TypeError('offline')],
+      report: [(url) => reply(200, { reportId: url.split('/').pop(), status: 'processing', mode: 'live', published: false })],
+    })
+    await reachPlace()
+    await send()
+    await advance(2_000)
+    const oldId = api.of('s3')[0]?.url.split('/').pop()
+    await advance(5 * 60_000 + 1)
+
+    fireEvent.click(button('result.tryAgain'))
+    await settle()
+    expect(heading().textContent).toBe(text('report.waitingTitle'))
+    await advance(POLL.fastMs * 2)
+    expect(api.of('upload')).toHaveLength(1)
+    expect(api.of('s3')).toHaveLength(2)
+    expect(api.of('report').length).toBeGreaterThan(1)
+    for (const call of api.of('report')) expect(call.url).toBe(`${API}/reports/${oldId}`)
+  })
+
+  it('two clicks on "Try again" while the old report is read make one read and one new link', async () => {
+    const api = fakeApi('level_knee', { s3: [new TypeError('offline'), new TypeError('offline')] })
+    await reachPlace()
+    await send()
+    await advance(2_000)
+    await advance(5 * 60_000 + 1)
+    const again = button('result.tryAgain')
+
+    act(() => {
+      again.click()
+      again.click()
+    })
+    await settle()
+    // One read of the old report, then one new link and its upload: a second read or link would show here.
+    expect(api.calls.map((call) => call.kind).slice(3, 6)).toEqual(['report', 'upload', 's3'])
+    expect(api.of('upload')).toHaveLength(2)
+    expect(api.of('s3')).toHaveLength(3)
+  })
+
+  it('after an S3 4xx, "Try again" past 5 minutes asks for a new link without asking about the old report', async () => {
+    const api = fakeApi('level_knee', { s3: [reply(403, {})] })
+    await reachPlace()
+    await send()
+    await settle()
+    expect(heading().textContent).toBe(text('report.notSent'))
+    expect(api.of('s3')).toHaveLength(1)
+    await advance(5 * 60_000 + 1)
+
+    fireEvent.click(button('result.tryAgain'))
+    await settle()
+    expect(api.calls.map((call) => call.kind).slice(2, 4)).toEqual(['upload', 's3'])
+    expect(api.of('upload')).toHaveLength(2)
   })
 
   it('a POST /uploads that fails twice on the network shows the upload problem, and "Try again" asks again', async () => {
@@ -441,12 +524,46 @@ describe('retries (pay once)', () => {
     await send()
     await advance(2_000)
     expect(api.of('upload')).toHaveLength(2)
-    expect(screen.getByText(text('report.uploadFailed'))).toBeTruthy()
+    expect(screen.getByText(text('report.sendFailed'))).toBeTruthy()
 
     fireEvent.click(button('result.tryAgain'))
     await settle()
     expect(api.of('upload')).toHaveLength(3)
     expect(api.of('s3')).toHaveLength(1)
+  })
+
+  it('a failure while the browser says it is offline names the connection, and claims nothing about the photo', async () => {
+    fakeApi('level_knee', { s3: [new TypeError('offline'), new TypeError('offline')] })
+    await reachPlace()
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    await send()
+    await advance(2_000)
+
+    expect(screen.getByText(text('report.uploadFailed'))).toBeTruthy()
+    expect(shows('report.sendFailed')).toBe(false)
+    // The photo may have reached S3 before the connection dropped.
+    expect(shows('report.nothingUploaded')).toBe(false)
+    expect(button('result.tryAgain')).toBeTruthy()
+  })
+
+  it.each([
+    ['a 500 on POST /uploads', { upload: [reply(500, { error: 'internal' })] }],
+    ['an S3 403', { s3: [reply(403, {})] }],
+  ])('%s, online, shows the neutral line with "Try again"', async (_name, script) => {
+    fakeApi('level_knee', script)
+    await reachPlace()
+    await send()
+    await settle()
+
+    expect(screen.getByText(text('report.sendFailed'))).toBeTruthy()
+    expect(shows('report.uploadFailed')).toBe(false)
+    expect(button('result.tryAgain')).toBeTruthy()
+  })
+
+  it('the neutral line and the coarse-fix line read as the copy review set them', () => {
+    expect(text('report.sendFailed')).toBe("Lusot couldn't send the photo. Try again.")
+    expect(text('report.uploadFailed')).toBe('Check your connection, then try again.')
+    expect(text('report.refused.gps_too_coarse')).toBe("Your phone's location wasn't precise enough to place the pin.")
   })
 
   it('two clicks on "Try again" in the same moment upload once', async () => {
@@ -643,7 +760,9 @@ describe('the location', () => {
     fakeApi()
     await reachPlace({ width: 1280, height: 720 })
 
-    expect(screen.getByText(text('report.smallStill'))).toBeTruthy()
+    const warning = screen.getByText(text('report.smallStill'))
+    expect(heading().textContent).toBe(text('place.title'))
+    expect(heading().compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(video()).toBeNull()
     fireEvent.click(button('report.newPhoto'))
     await flush()
@@ -671,6 +790,22 @@ describe('the wait', () => {
     await flush()
 
     expect(screen.getByText(KNEE_LINE)).toBeTruthy()
+  })
+
+  it('a wait that times out while the person is away is forgotten: no report id and no position stay', async () => {
+    const api = fakeApi('pending_forever')
+    await reachPlace()
+    await send()
+    const id = api.reportId()
+    go('#/map')
+    await advance(POLL.windowMs)
+
+    expect(seen.state?.step).toBe('camera')
+    expect(holds(seen.state, (leaf) => leaf === id)).toBe(false)
+    expect(holds(seen.state, (leaf) => leaf === FIX.lat || leaf === FIX.lng)).toBe(false)
+    go('#/report')
+    await flush()
+    expect(heading().textContent).toBe(text('camera.title'))
   })
 
   it('coming back to the app polls at once, with the same deadline', async () => {

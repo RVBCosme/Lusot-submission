@@ -42,9 +42,18 @@ export type RefusedCode =
   | 'device_limit'
   | 'global_cap'
 
-// Why a photo wasn't sent. `upload`: a failure on the way that outlasted its one retry. `paused`: MS1's 503
-// uploads_paused (C638). `refused`: MS4 said no. `other`: anything else, such as an answer in the wrong shape.
-export type Problem = { kind: 'upload' } | { kind: 'paused' } | { kind: 'refused'; code: RefusedCode } | { kind: 'other' }
+// Why a photo wasn't sent. `upload`: a failure on the way that outlasted its one retry, `offline` when the browser
+// said it was offline as it failed. `paused`: MS1's 503 uploads_paused (C638). `refused`: MS4 said no. `other`:
+// anything else, such as an answer in the wrong shape.
+export type Problem =
+  | { kind: 'upload'; offline?: boolean }
+  | { kind: 'paused' }
+  | { kind: 'refused'; code: RefusedCode }
+  | { kind: 'other' }
+
+// What a problem's retry does: send the same photo again, find the location again for it, take a new photo, or
+// nothing for now (a limit).
+export type RetryKind = 'resend' | 'refix' | 'newPhoto' | 'none'
 
 // What was sent, kept for the own pin until the result comes.
 export type Sent = { lat: number; lng: number; accuracyM: number; capturedAt: string }
@@ -67,13 +76,14 @@ export type FlowState =
       timedOut: boolean
     }
   | { step: 'result'; shot: number; result: ReportResult; fixAccuracyM: number }
-  // `photo` while a retry can reuse it; `again` with what a resend of the same photo needs.
+  // `photo` while a retry can reuse it; `again` with what a resend of the same photo needs. `mayHaveLanded`: the
+  // photo's own upload timed out or lost its connection, so S3 may have it under the link's report.
   | {
       step: 'problem'
       shot: number
       problem: Problem
       photo?: Photo
-      again?: { fix: Fix; place: Place; link?: UploadLink }
+      again?: { fix: Fix; place: Place; link?: UploadLink; mayHaveLanded?: true }
     }
 
 export type FlowAction =
@@ -88,7 +98,9 @@ export type FlowAction =
   | { type: 'resend'; link?: UploadLink }
   | { type: 'linked'; link: UploadLink }
   | { type: 'uploaded'; at: number }
-  | { type: 'failed'; problem: Problem }
+  | { type: 'failed'; problem: Problem; mayHaveLanded?: boolean }
+  // The old report already has the photo: wait on it instead of uploading again.
+  | { type: 'landed'; reportId: string; at: number }
   | { type: 'result'; result: ReportResult }
   | { type: 'timedOut' }
   | { type: 'checkAgain'; at: number }
@@ -175,10 +187,27 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       if (state.step !== 'sending') return state
       const { problem } = action
       const failed: FlowState = { step: 'problem', shot: state.shot, problem }
-      if (!keepsPhoto(problem)) return failed
-      if (problem.kind === 'refused') return { ...failed, photo: state.photo }
+      const retry = retryKind(problem)
+      if (retry === 'refix') return { ...failed, photo: state.photo }
+      if (retry !== 'resend') return failed
       const { fix, place, link } = state
-      return { ...failed, photo: state.photo, again: link === undefined ? { fix, place } : { fix, place, link } }
+      if (link === undefined) return { ...failed, photo: state.photo, again: { fix, place } }
+      const again = action.mayHaveLanded === true ? { fix, place, link, mayHaveLanded: true as const } : { fix, place, link }
+      return { ...failed, photo: state.photo, again }
+    }
+
+    case 'landed': {
+      if (state.step !== 'sending') return state
+      const { photo, fix, place } = state
+      return {
+        step: 'waiting',
+        shot: state.shot,
+        reportId: action.reportId,
+        sent: { lat: place.lat, lng: place.lng, accuracyM: fix.accuracyM, capturedAt: photo.capturedAt },
+        uploadedAt: action.at,
+        window: firstWindow(action.at),
+        timedOut: false,
+      }
     }
 
     case 'result':
@@ -218,11 +247,14 @@ export function linkReusable(link: UploadLink, now: number): boolean {
   return now - link.at <= LINK_LIFE_MS
 }
 
-// A retry with the same photo: after an upload problem or a pause (a resend), or after MS4 found the location too
-// coarse or the pin too far (a new fix). Every other problem asks for a new photo, or has no retry.
-export function keepsPhoto(problem: Problem): boolean {
-  if (problem.kind === 'upload' || problem.kind === 'paused') return true
-  return problem.kind === 'refused' && (problem.code === 'gps_too_coarse' || problem.code === 'nudge_too_far')
+// The one rule for what each problem's retry does, for the reducer (what a problem keeps) and the screen (its
+// button). A resend after an upload problem or a pause; a new fix after MS4 found the location too coarse or the pin
+// too far; nothing after a limit, since a retry now would end the same way; a new photo for everything else.
+export function retryKind(problem: Problem): RetryKind {
+  if (problem.kind === 'upload' || problem.kind === 'paused') return 'resend'
+  if (problem.kind !== 'refused') return 'newPhoto'
+  if (problem.code === 'gps_too_coarse' || problem.code === 'nudge_too_far') return 'refix'
+  return problem.code === 'device_limit' || problem.code === 'global_cap' ? 'none' : 'newPhoto'
 }
 
 const REFUSED_422 = new Set(['capture_too_old', 'capture_in_future', 'gps_too_coarse', 'nudge_too_far'])

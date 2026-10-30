@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { PlaceMap } from '../../components/PlaceMap'
 import { T } from '../../i18n'
 import { clampToRadius, MAX_NUDGE_M, nudgeM, type Fix, type LatLng } from '../../lib/geo'
@@ -22,10 +22,13 @@ const LINK = 'inline-flex min-h-tap items-center text-action underline underline
 // given once per press, so the flow guards against a double tap (Review Focus 1).
 export function PlaceStep({
   fix,
+  notice,
   onSend,
   onRetryFix,
 }: {
   fix: Fix
+  // A note the flow shows right under the heading, such as Task 12's small-still warning.
+  notice?: ReactNode
   onSend(place: Place): void
   onRetryFix(): void
 }) {
@@ -42,6 +45,7 @@ export function PlaceStep({
       <h1 id={headingId} className="text-title font-bold">
         <T k="place.title" />
       </h1>
+      {notice}
       <p className="mt-2 max-w-prose text-small text-ink-2">
         <T k="place.hint" />
       </p>

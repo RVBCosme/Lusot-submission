@@ -7,13 +7,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { postToS3, requestUpload, type Pin } from '../lib/api'
+import { getReport, postToS3, requestUpload, RequestTimeoutError, type Pin } from '../lib/api'
 import { NOTICE_VERSION } from '../lib/consent'
 import { getDeviceId } from '../lib/device'
 import { locationLine, waitForFix, type Fix } from '../lib/geo'
@@ -34,6 +35,7 @@ import {
   uploadProblem,
   type FlowState,
   type OwnPin,
+  type Problem,
   type UploadLink,
 } from './flow'
 
@@ -46,9 +48,11 @@ export type ReportFlow = {
   photoTaken(photo: Photo): void
   // "Try the location again": a new watch, the same photo.
   retryFix(): void
-  // "Send", once per photo: a second press before the step changes does nothing.
+  // "Send", once per photo: a second press before the step changes does nothing. It doesn't check the consent notice
+  // itself, so every caller goes through useGate('notice') (C605), as ReportScreen does.
   send(place: Place): void
   // "Try again" after an upload problem or a pause: the same photo, and the same link while it is 5 minutes old.
+  // Through useGate('notice') too.
   retry(): void
   // "Check again" after "No result yet": the same report, polled again; it never uploads.
   checkAgain(): void
@@ -59,15 +63,27 @@ type OwnPinState = { pin: OwnPin | undefined; seenOnMap(pins: readonly Pin[]): v
 const FlowContext = createContext<ReportFlow | null>(null)
 const OwnPinContext = createContext<OwnPinState | null>(null)
 
+// The browser's own word, read as the upload fails: only an offline browser makes the connection the line's subject.
+function seenOffline(problem: Problem): Problem {
+  return problem.kind === 'upload' && navigator.onLine === false ? { kind: 'upload', offline: true } : problem
+}
+
 // Nothing here logs: an error from the watch, the upload or the poll could carry a position or a report id. Each
 // failure is told apart by its type and shown as a line.
 export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; children: ReactNode }) {
   const [state, dispatch] = useReducer(flowReducer, initialFlow)
   const [ownPin, setOwnPin] = useState<OwnPin>()
-  // The state as last rendered, for the handlers, which stay the same from render to render.
+  // The state as last rendered, for the handlers, which stay the same from render to render. Written before the
+  // browser paints, so a press always reads the step it sees.
   const latest = useRef(state)
-  useEffect(() => {
+  useLayoutEffect(() => {
     latest.current = state
+  })
+  const route = useRoute()
+  const onReport = route.name === 'report'
+  const onReportNow = useRef(onReport)
+  useLayoutEffect(() => {
+    onReportNow.current = onReport
   })
   // Pay once (Review Focus 1): set from the press of "Send" or "Try again" until that upload ends. A ref, not state,
   // so two presses in the same moment, before the step re-renders, still make one upload.
@@ -103,6 +119,13 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
     stopFix()
     run.current += 1
     dispatch({ type: 'start' })
+  }, [stopFix])
+
+  // Closes the screen's flow: the photo, the position and the report id go, unless an upload or a wait is under way.
+  const close = useCallback(() => {
+    stopFix()
+    run.current += 1
+    dispatch({ type: 'leave' })
   }, [stopFix])
 
   const streamOpened = useCallback(() => {
@@ -153,7 +176,7 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
             )
             target = { reportId: answer.reportId, upload: answer.upload, at: Date.now() }
           } catch (err) {
-            if (mine === run.current) dispatch({ type: 'failed', problem: uploadProblem(err) })
+            if (mine === run.current) dispatch({ type: 'failed', problem: seenOffline(uploadProblem(err)) })
             return
           }
           if (mine !== run.current) return
@@ -162,9 +185,12 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
         const { upload: post } = target
         try {
           await retryOnce(() => postToS3(post, photo.blob))
-        } catch {
-          // Any failure of the photo's own upload can be tried again with the same photo.
-          if (mine === run.current) dispatch({ type: 'failed', problem: { kind: 'upload' } })
+        } catch (err) {
+          // Any failure of the photo's own upload can be tried again with the same photo. A timeout or a lost
+          // connection may have landed it anyway; an answer from S3 (a 4xx) means S3 kept nothing.
+          if (mine !== run.current) return
+          const mayHaveLanded = err instanceof TypeError || err instanceof RequestTimeoutError
+          dispatch({ type: 'failed', problem: seenOffline({ kind: 'upload' }), mayHaveLanded })
           return
         }
         if (mine === run.current) dispatch({ type: 'uploaded', at: Date.now() })
@@ -191,6 +217,31 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
     [expire, upload],
   )
 
+  // The old link's 5 minutes are over, but its photo may have reached S3 when that upload timed out or lost its
+  // connection. One read of the old report, with no retry (its 15 s limit bounds it), decides: past `pending`, the
+  // photo is there, so the flow waits on that report and pays once. `pending`, a 404 or any failure: a new link, as
+  // before. A photo still queued reads `pending`, so this narrows the double payment C635 allows; it can't close it.
+  const landedOrUpload = useCallback(
+    async (photo: Photo, fix: Fix, place: Place, oldId: string) => {
+      const mine = run.current
+      let landed = false
+      try {
+        const report = await getReport(apiUrl, oldId)
+        landed = report !== undefined && report.status !== 'pending'
+      } catch {
+        // Unknown, so a new link.
+      }
+      if (mine !== run.current) {
+        busy.current = false
+        return
+      }
+      if (!landed) return upload(photo, fix, place, undefined)
+      busy.current = false
+      dispatch({ type: 'landed', reportId: oldId, at: Date.now() })
+    },
+    [apiUrl, upload],
+  )
+
   const retry = useCallback(() => {
     if (busy.current) return
     const now = latest.current
@@ -199,13 +250,18 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
       expire()
       return
     }
-    const { fix, place, link } = now.again
+    const { fix, place, link, mayHaveLanded } = now.again
     // A new link only when the old one is over 5 minutes old; with it, the same report and no second payment.
     const reuse = link !== undefined && linkReusable(link, Date.now()) ? link : undefined
+    // `busy` stays set through the read of the old report and the upload after it.
     busy.current = true
     dispatch({ type: 'resend', link: reuse })
+    if (reuse === undefined && link !== undefined && mayHaveLanded === true) {
+      void landedOrUpload(now.photo, fix, place, link.reportId)
+      return
+    }
     void upload(now.photo, fix, place, reuse)
-  }, [expire, upload])
+  }, [expire, landedOrUpload, upload])
 
   const checkAgain = useCallback(() => dispatch({ type: 'checkAgain', at: Date.now() }), [])
 
@@ -243,7 +299,11 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
         () => {
           // Past the deadline, or an answer that isn't a result: "No result yet", never a failure the server didn't
           // report (C601). An aborted poll was replaced or closed, and says nothing.
-          if (!signal.aborted && mine === run.current) dispatch({ type: 'timedOut' })
+          if (signal.aborted || mine !== run.current) return
+          dispatch({ type: 'timedOut' })
+          // With the person on another screen, nobody waits here: the flow closes, so the position and the report id
+          // go (Global Constraints). A published result still reaches the map.
+          if (!onReportNow.current) close()
         },
       )
     }
@@ -259,7 +319,7 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
       stop.abort()
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [apiUrl, reportId, pollWindow, sent, keepOwnPin])
+  }, [apiUrl, reportId, pollWindow, sent, keepOwnPin, close])
 
   // The photo goes when its 15 minutes pass, wherever the flow waits with it. An upload under way finishes first.
   const heldPhoto = state.step === 'place' || state.step === 'problem' ? state.photo : undefined
@@ -270,19 +330,14 @@ export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; child
     return () => clearTimeout(timer)
   }, [heldPhoto, expire])
 
-  // Leaving the report screen closes it: the photo, the position and the report id go, unless an upload or a wait
-  // is under way. A result that comes while the person is away waits until they come back and leave again.
-  const route = useRoute()
-  const onReport = route.name === 'report'
+  // Leaving the report screen closes it, unless an upload or a wait is under way. A result that comes while the
+  // person is away waits until they come back and leave again.
   const wasOnReport = useRef(onReport)
   useEffect(() => {
     const left = wasOnReport.current && !onReport
     wasOnReport.current = onReport
-    if (!left || survivesLeaving(latest.current)) return
-    stopFix()
-    run.current += 1
-    dispatch({ type: 'leave' })
-  }, [onReport, stopFix])
+    if (left && !survivesLeaving(latest.current)) close()
+  }, [onReport, close])
 
   // Nothing outlives the provider.
   useEffect(

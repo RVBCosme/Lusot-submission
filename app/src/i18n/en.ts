@@ -131,9 +131,9 @@ export const EN = {
   'report.resultTitle': { text: 'Your result', reviewed: false },
   'report.notSent': { text: 'Photo not sent', reviewed: false },
   'report.nothingUploaded': { text: 'Nothing was uploaded.', reviewed: false },
-  // Under the heading "Photo not sent", so it says only what to do.
+  // Only when the browser said it was offline as the upload failed. Any other failure gets 'report.sendFailed'.
   'report.uploadFailed': { text: 'Check your connection, then try again.', reviewed: false },
-  'report.sendFailed': { text: "Lusot couldn't send the photo.", reviewed: false },
+  'report.sendFailed': { text: "Lusot couldn't send the photo. Try again.", reviewed: false },
   'report.limit.device_limit': {
     text: 'This phone has sent as many photos as Lusot takes in an hour. Try again later.',
     reviewed: false,
@@ -148,7 +148,7 @@ export const EN = {
     reviewed: false,
   },
   'report.refused.gps_too_coarse': {
-    text: "Your phone's location wasn't close enough to place the pin.",
+    text: "Your phone's location wasn't precise enough to place the pin.",
     reviewed: false,
   },
   'report.refused.nudge_too_far': {
