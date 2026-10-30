@@ -113,7 +113,8 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
   - Keep prompts and JSON schemas in versioned files.
   - Structured output needs `strict: true` set inside `text.format`; it is off by default.
   - File transcription accepts WAV only (mono, 16-bit, 16 or 24 kHz), so the app records WAV.
-- **Tests:** run them in GitHub Actions on every push (§19). The workflow, `.github/workflows/ci.yml`, runs the same three checks as `npm run check`. For now, pushes and full checks still happen at the end of each milestone (D16).
+- **Tests:** run them in GitHub Actions on every push (§19). The workflow, `.github/workflows/ci.yml`, runs the same three checks as `npm run check`.
+- **Merging into `main` (C530, Oct 30; replaces D16's milestone-end pushes for the private repo):** push the branch and wait for its CI to pass, get the tracker's OK, merge with `--no-ff`, run one full `npm run check` on the merged `main` (announced to the tracker; a docs-only merge needs only CI), push `main`, and wait for `main`'s CI.
 - **Alarms** email the address on Rene's Claude account (D17). It is passed at deploy time from a git-ignored config and never written into the repo.
 - **Not used in this project:** Vercel, Supabase, the Claude API, Amazon Bedrock. Ignore plugin suggestions to switch.
 
@@ -186,7 +187,7 @@ Rene set this for Lusot on Oct 28. His global settings stay as they are.
   - the weakness register (W1 to W28)
   - the decision log
 - **Evidence with every tick.** Tick a box only after its check passes. Tick it in the same commit as the work, and put the evidence next to it: the command and a one-line result.
-- **Times come from the clock.** Take every time written into the log, board, ledger or notes from `Get-Date -Format 'h:mm tt'` (or `date '+%-I:%M %p'`), never from an estimate.
+- **Times come from the clock.** Take every time written into the log, board, ledger, notes or a message to another window from `Get-Date -Format 'h:mm tt'` (or `date '+%-I:%M %p'`), never from an estimate. Read it in a call before the one that writes the time, never in the same parallel batch.
 - **Daily work log.** Add each working day to `docs/log/YYYY-MM-DD.md`: what was done, the evidence, what was decided, and what comes next.
 - **End of each milestone:** every plan box is ticked, PROGRESS.md is updated and any new decisions are logged in the design doc.
 - Don't mirror tasks into GitHub Issues or Milestones.
@@ -194,7 +195,7 @@ Rene set this for Lusot on Oct 28. His global settings stay as they are.
 ## Git
 
 - **Repos:**
-  - The development repo is private: `C:\Systems\Lusot\lusot`, GitHub `RVBCosme/lusot`. Claude created it on Oct 28 and pushes branches routinely (D11). For now, pushes happen at the end of each milestone (D16).
+  - The development repo is private: `C:\Systems\Lusot\lusot`, GitHub `RVBCosme/lusot`. Claude created it on Oct 28 and pushes branches routinely (D11), and each merge into `main` is pushed so `main`'s CI runs (C530).
   - Rene provides a separate, clean repository for the submitted version (D9). How its history is carried over is decided by Nov 3 (R7).
 - **Branches:** solo work, with short-lived branches per task, merged after review.
 - **Commit messages:** use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
@@ -212,11 +213,14 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - `check:node`: both workspaces' `typecheck` and `test`, the app's `lint`, and `node --test "scripts/*.test.mjs"`
   - `check:py`: ruff and pytest in `backend/analysis`, then the `backend/scripts` tests
   - `check:secrets`: gitleaks over the whole history, the plan-leak check and the 12-digit account-ID scan. gitleaks scans every local branch, so another worktree's leak fails it too.
+  - After pulling or merging a change to `package-lock.json` or `uv.lock`, run `npm ci` and `uv sync --directory backend/analysis --locked` in that worktree before `npm run check`, or typecheck fails on a missing module.
 - **Deploy:** `npm run deploy`. It needs:
   - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced. Git ignores it, because it holds the alarm email.
   - Docker Desktop running, and no Gradle build at the same time
   - a current AWS login
   - Before `sam deploy` (run `npm run build -w backend/api` and `sam build --parallel` first), check the image SAM built (`analysisfunction:<tag>`), not a manual `docker build`, which gets another image ID: `docker run --rm --network none --entrypoint python <image> -c "import lusot_analysis.meta_client, lusot_analysis.handler"`, then list `/var/task/prompts`.
+  - Before deploying, compare the stack's logical ids with the template's: `aws cloudformation get-template --stack-name lusot --template-stage Original`, loaded through `backend/scripts/cfn_template.py`. Print only the ids that differ (the template can hold account-specific values), and delete nothing.
+  - Afterwards, stop Docker to free memory: `& "C:\Program Files\Docker\Docker\DockerCli.exe" -Shutdown`.
 - **After a dead-letter alarm email:** look at the message in the dead-letter queue, then redrive it to the queue or purge it. While a message stays there the alarm stays in ALARM, so later failures send no new email. Messages there age out after 7 days.
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.
@@ -224,9 +228,15 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - `SMOKE NO LEVEL` (exit 3) means every other check passed, but none of the photos it sent gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
   - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). `--bound S` sets each photo's wait in seconds for a final status (default 120).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
+- **The Meta spend stop** (C527, C528): seed the counter once with `uv run backend/scripts/seed_spend.py --usd <total>` (a second seed changes nothing), set the stop with `uv run backend/scripts/set_spend_stop.py --usd <N>` ($60 while building, $140 at submission), and read the total with `$env:AWS_PROFILE = 'lusot'; uv run --locked --directory backend/analysis --with "botocore[crt]==1.43.120" python -m lusot_analysis.spend total` (the pin matches `backend/analysis/uv.lock`).
+- **MS4's cloud tools,** from the repo root as `uv run backend/scripts/<file> ...`:
+  - `demo_pins.py seed --until YYYY-MM-DD --ids <id>...` (paid; consented M9-v4 photos only while Task 8b is parked), `remove [id]`, `check <id>`
+  - `samples.py seed --ids <id>...` (paid), `relabel` (free: no Meta call; rewrites the listed samples' credit note, place and event as the seed now writes them), `remove [sampleId]`, `check [--run]` (`--run` is one paid run)
+  - `eval_runs.py <duplicate|race|dead-holder|paused> --position N` (paid, except `paused`, which needs `/lusot/stop/model-calls` set to on by hand, after telling the tracker)
+  - `redrive_dlq.py --dry-run` (free), and `hide_pin.py` to take a pin down
 - **Probe** (spends Meta credits, about $0.21 with these numbers). Two steps:
   1. From `backend/analysis`, in Windows PowerShell: `.\probes\make_test_wav.ps1`. It writes the synthetic test clip into today's probe folder. Without it the run stops before it spends anything.
-  2. `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis python probes/run_probe.py --photos 5 --water 10`
+  2. `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run --directory backend/analysis --with "botocore[crt]==1.43.120" python probes/run_probe.py --photos 5 --water 10`
   - **Taglish voice run (C41):** voice only. In step 2, replace `--photos 5 --water 10` with `--photos 0 --water 0 --voice-dir DIR`, giving DIR as an absolute path, because uv's `--directory` changes the working folder. It sends every WAV in DIR (mono, 16-bit, 16 kHz). `--voice-dir` alone would also re-run and re-bill all 15 photos.
   - Outputs go to `$env:LUSOT_DATA_DIR\probes\<date>\`, and stdout gets counts and timings only. A second run on the same day writes into the same folder.
     - Run a voice-only probe on another day than a photo probe.
@@ -238,15 +248,19 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   3. From `app/android/`: `$env:JAVA_HOME = "$env:LOCALAPPDATA\Programs\jdk-21"; .\gradlew.bat assembleDebug`. Gradle needs JDK 21, and the user `JAVA_HOME` stays JDK 17, so set it in the command, never in the user environment.
   4. `.\gradlew.bat --stop` frees the memory.
   5. Copy `app/android/app/build/outputs/apk/debug/app-debug.apk` to `$env:LUSOT_DATA_DIR\builds\`, and record its SHA-256.
-- **MS2's data tools** (spec §5.10; exact lines in the MS2 plan's "Rene runs" steps). Each runs as `uv run --locked --script <file>` from the repo root, except `set_b_masks.py`, which runs as `uv run --locked --directory backend/analysis python probes/set_b_masks.py`. All take absolute data paths; a record path may be relative. No tool has a default path.
+- **MS2's data tools** (spec §5.10; exact lines in the MS2 plan's "Rene runs" steps). Each runs as `uv run --locked --script <file>` from the repo root, except `set_b_masks.py`, which runs as `uv run --locked --directory backend/analysis --with "botocore[crt]==1.43.120" python probes/set_b_masks.py`. All take absolute data paths; a record path may be relative. No tool has a default path.
   - **Tests:** `uv run --locked --script eval/data/tests/run_tests.py` (also part of `check:py`).
   - **Claude runs:** `eval/data/intake.py`, `eval/data/m8_sheet.py`, `eval/data/audit.py --dev`, `eval/set_b/generate.py` without `--final`, `eval/set_b/water_check.py` and `eval/data/freeze_record.py`. `backend/analysis/probes/set_b_masks.py` on development cars (it spends Meta credits; log each run's cost).
   - **Rene runs, never an agent:** `eval/data/split.py`, `eval/data/audit.py --sealed`, `set_b_masks.py --final` and `generate.py --final` (Set D's `seal_set_d.py` comes with MS2's Task 18, after MS5's core screens). They refuse to run without his own console. The archive writers ask for the password twice; `audit --sealed` asks for `yes`.
-- **MS3b's offline tools.** Each runs as `uv run python probes/<file> ...` from `backend/analysis`. Data paths are absolute, and outputs go under `$env:LUSOT_DATA_DIR`, never into the repo. `dev_eval.py run`, `set_b.py segment` and `set_b.py rims` print the count and cost first, and stop there without `--yes`.
+- **MS3b's offline tools.** Each runs as `uv run --with "botocore[crt]==1.43.120" python probes/<file> ...` from `backend/analysis`. Data paths are absolute, and outputs go under `$env:LUSOT_DATA_DIR`, never into the repo. `dev_eval.py run`, `set_b.py segment` and `set_b.py rims` print the count and cost first, and stop there without `--yes`.
   - `run_pipeline.py live <photo>` (paid: one photo, about $0.03, with no `--yes` check or cost line) runs one photo through the whole pipeline into a run folder. `replay <photo> <run folder>` is free and makes no Meta call.
   - `dev_eval.py run --manifest F` (paid) and `export ... --out DIR --rules-version V` (free; MS6's §4.3 rows).
   - `set_b.py segment --truth F` and `rims --folder DIR` (both paid); `export` and `overlay` (both free).
   - Each tool refuses a path under a `sealed` folder, and a data folder inside the repo, before any call.
+- **Paid laptop tools and the spend counter (R126, C527):** `run_pipeline.py live`, `dev_eval.py run`, `set_b.py segment` and `rims`, `set_b_masks.py`, `run_probe.py` and `run_sealed.py` read MS4's counter before paying and add their cost after. Run them with `--with "botocore[crt]==1.43.120"` after `aws login --profile lusot`.
+  - Each refuses with exit 2, before any Meta call, when the counter is unseeded, can't be read, or is at `/lusot/spend/stop-usd`.
+  - A failed record prints `spend_error` and exits nonzero; the tracker then adds the amount by hand.
+  - `smoke_upload.py` records nothing, since the Lambda counts it.
 - **`GEOMETRY_IN_LEVEL`** in `backend/template.yaml` is a quoted literal, `"on"` or `"off"`, not a parameter (C309, C515). To change it, edit the line and deploy. Unquoted, YAML 1.1 reads `on` as `true`.
 
 Notes:
@@ -256,8 +270,10 @@ Notes:
   - If `aws login` fails with `TOKEN_EXPIRED`, run `aws logout --profile lusot`, then `aws login --profile lusot --remote`, and open the URL it prints in an incognito window.
   - **Clock:** on Oct 28 the Windows Time service was found stopped, with the clock 101 s fast. If an AWS call fails with `INVALID_REQUEST`, check the offset first: `w32tm /stripchart /computer:time.windows.com /samples:2 /dataonly`.
 - **Network:** the home Wi-Fi gives the laptop IPv6 addresses, but IPv6 doesn't connect. Each new Python connection then waits about 21 s per IPv6 address before it falls back to IPv4, so use long timeouts and reuse one client. Wired Ethernet has no IPv6, so no waits. The fix is Rene's (the Oct 28 log, "Waiting on Rene"). On Ethernet (Oct 28), `npm run deploy` took about 3.5 min and the smoke test about 1 min.
+  - A download that may take more than about 8 minutes runs in bounded parts: `curl -4 --max-time 540 -C - -o <file> <url>`, repeated in the foreground until the size matches the server's `Content-Length`.
 - **Memory:** with four Claude windows and Chrome open, about 2 GB of 15.7 GB is free. Claude Code stops background shells when memory runs critically low while the session is idle, so run builds and deploys in the foreground, and restart a stopped one only on Rene's go.
 - **Files from PowerShell 5.1:** `Set-Content` and `Out-File` write UTF-8 with a BOM (and CRLF), so create and edit files with the Write and Edit tools or Git Bash.
+- **JSON from PowerShell 5.1:** `Invoke-WebRequest` returns an `application/geo+json` body (the `/pins.geojson` feed) as bytes. Read the feed with `curl` in Git Bash instead.
 - **Commits:** write the message to a file and run `git commit -F <file>`. Never pipe it from Windows PowerShell 5.1, which adds a BOM to the subject. Commit from PowerShell after the PATH refresh: Git Bash here lacks uv and gitleaks on its PATH, and the pre-commit hook fails closed without gitleaks.
 - **Git Bash:**
   - Keep Git's own PATH ahead of the Windows PATH, or npm's shim starts WSL's `bash.exe` and fails.
