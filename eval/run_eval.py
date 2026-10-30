@@ -2,6 +2,7 @@
 
     python eval/run_eval.py --from-saved [--results DIR] [--write]
     python eval/run_eval.py --label-words
+    python eval/run_eval.py --rules-version
 
 It rebuilds Lusot's evaluation report from saved results, with no install, no key and
 no network. It refuses a path inside a folder named sealed before anything is read
@@ -11,7 +12,10 @@ folder, whose report sets the first run's beside its own (C421). It builds every
 report file in memory before writing or comparing any, so input that can't be built
 writes nothing. Then it compares the files with the committed copies in each
 folder's report/, or with --write writes them there. --label-words prints the words a
-committed label may hold, for the export (C420).
+committed label may hold, for the export (C420). --rules-version prints the rules
+version this harness scores, alone and with no results folder, so the sealed-run
+entry point can check its own by subprocess before it pays for a run. The two flags
+exclude each other.
 
 Exit codes: 0 identical or written, 1 different, 2 refused or invalid. Every printed
 line is ASCII, with any run of 12 digits masked.
@@ -33,7 +37,7 @@ _EVAL = str(Path(__file__).resolve().parent)
 if _EVAL not in sys.path:
     sys.path.insert(0, _EVAL)
 
-from scoring import rows
+from scoring import RULES_VERSION, rows
 from scoring.labels import LABEL_WORDS
 from scoring.metrics import Rate, fmt_rate
 from scoring.paths import SealedPath, refuse_sealed
@@ -87,10 +91,13 @@ def _run(argv: list[str] | None) -> int:
         for word in sorted(LABEL_WORDS):
             _say(word)
         return 0
+    if args.rules_version:
+        _say(RULES_VERSION)
+        return 0
     if not args.from_saved:
         raise _Stop(
             "invalid: give --from-saved to rebuild the report from the saved results"
-            " (nothing calls a model), or --label-words"
+            " (nothing calls a model), --label-words or --rules-version"
         )
     results = args.results
     # The sealed guard runs here, before anything is read; the loader's own call is
@@ -139,10 +146,16 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the report's files instead of comparing them",
     )
-    parser.add_argument(
+    printing = parser.add_mutually_exclusive_group()
+    printing.add_argument(
         "--label-words",
         action="store_true",
         help="print the words a committed label may hold, one per line",
+    )
+    printing.add_argument(
+        "--rules-version",
+        action="store_true",
+        help="print the rules version this harness scores, and nothing else",
     )
     return parser
 

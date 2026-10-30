@@ -417,6 +417,46 @@ def test_synthetic_flag(tmp_path):
     assert "synthetic" in refusal(tmp_path / "in_words", "run.json", 0, words)
 
 
+SEALED_SETS = {"set_a": [set_a_row("A001")], "a_neg": [a_neg_row("N001")]}
+
+
+@pytest.mark.parametrize("count", [0, 3])
+@pytest.mark.parametrize("kind", ["sealed", "development"])
+def test_service_retries_takes_a_count(tmp_path, kind, count):
+    # MS6E-Q6: the photos retried once after a Meta service failure.
+    sets = SEALED_SETS if kind == "sealed" else {}
+    run = load(tmp_path, run_json(kind=kind, service_retries=count), **sets)
+    assert run.service_retries == count
+    assert run.meta["service_retries"] == count
+
+
+@pytest.mark.parametrize(
+    ("value", "rule"),
+    [
+        (-1, "service_retries must be 0 or more"),
+        ("2", "service_retries must be a whole number"),
+        (True, "service_retries must be a whole number"),
+        (2.5, "service_retries must be a whole number"),
+        (2.0, "service_retries must be a whole number"),
+    ],
+    ids=["negative", "string", "boolean", "fraction", "whole fraction"],
+)
+@pytest.mark.parametrize("kind", ["sealed", "development"])
+def test_service_retries_refuses_other_values(tmp_path, kind, value, rule):
+    sets = SEALED_SETS if kind == "sealed" else {}
+    run = run_json(kind=kind, service_retries=value)
+    assert refusal(tmp_path, "run.json", 0, run, **sets) == f"run.json:0: {rule}"
+
+
+def test_service_retries_is_required_only_in_a_sealed_run(tmp_path):
+    no_count = without(sealed(), "service_retries")
+    message = refusal(tmp_path / "final", "run.json", 0, no_count, **SEALED_SETS)
+    assert message == "run.json:0: the manifest lacks service_retries"
+    # A development run reads an absent count as 0.
+    run = load(tmp_path / "development", without(run_json(), "service_retries"))
+    assert run.service_retries == 0
+
+
 def test_replay_and_baseline_fields(tmp_path):
     replayed = {
         "landmark": level("knee"),
@@ -707,6 +747,81 @@ def test_set_b_estimates(tmp_path):
     unread = Estimate(False, None, None, None, "no_waterline")
     assert run.set_b[1].estimates["known_waterline_uncalibrated"] == unread
     assert run.set_d[0].estimates["geometry"] == run.set_b[0].estimates["geometry"]
+
+
+def no_answer(crop_id: str = "B01", wheel: int = 1, **fields: object) -> dict:
+    """A Set B wheel whose Meta call failed twice (MS3b): its one variant is
+    model_error, and whether SAM found water was never known."""
+    row = set_b_row(
+        crop_id,
+        wheel,
+        sam_water_found=None,
+        estimates={"geometry": unmeasured("model_error")},
+    )
+    row.update(fields)
+    return row
+
+
+def test_sam_water_found_is_null_for_a_wheel_with_no_answer(tmp_path):
+    run = load(
+        tmp_path / "geometry",
+        run_json(),
+        set_b=[no_answer()],
+        set_d=[no_answer("D01")],
+    )
+    assert run.set_b[0].sam_water_found is None
+    assert run.set_d[0].sam_water_found is None
+    # Every variant, with the self-check on.
+    every = dict.fromkeys(SET_B_VARIANTS, unmeasured("model_error"))
+    run = load(
+        tmp_path / "every",
+        run_json(self_check="on"),
+        set_b=[no_answer(estimates=every), no_answer("B02", estimates=every)],
+    )
+    assert [row.sam_water_found for row in run.set_b] == [None, None]
+    # False and true still read as they did, whatever the estimates say.
+    found = [
+        set_b_row("B03", sam_water_found=True),
+        set_b_row("B04", sam_water_found=False, estimates={"geometry": unmeasured()}),
+        no_answer("B05", sam_water_found=False),
+    ]
+    run = load(tmp_path / "bool", run_json(), set_b=found)
+    assert [row.sam_water_found for row in run.set_b] == [True, False, False]
+
+
+NULL_RULE = (
+    "sam_water_found may be null only when every variant failed with model_error"
+)
+
+
+def test_sam_water_found_is_never_null_for_a_wheel_that_got_an_answer(tmp_path):
+    def wheel_with(**estimates: dict) -> dict:
+        return set_b_row("B01", sam_water_found=None, estimates=estimates)
+
+    cases = {
+        "measured": set_b_row("B01", sam_water_found=None),
+        "other fail": wheel_with(geometry=unmeasured("no_water_contact")),
+        "one variant measured": wheel_with(
+            geometry=unmeasured("model_error"), known_waterline=measured()
+        ),
+        "one variant another fail": wheel_with(
+            geometry=unmeasured("model_error"),
+            known_waterline=unmeasured("no_waterline"),
+        ),
+        "geometry measured": wheel_with(
+            geometry=measured(), known_waterline=unmeasured("model_error")
+        ),
+    }
+    for case, row in cases.items():
+        message = refusal(tmp_path / case, "set_b.jsonl", set_b=[row])
+        assert message == f"set_b.jsonl:1: {NULL_RULE}", case
+    in_set_d = refusal(tmp_path / "set_d", "set_d.jsonl", set_d=[cases["measured"]])
+    assert in_set_d == f"set_d.jsonl:1: {NULL_RULE}"
+    # Any other value is still refused as before.
+    for case, value in {"text": "yes", "number": 1}.items():
+        row = set_b_row("B01", sam_water_found=value)
+        message = refusal(tmp_path / case, "set_b.jsonl", set_b=[row])
+        assert "sam_water_found" in message and "null" not in message, case
 
 
 # Set B's and Set D's estimates and Set A's wheel_inches keep a result's bounds: each

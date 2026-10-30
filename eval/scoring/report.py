@@ -1027,11 +1027,14 @@ def _wheels(
         "Worst error",
         "Envelope coverage",
     ]
-    water = score_wheels(rows, "geometry").sam_water_found
+    geometry = score_wheels(rows, "geometry")
     blocks: list[object] = [
         f"{lead} {_WHEELS_LEAD}",
         _table(header, table),
-        f"SAM found water on {fmt_rate(water)} wheels.",
+        (
+            f"SAM found water on {fmt_rate(geometry.sam_water_found)} wheels; left out:"
+            f" {geometry.no_answer} with no usable answer from Meta (model_error)."
+        ),
     ]
     if chart:
         errors = measured_errors(rows, "geometry")
@@ -1207,8 +1210,23 @@ def _frozen(run: Run) -> list[str]:
         )
     else:
         blocks.append("The run recorded no stops.")
+    blocks.append(_retried(run))
     blocks.append(_FACE_BLUR)
     return _section("## Frozen versions and data", *blocks)
+
+
+def _retried(run: Run) -> list[str]:
+    """MS6E-Q6's count of photos retried once after a Meta service failure, across
+    every set of the run: always in a sealed report, and in a development one only when
+    there were some. It states the count and nothing about it."""
+    if run.kind == "development" and run.service_retries == 0:
+        return []
+    return [
+        (
+            "Photos retried once after a Meta service failure in this run (MS6E-Q6):"
+            f" {run.service_retries}."
+        )
+    ]
 
 
 def _geometry_default(run: Run) -> str:
@@ -1280,6 +1298,8 @@ def _summary(run: Run, outcome: _Outcome | None) -> str:
             "median_error_in": _inches(wheels.median_error),
             "worst_error_in": _inches(wheels.worst_error),
             "envelope": _pair(wheels.envelope),
+            "sam_water_found": _pair(wheels.sam_water_found),
+            "no_answer": wheels.no_answer,
         }
     summary = {
         "kind": run.kind,
@@ -1294,6 +1314,7 @@ def _summary(run: Run, outcome: _Outcome | None) -> str:
         "set_b": set_b,
         "baseline_level": level,
         "baseline_class": cls,
+        "service_retries": run.service_retries,
     }
     return json.dumps(summary, indent=2, sort_keys=True) + "\n"
 

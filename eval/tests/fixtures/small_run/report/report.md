@@ -194,7 +194,7 @@ Only the geometry variant counts for the release gate. Each variant's figures co
 | geometry, view front | 3 of 4 (75.0%) | 0.50 in (n = 3) | 2.75 in (n = 3) | 2 of 3 (66.7%) |
 | geometry, view side | 4 of 4 (100.0%) | 0.88 in (n = 4) | 1.50 in (n = 4) | 2 of 4 (50.0%) |
 
-SAM found water on 7 of 8 (87.5%) wheels.
+SAM found water on 7 of 8 (87.5%) wheels; left out: 0 with no usable answer from Meta (model_error).
 
 ![Set B: depth error per measured wheel (geometry)](set-b-errors.svg)
 
@@ -272,6 +272,8 @@ Geometry's live default before the run (C309): on.
 | Stopped | Cause | Resumed |
 |---|---|---|
 | 21:10 | lost connection | 21:40 |
+
+Photos retried once after a Meta service failure in this run (MS6E-Q6): 0.
 
 The face blur runs before Meta receives a photo. It can miss faces that are very small, side-on, partly covered or in the dark.
 

@@ -494,8 +494,9 @@ class WheelScores:
     """One variant's scores over Set B's or Set D's wheels (rules §7; C407). The
     errors are |depthInPoint - true_depth_in| over the measured wheels, and the
     envelope counts the measured wheels whose true depth lies from depthInMin to
-    depthInMax, both bounds included (MS6E-Q1, item 4). sam_water_found is over
-    every wheel."""
+    depthInMax, both bounds included (MS6E-Q1, item 4). sam_water_found is over the
+    wheels that got an answer from Meta; no_answer counts the others, which the loader
+    reads as a null sam_water_found and which stay in `wheels` and as unmeasured."""
 
     variant: str
     wheels: int
@@ -504,6 +505,7 @@ class WheelScores:
     worst_error: Decimal | None
     envelope: Rate
     sam_water_found: Rate
+    no_answer: int
 
 
 def score_wheels(rows: Sequence[WheelRow], variant: str) -> WheelScores:
@@ -512,6 +514,7 @@ def score_wheels(rows: Sequence[WheelRow], variant: str) -> WheelScores:
     measured = _measured(rows, variant)
     errors = measured_errors(rows, variant)
     inside = sum(estimate.low <= truth <= estimate.high for truth, estimate in measured)
+    answered = [row for row in rows if row.sam_water_found is not None]
     return WheelScores(
         variant=variant,
         wheels=len(rows),
@@ -519,7 +522,10 @@ def score_wheels(rows: Sequence[WheelRow], variant: str) -> WheelScores:
         median_error=_median(errors),
         worst_error=errors[-1] if errors else None,
         envelope=Rate(inside, len(measured)),
-        sam_water_found=Rate(sum(row.sam_water_found for row in rows), len(rows)),
+        sam_water_found=Rate(
+            sum(row.sam_water_found for row in answered), len(answered)
+        ),
+        no_answer=len(rows) - len(answered),
     )
 
 
