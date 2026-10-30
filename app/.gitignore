@@ -25,3 +25,9 @@ public/licences.txt
 *.njsproj
 *.sln
 *.sw?
+
+# MS5 Task 18: the end-to-end suite's build, its fake camera frame and its reports
+.e2e-dist/
+e2e/.frames/
+test-results/
+playwright-report/

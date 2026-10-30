@@ -7,8 +7,10 @@
     "dev": "vite",
     "prebuild": "node scripts/licences.mjs",
     "build": "tsc -b && vite build && node scripts/check-bundle.mjs dist",
+    "build:e2e": "node scripts/licences.mjs && vite build --outDir .e2e-dist/none --emptyOutDir && node scripts/check-bundle.mjs .e2e-dist/none",
     "copy:review": "vitest run src/i18n/review.test.ts",
     "copy:table": "vitest run src/copy/table.test.ts",
+    "e2e": "playwright test",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.3",
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",

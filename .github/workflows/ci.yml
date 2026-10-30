@@ -1,4 +1,4 @@
-# The same three checks as `npm run check`, one job each, on every push and pull request.
+# The same three checks as `npm run check`, one job each, and the app's end-to-end suite, on every push and pull request.
 # Actions are pinned to full commit SHAs (looked up Oct 28, 2026), with the release tag in a comment.
 name: CI
 
@@ -71,3 +71,20 @@ jobs:
           tar -xzf gitleaks_8.30.1_linux_x64.tar.gz -C bin gitleaks
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: npm run check:secrets
+
+  # MS5 Task 18: the app's end-to-end suite. Chromium plays a synthetic street scene as the camera, and every network
+  # answer is a route inside the tests (app/e2e/mocks.ts), so the job needs no secrets and reaches no real service.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e -w app
