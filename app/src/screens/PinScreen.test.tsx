@@ -135,7 +135,8 @@ describe('a live pin', () => {
     renderPin(B)
     const card = await shown()
 
-    expect(calls.map((call) => call.url)).toEqual([`${API}/map/pins`, `${API}/reports/${B}`])
+    // The API's own two calls, in this order; the card then reads the layers file the report links (not on the API).
+    expect(calls.map((call) => call.url).filter((url) => url.startsWith(API))).toEqual([`${API}/map/pins`, `${API}/reports/${B}`])
     expect(getReport).toHaveBeenCalledExactlyOnceWith(API, B)
     expect(card.getAttribute('data-outcome')).toBe('level')
     expect(within(card).getByText('Half-tire deep at this spot (MMDA level).')).toBeTruthy()
@@ -143,7 +144,40 @@ describe('a live pin', () => {
     const expected = ((await (await net.fetch(`${API}/reports/${B}`)).json()) as { photoUrl: string }).photoUrl
     const photo = screen.getByRole('img', { name: text('sample.photoAlt') })
     expect(photo.getAttribute('src')).toBe(expected)
-    expect(screen.getByText(text('sample.edited'))).toBeTruthy()
+    expect(screen.getByText(`${text('sample.edited')} ${text('sample.outlines')}`)).toBeTruthy()
+  })
+
+  it("draws the photo once, in the card, under the level line: pin detail has no photo of its own", async () => {
+    renderPin(B)
+    const card = await shown()
+    const photos = screen.getAllByRole('img', { name: text('sample.photoAlt') })
+    expect(photos).toHaveLength(1)
+    expect(card.contains(photos[0])).toBe(true)
+    expect(screen.getAllByText(new RegExp(`^${text('sample.edited')}`))).toHaveLength(1)
+    expect(screen.getAllByRole('figure')).toHaveLength(1)
+    const level = within(card).getByText('Half-tire deep at this spot (MMDA level).')
+    expect(Boolean(level.compareDocumentPosition(photos[0]) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  })
+
+  it("draws the same overlay from the pin's links: the layers file's marks, each reference with its label", async () => {
+    renderPin(B)
+    const card = await shown()
+    const svg = await within(card).findByTestId('overlay-svg')
+    expect(svg.getAttribute('viewBox')).toBe('0 0 800 600')
+    expect(svg.querySelectorAll('[data-ref]').length).toBeGreaterThan(0)
+    expect(svg.querySelector('[data-layer="water"]')).toBeTruthy()
+    for (const group of svg.querySelectorAll('[data-ref]')) expect(group.getAttribute('aria-label')).toBeTruthy()
+    expect(within(card).getByText(`${text('sample.edited')} ${text('sample.outlines')}`)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(ID_PATTERN)
+  })
+
+  it("reads the layers file through the report's own link, and shows the overlay JPEG when that link fails", async () => {
+    api('level_knee', (url) => (url.includes('/layers/') ? json({ error: 'AccessDenied' }, 403) : undefined))
+    renderPin(B)
+    const card = await shown()
+    await waitFor(() => expect(card.querySelectorAll('img[src^="data:image"]')).toHaveLength(2))
+    expect(within(card).queryByTestId('overlay-svg')).toBeNull()
+    expect(within(card).getByRole('img', { name: text('sample.photoAlt') })).toBeTruthy()
   })
 
   it('shows the age and the number of other live reports within 300 m in the last 3 hours', async () => {
@@ -232,8 +266,9 @@ describe('opened directly at #/pin/<id>', () => {
     const calls = api()
     renderPin(A)
     await shown()
-    expect(calls[0]).toEqual({ url: `${API}/map/pins`, method: 'GET' })
-    expect(calls).toHaveLength(2)
+    const own = calls.filter((call) => call.url.startsWith(API))
+    expect(own[0]).toEqual({ url: `${API}/map/pins`, method: 'GET' })
+    expect(own).toHaveLength(2)
   })
 
   it.each([
@@ -320,8 +355,25 @@ describe('an expired photo link', () => {
   it("does the same for a demo pin's photo, which the card draws", async () => {
     renderPin(E)
     const card = await shown()
-    fireEvent.error(within(card).getByRole('img'))
+    fireEvent.error(within(card).getByRole('img', { name: text('sample.photoAlt') }))
     await waitFor(() => expect(reportCalls()).toHaveLength(2))
+  })
+
+  it('leaves the card without a photo, and without an error screen, after the second failure', async () => {
+    renderPin(B)
+    const card = await shown()
+    fireEvent.error(screen.getByRole('img', { name: text('sample.photoAlt') }))
+    await waitFor(() => expect(reportCalls()).toHaveLength(2))
+    await act(async () => {})
+    fireEvent.error(screen.getByRole('img', { name: text('sample.photoAlt') }))
+    await act(async () => {})
+
+    expect(screen.queryByRole('img', { name: text('sample.photoAlt') })).toBeNull()
+    expect(screen.queryByRole('figure')).toBeNull()
+    expect(within(card).getByText('Half-tire deep at this spot (MMDA level).')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(text('pin.photoFailed'))).toBeNull()
+    expect(screen.queryByText(text('pin.gone'))).toBeNull()
   })
 })
 
@@ -378,7 +430,8 @@ describe('focus', () => {
     fireEvent.click(flagButton())
     fireEvent.click(screen.getByRole('button', { name: text('flag.confirm') }))
     await screen.findByText(text('pin.gone'))
-    expect(document.activeElement).toBe(heading())
+    // The heading takes focus in an effect, which can come a moment after the text it goes with.
+    await waitFor(() => expect(document.activeElement).toBe(heading()))
   })
 })
 

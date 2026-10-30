@@ -10,13 +10,14 @@ import { useState, type ReactNode } from 'react'
 import { basisLine, classLine, inchesLine, landmarkLine, levelFromLine, levelLine, reasonLine } from '../copy/wording'
 import { Line, T, useLanguage, useT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
-import type { Pin, ReportResult, Sample } from '../lib/api'
+import type { OverlayData, Pin, ReportResult, Sample } from '../lib/api'
 import { OFFICIAL_SITES } from '../lib/officialSites'
 import { routeHash } from '../router'
 import { ageText, formatDate, photoDateLine } from '../lib/time'
 import { Badge } from './Badge'
 import { Details } from './Details'
 import { Gauge } from './Gauge'
+import { OverlayView } from './OverlayView'
 
 export type ResultCardProps = {
   // A report's answer, or a published pin. A pin is always a level result (MS4's C506).
@@ -34,7 +35,8 @@ export type ResultCardProps = {
   onCheckAgain?(): void
   // "Try again" on a failed card: a new photo, never the same one resent (spec §4.2).
   onNewPhoto?(): void
-  // Passed on when a photo link fails to load, so the screen can ask the API for a new one.
+  // Passed on when a photo link fails to load, so the screen can ask the API for a new one. A second failure leaves the
+  // card without its photo.
   onPhotoExpired?(): void
   now?: Date
 }
@@ -108,6 +110,21 @@ function Mark({ outcome }: { outcome: Outcome }) {
   )
 }
 
+// What Lusot did to the photo it shows: it blurred faces and plates, and drew its outlines only where there are some.
+function PhotoLine({ outlines, className }: { outlines: boolean; className?: string }) {
+  return (
+    <p className={className}>
+      <T k="sample.edited" />
+      {outlines && (
+        <>
+          {' '}
+          <T k="sample.outlines" />
+        </>
+      )}
+    </p>
+  )
+}
+
 // A line, or nothing, in the card's small ink-2 text.
 function Note({ value, className = '' }: { value: Text | undefined; className?: string }) {
   if (value === undefined) return null
@@ -175,6 +192,9 @@ export function ResultCard({
   const [opened] = useState(() => new Date())
   const clock = now ?? opened
   const photo = photoUrl ?? report?.photoUrl ?? sample?.photoUrl
+  // What the overlay found in the layers file once it was read, and whether its photo has been given up on.
+  const [layers, setLayers] = useState<OverlayData | undefined>()
+  const [photoGone, setPhotoGone] = useState(false)
   const saved = savedAt === undefined ? undefined : formatDate(lang, savedAt)
 
   // The level and what goes with it.
@@ -212,9 +232,26 @@ export function ResultCard({
     event: sample?.event ?? result.event,
   })
 
-  // The caption claims outlines only when there are some to show. The API links the overlay and the layers file for a
-  // level result alone, and a saved sample answer (paused model calls) carries neither.
-  const hasOutlines = live && outcome === 'level' && (report?.overlayUrl !== undefined || report?.layersUrl !== undefined)
+  // The overlay is drawn for a live level result, which is the one the API links an overlay and a layers file for. A saved
+  // sample answer (paused model calls) carries neither, and gets the plain photo.
+  const drawsOverlay = live && outcome === 'level'
+  // The caption claims outlines only when there are some to show: once the layers are read, when the file holds water or
+  // a reference, and until then, or when they can't be read, when the result links an overlay or a layers file.
+  const hasOutlines =
+    drawsOverlay &&
+    (report?.overlayUrl !== undefined || report?.layersUrl !== undefined) &&
+    (layers === undefined || layers.water.length > 0 || layers.refs.length > 0)
+  const photoView =
+    photo === undefined ? null : (
+      <OverlayView
+        photoUrl={photo}
+        overlayUrl={drawsOverlay ? report?.overlayUrl : undefined}
+        layersUrl={drawsOverlay ? report?.layersUrl : undefined}
+        onExpired={onPhotoExpired}
+        onLayers={setLayers}
+        onGone={() => setPhotoGone(true)}
+      />
+    )
 
   const showsReading = outcome === 'level' || outcome === 'noFlood' || outcome === 'cantTell'
   const shownPrivate = result.mode === 'private' && showsReading
@@ -238,27 +275,11 @@ export function ResultCard({
               <T k={isSample ? 'badge.sample' : 'badge.demo'} />
             </Badge>
           </div>
-          {photo !== undefined && (
-            <img
-              src={photo}
-              alt={t('sample.photoAlt').text}
-              lang={t('sample.photoAlt').lang}
-              onError={() => onPhotoExpired?.()}
-              className="w-full rounded-control border border-outline"
-            />
-          )}
+          {photoView}
           <figcaption className="mt-2 text-small text-ink-2">
             <Note value={photoFrom} />
             {credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
-            <p className="mt-1">
-              <T k="sample.edited" />
-              {hasOutlines && (
-                <>
-                  {' '}
-                  <T k="sample.outlines" />
-                </>
-              )}
-            </p>
+            {!photoGone && <PhotoLine outlines={hasOutlines} className="mt-1" />}
           </figcaption>
         </figure>
       )}
@@ -286,6 +307,15 @@ export function ResultCard({
               <Note value={basis} className="text-ink-2" />
             </div>
           </div>
+          {/* A live result's own photo comes under the level line, so that line stays on the first screen. */}
+          {!isExample && live && photoView !== null && !photoGone && (
+            <figure className="mt-4">
+              {photoView}
+              <figcaption className="mt-2 text-small text-ink-2">
+                <PhotoLine outlines={hasOutlines} />
+              </figcaption>
+            </figure>
+          )}
         </>
       )}
 

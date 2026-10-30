@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FlagDialog } from '../components/FlagDialog'
 import { ResultCard } from '../components/ResultCard'
-import { T, useT } from '../i18n'
+import { T } from '../i18n'
 import { flagPin, getPins, getReport, HttpError, type Pin, type ReportResult } from '../lib/api'
 import { getDeviceId } from '../lib/device'
 import { useHeadingFocus } from '../lib/focus'
@@ -39,26 +39,6 @@ type State =
       flags: number
       now: Date
     }
-
-// The Task 14 hook: the pin's photo with its overlay is drawn from `report.photoUrl`, `overlayUrl` and `layersUrl`. Task
-// 14 moves this into the card, where the overlay draws itself over the photo, and removes this figure.
-function PinPhoto({ url, onExpired }: { url: string; onExpired(): void }) {
-  const alt = useT()('sample.photoAlt')
-  return (
-    <figure>
-      <img
-        src={url}
-        alt={alt.text}
-        lang={alt.lang}
-        onError={onExpired}
-        className="w-full rounded-control border border-outline"
-      />
-      <figcaption className="mt-2 text-small text-ink-2">
-        <T k="sample.edited" />
-      </figcaption>
-    </figure>
-  )
-}
 
 // Pin detail (C613, C614): the result card for a pin on the map, with its blurred photo, how many other reports lie near
 // it, how many phones flagged it, and on a live pin the flag. It never shows the pin's id (C610). The pin's own fields
@@ -224,9 +204,9 @@ export function PinScreen({ apiUrl, id }: { apiUrl: string; id: string }) {
   function pinBody({ pin, report, nearby, flags, now }: Extract<State, { kind: 'ready' }>) {
     const flaggable = pin.mode === 'live'
     const flagged = wasFlagged(pin.id)
-    // The card is given the report as GET /reports/{id} answered, with its photo, overlay and layers links, so its
-    // captions and Task 14's overlay see them. The pin's own public fields fill what the report leaves out, and a demo
-    // pin's mode is the pin's.
+    // The card is given the report as GET /reports/{id} answered, with its photo, overlay and layers links, and draws the
+    // photo with its overlay itself, for a live pin and a demo pin alike. The pin's own public fields fill what the report
+    // leaves out, and a demo pin's mode is the pin's.
     const card: ReportResult | Pin =
       report === undefined
         ? pin
@@ -241,7 +221,6 @@ export function PinScreen({ apiUrl, id }: { apiUrl: string; id: string }) {
           }
     return (
       <>
-        {flaggable && report?.photoUrl !== undefined && <PinPhoto url={report.photoUrl} onExpired={photoExpired} />}
         <ResultCard result={card} source="pin" now={now} onPhotoExpired={photoExpired} />
 
         <div className="space-y-1">

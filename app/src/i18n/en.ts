@@ -386,6 +386,16 @@ export const EN = {
   // The gauge's captions, beside its cells (the gauge is hidden from screen readers; the level line says it all).
   'gauge.outside': { text: "Outside MMDA's gauge", reviewed: true },
   'gauge.orDeeper': { text: 'or deeper', reviewed: true },
+  // The overlay drawn over the photo (MS5 Task 14, C615). A reference's label is built from these, the landmark lines and
+  // the drop-cause lines above. A floor reads as the result card does ("At least {level}"), and none of these names a
+  // road or tells anyone to go anywhere. All wait for Rene's copy review.
+  'overlay.title': { text: "Lusot's outlines on the photo", reviewed: false },
+  'overlay.water': { text: 'Outline of the water', reviewed: false },
+  'overlay.ref.wheel': { text: 'Wheel {id}', reviewed: false },
+  'overlay.ref.body': { text: 'Car body {id}', reviewed: false },
+  'overlay.ref.person': { text: 'Person {id}', reviewed: false },
+  'overlay.floor': { text: 'At least {level}', reviewed: false },
+  'overlay.notUsed': { text: 'Not used', reviewed: false },
   // The live map, its list and pin detail (MS5 Task 13). Every line that says what a pin shows keeps "at this spot"
   // through the level line, and none says anything about a place with no report, since no report is not a dry spot.
   'map.noApi': { text: "This build can't show reports.", reviewed: false },

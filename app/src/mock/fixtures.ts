@@ -302,7 +302,10 @@ function waterOutline(waterY: number): Polygon[] {
   ]
 }
 
-function layerRef(spec: RefSpec, waterY: number): OverlayRef {
+// MS4's C54 flag: the result's own for a reference that reads a level, and null for one that doesn't.
+const floorOf = (spec: RefSpec, isFloor: boolean): boolean | null => (spec.level !== null && spec.dropped === null ? isFloor : null)
+
+function layerRef(spec: RefSpec, waterY: number, isFloor: boolean): OverlayRef {
   const box = BOXES[spec.shape]
   const fitted = spec.shape === 'wheel' && spec.from === 'geometry'
   return {
@@ -313,6 +316,7 @@ function layerRef(spec: RefSpec, waterY: number): OverlayRef {
     landmark: spec.landmark,
     level: spec.level,
     level_from: spec.from,
+    level_is_floor: floorOf(spec, isFloor),
     used: spec.used,
     dropped: spec.dropped,
     rechecked: spec.rechecked ?? false,
@@ -327,12 +331,13 @@ function inchesOf(fixture: LevelFixture): { depthInMin?: number; depthInMax?: nu
   return fixture.inches === undefined ? {} : { depthInMin: fixture.inches[0], depthInMax: fixture.inches[1] }
 }
 
-function readingOf(spec: RefSpec): Reading {
+function readingOf(spec: RefSpec, isFloor: boolean): Reading {
   const reading: Reading = {
     id: spec.id,
     kind: spec.shape === 'wheel' ? 'wheel' : 'person',
     landmark: spec.landmark,
     level: spec.level,
+    levelIsFloor: floorOf(spec, isFloor),
     used: spec.used,
     dropped: spec.dropped,
   }
@@ -343,9 +348,9 @@ function readingOf(spec: RefSpec): Reading {
 }
 
 export function levelLayers(key: LevelKey): OverlayData {
-  const { waterY, refs } = levelFixture(key)
+  const { waterY, refs, levelIsFloor } = levelFixture(key)
   const water = waterOutline(waterY)
-  return { version: 1, width: WIDTH, height: HEIGHT, water, refs: refs.map((ref) => layerRef(ref, waterY)) }
+  return { version: 1, width: WIDTH, height: HEIGHT, water, refs: refs.map((ref) => layerRef(ref, waterY, levelIsFloor)) }
 }
 
 export function levelHue(key: LevelKey): number {
@@ -409,7 +414,7 @@ export function resultBody(outcome: Outcome, facts: ReportFacts): Record<string,
         basis: fixture.basis,
         levelIsFloor: fixture.levelIsFloor,
         levelFrom: fixture.levelFrom,
-        readings: fixture.refs.map(readingOf),
+        readings: fixture.refs.map((ref) => readingOf(ref, fixture.levelIsFloor)),
       })
       Object.assign(body, inchesOf(fixture))
       if (facts.gpsAccuracyM !== undefined) body.gpsAccuracyM = facts.gpsAccuracyM

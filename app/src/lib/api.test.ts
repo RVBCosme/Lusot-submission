@@ -8,8 +8,11 @@ import {
   getSamples,
   HttpError,
   MalformedAnswerError,
+  type OverlayData,
+  type OverlayRef,
   postToS3,
   RequestTimeoutError,
+  type Reading,
   requestUpload,
   runSample,
 } from './api'
@@ -499,6 +502,30 @@ it('getLayers gives the layers file in C524 shape', async () => {
 
   expect(await getLayers(LAYERS_URL, fetchFn)).toEqual(LAYERS)
   expect(fetchFn.mock.calls[0][0]).toBe(LAYERS_URL)
+})
+
+// MS4's floor keys (C54): each reference in the layers file carries level_is_floor (true, false, or null where it has
+// no level) and each reading carries levelIsFloor. An answer from before MS4 rolled out has neither key.
+it("getLayers keeps each reference's level_is_floor as the file has it: true, false, null, and absent", async () => {
+  const [wheel, person] = LAYERS.refs
+  const floors: Pick<OverlayRef, 'level_is_floor'>[] = [{ level_is_floor: true }, { level_is_floor: false }, { level_is_floor: null }]
+  const file = { ...LAYERS, refs: [{ ...wheel, ...floors[0] }, { ...person, ...floors[1] }, { ...wheel, id: 3, ...floors[2] }, { ...wheel, id: 4 }] }
+
+  const layers = (await getLayers(LAYERS_URL, fetchReplying(json(200, file)))) as OverlayData
+
+  expect(layers.refs.map((ref) => ref.level_is_floor)).toEqual([true, false, null, undefined])
+  expect('level_is_floor' in layers.refs[3]).toBe(false)
+})
+
+it('getReport keeps levelIsFloor on each reading: true, false, null, and absent', async () => {
+  const floors: Pick<Reading, 'levelIsFloor'>[] = [{ levelIsFloor: true }, { levelIsFloor: false }, { levelIsFloor: null }]
+  const [wheel, person] = LEVEL_REPORT.readings
+  const readings = [{ ...wheel, ...floors[0] }, { ...person, ...floors[1] }, { ...wheel, id: 3, ...floors[2] }, { ...wheel, id: 4 }]
+
+  const report = await getReport(API, ID, fetchReplying(json(200, { ...LEVEL_REPORT, readings })))
+
+  expect(report?.readings?.map((reading) => reading.levelIsFloor)).toEqual([true, false, null, undefined])
+  expect(report?.readings?.[3] && 'levelIsFloor' in report.readings[3]).toBe(false)
 })
 
 it('getLayers gives undefined when the fetch fails or the JSON does not parse', async () => {

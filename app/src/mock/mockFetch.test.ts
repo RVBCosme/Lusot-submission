@@ -97,7 +97,16 @@ describe('a level reading', () => {
     expect(result.readings).toHaveLength(3)
     const dropped = result.readings?.filter((reading) => reading.dropped !== null)
     expect(dropped).toEqual([
-      { id: 3, kind: 'person', landmark: null, level: null, inches: null, used: false, dropped: 'person_not_adult' },
+      {
+        id: 3,
+        kind: 'person',
+        landmark: null,
+        level: null,
+        levelIsFloor: null,
+        inches: null,
+        used: false,
+        dropped: 'person_not_adult',
+      },
     ])
     // C507: inches only on a deciding reading whose level came from geometry.
     expect(result.readings?.map((reading) => reading.inches)).toEqual([[15, 18], undefined, null])
@@ -124,6 +133,7 @@ describe('a level reading', () => {
       kind: 'person',
       level: null,
       level_from: null,
+      level_is_floor: null,
       landmark: null,
       used: false,
       dropped: 'person_not_adult',
@@ -135,8 +145,8 @@ describe('a level reading', () => {
     for (const ref of refs) {
       expect(Object.keys(ref).sort()).toEqual(
         [
-          'id', 'kind', 'box', 'outline', 'landmark', 'level', 'level_from', 'used', 'dropped', 'rechecked',
-          'rim_outline', 'rim', 'waterline',
+          'id', 'kind', 'box', 'outline', 'landmark', 'level', 'level_from', 'level_is_floor', 'used', 'dropped',
+          'rechecked', 'rim_outline', 'rim', 'waterline',
         ].sort(),
       )
       expect(ref.box).toHaveLength(4)
@@ -157,10 +167,21 @@ describe('a level reading', () => {
         kind: reading.kind,
         landmark: reading.landmark,
         level: reading.level,
+        level_is_floor: reading.levelIsFloor,
         used: reading.used,
         dropped: reading.dropped,
       })
     }
+  })
+
+  it("carries MS4's floor keys: true on a floor reading, false on an exact one, null where there is no level", async () => {
+    const knee = await levelReport('level_knee')
+    expect(knee.readings?.map((reading) => reading.levelIsFloor)).toEqual([false, false, null])
+    const floor = await levelReport('level_floor')
+    expect(floor.readings?.map((reading) => reading.levelIsFloor)).toEqual([true])
+    const { fetchFn, result } = await takePhoto('level_floor')
+    const layers = (await getLayers(result.layersUrl ?? '', fetchFn)) as OverlayData
+    expect(layers.refs.map((ref) => ref.level_is_floor)).toEqual([true])
   })
 
   it('moves from pending to processing to done, one step a poll, once the photo has been posted', async () => {

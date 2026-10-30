@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LEVELS, PASSABILITY, type Level } from '../copy/levels'
@@ -19,8 +19,15 @@ import {
 import { pollReport } from '../lib/poll'
 import { writeItem } from '../lib/storage'
 import { createMockFetch } from '../mock/mockFetch'
-import { scenarioNames, type Scenario } from '../mock/fixtures'
+import { levelLayers, scenarioNames, type Scenario } from '../mock/fixtures'
 import { PausedNotice, ResultCard } from './ResultCard'
+
+// The overlay fetches the layers file through the app's fetch. A test points it at the mock that made the report,
+// whose layers file belongs to that report, and until then it has no network.
+const net = vi.hoisted(() => ({ fetch: undefined as unknown as typeof fetch }))
+vi.mock('../lib/apiFetch', () => ({
+  apiFetch: (input: RequestInfo | URL, init?: RequestInit) => net.fetch(input, init),
+}))
 
 const API = 'https://mock.invalid'
 const DEVICE = '0f8e4a52-3c1d-4b7a-9e26-5d0c8b1f7a43'
@@ -45,9 +52,12 @@ const APPROACH =
 
 beforeEach(() => {
   localStorage.clear()
+  net.fetch = () => Promise.reject(new TypeError('No network in the test environment'))
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // A layers answer still on its way lands inside act, and then the card goes.
+  await act(async () => {})
   cleanup()
   vi.restoreAllMocks()
   localStorage.clear()
@@ -67,7 +77,9 @@ function clock() {
 
 function mockWith(scenario?: Scenario) {
   const c = clock()
-  return { fetchFn: createMockFetch({ scenario, now: c.now }), c }
+  const fetchFn = createMockFetch({ scenario, now: c.now })
+  net.fetch = fetchFn
+  return { fetchFn, c }
 }
 
 // The whole trip a photo takes, as the app makes it: the upload link, the photo, then the poll to a final status.
@@ -631,12 +643,207 @@ describe('a sample and a demo pin', () => {
     expect(credit.getAttribute('lang')).toBe('en')
   })
 
-  it('a live card shows no photo of its own here, and no sample frame', async () => {
+  it('a live card has no sample frame: no badge, no credit, no photo date and no claim that the reading is of a credited photo', async () => {
     const result = await takePhoto()
     expect(result.photoUrl).toBeDefined()
     renderCard({ result })
+    await screen.findByTestId('overlay-svg')
+    expect(text()).not.toMatch(/credited photo|Photo from|Sample|Demo/)
+  })
+})
+
+// Task 14: the photo with Lusot's evidence drawn on it, in the card, for a level result with photo links.
+describe('the photo and its overlay', () => {
+  const BLURRED = 'Lusot blurred the faces and plates in this photo.'
+  const OUTLINES = 'Lusot drew its outlines on it.'
+  const PHOTO_ALT = 'The photo, with faces and plates blurred.'
+  const figure = () => screen.getByRole('img', { name: PHOTO_ALT }).closest('figure') as HTMLElement
+  const caption = () => figure().querySelector('figcaption')?.textContent ?? ''
+  const after = (first: Node, second: Node) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+  const emptyLayers = { version: 1, width: 800, height: 600, water: [], refs: [] }
+  const answering = (body: unknown) => {
+    net.fetch = async () => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  }
+  async function sampleRun() {
+    const run = mockWith()
+    const samples = await getSamples(API, run.fetchFn)
+    const started = (await runSample(API, samples[0].sampleId, DEVICE, run.fetchFn)) as { reportId: string }
+    const result = await pollReport(API, started.reportId, { fetchFn: run.fetchFn, sleep: run.c.sleep, now: run.c.now })
+    return { sample: samples[0], result }
+  }
+
+  it("shows a live level result's blurred photo with the overlay on it, under the level line so that line stays first", async () => {
+    const result = await takePhoto()
+    renderCard({ result })
+    const svg = await screen.findByTestId('overlay-svg')
+
+    const photo = screen.getByRole('img', { name: PHOTO_ALT })
+    expect(photo.getAttribute('src')).toBe(result.photoUrl)
+    expect(svg.parentElement).toBe(photo.parentElement)
+    expect(figure().parentElement?.tagName).toBe('ARTICLE')
+    // The level line, then the gauge's block, then the photo: the reading is on the first screen at 360 x 640.
+    const level = screen.getByText('Knee deep at this spot (MMDA level).')
+    expect(after(level, figure())).toBe(true)
+    expect(after(screen.getByTestId('gauge'), figure())).toBe(true)
+    expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
+    // Every reference the reading used is on the photo, with the cause on the one it left out.
+    expect(screen.getByRole('img', { name: 'Person 3: Not used, since this person may not be an adult.' })).toBeTruthy()
+  })
+
+  it("shows the same on a floor reading, labelled as a floor, as the card's level line is", async () => {
+    const result = await takePhoto('level_floor')
+    renderCard({ result })
+    const svg = await screen.findByTestId('overlay-svg')
+    expect(screen.getByText('At least tire deep at this spot (MMDA level).')).toBeTruthy()
+    expect(svg.querySelector('[data-layer="label"] text')?.textContent).toBe('1: At least tire')
+  })
+
+  it('shows the same in Taglish, with the floor as "Hindi bababa sa"', async () => {
+    const result = await takePhoto('level_floor')
+    renderCard({ result }, 'fil')
+    const svg = await screen.findByTestId('overlay-svg')
+    expect(svg.querySelector('[data-layer="label"] text')?.textContent).toBe('1: Hindi bababa sa tire')
+    expect(svg.getAttribute('aria-label')).toBe(FIL['overlay.title'].text)
+  })
+
+  it('has no photo for a pin card with no links, or a result with no photo link', async () => {
+    renderCard({ result: pinAt('knee') })
     expect(screen.queryByRole('img')).toBeNull()
-    expect(text()).not.toMatch(/credited photo|Photo from|Sample/)
+    cleanup()
+    const result = await takePhoto()
+    renderCard({ result: { ...result, photoUrl: undefined } })
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByRole('figure')).toBeNull()
+  })
+
+  it('has no photo for a refusal, a failure or no flood seen, which carry no links', async () => {
+    for (const scenario of ['no_flood_seen', 'refused_no_usable_reference', 'failed_model_error'] as const) {
+      renderCard({ result: await takePhoto(scenario) })
+      expect(screen.queryByRole('figure'), scenario).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('shows the photo and the blurred line and nothing about outlines when the result links no overlay', async () => {
+    const result = await takePhoto()
+    renderCard({ result: { ...result, overlayUrl: undefined, layersUrl: undefined } })
+    expect(screen.getByRole('img', { name: PHOTO_ALT })).toBeTruthy()
+    expect(caption()).toBe(BLURRED)
+    await act(async () => {})
+    expect(screen.queryByTestId('overlay-svg')).toBeNull()
+  })
+
+  it('says it drew outlines only while the layers hold some: an empty file takes the claim back, a full one keeps it', async () => {
+    const result = await takePhoto()
+    answering(emptyLayers)
+    renderCard({ result })
+    // Before the layers answer, the link says there are outlines.
+    expect(caption()).toContain(OUTLINES)
+    await act(async () => {})
+    expect(caption()).toBe(BLURRED)
+    cleanup()
+
+    answering({ ...emptyLayers, water: levelLayers('knee').water })
+    renderCard({ result })
+    await screen.findByTestId('overlay-svg')
+    expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
+    cleanup()
+
+    answering({ ...emptyLayers, refs: levelLayers('knee').refs })
+    renderCard({ result })
+    await screen.findByTestId('overlay-svg')
+    expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
+  })
+
+  it("keeps today's rule when the layers can't be read: an overlay link keeps the claim, and the JPEG is drawn over the photo", async () => {
+    const result = await takePhoto()
+    net.fetch = () => Promise.reject(new TypeError('Failed to fetch'))
+    const { container } = renderCard({ result })
+    await act(async () => {})
+    expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
+    expect(container.querySelector(`img[src="${result.overlayUrl}"]`)).toBeTruthy()
+    expect(screen.queryByTestId('overlay-svg')).toBeNull()
+  })
+
+  it('draws the same overlay on a sample and on a demo pin, since each is a level result with links', async () => {
+    const { sample, result } = await sampleRun()
+    renderCard({ result, source: 'sample', sample })
+    const sampleSvg = await screen.findByTestId('overlay-svg')
+    expect(sampleSvg.querySelectorAll('[data-ref]')).toHaveLength(3)
+    cleanup()
+
+    const { fetchFn } = mockWith()
+    const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    const report = (await getReport(API, demo.id, fetchFn)) as ReportResult
+    renderCard({ result: report, source: 'pin' })
+    const demoSvg = await screen.findByTestId('overlay-svg')
+    expect(demoSvg.querySelectorAll('[data-ref]').length).toBeGreaterThan(0)
+  })
+
+  it('never draws it on a saved sample, even from a full live result, and never asks for its layers', async () => {
+    const { sample, result } = await sampleRun()
+    expect(result.layersUrl).toBeDefined()
+    const asked = vi.fn<typeof fetch>(net.fetch)
+    net.fetch = asked
+    const { container } = renderCard({ result, source: 'sample', sample, savedAt: '2026-10-29T14:20:00Z' })
+    await act(async () => {})
+
+    expect(asked).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('overlay-svg')).toBeNull()
+    expect(container.querySelector('[data-layer]')).toBeNull()
+    expect(container.querySelectorAll('img')).toHaveLength(1)
+  })
+
+  it('asks for a new link once when the photo fails to load, and a second failure leaves the card without the photo, not an error', async () => {
+    const result = await takePhoto()
+    const onPhotoExpired = vi.fn()
+    renderCard({ result, onPhotoExpired })
+    await screen.findByTestId('overlay-svg')
+
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    expect(onPhotoExpired).toHaveBeenCalledTimes(1)
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    expect(onPhotoExpired).toHaveBeenCalledTimes(1)
+
+    expect(screen.queryByRole('img', { name: PHOTO_ALT })).toBeNull()
+    expect(screen.queryByTestId('overlay-svg')).toBeNull()
+    expect(screen.queryByRole('figure')).toBeNull()
+    expect(text()).not.toContain(BLURRED)
+    // The reading is all still there, and nothing says something went wrong.
+    expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(text()).not.toMatch(/error|failed|couldn't/i)
+  })
+
+  it('takes back what an example card said about its photo when the photo is gone, and keeps its credit and date', async () => {
+    const { sample, result } = await sampleRun()
+    renderCard({ result, source: 'sample', sample, onPhotoExpired: vi.fn() })
+    await screen.findByTestId('overlay-svg')
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    expect(screen.queryByRole('img', { name: PHOTO_ALT })).toBeNull()
+    expect(text()).not.toContain(BLURRED)
+    expect(text()).not.toContain(OUTLINES)
+    expect(screen.getByText('Photo from Sep 26, 2009, Marikina, Typhoon Ondoy')).toBeTruthy()
+    expect(screen.getByText('Photo: Example Contributor (mock), CC0 1.0')).toBeTruthy()
+  })
+
+  it("writes no link, report id or place into the card, and no banned or crossing words into the overlay's labels", async () => {
+    const result = await takePhoto()
+    const { container } = renderCard({ result })
+    const svg = await screen.findByTestId('overlay-svg')
+    const everything = svg.outerHTML + (container.textContent ?? '')
+    expect(everything).not.toMatch(/r_[0-9a-f]{32}|sig=|https?:\/\/(?!www\.w3\.org|mmda\.gov\.ph|www\.pagasa)/)
+    expect(everything).not.toContain(result.reportId)
+    const labels = [...svg.querySelectorAll('[aria-label]')].map((element) => element.getAttribute('aria-label') ?? '')
+    expect(labels.length).toBeGreaterThan(3)
+    for (const label of labels) {
+      expect(label).not.toMatch(BANNED_WORDS)
+      expect(label).not.toMatch(CROSSING)
+      expect(label).not.toMatch(NINE_LEVELS)
+      expect(label).not.toMatch(WHOLE_ROAD)
+      expect(label).not.toMatch(APPROACH)
+    }
   })
 })
 

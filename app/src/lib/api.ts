@@ -32,7 +32,9 @@ export interface PresignedPost {
 export type Point = [number, number]
 export type Polygon = Point[]
 
-// One numbered reference. A dropped one has a null level and level_from, and `dropped` holds its cause.
+// One numbered reference. A dropped one has a null level, level_from and level_is_floor, and `dropped` holds its cause.
+// `level_is_floor` (MS4's C54) is true for a floor reading ("this level or deeper"), false for an exact one, and null
+// where there is no level. A file from before MS4 added it has no such key, which the app reads as "not a floor".
 export type OverlayRef = {
   id: number
   kind: 'wheel' | 'body' | 'person'
@@ -41,6 +43,7 @@ export type OverlayRef = {
   landmark: string | null
   level: Level | null
   level_from: 'landmark' | 'geometry' | null
+  level_is_floor: boolean | null
   used: boolean
   dropped: string | null
   rechecked: boolean
@@ -52,11 +55,14 @@ export type OverlayRef = {
 export type OverlayData = { version: 1; width: number; height: number; water: Polygon[]; refs: OverlayRef[] }
 
 // MS4's C507: `level` and `inches` are null on a dropped reference; `inches` comes only past the release gate.
+// `levelIsFloor` is the reading's own C54 floor: true, false, or null where it has no level; an answer from before MS4
+// added it has no such key.
 export type Reading = {
   id: number
   kind: 'wheel' | 'body' | 'person'
   landmark: string | null
   level: Level | null
+  levelIsFloor?: boolean | null
   inches?: [number, number] | null
   used: boolean
   dropped: string | null
