@@ -200,6 +200,8 @@ export function toModelOutput(result: ToolResult): string {
     demo_reports: result.demo.slice(0, MAX_DEMO).map((r) => ({
       ref: r.ref,
       level: r.pin.level,
+      level_is_floor: r.pin.levelIsFloor,
+      passability: r.pin.passability,
       year: new Date(r.pin.capturedAt).getUTCFullYear(),
       distance_m: r.distanceM,
     })),

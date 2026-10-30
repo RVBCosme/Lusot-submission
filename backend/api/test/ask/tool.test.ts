@@ -540,7 +540,7 @@ describe("toModelOutput", () => {
     return runGetReports(args({ place: "Sentinel Corner" }), ctx([...live, demo], { spots: [sentinelSpot] }));
   }
 
-  it("has the brief's fields and nothing else", async () => {
+  it("has the spec's fields and nothing else", async () => {
     const output = JSON.parse(toModelOutput(await sentinelResult()));
     expect(output).toEqual({
       status: "ok",
@@ -552,8 +552,18 @@ describe("toModelOutput", () => {
         { ref: "r1", level: "waist", level_is_floor: false, passability: "NPATV", minutes_ago: 25, distance_m: 0 },
         { ref: "r2", level: "knee", level_is_floor: true, passability: "NPLV", minutes_ago: 61, distance_m: 0 },
       ],
-      demo_reports: [{ ref: "d1", level: "chest", year: 2009, distance_m: 0 }],
+      demo_reports: [{ ref: "d1", level: "chest", level_is_floor: false, passability: "NPATV", year: 2009, distance_m: 0 }],
     });
+  });
+
+  it("gives a demo entry its floor and class beside its year, as spec 4.2 has it", async () => {
+    // A demo reading that is a floor: "at least knee", class NPLV, taken in 2012, 100 m from the point.
+    const demo = demoPin({ level: "knee", levelIsFloor: true, passability: "NPLV", capturedAt: "2012-08-07T00:00:00Z", lat: northOf(100) });
+    const [entry] = JSON.parse(toModelOutput(await runGetReports(args({ place: ESPANA.name }), ctx([demo])))).demo_reports;
+    expect(Object.keys(entry)).toEqual(["ref", "level", "level_is_floor", "passability", "year", "distance_m"]);
+    expect(entry).toMatchObject({ ref: "d1", level: "knee", level_is_floor: true, passability: "NPLV", year: 2012 });
+    expect(entry.distance_m).toBeGreaterThanOrEqual(99);
+    expect(entry.distance_m).toBeLessThanOrEqual(101);
   });
 
   it("has no coordinates and no report ids", async () => {
