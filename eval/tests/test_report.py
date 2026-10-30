@@ -1449,7 +1449,7 @@ def test_sections_show_their_scores(tmp_path):
             assert line in found, (heading, line)
 
 
-UNTUNED_YES = "The cutoffs kept their start values: tuning didn't run (rules 4.3)."
+UNTUNED_YES = "The cutoffs in force are their start values, untuned (rules 4.3)."
 UNTUNED_NO = (
     "The cutoffs were tuned on development data and validated by event replay"
     " (rules 4.3)."

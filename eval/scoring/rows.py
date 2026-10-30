@@ -483,7 +483,7 @@ _RUN_FIELDS: dict[str, _Check] = {
     "baseline_class": _among(CLASS_NAMES, "PATV, NPLV or NPATV"),
 }
 # What frozen.untuned says (rules 4.3): yes when the cutoffs kept their start values
-# because tuning didn't run, and no when they were tuned on development data and
+# (the tuning in force equals START), and no when they were tuned on development data and
 # validated by event replay. A sealed run records it, and a development run may not.
 UNTUNED = ("yes", "no")
 # A sealed run needs every field but these; a development run may also leave out the

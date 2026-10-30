@@ -469,7 +469,7 @@ def frozen_without_untuned() -> dict:
 @pytest.mark.parametrize("value", ["yes", "no"])
 @pytest.mark.parametrize("kind", ["sealed", "development"])
 def test_frozen_untuned_takes_yes_or_no(tmp_path, kind, value):
-    # Rules 4.3: yes when the cutoffs kept their start values (tuning didn't run), no
+    # Rules 4.3: yes when the cutoffs in force are their start values, no
     # when they were tuned on development data and validated by event replay.
     sets = SEALED_SETS if kind == "sealed" else {}
     run = load(tmp_path, run_json(kind=kind, frozen=frozen_with(untuned=value)), **sets)

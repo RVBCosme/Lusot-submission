@@ -263,7 +263,7 @@ Geometry's live default before the run (C309): on.
 | sam | sam-3.1 |
 | untuned | yes |
 
-The cutoffs kept their start values: tuning didn't run (rules 4.3).
+The cutoffs in force are their start values, untuned (rules 4.3).
 
 | Dataset | Version | Split seed | In this results folder |
 |---|---|---|---|

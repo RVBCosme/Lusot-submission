@@ -1176,7 +1176,7 @@ _DATASETS = (
 
 # What frozen.untuned says, in the report (rules 4.3).
 _UNTUNED_LINES = {
-    "yes": "The cutoffs kept their start values: tuning didn't run (rules 4.3).",
+    "yes": "The cutoffs in force are their start values, untuned (rules 4.3).",
     "no": (
         "The cutoffs were tuned on development data and validated by event replay"
         " (rules 4.3)."
