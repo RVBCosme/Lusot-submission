@@ -1,10 +1,11 @@
 // Every network answer the end-to-end suite gives (MS5 Task 18). The app is built with VITE_API_URL pointing at
 // https://api.e2e.test, so nothing leaves the machine: each request to the API, to the S3 stand-in, and for a map tile is
-// answered here through `page.route`. A request to any other host that no route answers is refused and fails the test.
+// answered here through `context.route`, so a popup or a second page is under the same answers as the first. A request to
+// any other host that no route answers is refused and fails the test.
 //
 // The answers' shapes come from app/src/mock/fixtures.ts, the same functions the unit tests' mock API uses, so the suite
 // can't drift from them. The photos, overlays and tiles are small synthetic PNGs made here; no photograph is stored.
-import { expect, test as base, type Page, type Route } from '@playwright/test'
+import { expect, test as base, type BrowserContext, type Route } from '@playwright/test'
 import { crc32, deflateSync } from 'node:zlib'
 import {
   isoSeconds,
@@ -99,10 +100,10 @@ export class Mocks {
   private gpsAccuracyM: number | undefined
   private gate: Promise<void> | undefined
 
-  private readonly page: Page
+  private readonly context: BrowserContext
 
-  constructor(page: Page) {
-    this.page = page
+  constructor(context: BrowserContext) {
+    this.context = context
   }
 
   // Holds every POST /uploads until the returned function is called, so a test can look at the "sending" step.
@@ -119,15 +120,15 @@ export class Mocks {
 
   async install(): Promise<void> {
     // The last route registered answers first, so this catch-all only sees what no other route took.
-    await this.page.route('**/*', (route) => {
+    await this.context.route('**/*', (route) => {
       const { hostname } = new URL(route.request().url())
       if (hostname === '127.0.0.1' || hostname === 'localhost') return route.continue()
       this.unrouted.push(`${route.request().method()} ${hostname}`)
       return route.abort('blockedbyclient')
     })
-    await this.page.route(`${TILE_ORIGIN}/**`, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: TILE }))
-    await this.page.route(`${FILES_ORIGIN}/**`, (route) => this.files(route))
-    await this.page.route(`${API_ORIGIN}/**`, (route) => this.api(route))
+    await this.context.route(`${TILE_ORIGIN}/**`, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: TILE }))
+    await this.context.route(`${FILES_ORIGIN}/**`, (route) => this.files(route))
+    await this.context.route(`${API_ORIGIN}/**`, (route) => this.api(route))
   }
 
   private reply(route: Route, status: number, body?: unknown, headers: Record<string, string> = {}): Promise<void> {
@@ -284,8 +285,8 @@ export class Mocks {
 
 export const test = base.extend<{ mocks: Mocks }>({
   mocks: [
-    async ({ page }, provide) => {
-      const mocks = new Mocks(page)
+    async ({ context }, provide) => {
+      const mocks = new Mocks(context)
       await mocks.install()
       await provide(mocks)
       // Nothing outside the answers' own list was asked for.

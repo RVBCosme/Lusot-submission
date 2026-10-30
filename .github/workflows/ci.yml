@@ -88,3 +88,15 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e -w app
+      # A failed run's traces, screenshots and HTML report, kept 7 days (CLAUDE.md's 7-day rule). They hold only the
+      # suite's own synthetic pictures and answers. Pinned to the commit of v7.0.2, the release published Oct 7, 2026
+      # (looked up Oct 30, 2026 on the action's releases page and its tag).
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-failure
+          path: |
+            app/test-results/
+            app/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore

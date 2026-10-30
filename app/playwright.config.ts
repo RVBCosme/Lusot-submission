@@ -21,7 +21,8 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: process.env.CI !== undefined,
   retries: 0,
-  reporter: 'list',
+  // CI also writes the HTML report, which the job uploads with the traces when a run fails (.github/workflows/ci.yml).
+  reporter: process.env.CI === undefined ? 'list' : [['list'], ['html', { open: 'never' }]],
   timeout: 120_000,
   expect: { timeout: 15_000 },
   outputDir: './test-results',
@@ -29,6 +30,10 @@ export default defineConfig({
     baseURL: ORIGIN,
     // The app has no service worker (S5-R20); blocking one is harmless and keeps it from answering ahead of the routes.
     serviceWorkers: 'block',
+    // What a failed run leaves to read: the trace and a screenshot, in the git-ignored test-results. The pictures are the
+    // synthetic street scene and the answers are the suite's own, so they hold nothing real.
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
     permissions: ['camera', 'geolocation'],
     // A fixed point in Metro Manila with a fix of 10 m, well inside the 50 m the report flow asks for (C603). Its place
     // is the one the unit tests use.
