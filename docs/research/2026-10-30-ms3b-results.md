@@ -234,4 +234,5 @@ C309 sets the live default from the final ablation, after Set B's k and the tuni
   - **After paying:** a failed record prints `spend_error` and exits nonzero.
   - **To run it:** paid laptop runs need `--with "botocore[crt]==1.43.120"` under `aws login`.
   - **A limit to know:** the stop is checked once per run in each window. Concurrent runs can overshoot it by their combined cost.
+- **Update to §14 (v0.7):** `eval/rules.md` v0.7 is approved and on `main` (`1138caf`, Oct 30), so MS3b-Q4 and item 10.1's freeze items are settled by its freeze list. MS3b-Q3 is moot, since the self-check is off and unbuilt. `run_eval.py --rules-version` prints 0.7, so the development report must be rerun under v0.7 before `run_sealed`.
 
