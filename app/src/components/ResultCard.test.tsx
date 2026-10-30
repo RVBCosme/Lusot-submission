@@ -402,7 +402,7 @@ describe('a pause', () => {
     expect(screen.queryByRole('link', { name: 'Tested' })).toBeNull()
   })
 
-  it('shows C638\'s Taglish draft on a Taglish screen, unmarked, and keeps it waiting for Rene\'s review', async () => {
+  it('shows C638\'s Taglish line on a Taglish screen, unmarked, now that the M20 review has passed it', async () => {
     renderCard({ result: await takePhoto('failed_model_calls_paused') }, 'fil')
     const line = screen.getByText(FIL['result.paused'].text)
     expect(line.getAttribute('lang')).toBeNull()
@@ -410,9 +410,9 @@ describe('a pause', () => {
     expect(FIL['result.paused'].text).toBe(
       'Naka-pause ngayon ang mga bagong analysis. Gumagana pa rin ang mapa at ang Tested page.',
     )
-    expect(FIL['result.paused'].reviewed).toBe(false)
-    expect(EN['result.paused'].reviewed).toBe(false)
-    expect(unreviewedKeys()).toContainEqual({ lang: 'fil', key: 'result.paused' })
+    expect(FIL['result.paused'].reviewed).toBe(true)
+    expect(EN['result.paused'].reviewed).toBe(true)
+    expect(unreviewedKeys()).not.toContainEqual({ lang: 'fil', key: 'result.paused' })
   })
 
   it('serves a saved sample: the paused line, then its saved result marked with its date, and no basis, overlay or inches', async () => {
@@ -501,7 +501,7 @@ describe('a sample and a demo pin', () => {
     expect(photo.getAttribute('src')).toBe(sample.photoUrl)
     expect(screen.getByText('Photo from Sep 26, 2009, Marikina, Typhoon Ondoy')).toBeTruthy()
     expect(screen.getByText('Photo: Example Contributor (mock), CC0 1.0')).toBeTruthy()
-    expect(screen.getByText('Lusot blurred the faces and plates in this photo and drew its outlines.')).toBeTruthy()
+    expect(screen.getByText('Lusot blurred the faces and plates in this photo. Lusot drew its outlines on it.')).toBeTruthy()
     expect(screen.getByText('This is a live reading of a credited photo, not a test result.')).toBeTruthy()
     expect(screen.getByText('Sample')).toBeTruthy()
     expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
@@ -534,6 +534,77 @@ describe('a sample and a demo pin', () => {
     // D19 sits after its frame, and the plain reason sits before it.
     const reason = screen.getByText('No car or person in the photo could be used to read the depth.')
     expect(reason.compareDocumentPosition(framing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  // The caption says what Lusot did to the photo. It claims outlines (spec C617) only when there are some to show.
+  const BLURRED = 'Lusot blurred the faces and plates in this photo.'
+  const OUTLINES = 'Lusot drew its outlines on it.'
+  const caption = () => (screen.getByRole('img').closest('figure') as HTMLElement).querySelector('figcaption')?.textContent ?? ''
+
+  it('says it drew outlines on a level result that links its overlay, after saying it blurred faces and plates', async () => {
+    const { sample, result } = await sampleRun()
+    expect(result).toMatchObject({ level: 'knee' })
+    expect(result.overlayUrl ?? result.layersUrl).toBeDefined()
+    renderCard({ result, source: 'sample', sample })
+
+    expect(caption()).toContain(`${BLURRED} ${OUTLINES}`)
+    expect(EN['sample.edited'].text).not.toMatch(/outline/i)
+  })
+
+  it('says it blurred faces and plates and nothing about outlines on a result with none to show', async () => {
+    for (const scenario of ['no_flood_seen', 'refused_no_usable_reference'] as const) {
+      const { sample, result } = await sampleRun(scenario)
+      expect(result.overlayUrl ?? result.layersUrl, scenario).toBeUndefined()
+      renderCard({ result, source: 'sample', sample })
+      expect(caption(), scenario).toContain(BLURRED)
+      expect(caption(), scenario).not.toMatch(/outline/i)
+      cleanup()
+    }
+    // A level result with its links gone has no outlines either.
+    const { sample, result } = await sampleRun()
+    renderCard({ result: { ...result, overlayUrl: undefined, layersUrl: undefined }, source: 'sample', sample })
+    expect(caption()).toContain(BLURRED)
+    expect(caption()).not.toMatch(/outline/i)
+  })
+
+  it('never says it drew outlines on a saved sample, even from a full live result', async () => {
+    const { sample, result } = await sampleRun()
+    expect(result.layersUrl).toBeDefined()
+    renderCard({ result, source: 'sample', sample, savedAt: '2026-10-29T14:20:00Z' })
+    expect(caption()).toContain(BLURRED)
+    expect(caption()).not.toMatch(/outline/i)
+    cleanup()
+
+    // What a saved answer is, as the API client gives it: no links at all.
+    const { fetchFn } = mockWith('failed_model_calls_paused')
+    const samples = await getSamples(API, fetchFn)
+    const saved = (await runSample(API, samples[0].sampleId, DEVICE, fetchFn)) as SavedSample
+    const bare = { reportId: '', mode: 'sample', published: false, ...saved.result } as ReportResult
+    renderCard({ result: bare, source: 'sample', sample: samples[0], savedAt: saved.savedAt })
+    expect(caption()).toContain(BLURRED)
+    expect(caption()).not.toMatch(/outline/i)
+  })
+
+  it('says it drew outlines on a demo pin that links its overlay, and not on a pin that carries no links', async () => {
+    const { fetchFn } = mockWith()
+    const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    const report = (await getReport(API, demo.id, fetchFn)) as ReportResult
+    expect(report.mode).toBe('demo')
+    renderCard({ result: report, source: 'pin' })
+    expect(caption()).toContain(`${BLURRED} ${OUTLINES}`)
+    cleanup()
+
+    renderCard({ result: demo, source: 'pin', photoUrl: report.photoUrl })
+    expect(caption()).toContain(BLURRED)
+    expect(caption()).not.toMatch(/outline/i)
+  })
+
+  it('says both lines in Taglish on a Taglish screen, now that they are reviewed', async () => {
+    const { sample, result } = await sampleRun()
+    renderCard({ result, source: 'sample', sample }, 'fil')
+    expect(FIL['sample.edited'].reviewed && FIL['sample.outlines'].reviewed).toBe(true)
+    expect(caption()).toContain(`${FIL['sample.edited'].text} ${FIL['sample.outlines'].text}`)
+    expect(FIL['sample.outlines'].text).toBe('Iginuhit ng Lusot ang mga outline nito sa photo.')
   })
 
   it('a demo pin does the same: the Demo badge, its own date and place, its credit, and no accuracy line', async () => {
@@ -662,16 +733,34 @@ describe('dropped references', () => {
 })
 
 describe('in Taglish', () => {
-  it('shows a refused card\'s reason line, still unreviewed, in English inside an element marked lang="en"', async () => {
+  it('shows a refused card\'s reason line and D19\'s line in Taglish, unmarked, now that the M20 review has passed them', async () => {
     renderCard({ result: await takePhoto('refused_too_dark') }, 'fil')
-    const reason = screen.getByText('The photo is too dark to read.')
-    expect(FIL['reason.too_dark'].reviewed).toBe(false)
-    expect(reason.getAttribute('lang')).toBe('en')
-    expect(reason.tagName).toBe('SPAN')
-    expect(screen.getByText(D19).getAttribute('lang')).toBe('en')
+    const reason = screen.getByText(FIL['reason.too_dark'].text)
+    expect(FIL['reason.too_dark'].reviewed).toBe(true)
+    expect(reason.getAttribute('lang')).toBeNull()
+    expect(reason.tagName).toBe('P')
+    expect(screen.getByText(FIL['refusal.d19'].text).closest('[lang="en"]')).toBeNull()
+    expect(screen.queryByText(D19)).toBeNull()
   })
 
-  it('shows the frame\'s two new lines in English too, until Rene reviews them, and the rest in Taglish', async () => {
+  it('shows a refusal line whose Taglish is not reviewed in English inside an element marked lang="en"', async () => {
+    const reason = FIL['reason.too_dark']
+    const d19 = FIL['refusal.d19']
+    FIL['reason.too_dark'] = { ...reason, reviewed: false }
+    FIL['refusal.d19'] = { ...d19, reviewed: false }
+    try {
+      renderCard({ result: await takePhoto('refused_too_dark') }, 'fil')
+      const line = screen.getByText('The photo is too dark to read.')
+      expect(line.getAttribute('lang')).toBe('en')
+      expect(line.tagName).toBe('SPAN')
+      expect(screen.getByText(D19).getAttribute('lang')).toBe('en')
+    } finally {
+      FIL['reason.too_dark'] = reason
+      FIL['refusal.d19'] = d19
+    }
+  })
+
+  it('shows the frame\'s two lines in Taglish, unmarked, now that they are reviewed', async () => {
     const refused: ReportResult = {
       reportId: '',
       status: 'refused',
@@ -680,10 +769,12 @@ describe('in Taglish', () => {
       published: false,
     }
     renderCard({ result: refused, source: 'sample' }, 'fil')
-    expect(screen.getByText("Lusot can't tell from this photo.").getAttribute('lang')).toBe('en')
-    expect(screen.getByText('Someone reporting this spot would see:').getAttribute('lang')).toBe('en')
-    expect(FIL['refusal.sample.cantTell'].reviewed).toBe(false)
-    expect(FIL['refusal.sample.someoneWouldSee'].reviewed).toBe(false)
+    for (const key of ['refusal.sample.cantTell', 'refusal.sample.someoneWouldSee'] as const) {
+      expect(FIL[key].reviewed, key).toBe(true)
+      const line = screen.getByText(FIL[key].text)
+      expect(line.closest('[lang="en"]'), key).toBeNull()
+    }
+    expect(screen.queryByText("Lusot can't tell from this photo.")).toBeNull()
   })
 
   it('words a level result in Taglish, with the level line in Taglish', async () => {
@@ -695,7 +786,7 @@ describe('in Taglish', () => {
 
   it('words "failed" and "no flood seen" in Taglish, apart from each other', async () => {
     renderCard({ result: await takePhoto('failed_model_error'), onNewPhoto: vi.fn() }, 'fil')
-    expect(screen.getByText('Hindi natapos ang pagproseso, subukan ulit.')).toBeTruthy()
+    expect(screen.getByText('Nabigo ang pagproseso, subukan ulit.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Subukan ulit' })).toBeTruthy()
     cleanup()
     renderCard({ result: await takePhoto('no_flood_seen') }, 'fil')

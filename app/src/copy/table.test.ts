@@ -87,13 +87,15 @@ it('a pipe or a line break in a line cannot break its row', () => {
   expect(table.split('\n')).toHaveLength(3)
 })
 
-it("the real table lists every key of the English table once, and the marks of the lines Rene already fixed", () => {
+it("the real table lists every key of the English table once, with the marks the M20 review left", () => {
   const rows = copyTable().split('\n').slice(2)
   expect(rows).toHaveLength(Object.keys(EN).length)
-  const d19 = rows.find((row) => row.startsWith('| `refusal.d19` |'))
-  expect(d19).toMatch(/\| en yes, fil no \|$/)
-  const screenLine = rows.find((row) => row.startsWith('| `layout.screenLine` |'))
-  expect(screenLine).toMatch(/\| en yes, fil yes \|$/)
+  const marks = (key: string) => rows.find((row) => row.startsWith(`| \`${key}\` |`))
+  expect(marks('refusal.d19')).toMatch(/\| en yes, fil yes \|$/)
+  expect(marks('layout.screenLine')).toMatch(/\| en yes, fil yes \|$/)
+  // Text that changed after the review (a4d066d) is unreviewed again, in the language that changed.
+  expect(marks('report.sendFailed')).toMatch(/\| en no, fil no \|$/)
+  expect(marks('report.refused.gps_too_coarse')).toMatch(/\| en no, fil yes \|$/)
 })
 
 it('the level-line table holds each of the 9 levels in its template, then the one floor the rules reach, in both languages', () => {

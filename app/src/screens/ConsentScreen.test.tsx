@@ -4,6 +4,7 @@ import App from '../App'
 import consentText from '../content/consent.en.md?raw'
 import { LanguageProvider } from '../i18n'
 import { EN } from '../i18n/en'
+import { FIL } from '../i18n/fil'
 import { writeItem } from '../lib/storage'
 import { ConsentScreen } from './ConsentScreen'
 
@@ -115,16 +116,32 @@ describe('the notice', () => {
     expect(notice().textContent).toMatch(pattern)
   })
 
-  it('in Taglish, shows its English text, marked lang="en", and its controls in English while unreviewed', () => {
+  it('in Taglish, shows the notice in English, marked lang="en", and its controls in their reviewed Taglish', () => {
     renderScreen('notice', { lang: 'fil' })
 
     expect(notice().getAttribute('lang')).toBe('en')
     expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo')
-    for (const key of ['consent.continue', 'consent.notNow', 'consent.readPolicy'] as const) {
-      expect(screen.getByText(EN[key].text).closest('[lang]')?.getAttribute('lang'), key).toBe('en')
+    // The M20 review passed the controls' Taglish, so they show it unmarked, as the page's own language.
+    for (const key of ['consent.continue', 'consent.notNow', 'consent.readPolicy', 'consent.adult'] as const) {
+      expect(FIL[key].reviewed, key).toBe(true)
+      const line = screen.getByText(FIL[key].text)
+      expect(line.closest('[lang="en"]'), key).toBeNull()
+      expect(line.closest('[lang]')?.getAttribute('lang'), key).toBe('fil')
     }
-    expect(screen.getByText(EN['consent.adult'].text).closest('[lang]')?.getAttribute('lang')).toBe('en')
     expect(screen.getByText(NOT_AFFILIATED).closest('[lang]')?.getAttribute('lang')).toBe('en')
+  })
+
+  it('in Taglish, shows a control whose Taglish is not reviewed in English, marked lang="en"', () => {
+    const reviewed = FIL['consent.continue']
+    FIL['consent.continue'] = { ...reviewed, reviewed: false }
+    try {
+      renderScreen('notice', { lang: 'fil' })
+      const line = screen.getByText(EN['consent.continue'].text)
+      expect(line.closest('[lang]')?.getAttribute('lang')).toBe('en')
+      expect(screen.queryByText(reviewed.text)).toBeNull()
+    } finally {
+      FIL['consent.continue'] = reviewed
+    }
   })
 })
 

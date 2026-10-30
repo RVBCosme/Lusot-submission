@@ -4,10 +4,11 @@ import consentText from '../content/consent.en.md?raw'
 import privacyText from '../content/privacy.en.md?raw'
 import { LanguageProvider } from '../i18n'
 import { EN } from '../i18n/en'
+import { FIL } from '../i18n/fil'
 import { writeItem } from '../lib/storage'
 import { PrivacyScreen } from './PrivacyScreen'
 
-const PENDING = 'added when the page is published'
+const PENDING = 'to be added before Lusot goes public'
 
 afterEach(() => {
   cleanup()
@@ -32,7 +33,7 @@ describe('the privacy contact', () => {
     ['unset', undefined],
     ['empty', ''],
     ['blank', '   '],
-  ])('%s, it reads "added when the page is published" in both places', (_name, value) => {
+  ])('%s, it reads "to be added before Lusot goes public" in both places', (_name, value) => {
     vi.stubEnv('VITE_PRIVACY_CONTACT', value)
     const policy = renderPolicy()
 
@@ -114,14 +115,38 @@ describe('the policy', () => {
     expect(privacyText).not.toMatch(/MS5-Q4|PRIV-Q9/)
   })
 
-  it('in Taglish, shows its English text, marked lang="en", while its Taglish is not reviewed', () => {
+  it('in Taglish, shows the policy in English, marked lang="en", under its reviewed title', () => {
     const policy = renderPolicy({ lang: 'fil' })
 
     expect(policy.getAttribute('lang')).toBe('en')
     expect(within(policy).getByRole('heading', { name: 'Who runs Lusot' })).toBeTruthy()
     const title = screen.getByRole('heading', { level: 1 })
-    expect(title.textContent).toBe(EN['privacy.title'].text)
-    expect(title.querySelector('span')?.getAttribute('lang')).toBe('en')
+    // The M20 review passed Window 4's title, which keeps the policy's name in English, so it needs no mark.
+    expect(FIL['privacy.title'].reviewed).toBe(true)
+    expect(title.textContent).toBe(FIL['privacy.title'].text)
+    expect(title.querySelector('span')).toBeNull()
+  })
+
+  it('in Taglish, shows a title whose Taglish is not reviewed in English, marked lang="en"', () => {
+    const reviewed = FIL['privacy.title']
+    FIL['privacy.title'] = { text: 'Patakaran sa privacy ng Lusot', reviewed: false }
+    try {
+      renderPolicy({ lang: 'fil' })
+      const title = screen.getByRole('heading', { level: 1 })
+      expect(title.textContent).toBe(EN['privacy.title'].text)
+      expect(title.querySelector('span')?.getAttribute('lang')).toBe('en')
+    } finally {
+      FIL['privacy.title'] = reviewed
+    }
+  })
+
+  it('in Taglish, still reads the contact line in English in both places, as the policy itself is English', () => {
+    vi.stubEnv('VITE_PRIVACY_CONTACT', undefined)
+    const policy = renderPolicy({ lang: 'fil' })
+
+    expect(FIL['privacy.contactPending'].text).toBe('idadagdag bago maging public ang Lusot')
+    expect(policy.textContent?.split(`Contact: ${PENDING}.`)).toHaveLength(3)
+    expect(policy.textContent).not.toContain(FIL['privacy.contactPending'].text)
   })
 })
 

@@ -408,11 +408,12 @@ describe('the place step', () => {
     }
   })
 
-  it('marks every new line as not yet reviewed, in both tables', () => {
+  it('marks every place and location line as reviewed in both tables, as the M20 review left them', () => {
     const keys = (Object.keys(EN) as StringKey[]).filter((key) => key.startsWith('place.') || key.startsWith('location.'))
+    expect(keys.length).toBeGreaterThanOrEqual(15)
     for (const key of keys) {
-      expect(EN[key].reviewed).toBe(false)
-      expect(FIL[key].reviewed).toBe(false)
+      expect(EN[key].reviewed, `en ${key}`).toBe(true)
+      expect(FIL[key].reviewed, `fil ${key}`).toBe(true)
     }
   })
 })

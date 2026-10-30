@@ -212,6 +212,10 @@ export function ResultCard({
     event: sample?.event ?? result.event,
   })
 
+  // The caption claims outlines only when there are some to show. The API links the overlay and the layers file for a
+  // level result alone, and a saved sample answer (paused model calls) carries neither.
+  const hasOutlines = live && outcome === 'level' && (report?.overlayUrl !== undefined || report?.layersUrl !== undefined)
+
   const showsReading = outcome === 'level' || outcome === 'noFlood' || outcome === 'cantTell'
   const shownPrivate = result.mode === 'private' && showsReading
   const pausedLinks: PausedLink[] = isSample ? ['map'] : ['map', 'tested']
@@ -248,6 +252,12 @@ export function ResultCard({
             {credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
             <p className="mt-1">
               <T k="sample.edited" />
+              {hasOutlines && (
+                <>
+                  {' '}
+                  <T k="sample.outlines" />
+                </>
+              )}
             </p>
           </figcaption>
         </figure>

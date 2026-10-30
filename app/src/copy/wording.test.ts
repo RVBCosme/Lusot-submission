@@ -59,7 +59,7 @@ it("the level lines are C81's, word for word", () => {
   )
   expect(basisLine(en, { vehicles: 1, people: 1 }).text).toBe('From 2 reference objects.')
   expect(inchesLine(en, 15, 18).text).toBe('Estimated 15 to 18 in.')
-  expect(reasonLine(makeT('fil'), 'too_dark').lang).toBe('en') // unreviewed Taglish screen-line key
+  expect(reasonLine(makeT('fil'), 'too_dark').lang).toBe('fil') // reviewed in M20
 })
 
 it('all 9 levels read in the same words as the test screen, shallowest first', () => {
@@ -243,13 +243,22 @@ it('a reason the app does not know gets a plain line, never the raw code', () =>
   }
 })
 
-it('a reason line stays English on a Taglish screen until its Taglish is reviewed', () => {
+it('a reason line shows in Taglish once its Taglish is reviewed, and stays English until then', () => {
   for (const reason of REASONS) {
-    expect(FIL[`reason.${reason}`].reviewed, reason).toBe(false)
-    expect(reasonLine(fil, reason).lang, reason).toBe('en')
-    expect(reasonLine(fil, reason).text, reason).toBe(reasonLine(en, reason).text)
+    const line = FIL[`reason.${reason}`]
+    expect(line.reviewed, reason).toBe(true) // M20
+    expect(reasonLine(fil, reason), reason).toEqual({ text: line.text, lang: 'fil' })
   }
-  expect(reasonLine(fil, 'something_else').lang).toBe('en')
+  expect(reasonLine(fil, 'something_else')).toEqual({ text: FIL['reason.other'].text, lang: 'fil' })
+
+  // A reason line whose Taglish isn't reviewed, such as a new one, stays English.
+  const reviewed = FIL['reason.too_dark']
+  FIL['reason.too_dark'] = { ...reviewed, reviewed: false }
+  try {
+    expect(reasonLine(fil, 'too_dark')).toEqual({ text: EN['reason.too_dark'].text, lang: 'en' })
+  } finally {
+    FIL['reason.too_dark'] = reviewed
+  }
 })
 
 it('the result and reason lines say nothing about a road or a route, and tell no one to go near water or traffic', () => {
@@ -290,29 +299,17 @@ it('the three outcomes keep their own lines: no flood, processing failed, and ca
   expect(noFlood).not.toMatch(/failed|can't tell/i)
 })
 
-it("C81's English lines and D19's start reviewed; every other new line and every Taglish draft doesn't", () => {
-  // The pattern, the four level names and the three class lines C81 spells out. Its PATV and NPATV lines come
-  // from plan §9, Table 10, not from C81, so they wait for Rene's review like the other names.
-  const c81 = new Set([
-    'result.level.exact',
-    'result.level.floor',
-    'result.level.off',
-    'result.levelName.below_gutter',
-    'result.levelName.knee',
-    'result.levelName.tire',
-    'result.levelName.above_chest',
-    'result.class.nplv',
-    'result.class.belowGutter',
-    'result.class.aboveChest',
-  ])
+it("D19's two lines and every result and reason line, English and Taglish, passed the M20 review", () => {
+  // C81's English lines and D19's start reviewed. The rest of C81's table (the other level names, the PATV and
+  // NPATV lines from plan §9, Table 10, and every Taglish line) joined them in the M20 review of Oct 30.
   expect(EN['refusal.d19'].reviewed).toBe(true)
-  expect(FIL['refusal.d19'].reviewed).toBe(false)
+  expect(FIL['refusal.d19'].reviewed).toBe(true)
   const keys = resultAndReasonKeys(EN)
+  expect(keys.length).toBeGreaterThan(50)
   for (const key of keys) {
-    expect(EN[key as keyof typeof EN].reviewed, `en ${key}`).toBe(c81.has(key))
-    expect(FIL[key as keyof typeof FIL].reviewed, `fil ${key}`).toBe(false)
+    expect(EN[key as keyof typeof EN].reviewed, `en ${key}`).toBe(true)
+    expect(FIL[key as keyof typeof FIL].reviewed, `fil ${key}`).toBe(true)
   }
-  for (const key of c81) expect(keys, key).toContain(key)
 })
 
 it('the two tables hold the same keys', () => {
@@ -356,10 +353,10 @@ it('a drop line speaks of no road, route or approach, and no level or class', ()
   }
 })
 
-it('the drop lines are new lines, so they wait for review in both tables', () => {
+it('the drop lines passed the M20 review in both tables', () => {
   for (const key of [...DROP_CAUSES.map((cause) => `dropped.${cause}`), 'dropped.other'] as const) {
-    expect(EN[key as keyof typeof EN].reviewed, `en ${key}`).toBe(false)
-    expect(FIL[key as keyof typeof FIL].reviewed, `fil ${key}`).toBe(false)
+    expect(EN[key as keyof typeof EN].reviewed, `en ${key}`).toBe(true)
+    expect(FIL[key as keyof typeof FIL].reviewed, `fil ${key}`).toBe(true)
   }
 })
 

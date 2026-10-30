@@ -55,7 +55,7 @@ it('renders its children untouched when none throws', () => {
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-it('says it in Taglish on a Taglish screen, with the new line still marked as not reviewed', () => {
+it('says it in Taglish on a Taglish screen, now that both lines are reviewed', () => {
   writeItem('lusot.lang', 'fil')
 
   render(
@@ -67,8 +67,8 @@ it('says it in Taglish on a Taglish screen, with the new line still marked as no
   )
 
   expect(screen.getByRole('alert').textContent).toBe(FIL['layout.errorFallback'].text)
-  expect(EN['layout.errorFallback'].reviewed).toBe(false)
-  expect(FIL['layout.errorFallback'].reviewed).toBe(false)
+  expect(EN['layout.errorFallback'].reviewed).toBe(true)
+  expect(FIL['layout.errorFallback'].reviewed).toBe(true)
 })
 
 // The layout puts the boundary around the screen inside <main>, so a crash costs only the screen (S5-R5).
