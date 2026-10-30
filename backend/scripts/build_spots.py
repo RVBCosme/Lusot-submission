@@ -149,9 +149,9 @@ def locate_intersection(ways: Ways, nodes: Nodes, a: str, b: str) -> Point | Non
     return _centre([nodes[n] for n in sorted(shared) if n in nodes])
 
 
-def locate_named(ways: Ways, nodes: Nodes, places: Places, name: str) -> Point | None:
-    """The point of a feature called `name`: a node's own point, or the mean of a way's
-    nodes (a building or an area), and the mean of several within 150 m of each other."""
+def _named_points(ways: Ways, nodes: Nodes, places: Places, name: str) -> list[Point]:
+    """The point of each node called `name`, and the mean of the nodes (that have a
+    point) of each way called `name`."""
     wanted = fold(name)
     points = [p for key, ps in places.items() if fold(key) == wanted for p in ps]
     for key, lists in ways.items():
@@ -166,7 +166,13 @@ def locate_named(ways: Ways, nodes: Nodes, places: Places, name: str) -> Point |
                         sum(lng for _, lng in known) / len(known),
                     )
                 )
-    return _centre(points)
+    return points
+
+
+def locate_named(ways: Ways, nodes: Nodes, places: Places, name: str) -> Point | None:
+    """The point of a feature called `name`: a node's own point, or the mean of a way's
+    nodes (a building or an area), and the mean of several within 150 m of each other."""
+    return _centre(_named_points(ways, nodes, places, name))
 
 
 @dataclass(frozen=True)
@@ -196,12 +202,17 @@ def _split(cell: str) -> tuple[str, ...]:
 def read_rows(path: Path) -> list[Row]:
     """The sources file's rows, checked. A malformed row, a repeated id, or an alias
     (or display name) that two spots share raises ValueError naming it."""
-    with path.open(encoding="utf-8-sig", newline="") as file:
-        reader = csv.DictReader(file)
-        missing = [c for c in COLUMNS if c not in (reader.fieldnames or [])]
-        if missing:
-            raise ValueError(f"the sources file has no column {', '.join(missing)}")
-        records = list(reader)
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as file:
+            reader = csv.DictReader(file)
+            missing = [c for c in COLUMNS if c not in (reader.fieldnames or [])]
+            if missing:
+                raise ValueError(f"the sources file has no column {', '.join(missing)}")
+            records = list(reader)
+    except OSError as error:  # its message holds the path, which is never printed
+        raise ValueError(
+            f"the sources file could not be read ({type(error).__name__})"
+        ) from None
     rows: list[Row] = []
     for n, record in enumerate(records, start=2):  # line 1 is the header
         cell = {c: (record.get(c) or "").strip() for c in COLUMNS}
@@ -277,10 +288,11 @@ def _place(
         if not known[row.a] & known[row.b]:
             return None, "no match in the extract: the two ways share no node"
         return None, "no match in the extract: the crossings are over 150 m apart"
-    point = locate_named(ways, nodes, places, row.a)
+    points = _named_points(ways, nodes, places, row.a)
+    point = _centre(points)
     if point is not None:
         return point, ""
-    if any(fold(key) == fold(row.a) for key in (*places, *ways)):
+    if points:
         return None, "no match in the extract: the namesakes are over 150 m apart"
     return None, f"no match in the extract: nothing named {row.a!r} here"
 
@@ -360,8 +372,18 @@ def read_extract(
         raise ValueError("the extract is not a file")
     import osmium  # here only, so the tests need no osmium
 
+    try:
+        return _scan_extract(osmium, str(osm_path), streets, features)
+    except (OSError, RuntimeError) as error:  # osmium's messages hold the path
+        raise ValueError(
+            f"the extract could not be read ({type(error).__name__})"
+        ) from None
+
+
+def _scan_extract(
+    osmium, path: str, streets: set[str], features: set[str]
+) -> tuple[Ways, Nodes, Places]:
     south, north, west, east = _box()
-    path = str(osm_path)
 
     def inside(lat: float, lng: float) -> bool:
         return south <= lat <= north and west <= lng <= east
@@ -428,7 +450,7 @@ def main(
     refuse_sealed(args.osm)
     try:
         spots, unplaced = place_all(sources, args.osm, read)
-    except (ValueError, OSError) as error:
+    except ValueError as error:  # every message names a file by its role, not its path
         say(str(error))
         return 1
     report(spots, unplaced)

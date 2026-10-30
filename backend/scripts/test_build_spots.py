@@ -12,6 +12,8 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
 import csv
 import json
 import re
+import sys
+import types
 from pathlib import Path
 
 import build_spots
@@ -444,6 +446,29 @@ def test_a_landmark_the_alert_puts_on_no_road_keeps_an_empty_roads_list(tmp_path
     assert spot["roads"] == [] and spot["aliases"] == []
 
 
+def test_a_named_row_that_is_not_placed_gives_its_real_cause(tmp_path, capsys):
+    mall = row(
+        id="mall", name="Some Mall", aliases="", locator="named", a="Some Mall", b=""
+    )
+    sources = write_csv(tmp_path / "s.csv", [mall])
+    path = tmp_path / "x.pbf"
+    apart = {"some mall": [CORNER, at_metres(CORNER, north=2000)]}
+    # Two namesakes in Metro Manila's box that are too far apart.
+    assert build(sources, path, read=extract(places=apart)) == []
+    assert "mall: no match in the extract: the namesakes are over 150 m apart" in (
+        capsys.readouterr().out
+    )
+    # A way of that name whose nodes the reader dropped (outside the box) gives no
+    # point at all, so it is not a pair of namesakes.
+    outside = extract(ways={"some mall": [[1, 2]]})
+    assert build(sources, path, read=outside) == []
+    assert "mall: no match in the extract: nothing named 'Some Mall' here" in (
+        capsys.readouterr().out
+    )
+    assert build(sources, path, read=extract()) == []
+    assert "nothing named 'Some Mall' here" in capsys.readouterr().out
+
+
 def test_the_extract_is_not_read_when_no_row_needs_it(tmp_path):
     manual = row(
         id="here",
@@ -521,7 +546,119 @@ def test_a_missing_extract_is_a_clear_error_not_a_trace(tmp_path, capsys):
     sources = write_csv(tmp_path / "s.csv", [row()])
     argv = ["--osm", str(tmp_path / "missing.pbf")]
     assert main(argv, sources=sources) == 1
-    assert "not a file" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "the extract is not a file" in out
+    assert str(tmp_path) not in out and "missing.pbf" not in out
+
+
+def test_a_missing_sources_file_is_named_without_its_path(tmp_path, capsys):
+    argv = ["--osm", str(tmp_path / "x.pbf")]
+    assert main(argv, read=extract(), sources=tmp_path / "gone.csv") == 1
+    out = capsys.readouterr().out
+    assert "the sources file could not be read (FileNotFoundError)" in out
+    assert str(tmp_path) not in out and "gone.csv" not in out
+
+
+# --- the reader, on a stand-in for osmium ---------------------------------------------
+
+
+class FakeObject:
+    """What osmium's FileProcessor yields: a node or a way with its tags."""
+
+    def __init__(self, kind, id, tags=None, point=None, refs=()):
+        self.kind, self.id, self.tags = kind, id, tags or {}
+        self.location = point and types.SimpleNamespace(lat=point[0], lon=point[1])
+        self.nodes = [types.SimpleNamespace(ref=ref) for ref in refs]
+
+    def is_node(self):
+        return self.kind == "n"
+
+
+def node(id, point, **tags):
+    return FakeObject("n", id, tags, point=point)
+
+
+def way(id, refs, **tags):
+    return FakeObject("w", id, tags, refs=refs)
+
+
+def fake_osmium(objects=(), fail=None):
+    """A module with the parts of osmium that read_extract uses: FileProcessor with
+    with_filter, KeyFilter, IdFilter and the NODE and WAY flags."""
+    node_flag, way_flag = 1, 2
+
+    class KeyFilter:
+        def __init__(self, *keys):
+            self.keys = keys
+
+    class IdFilter:
+        def __init__(self, ids):
+            self.ids = set(ids)
+
+    class FileProcessor:
+        def __init__(self, path, entities):
+            if fail is not None:
+                raise fail
+            self.entities, self.filters = entities, []
+
+        def with_filter(self, one):
+            self.filters.append(one)
+            return self
+
+        def __iter__(self):
+            for obj in objects:
+                if not self.entities & (node_flag if obj.is_node() else way_flag):
+                    continue
+                if all(self.passes(one, obj) for one in self.filters):
+                    yield obj
+
+        @staticmethod
+        def passes(one, obj):
+            if isinstance(one, KeyFilter):
+                return any(key in obj.tags for key in one.keys)
+            return obj.id in one.ids
+
+    return types.SimpleNamespace(
+        osm=types.SimpleNamespace(NODE=node_flag, WAY=way_flag),
+        filter=types.SimpleNamespace(KeyFilter=KeyFilter, IdFilter=IdFilter),
+        FileProcessor=FileProcessor,
+    )
+
+
+def test_a_way_without_a_highway_tag_is_never_used_for_an_intersection(
+    tmp_path, monkeypatch
+):
+    decoy = at_metres(CORNER, north=3000)
+    objects = [
+        node(1, CORNER),
+        node(2, at_metres(CORNER, north=5)),
+        node(3, at_metres(CORNER, north=-5)),
+        node(8, decoy),
+        node(9, at_metres(decoy, east=10)),
+        way(100, [1, 2], highway="primary", name="España Boulevard"),
+        way(101, [1, 3, 8], highway="tertiary", name="A. Maceda Street"),
+        # A building that carries the street's name and meets Maceda 3 km away.
+        way(102, [8, 9], building="yes", name="España Boulevard"),
+    ]
+    monkeypatch.setitem(sys.modules, "osmium", fake_osmium(objects))
+    (tmp_path / "x.pbf").write_bytes(b"")
+    sources = write_csv(tmp_path / "s.csv", [row()])
+    (spot,) = build(sources, tmp_path / "x.pbf")
+    assert (spot["lat"], spot["lng"]) == (round(CORNER[0], 5), round(CORNER[1], 5))
+
+
+def test_a_reader_failure_names_the_extract_and_not_its_path(
+    tmp_path, monkeypatch, capsys
+):
+    path = tmp_path / "x.pbf"
+    path.write_bytes(b"")
+    broken = fake_osmium(fail=RuntimeError(f"cannot read {path}"))
+    monkeypatch.setitem(sys.modules, "osmium", broken)
+    sources = write_csv(tmp_path / "s.csv", [row()])
+    assert main(["--osm", str(path)], sources=sources) == 1
+    out = capsys.readouterr().out
+    assert "the extract could not be read (RuntimeError)" in out
+    assert str(tmp_path) not in out and "x.pbf" not in out
 
 
 # --- the committed list ------------------------------------------------------------
@@ -529,9 +666,9 @@ def test_a_missing_extract_is_a_clear_error_not_a_trace(tmp_path, capsys):
 
 def test_the_committed_spot_list_is_well_formed():
     spots = json.loads((DATA / "spots.json").read_text(encoding="utf-8"))
-    sources = list(
-        csv.DictReader((DATA / "spots_sources.csv").open(encoding="utf-8", newline=""))
-    )
+    # utf-8-sig, as the script reads it: Excel's "CSV UTF-8" adds a BOM.
+    with (DATA / "spots_sources.csv").open(encoding="utf-8-sig", newline="") as file:
+        sources = list(csv.DictReader(file))
     assert 25 <= len(spots) <= 80
     ids = [s["id"] for s in spots]
     assert len(ids) == len(set(ids))
@@ -563,3 +700,18 @@ def test_the_list_has_the_spots_that_ask_lusots_tests_name():
     assert not any(
         fold(t) == "espana" for s in spots.values() for t in [s["name"], *s["aliases"]]
     )
+
+
+def test_no_bare_name_that_is_also_a_place_outside_metro_manila_is_listed():
+    # Antipolo (the city in Rizal), Quirino (the province) and Aurora (the province)
+    # each name a place outside Metro Manila. A spot whose roads or aliases held one
+    # of them alone would answer a question about that place with a Manila corner
+    # before Nominatim is asked. The multi-word forms ("Antipolo Street") are fine.
+    bare = {"antipolo", "quirino", "aurora"}
+    spots = json.loads((DATA / "spots.json").read_text(encoding="utf-8"))
+    for spot in spots:
+        for text in [*spot["aliases"], *spot["roads"]]:
+            assert fold(text) not in bare, (spot["id"], text)
+    # They are not dropped from where they belong: the street names still hold them.
+    streets = {fold(r) for spot in spots for r in spot["roads"]}
+    assert {"antipolo street", "quirino avenue", "aurora boulevard"} <= streets
