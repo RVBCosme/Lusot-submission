@@ -1,13 +1,17 @@
+import { createHash } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client } from "@aws-sdk/client-s3";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import { DynamoDBDocumentClient, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type Deps, route } from "../src/index";
+import { createFeed, createMapPins } from "../src/pins";
+import { createManifest } from "../src/samples";
 import { createStopSwitch } from "../src/stopSwitch";
 
 const ID = "r_0123456789abcdef0123456789abcdef";
+const NOW_ISO = "2026-10-30T10:06:40Z";
 const UPLOAD = JSON.stringify({ lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedAt: "2026-10-30T10:05:12Z" });
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: "ap-southeast-1" }));
@@ -18,15 +22,19 @@ const ssmMock = mockClient(ssm);
 mockClient(s3);
 
 function deps(): Deps {
-  return {
+  const base = {
     ddb,
     s3,
     isStopped: createStopSwitch(ssm, "/lusot/stop/"),
     tableName: "reports",
+    limitsTableName: "limits",
     indexName: "reportId-index",
+    feedIndexName: "feed-index",
     bucketName: "lusot-test01-uploads",
-    now: () => Date.parse("2026-10-30T10:06:40Z"),
+    inchesShown: false,
+    now: () => Date.parse(NOW_ISO),
   };
+  return { ...base, mapPins: createMapPins(base), feed: createFeed(base), manifest: createManifest(base) };
 }
 
 beforeEach(() => {
@@ -34,6 +42,7 @@ beforeEach(() => {
   ssmMock.reset();
   ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: "off" } });
   ddbMock.on(PutCommand).resolves({});
+  ddbMock.on(UpdateCommand).resolves({});
 });
 
 describe("route", () => {
@@ -52,6 +61,20 @@ describe("route", () => {
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(1);
   });
 
+  it("passes X-Lusot-Device to the limits", async () => {
+    const device = "device-0123456789abcdef";
+    const headers = { "x-lusot-device": device };
+
+    const res = await route({ routeKey: "POST /uploads", headers, body: UPLOAD, isBase64Encoded: false }, deps());
+
+    expect(res.statusCode).toBe(201);
+    // The hour comes from the clock's ISO string, so a clock passed in milliseconds fails here (F3).
+    const hour = NOW_ISO.slice(0, 13);
+    const keys = ddbMock.commandCalls(UpdateCommand).map((call) => call.args[0].input.Key?.pk);
+    const hash = createHash("sha256").update(device).digest("hex");
+    expect(keys).toEqual([`upload#${hash}#${hour}`, `upload#ALL#${hour}`]);
+  });
+
   it("decodes a base64 body", async () => {
     const encoded = Buffer.from(UPLOAD, "utf8").toString("base64");
 
@@ -61,11 +84,34 @@ describe("route", () => {
   });
 
   it("sends GET /reports/{id} to the report handler", async () => {
-    ddbMock.on(QueryCommand).resolves({ Items: [{ reportId: ID, status: "pending", capturedAt: "2026-10-30T10:05:12Z" }] });
+    // 7 days after capture, from an ISO string (F3). Without it the report answers 404 (C526).
+    const expiresAt = Date.parse("2026-11-06T10:05:12Z") / 1000;
+    ddbMock.on(QueryCommand).resolves({ Items: [{ reportId: ID, status: "pending", capturedAt: "2026-10-30T10:05:12Z", expiresAt }] });
 
     const res = await route({ routeKey: "GET /reports/{id}", pathParameters: { id: ID }, isBase64Encoded: false }, deps());
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).status).toBe("pending");
+  });
+
+  it("sends POST /reports/{id}/flag to the flag handler, with X-Lusot-Device", async () => {
+    const device = "device-0123456789abcdef";
+    // A live published pin, visible 3 h and kept 7 days after capture, from ISO strings (F3).
+    const visibleUntil = Date.parse("2026-10-30T13:05:12Z") / 1000;
+    const expiresAt = Date.parse("2026-11-06T10:05:12Z") / 1000;
+    const pin = { pk: "GEO#wdw515", sk: `2026-10-30T10:05:12Z#${ID}`, reportId: ID, mode: "live", published: true, flags: 0, visibleUntil, expiresAt };
+    ddbMock.on(QueryCommand).resolves({ Items: [pin] });
+    ddbMock.on(TransactWriteCommand).resolves({});
+
+    const res = await route(
+      { routeKey: "POST /reports/{id}/flag", pathParameters: { id: ID }, headers: { "x-lusot-device": device }, isBase64Encoded: false },
+      deps(),
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ flags: 1 });
+    const [transaction] = ddbMock.commandCalls(TransactWriteCommand);
+    const hash = createHash("sha256").update(device).digest("hex");
+    expect(transaction.args[0].input.TransactItems?.[0].Put?.Item?.pk).toBe(`flag#${ID}#${hash}`);
   });
 });

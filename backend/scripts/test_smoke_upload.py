@@ -1,8 +1,9 @@
-"""Tests for smoke_upload.py's MS3a cloud checks (spec B1, B4, B5; plan Task 15).
+"""Tests for smoke_upload.py's cloud checks (MS3a spec B1, B4, B5; MS4 Task 9).
 
 Fakes only: httpx.MockTransport stands in for the API and S3's form posts, tmp_path
 folders for the photos, and FakeCloud for the AWS clients, each of whose calls must
-first pass botocore's own check of that operation. The main() tests run on FakeTime,
+first pass botocore's own check of that operation (fake_aws.py's FakeSession, shared
+with the other scripts' tests). The main() tests run on FakeTime,
 a clock that moves only when the run sleeps or the fake cloud takes time. Nothing
 reaches AWS or Meta.
 
@@ -13,24 +14,29 @@ repo root (R5's pattern):
 """
 
 import csv
+import hashlib
 import json
 import random
 import re
 import time
+import uuid
+from collections import Counter
 from datetime import UTC, datetime
+from decimal import Decimal
+from itertools import groupby
 from pathlib import Path
-from types import SimpleNamespace
 
 import cv2
+import guards
 import httpx
+import metro_manila
 import numpy as np
 import pytest
 import smoke_upload
-from botocore import xform_name
-from botocore.exceptions import ClientError, ParamValidationError
-from botocore.session import get_session
-from botocore.validate import validate_parameters
+from botocore.exceptions import ClientError
+from fake_aws import FakeSession
 from smoke_upload import CheckFailed
+from spend_loader import load_spend
 
 SEED = 20261028
 RID = "r_" + "0123456789abcdef" * 2
@@ -54,31 +60,68 @@ KEY_LOADED_EVENT = (
 )
 PHRASES = ("floodwater", "wheel", "wheel rim", "person", "vehicle", "face")
 SAM_MS = {phrase: 900 for phrase in (*PHRASES, "license plate")}  # 7 SAM calls
+SPOT = {"lat": 14.35, "lng": 121.25}  # MS7's OUTSIDE_POINT, in Laguna de Bay
+MANILA = {"lat": 14.6095, "lng": 120.9894}  # MS1's old spot, inside Metro Manila
+DEVICE_HEADERS = "content-type,x-lusot-device"  # what the preflight asks for
+LINKS = "https://links.test.invalid/"  # a presigned link is LINKS + its object key
 
-# Final report bodies (C67) and the log lines the handler writes for them.
+# A reading as GET /reports/{id} gives it while INCHES_SHOWN is "false" (C507, C515).
+READING = {
+    "id": 2,
+    "kind": "wheel",
+    "landmark": "rim_three_quarters",
+    "level": "knee",
+    "levelIsFloor": False,
+    "used": True,
+    "dropped": None,
+}
+# A level body's fields that only Task 14 and MS3b add: --phase-a waives them.
+PHASE_B = ("readings", "overlayUrl", "layersUrl", "levelFrom")
+
+# Final report bodies (C67, as MS4 extends it) and the log lines the handler writes.
 LEVEL_BODY = {
     "reportId": RID,
     "status": "done",
     "capturedAt": CAPTURED,
+    "mode": "private",
+    "published": False,
     "noFloodSeen": False,
     "level": "knee",
     "landmark": "rim_three_quarters",
     "passability": "NPLV",
     "basis": {"vehicles": 1, "people": 0},
     "levelIsFloor": False,
+    "levelFrom": "geometry",
+    "readings": [READING],
+    "gpsAccuracyM": 10,
+    "photoUrl": f"{LINKS}blurred/{RID}.jpg",
+    "overlayUrl": f"{LINKS}overlay/{RID}.jpg",
+    "layersUrl": f"{LINKS}overlay/{RID}.json",
 }
 NO_FLOOD_BODY = {
     "reportId": RID,
     "status": "done",
     "capturedAt": CAPTURED,
+    "mode": "private",
+    "published": False,
     "noFloodSeen": True,
 }
 REFUSED_BODY = {
     "reportId": RID,
     "status": "refused",
     "capturedAt": CAPTURED,
+    "mode": "private",
+    "published": False,
     "refusalReason": "too_dark",
 }
+
+
+def without(body, *keys):
+    return {k: v for k, v in body.items() if k not in keys}
+
+
+def rid(n):
+    return f"r_{n:032x}"
 
 
 def paid(outcome, **fields):
@@ -95,8 +138,9 @@ def paid(outcome, **fields):
 
 
 def result(body):
-    """A body's result fields, without the id and time every body has."""
-    return {k: v for k, v in body.items() if k not in ("reportId", "capturedAt")}
+    """A body's result fields, without the id, time, mode and published every body
+    has, which FakeCloud adds."""
+    return without(body, "reportId", "capturedAt", "mode", "published")
 
 
 LEVEL = (result(LEVEL_BODY), paid("done/level", deciding="wheel"))
@@ -139,51 +183,6 @@ def event(report_id, n=1, **fields):
     return f"[INFO]\t2026-10-29T01:02:{n:02d}.000Z\treq-{n}\t{line}\n"
 
 
-_BOTOCORE = get_session()  # botocore's own service models; no network, no credentials
-
-
-class FakeAws:
-    """One AWS service's client, held to botocore's own model of each call.
-
-    A call's parameters must pass botocore's check of its operation, and FakeCloud
-    then answers it in its `<service>_<method>` method.
-    """
-
-    def __init__(self, cloud, service):
-        self._cloud, self._service = cloud, service
-        model = _BOTOCORE.get_service_model(service)
-        self._operations = {
-            xform_name(name): model.operation_model(name)
-            for name in model.operation_names
-        }
-
-    def __getattr__(self, method):
-        operation = self._operations[method]
-        answer = getattr(self._cloud, f"{self._service}_{method}")
-
-        def call(**params):
-            try:
-                validate_parameters(params, operation.input_shape)
-            except ParamValidationError as exc:
-                raise AssertionError(str(exc)) from None
-            return answer(**params)
-
-        return call
-
-    def get_paginator(self, method):
-        call = getattr(self, method)
-        return SimpleNamespace(paginate=lambda **params: [call(**params)])
-
-
-class FakeSession:
-    def __init__(self, cloud, **kwargs):
-        cloud.session_kwargs = kwargs
-        self._cloud = cloud
-
-    def client(self, service):
-        return FakeAws(self._cloud, service)
-
-
 class FakeTime:
     """The time module as main() sees it in these tests.
 
@@ -213,21 +212,30 @@ class FakeCloud:
     """The deployed stack in memory, as the smoke run meets it.
 
     `handle` answers the API and S3's form posts, and FakeSession its AWS clients.
-    Each photo is analysed as soon as it lands: a dark one is refused too_dark with no
-    Meta call, as the quality gate would, and any other takes the next of `outcomes`.
-    Each logs its line, stores a blurred photo for a level and deletes its raw photo.
-    A form posted again after the result logs already_finished. A photo takes
-    `upload_s` to reach S3, and its report shows processing for `processing_s` more.
+    POST /uploads makes a report `private` outside Metro Manila and `live` inside it,
+    on the shared polygon, as uploads.ts does. Each photo is analysed as soon as it
+    lands: a dark one is refused too_dark with no Meta call, as the quality gate would,
+    and any other takes the next of `outcomes`. Each logs its line, stores a blurred
+    photo, an overlay and its layers for a level, and deletes its raw photo. A form
+    posted again after the result logs already_finished. A photo takes `upload_s` to
+    reach S3, and its report shows processing for `processing_s` more. With `phase_a`,
+    it is a stack without Task 14 and MS3b: no level holds PHASE_B's fields, and no
+    overlay is stored. Nearby and the map list `nearby` and `on_map`, by report id.
     Each name in `faults` breaks one step, as its method says. `trail` records what
     happened, in order.
     """
 
-    def __init__(self, outcomes=(), *, faults=(), upload_s=0.0, processing_s=0.0):
+    def __init__(
+        self, outcomes=(), *, faults=(), upload_s=0.0, processing_s=0.0, phase_a=False
+    ):
         self.outcomes = list(outcomes)
         self.faults = set(faults)
         self.upload_s, self.processing_s = upload_s, processing_s
+        self.phase_a = phase_a
         self.time = FakeTime()
         self.reports = {}  # report id -> its item's result fields
+        self.modes = {}  # report id -> its mode, set by POST /uploads
+        self.reads = Counter()  # report id -> GET /reports/{id} calls
         self.ready_at = {}  # report id -> when GET first shows its result
         self.objects = set()  # the bucket's keys
         self.events = [KEY_LOADED_EVENT]
@@ -235,6 +243,11 @@ class FakeCloud:
         self.lookups = []  # each describe_stack_resource's logical id
         self.trail = []
         self.transports = []  # each HTTPTransport's arguments
+        self.devices = []  # each POST /uploads' X-Lusot-Device
+        self.asked_headers = []  # each preflight's Access-Control-Request-Headers
+        self.nearby = [OTHER]  # the pins near the spot, by report id
+        self.on_map = [OTHER]  # the map's pins, by report id
+        self.updates = []  # each DynamoDB UpdateItem's parameters
         self.stopped = False
 
     def transport(self, **kwargs):
@@ -243,20 +256,39 @@ class FakeCloud:
 
     def handle(self, request):
         """The API and S3's form posts. Faults: no_cors_link and no_cors_form drop
-        the allow-origin header, and repost_403 refuses a form posted after its
-        report is final."""
+        the allow-origin header, no_device_cors drops x-lusot-device from the
+        preflight's allow-headers, repost_403 refuses a form posted after its report
+        is final, not_private makes every report live, live_when_final shows a report
+        live once it is past pending, published shows every report published,
+        index_lag answers a report's first 2 reads with 404 and never_indexed all of
+        them, pin_found puts the run's first report on the map, map_down answers the
+        map with 503, and paused_not_json answers a paused upload with text."""
         origin = request.headers.get("origin")
         cors = {"access-control-allow-origin": origin} if origin else {}
         url = str(request.url)
         if request.method == "OPTIONS" and url == f"{API}/uploads":
             self.trail.append(("preflight", origin))
-            return httpx.Response(204, headers=cors)
+            self.asked_headers.append(
+                request.headers.get("access-control-request-headers")
+            )
+            allowed = (
+                "content-type" if "no_device_cors" in self.faults else DEVICE_HEADERS
+            )
+            headers = cors | {"access-control-allow-headers": allowed}
+            return httpx.Response(204, headers=headers)
         if request.method == "POST" and url == f"{API}/uploads":
+            self.devices.append(request.headers.get("x-lusot-device"))
             if self.stopped:
                 self.trail.append(("paused",))
+                if "paused_not_json" in self.faults:
+                    return httpx.Response(503, text="Service Unavailable")
                 return httpx.Response(503, json={"error": "uploads_paused"})
+            spot = json.loads(request.content)
             report_id = f"r_{len(self.reports):032x}"
             self.reports[report_id] = {"status": "pending"}
+            inside = metro_manila.in_metro_manila(spot["lat"], spot["lng"])
+            live = inside or "not_private" in self.faults
+            self.modes[report_id] = "live" if live else "private"
             self.trail.append(("link", report_id, origin))
             form = {
                 "url": FORMS + report_id,
@@ -292,21 +324,57 @@ class FakeCloud:
             return httpx.Response(204, headers=headers)
         if request.method == "GET" and url.startswith(f"{API}/reports/"):
             report_id = url.removeprefix(f"{API}/reports/")
-            if report_id not in self.reports:
+            self.reads[report_id] += 1
+            lagging = "index_lag" in self.faults and self.reads[report_id] <= 2
+            if (
+                report_id not in self.reports
+                or lagging
+                or "never_indexed" in self.faults
+            ):
                 return httpx.Response(404, json={"error": "not_found"})
             report = self.reports[report_id]
             if self.time.now < self.ready_at.get(report_id, 0.0):
                 report = {"status": "processing"}
-            body = {"reportId": report_id, "capturedAt": CAPTURED}
+            if report["status"] == "pending":
+                self.trail.append(("pending", report_id))
+            mode = self.modes[report_id]
+            if "live_when_final" in self.faults and report["status"] != "pending":
+                mode = "live"
+            body = {
+                "reportId": report_id,
+                "capturedAt": CAPTURED,
+                "mode": mode,
+                "published": "published" in self.faults,
+            }
             return httpx.Response(200, json=body | report)
+        if request.method == "GET" and request.url.path == "/reports":
+            assert dict(request.url.params) == {
+                "lat": "14.35",
+                "lng": "121.25",
+                "radius": "300",
+            }
+            self.trail.append(("nearby",))
+            return httpx.Response(200, json=self.pins(self.nearby))
+        if request.method == "GET" and url == f"{API}/map/pins":
+            self.trail.append(("map",))
+            if "map_down" in self.faults:
+                return httpx.Response(503, json={"message": "Service Unavailable"})
+            first = [rid(0)] if "pin_found" in self.faults else []
+            return httpx.Response(200, json=self.pins(self.on_map + first))
         raise AssertionError(f"unexpected {request.method} {url}")
+
+    @staticmethod
+    def pins(ids):
+        """A pins answer as pins.ts gives it, in part: each report id at the spot."""
+        return {"pins": [{"id": i, **SPOT, "mode": "live"} for i in ids]}
 
     def deliver(self, key, grey=None):
         """The analysis function on one notification for a raw photo.
 
         Faults: reuse_pays, no_already_finished and repost_keeps_raw change a
         delivery after the result; missing_bad_file the missing photo's end;
-        keep_raw, blurred_always, no_blurred and silent a photo's first delivery.
+        keep_raw, blurred_always, no_blurred, overlay_always, no_overlay, no_layers
+        (the overlay without its layers file) and silent a photo's first delivery.
         """
         report_id = key.removeprefix("raw/").removesuffix(".jpg")
         report = self.reports[report_id]
@@ -333,10 +401,20 @@ class FakeCloud:
             return
         self.ready_at[report_id] = self.time.now + self.processing_s
         fields, line = self.dark() if grey.mean() < 40 else self.outcomes.pop(0)
+        if self.phase_a:  # neither Task 14 nor MS3b is deployed
+            fields = without(fields, *PHASE_B)
         report.update(fields)
         level = "level" in fields and "no_blurred" not in self.faults
         if level or "blurred_always" in self.faults:
             self.objects.add(f"blurred/{report_id}.jpg")
+        # Task 14's overlay and its layers, beside a level's blurred photo.
+        overlay = "level" in fields and not self.phase_a
+        if (overlay and "no_overlay" not in self.faults) or (
+            "overlay_always" in self.faults
+        ):
+            self.objects |= {f"overlay/{report_id}.jpg", f"overlay/{report_id}.json"}
+        if "no_layers" in self.faults:
+            self.objects.discard(f"overlay/{report_id}.json")
         if "silent" not in self.faults:
             self.log(report_id, **line)
         if "keep_raw" not in self.faults:
@@ -368,6 +446,12 @@ class FakeCloud:
         self.lookups.append(LogicalResourceId)
         ids = {"AnalysisFunction": FUNCTION, "AnalysisLogGroup": LOG_GROUP}
         return {"StackResourceDetail": {"PhysicalResourceId": ids[LogicalResourceId]}}
+
+    def dynamodb_update_item(self, **params):
+        """Any UpdateItem, such as spend.py's ADD to the Meta spend counter, is only
+        recorded: the smoke run must make none (C527)."""
+        self.updates.append(params)
+        return {}
 
     def lambda_get_function(self, FunctionName):
         assert FunctionName == FUNCTION
@@ -426,7 +510,7 @@ class FakeCloud:
         return {"events": [{"message": m} for m in self.events if phrase in m]}
 
 
-def a_stack(cloud, since_ms=1_000):
+def a_stack(cloud, since_ms=1_000, *, phase_a=False):
     """A Stack on FakeCloud's clients, as main() builds it from the stack."""
     return smoke_upload.Stack(
         FakeSession(cloud),
@@ -435,7 +519,17 @@ def a_stack(cloud, since_ms=1_000):
         OUTPUTS["QueueName"],
         LOG_GROUP,
         since_ms,
+        phase_a=phase_a,
     )
+
+
+def a_client(cloud):
+    return httpx.Client(transport=httpx.MockTransport(cloud.handle))
+
+
+def sent_item(label, report_id):
+    """A photo as sent, for the checks that read only its label and report id."""
+    return smoke_upload.Sent(label, report_id, {}, b"", 0.0, 0.0)
 
 
 def listed_folder(folder, names, photos=None):
@@ -570,7 +664,13 @@ def api_replies(*replies):
         reply = queue.pop(0)
         if reply == 404:
             return httpx.Response(404, json={"error": "not_found"})
-        body = {"reportId": RID, "status": reply, "capturedAt": CAPTURED}
+        body = {
+            "reportId": RID,
+            "status": reply,
+            "capturedAt": CAPTURED,
+            "mode": "private",
+            "published": False,
+        }
         if reply == "done":
             body["noFloodSeen"] = True
         return httpx.Response(200, json=body)
@@ -610,50 +710,90 @@ def test_wait_final_polls_through_processing():
 
 
 def test_report_body_shapes():
-    # C67: a level, no flood seen and a refusal pass.
+    # C67 as MS4 extends it: a level, no flood seen and a refusal pass, each with its
+    # mode and published, and the level with its readings, accuracy and links.
     for body in (LEVEL_BODY, NO_FLOOD_BODY, REFUSED_BODY):
         smoke_upload.check_report_body(body)
-    # The location, the stored photo's key and the claim never reach the app.
+    smoke_upload.check_report_body(LEVEL_BODY | {"gpsAccuracyM": 12.5})
+    # The location, a stored key, the claim, the inches and a demo pin's fields never
+    # reach a smoke report.
     for key, value in (
         ("photoKey", f"blurred/{RID}.jpg"),
-        ("lat", 14.6095),
+        ("overlayKey", f"overlay/{RID}.jpg"),
+        ("lat", 14.35),
         ("claimToken", "claim-token-value"),
+        ("depthInMin", 17.3),
+        ("depthInMax", 19.1),
+        ("credit", "Photo by A. Donor"),
+        ("place", "Rizal Avenue, Manila"),
+        ("event", "Typhoon Carina"),
     ):
         with pytest.raises(CheckFailed, match=f"extra keys \\['{key}'\\]") as exc:
             smoke_upload.check_report_body(LEVEL_BODY | {key: value})
         assert str(value) not in str(exc.value)  # keys only, never their values
-    # A level needs every level field; no flood seen and a refusal take none of them.
-    without_floor = {k: v for k, v in LEVEL_BODY.items() if k != "levelIsFloor"}
-    with pytest.raises(CheckFailed, match="missing keys \\['levelIsFloor'\\]"):
-        smoke_upload.check_report_body(without_floor)
+    # A reading's inches stay hidden too, while the deployed INCHES_SHOWN is "false".
+    inches = LEVEL_BODY | {"readings": [READING, READING | {"inches": [17.3, 19.1]}]}
+    with pytest.raises(CheckFailed, match="extra reading keys \\['inches'\\]") as exc:
+        smoke_upload.check_report_body(inches)
+    assert "17.3" not in str(exc.value)
+    # A level needs every level field, links and all.
+    for key in (
+        "levelIsFloor",
+        "levelFrom",
+        "readings",
+        "gpsAccuracyM",
+        "photoUrl",
+        "overlayUrl",
+        "layersUrl",
+    ):
+        with pytest.raises(CheckFailed, match=f"missing keys \\['{key}'\\]"):
+            smoke_upload.check_report_body(without(LEVEL_BODY, key))
+    # Every body has its mode and published.
+    for body in (LEVEL_BODY, NO_FLOOD_BODY, REFUSED_BODY):
+        for key in ("mode", "published"):
+            with pytest.raises(CheckFailed, match=f"missing keys \\['{key}'\\]"):
+                smoke_upload.check_report_body(without(body, key))
+    # No flood seen and a refusal take none of a level's fields.
     with pytest.raises(CheckFailed, match="extra keys \\['level'\\]"):
         smoke_upload.check_report_body(NO_FLOOD_BODY | {"level": "knee"})
+    with pytest.raises(CheckFailed, match="extra keys \\['photoUrl'\\]"):
+        smoke_upload.check_report_body(NO_FLOOD_BODY | {"photoUrl": LINKS})
     with pytest.raises(CheckFailed, match="extra keys \\['noFloodSeen'\\]"):
         smoke_upload.check_report_body(REFUSED_BODY | {"noFloodSeen": False})
-    # Shapes: basis is exactly two counts, and a flag is a boolean.
-    for wrong in (
-        LEVEL_BODY | {"basis": {"vehicles": 1}},
-        LEVEL_BODY | {"basis": {"vehicles": 1, "people": True}},
-        LEVEL_BODY | {"levelIsFloor": "false"},
-        REFUSED_BODY | {"refusalReason": ""},
+    # Shapes: basis is exactly two counts, a flag is a boolean, the accuracy a number,
+    # readings a list of objects, and a string isn't empty.
+    for wrong, key in (
+        (LEVEL_BODY | {"basis": {"vehicles": 1}}, "basis"),
+        (LEVEL_BODY | {"basis": {"vehicles": 1, "people": True}}, "basis"),
+        (LEVEL_BODY | {"levelIsFloor": "false"}, "levelIsFloor"),
+        (LEVEL_BODY | {"gpsAccuracyM": True}, "gpsAccuracyM"),
+        (LEVEL_BODY | {"gpsAccuracyM": "10"}, "gpsAccuracyM"),
+        (LEVEL_BODY | {"readings": READING}, "readings"),
+        (LEVEL_BODY | {"readings": ["wheel"]}, "readings"),
+        (LEVEL_BODY | {"overlayUrl": ""}, "overlayUrl"),
+        (REFUSED_BODY | {"refusalReason": ""}, "refusalReason"),
+        (REFUSED_BODY | {"published": "false"}, "published"),
+        (NO_FLOOD_BODY | {"mode": ""}, "mode"),
     ):
-        with pytest.raises(CheckFailed, match="wrong"):
+        with pytest.raises(CheckFailed, match=f"wrong \\['{key}'\\]"):
             smoke_upload.check_report_body(wrong)
     # Only a final status passes.
     with pytest.raises(CheckFailed, match="isn't final"):
         smoke_upload.check_report_body({"reportId": RID, "status": "processing"})
 
 
-def test_report_body_refuses_levelfrom_and_the_inches():
-    # C320: a geometry level's source and inches stay in the item, never in the body.
-    for key, value in (
-        ("levelFrom", "geometry"),
-        ("depthInMin", 13.4),
-        ("depthInMax", 13.5),
-    ):
+def test_report_body_takes_levelfrom_and_refuses_the_inches():
+    # C320, C515: MS4 returns a level's levelFrom (its Task 4); the inches stay out
+    # of every body until the release gate shows them.
+    smoke_upload.check_report_body(LEVEL_BODY | {"levelFrom": "geometry"})
+    for key, value in (("depthInMin", 13.4), ("depthInMax", 13.5)):
         with pytest.raises(CheckFailed, match=f"extra keys \\['{key}'\\]") as exc:
             smoke_upload.check_report_body(LEVEL_BODY | {key: value})
         assert str(value) not in str(exc.value)  # keys only, never their values
+    with pytest.raises(CheckFailed, match="extra reading keys \\['inches'\\]"):
+        smoke_upload.check_report_body(
+            LEVEL_BODY | {"readings": [READING | {"inches": [13.4, 13.5]}]}
+        )
 
 
 def test_reused_link_needs_a_fresh_form():
@@ -842,10 +982,9 @@ def test_run_summary_counts_504_and_413_and_bills_from_usage():
     assert summary["calls"] == {"sam": 56, "judge": 5}
     assert summary["ended_on"] == {"sam": {504: 1, 413: 1}, "judge": {504: 1, 413: 0}}
     assert summary["billed_tokens"] == {"input": 4000, "output": 8000}
-    # $2.50 per 1,000 SAM images; Muse Spark $1.25 and $4.25 per million tokens in, out.
-    assert summary["usd"] == pytest.approx(
-        56 * 0.0025 + 4000 * 1.25e-6 + 8000 * 4.25e-6
-    )
+    # $2.50 per 1,000 SAM images; Muse Spark $1.25 and $4.25 per million tokens in, out:
+    # 56 * 0.0025 + 4000 * 0.00000125 + 8000 * 0.00000425, exactly, as spend.py adds.
+    assert summary["usd"] == Decimal("0.179")
 
 
 def photo(n):
@@ -891,16 +1030,21 @@ def printed(capsys, tmp_path, cloud, *, timings=False):
     """The run's printed lines, with each timing as N unless `timings` is True.
 
     It never prints a photo's name, a path, a report id, or a URL of the API, the
-    forms or the queue.
+    forms or the queue, nor a device id or the SHA-256 the API stores for one.
     """
     out = capsys.readouterr().out
-    for private in (str(tmp_path), "Flood_in_Manila", "test.invalid", *cloud.reports):
+    devices = [device for device in cloud.devices if device]
+    hashes = [hashlib.sha256(device.encode()).hexdigest() for device in devices]
+    for private in (
+        str(tmp_path),
+        "Flood_in_Manila",
+        "test.invalid",
+        *cloud.reports,
+        *devices,
+        *hashes,
+    ):
         assert private not in out
     return (out if timings else re.sub(r"\b\d+\.\d s\b", "N s", out)).splitlines()
-
-
-def rid(n):
-    return f"r_{n:032x}"
 
 
 def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
@@ -920,17 +1064,26 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
         ("preflight", APP),
         ("preflight", "http://localhost:4173"),
         ("link", rid(0), None),
+        ("pending", rid(0)),  # S1: the report reads private before its photo goes
         ("photo", rid(0), width[0], None),
         # B5: as soon as the first paid report is final, before the next upload.
         ("photo", rid(0), width[0], None),
         *[
             step
             for n in range(1, 5)
-            for step in (("link", rid(n), None), ("photo", rid(n), width[n], None))
+            for step in (
+                ("link", rid(n), None),
+                ("pending", rid(n)),
+                ("photo", rid(n), width[n], None),
+            )
         ],
         # The dark photo comes from the app's origin.
         ("link", rid(5), APP),
+        ("pending", rid(5)),
         ("photo", rid(5), 1600, APP),
+        # No pin: nearby at the spot, then the map.
+        ("nearby",),
+        ("map",),
         # The missing photo: a report, then its notification, with no photo.
         ("link", rid(6), None),
         ("queue", rid(6)),
@@ -939,11 +1092,16 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
         ("paused",),
     ]
     assert cloud.time.slept == [35]  # only the stop switch waits here
+    # The preflights ask for the device header, and the run's 9 POST /uploads all
+    # carry one device id, a uuid4.
+    assert cloud.asked_headers == [DEVICE_HEADERS] * 2
+    [device] = set(cloud.devices)
+    assert len(cloud.devices) == 9 and uuid.UUID(device).version == 4
     assert printed(capsys, tmp_path, cloud) == [
         "photos: 5 of positions 0 to 4 in C87's order, 0 skipped without a credit line",
         (
             "cors: the preflight for POST /uploads allows https://localhost and"
-            " http://localhost:4173"
+            " http://localhost:4173, with the x-lusot-device header"
         ),
         "photo 1/5: done/level knee (NPLV) N s after its upload, 8 Meta calls",
         (
@@ -958,9 +1116,10 @@ def test_b1_run_checks_in_order(tmp_path, monkeypatch, capsys):
         ),
         "photo 5/5: refused/no_usable_reference N s after its upload, 8 Meta calls",
         "the dark photo: refused/too_dark N s after its upload, 0 Meta calls",
+        "no pin: none of the 6 reports is in nearby or on the map",
         (
-            "stored photos: no raw photo left for 6 reports, and a blurred photo only"
-            " for the 2 with a level"
+            "stored photos: no raw photo left for 6 reports, and a blurred photo, an"
+            " overlay and its layers only for the 2 with a level"
         ),
         (
             "spend: 40 Meta calls (SAM 35, judge 5); ended on 504: SAM 0, judge 0;"
@@ -1011,7 +1170,7 @@ def test_b1_run_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
     at = lines.index(
         "the dark photo: refused/too_dark N s after its upload, 0 Meta calls"
     )
-    assert lines[at + 1 : at + 8] == [
+    assert lines[at + 1 : at + 9] == [
         (
             "no photo gave a level (C71): 2 done/no_flood_seen,"
             " 3 refused/no_usable_reference"
@@ -1021,9 +1180,10 @@ def test_b1_run_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
         "photo 3/5 drops: vehicle_moving 2",
         "photo 4/5 drops: vehicle_moving 2",
         "photo 5/5 drops: none",
+        "no pin: none of the 6 reports is in nearby or on the map",
         (
-            "stored photos: no raw photo left for 6 reports, and a blurred photo only"
-            " for the 0 with a level"
+            "stored photos: no raw photo left for 6 reports, and a blurred photo, an"
+            " overlay and its layers only for the 0 with a level"
         ),
     ]
     assert any(line.startswith("reused link: S3 took the form again") for line in lines)
@@ -1126,6 +1286,70 @@ FAILURES = {
         "photo 1/5: still processing after 120 s",
         [2] * 60,
     ),
+    # S1 (C513): no photo goes until its report reads private, and none pins.
+    "not private": (
+        {"faults": {"not_private"}},
+        "photo 1/5: the report reads mode 'live', not private, so its photo wasn't"
+        " sent",
+        None,
+    ),
+    "report never found": (
+        {"faults": {"never_indexed"}},
+        "photo 1/5: the report wasn't found in 10 s, so its photo wasn't sent",
+        [1] * 10,
+    ),
+    "published": (
+        {"faults": {"published"}},
+        "photo 1/5: published is true, expected false",
+        None,
+    ),
+    "pin found": (
+        {"faults": {"pin_found"}},
+        "no pin: photo 1/5 found on the map (S1)",
+        None,
+    ),
+    "level without an overlay": (
+        {"faults": {"no_overlay"}},
+        "photo 1/5: a level but no stored overlay (B4)",
+        None,
+    ),
+    "overlay without a level": (
+        {"faults": {"overlay_always"}},
+        "photo 2/5: a stored overlay but no level (B4)",
+        None,
+    ),
+    "level without its layers file": (
+        {"faults": {"no_layers"}},
+        "photo 1/5: a level but no layers file (B4)",
+        None,
+    ),
+    "preflight without the device header": (
+        {"faults": {"no_device_cors"}},
+        "preflight from https://localhost: allow-headers 'content-type', expected"
+        " x-lusot-device",
+        None,
+    ),
+    "paused reply not JSON": (
+        {"faults": {"paused_not_json"}},
+        "POST /uploads with the switch on: HTTP 503, not a JSON object",
+        None,
+    ),
+    # --phase-a waives only the later fields and the overlay, never these.
+    "phase A: level without a blurred photo": (
+        {"faults": {"no_blurred"}, "phase_a": True},
+        "photo 1/5: a level but no blurred photo (B4)",
+        None,
+    ),
+    "phase A: published": (
+        {"faults": {"published"}, "phase_a": True},
+        "photo 1/5: published is true, expected false",
+        None,
+    ),
+    "phase A: pin found": (
+        {"faults": {"pin_found"}, "phase_a": True},
+        "no pin: photo 1/5 found on the map (S1)",
+        None,
+    ),
 }
 
 
@@ -1135,8 +1359,10 @@ def test_failed_checks_end_the_run_with_their_reason(
 ):
     setup = dict(setup)
     credited = setup.pop("credited", True)
+    # A Phase A stack is checked with --phase-a.
+    argv = ("--phase-a",) if setup.get("phase_a") else ()
     cloud = FakeCloud(setup.pop("outcomes", HAPPY), **setup)
-    assert run_smoke(tmp_path, monkeypatch, cloud, credited=credited) == 1
+    assert run_smoke(tmp_path, monkeypatch, cloud, *argv, credited=credited) == 1
     assert printed(capsys, tmp_path, cloud)[-1] == f"SMOKE FAILED: {reason}"
     if slept is not None:
         assert cloud.time.slept == slept
@@ -1208,7 +1434,17 @@ def test_fallback_stops_at_the_first_level(
     assert run_smoke(tmp_path, monkeypatch, cloud, "--fallback") == code
     # C71: positions 5 to 19 of C87's order, one at a time, with checks 2, 5 and 6.
     assert sent_names(cloud) == ORDER[5 : 5 + sent]
-    assert {step[0] for step in cloud.trail} == {"link", "photo"}
+    assert {step[0] for step in cloud.trail} == {
+        "link",
+        "pending",
+        "photo",
+        "nearby",
+        "map",
+    }
+    # A device id carries at most 10 uploads, and none comes back.
+    runs = [len(list(group)) for _, group in groupby(cloud.devices)]
+    assert runs == ([10, sent - 10] if sent > 10 else [sent])
+    assert len(set(cloud.devices)) == len(runs)
     lines = printed(capsys, tmp_path, cloud)
     assert lines[0] == (
         "photos: 15 of positions 5 to 19 in C87's order, 0 skipped without a credit"
@@ -1225,6 +1461,287 @@ def test_fallback_stops_at_the_first_level(
     )
     assert any(line.startswith(f"spend: {8 * sent} Meta calls") for line in lines)
     assert lines[-1] == last
+
+
+# MS4 Task 9: the smoke run stays private and off the map (S1, C513).
+
+
+def test_smoke_spot_is_outside_metro_manila():
+    # The shared polygon loads, so "outside" is its answer, not a missing file's.
+    assert metro_manila.ncr_boundary() is not None
+    assert metro_manila.in_metro_manila(**smoke_upload.SPOT) is False
+    assert smoke_upload.SPOT == SPOT  # MS7's OUTSIDE_POINT, in Laguna de Bay
+    assert metro_manila.in_metro_manila(**MANILA) is True  # the old spot pinned
+
+
+def test_send_stops_unless_the_report_is_private(monkeypatch):
+    # Review Focus 4: from a Manila spot the report reads live, so no form is posted.
+    monkeypatch.setattr(smoke_upload, "SPOT", MANILA)
+    cloud = FakeCloud([LEVEL])
+    reason = (
+        "^photo 1/5: the report reads mode 'live', not private, so its photo wasn't"
+        " sent$"
+    )
+    with pytest.raises(CheckFailed, match=reason):
+        smoke_upload.send(a_client(cloud), a_stack(cloud), "photo 1/5", photo(0))
+    assert cloud.trail == [("link", rid(0), None), ("pending", rid(0))]
+    assert cloud.objects == set()
+    # From the spot it reads private, so the photo goes, after that read.
+    monkeypatch.undo()
+    cloud = FakeCloud([LEVEL])
+    item = smoke_upload.send(a_client(cloud), a_stack(cloud), "photo 1/5", photo(0))
+    assert item.report_id == rid(0)
+    assert [step[0] for step in cloud.trail] == ["link", "pending", "photo"]
+    # The report index can lag a new report, so the read polls every 1 s through 404s.
+    cloud = FakeCloud([LEVEL], faults={"index_lag"})
+    monkeypatch.setattr(smoke_upload, "time", cloud.time)
+    smoke_upload.send(a_client(cloud), a_stack(cloud), "photo 1/5", photo(0))
+    assert cloud.time.slept == [1, 1]
+    assert [step[0] for step in cloud.trail] == ["link", "pending", "photo"]
+
+
+def test_device_id_rotates_every_10_uploads(tmp_path, monkeypatch):
+    smoke_upload.new_device()  # as main() does first
+    cloud = FakeCloud()
+    http = a_client(cloud)
+    for _ in range(25):
+        smoke_upload.request_upload(http, API)
+    ids = list(dict.fromkeys(cloud.devices))
+    assert cloud.devices == [ids[0]] * 10 + [ids[1]] * 10 + [ids[2]] * 5
+    for device in ids:
+        assert uuid.UUID(device).version == 4 and str(uuid.UUID(device)) == device
+    # A new run starts a new id, though the last one had 5 uploads left.
+    run = FakeCloud(HAPPY)
+    assert run_smoke(tmp_path, monkeypatch, run) == 0
+    [device] = set(run.devices)
+    assert device not in ids
+
+
+def test_no_pin_check(capsys):
+    items = [
+        sent_item("photo 1/5", rid(0)),
+        sent_item("photo 2/5", rid(1)),
+        sent_item("the dark photo", rid(2)),
+    ]
+    cloud = FakeCloud()  # nearby and the map list another report only
+    smoke_upload.check_no_pin(a_client(cloud), a_stack(cloud), items)
+    assert capsys.readouterr().out == (
+        "no pin: none of the 3 reports is in nearby or on the map\n"
+    )
+    # Nearby at the spot with radius 300 (the fake checks the query), then the map.
+    assert cloud.trail == [("nearby",), ("map",)]
+    # A run report found fails, naming where and which, by label, never by id.
+    for where, pins, reason in (
+        ("nearby", [OTHER, rid(1)], "photo 2/5 found in nearby"),
+        (
+            "on_map",
+            [rid(2), OTHER, rid(0)],
+            "photo 1/5 and the dark photo found on the map",
+        ),
+    ):
+        cloud = FakeCloud()
+        setattr(cloud, where, pins)
+        with pytest.raises(CheckFailed, match=f"^no pin: {reason} \\(S1\\)$") as exc:
+            smoke_upload.check_no_pin(a_client(cloud), a_stack(cloud), items)
+        assert not any(rid(n) in str(exc.value) for n in range(3))
+    # An answer that can't be read fails too: it never passes for "no pin".
+    cloud = FakeCloud(faults={"map_down"})
+    with pytest.raises(
+        CheckFailed, match="^no pin: GET /map/pins: HTTP 503 \\(Service Unavailable\\)$"
+    ):
+        smoke_upload.check_no_pin(a_client(cloud), a_stack(cloud), items)
+    for answer in ({}, {"pins": {"id": rid(0)}}, {"pins": [rid(0)]}):
+        http = httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _, a=answer: httpx.Response(200, json=a)
+            )
+        )
+        with pytest.raises(
+            CheckFailed, match="^no pin: GET /reports: not a pins list$"
+        ):
+            smoke_upload.check_no_pin(http, a_stack(cloud), items)
+
+
+def test_phase_a_waives_only_the_later_fields(tmp_path, monkeypatch, capsys):
+    # On a Phase A stack a level body need not hold Task 14's and MS3b's fields...
+    phase_a_level = without(LEVEL_BODY, *PHASE_B)
+    smoke_upload.check_report_body(phase_a_level, phase_a=True)
+    smoke_upload.check_report_body(LEVEL_BODY, phase_a=True)
+    # ...which the full check still needs.
+    missing = "missing keys \\['layersUrl', 'levelFrom', 'overlayUrl', 'readings'\\]"
+    with pytest.raises(CheckFailed, match=missing):
+        smoke_upload.check_report_body(phase_a_level)
+    # Every other rule stands.
+    for body, reason in (
+        (phase_a_level | {"depthInMin": 17.3}, "extra keys \\['depthInMin'\\]"),
+        (phase_a_level | {"credit": "Photo by A. Donor"}, "extra keys \\['credit'\\]"),
+        (
+            phase_a_level | {"readings": [READING | {"inches": [17.3, 19.1]}]},
+            "extra reading keys \\['inches'\\]",
+        ),
+        (without(phase_a_level, "photoUrl"), "missing keys \\['photoUrl'\\]"),
+        (without(phase_a_level, "gpsAccuracyM"), "missing keys \\['gpsAccuracyM'\\]"),
+        (phase_a_level | {"overlayUrl": ""}, "wrong \\['overlayUrl'\\]"),
+    ):
+        with pytest.raises(CheckFailed, match=reason):
+            smoke_upload.check_report_body(body, phase_a=True)
+    # A live mode still fails: a final body must read private.
+    cloud = FakeCloud(phase_a=True)
+    cloud.reports[RID], cloud.modes[RID] = result(phase_a_level), "live"
+    cloud.events.append(event(RID, 1, outcome="done/level", meta_calls=8))
+    stack = a_stack(cloud, phase_a=True)
+    with pytest.raises(CheckFailed, match="^photo 1/5: mode 'live', expected private$"):
+        smoke_upload.await_report(
+            a_client(cloud), stack, "photo 1/5", RID, since=time.monotonic()
+        )
+    # A run on a Phase A stack, whose levels have none of the later fields and no
+    # overlay: check 6 doesn't look for one.
+    cloud = FakeCloud(HAPPY, phase_a=True)
+    assert run_smoke(tmp_path, monkeypatch, cloud, "--phase-a") == 0
+    assert not any(key.startswith("overlay/") for key in cloud.objects)
+    lines = printed(capsys, tmp_path, cloud)
+    assert (
+        "stored photos: no raw photo left for 6 reports, and a blurred photo only for"
+        " the 2 with a level (Phase A: no overlay checked)"
+    ) in lines
+    assert lines[-1] == "SMOKE OK in N s"
+    # Without --phase-a, the same stack fails.
+    cloud = FakeCloud(HAPPY, phase_a=True)
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+    assert printed(capsys, tmp_path, cloud)[-1] == (
+        "SMOKE FAILED: photo 1/5: report body (done): extra keys [], missing keys"
+        " ['layersUrl', 'levelFrom', 'overlayUrl', 'readings']"
+    )
+    # With it, a live report still stops the run before its photo goes.
+    cloud = FakeCloud(HAPPY, phase_a=True, faults={"not_private"})
+    assert run_smoke(tmp_path, monkeypatch, cloud, "--phase-a") == 1
+    assert printed(capsys, tmp_path, cloud)[-1] == (
+        "SMOKE FAILED: photo 1/5: the report reads mode 'live', not private, so its"
+        " photo wasn't sent"
+    )
+    assert "photo" not in {step[0] for step in cloud.trail}
+
+
+def test_smoke_guards_are_the_shared_ones(tmp_path, monkeypatch, capsys):
+    # T1: one sealed-path rule. refuse_sealed asks guards.is_sealed, and CheckFailed
+    # stays this run's refusal...
+    asked = []
+    monkeypatch.setattr(guards, "is_sealed", lambda path: asked.append(path) or True)
+    plain = tmp_path / "photos" / "x.jpg"
+    refused = "^refused: a path inside a folder named sealed$"
+    with pytest.raises(CheckFailed, match=refused):
+        smoke_upload.refuse_sealed(plain)
+    assert asked == [plain]
+    # ...and has no rule of its own: what guards allows, it allows.
+    monkeypatch.setattr(guards, "is_sealed", lambda path: False)
+    smoke_upload.refuse_sealed(tmp_path / "sealed" / "x.jpg")
+    # One output mask: say prints what guards.mask makes of a line, and masks nothing
+    # itself.
+    digits = "4" * 12
+    monkeypatch.setattr(guards, "mask", lambda line: f"masked({line})")
+    smoke_upload.say(f"account {digits}")
+    monkeypatch.setattr(guards, "mask", lambda line: line)
+    smoke_upload.say(f"account {digits}")
+    assert capsys.readouterr().out == (f"masked(account {digits})\naccount {digits}\n")
+    monkeypatch.undo()
+    smoke_upload.say(f"account {digits}")
+    assert capsys.readouterr().out == "account <account>\n"
+    # No pattern of its own is left for either.
+    patterns = [n for n, v in vars(smoke_upload).items() if isinstance(v, re.Pattern)]
+    assert patterns == []
+
+
+def test_smoke_prints_its_cost_and_records_nothing(tmp_path, monkeypatch, capsys):
+    spend = load_spend()
+    # The prices are spend.py's, the Lambda's own (C527), and none of its own.
+    assert smoke_upload.spend is spend
+    for name in (
+        "SAM_USD_PER_IMAGE",
+        "SPARK_USD_PER_INPUT_TOKEN",
+        "SPARK_USD_PER_OUTPUT_TOKEN",
+    ):
+        assert not hasattr(smoke_upload, name)
+    with monkeypatch.context() as patched:
+        patched.setitem(spend.PRICES, "sam_image", Decimal("1"))
+        # 7 SAM images at $1, and Muse Spark's 2,000 and 4,000 billed tokens.
+        summary = smoke_upload.run_summary([paid("done/level")])
+        assert summary["usd"] == Decimal("7.0195")
+
+    # The Lambda counted every photo's cost itself, so the smoke run only prints the
+    # run's billed cost, for the ledger: it never records it, by any client.
+    def never(*args, **kwargs):
+        raise AssertionError("the smoke run called record_spend")
+
+    monkeypatch.setattr(spend, "record_spend", never)
+    cost = (
+        "spend: 40 Meta calls (SAM 35, judge 5); ended on 504: SAM 0, judge 0;"
+        " on 413: SAM 0, judge 0; billed 10,000 input and 20,000 output tokens,"
+        " estimated $0.1850"
+    )
+    # A run that passes, a run whose check fails after paying, and a fallback run.
+    for setup, argv, code in (
+        ({}, (), 0),
+        ({"faults": {"keep_raw"}}, (), 1),
+        ({}, ("--fallback",), 0),
+    ):
+        outcomes = [LEVEL] if argv else HAPPY
+        cloud = FakeCloud(outcomes, **setup)
+        assert run_smoke(tmp_path, monkeypatch, cloud, *argv) == code
+        lines = printed(capsys, tmp_path, cloud)
+        if argv:
+            assert any(line.startswith("spend: 8 Meta calls") for line in lines)
+        else:
+            assert cost in lines
+        # No UpdateItem reaches the limits table, and the table isn't looked up.
+        assert cloud.updates == []
+        assert "LimitsTable" not in cloud.lookups
+        assert not any("spend_error" in line or "recorded" in line for line in lines)
+
+
+def test_a_bad_200_ends_as_a_check_failure():
+    # A 200 whose body isn't a JSON object ends the run with a reason, never a
+    # traceback: not JSON, a list, or a string.
+    for content in (b"<html>oops</html>", b"[]", b'"private"'):
+        http = httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _, c=content: httpx.Response(200, content=c)
+            )
+        )
+        reason = "^GET /reports: HTTP 200, not a JSON object$"
+        with pytest.raises(CheckFailed, match=reason):
+            smoke_upload.confirm_private(http, API, RID)
+        with pytest.raises(CheckFailed, match=reason):
+            smoke_upload.wait_final(
+                http, API, RID, since=0.0, clock=lambda: 0.0, sleep=lambda _: None
+            )
+
+
+def test_a_paid_report_failing_the_private_checks_is_in_the_spend(
+    tmp_path, monkeypatch, capsys
+):
+    # Photo 1 was analysed, so it was paid for, whatever its final body says: the
+    # spend line counts it before the run ends.
+    for fault, reason in (
+        ("published", "photo 1/5: published is true, expected false"),
+        ("live_when_final", "photo 1/5: mode 'live', expected private"),
+    ):
+        cloud = FakeCloud(HAPPY, faults={fault})
+        assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+        assert printed(capsys, tmp_path, cloud)[-2:] == [
+            (
+                "spend: 8 Meta calls (SAM 7, judge 1); ended on 504: SAM 0, judge 0;"
+                " on 413: SAM 0, judge 0; billed 2,000 input and 4,000 output tokens,"
+                " estimated $0.0370"
+            ),
+            f"SMOKE FAILED: {reason}",
+        ]
+    # A body that fails its shape check is left out, as before: its outcome, and so
+    # its log line, can't be read from it.
+    cloud = FakeCloud([({"status": "done"}, paid("done/level"))])
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+    lines = printed(capsys, tmp_path, cloud)
+    assert lines[-1].startswith("SMOKE FAILED: photo 1/5: report body (done):")
+    assert not any(line.startswith("spend:") for line in lines)
 
 
 def test_geometry_check_needs_a_measured_wheel():
@@ -1249,7 +1766,12 @@ def test_geometry_mode_sends_one_credited_photo(tmp_path, monkeypatch, capsys):
     # dark photo, missing photo, PNG or stop switch.
     assert sent_names(cloud) == [ORDER[3]]
     width = 100 + NAMES.index(ORDER[3])
-    assert cloud.trail == [("link", rid(0), None), ("photo", rid(0), width, None)]
+    # MS4's Task 9: the photo goes only after its report reads private.
+    assert cloud.trail == [
+        ("link", rid(0), None),
+        ("pending", rid(0)),
+        ("photo", rid(0), width, None),
+    ]
     assert cloud.time.slept == []
     # Counts, outcome names and timings only: printed() checks no name or path shows.
     assert printed(capsys, tmp_path, cloud) == [
