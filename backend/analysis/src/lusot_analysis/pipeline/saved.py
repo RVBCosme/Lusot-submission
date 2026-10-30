@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import threading
 from collections.abc import Mapping
 from pathlib import Path
@@ -388,4 +389,8 @@ def _stem(phrase: str) -> str:
 
 
 def _write_json(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    """`value` as JSON, through a file beside it, so a stop mid-write never leaves a
+    cut-short file under `path`'s name: run.json, written last, is whole or absent."""
+    partial = path.with_name(f"{path.name}.partial")
+    partial.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    os.replace(partial, path)

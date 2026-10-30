@@ -6,16 +6,17 @@ From the repo root, with MODEL_API_KEY set for that one command:
 
     uv run --locked --directory backend/analysis python probes/run_sealed.py
         <data>\sealed\run-1 --baseline <summary.json> --self-check-decided DATE
-        [--geometry-default on|off|dropped] [--dropped-reason TOKEN]
-        [--datasets JSON] [--resume RUN] [--rerun REASON] [--results DIR]
+        --datasets JSON [--geometry-default on|off|dropped] [--dropped-reason TOKEN]
+        [--resume RUN] [--rerun REASON] [--results DIR]
 
 <data>\sealed\run-1 is the folder the archives were extracted into (MS6E-Q3), as
 MS2's §5.9 lays them out: set_a\ (manifest.csv, m8.csv, photos\), a_neg\
 (manifest.csv, photos\) and, when they exist, set_b\ (truth.csv, crops\) and set_d\
 (set_d_log.csv, photos\). --baseline is the last development report's summary.json,
 whose baseline pair and rules_version run.json takes (MS6's C424). The other flags are
-run.json's, as dev_eval.py's export takes them. Every path is absolute, since uv's
---directory changes the working folder.
+run.json's, as dev_eval.py's export takes them, but --datasets is required and must
+name a dataset, since run.json can't take MS2's versions later. Every path is
+absolute, since uv's --directory changes the working folder.
 
 In order (MS6's C412):
 1. The folder: it reads only inside a folder named sealed, as written and resolved
@@ -24,12 +25,17 @@ In order (MS6's C412):
    Only the strings are checked before step 2.
 2. The console: stdin and stdout must both be one (MS2's console_ok, its C202).
 3. The freeze (MS6's C413, C421): a tree with no changes, at the commit tagged
-   freeze-1, or freeze-2 for the one disclosed rerun (--rerun REASON).
+   freeze-1, or freeze-2 for the one disclosed rerun (--rerun REASON). git runs with
+   no GIT_ variable, untracked files shown whatever its settings say, and no file
+   flagged assume-unchanged or skip-worktree, so no setting hides a change.
 4. The label words, from `python eval/run_eval.py --label-words` (MS6's C420): without
    the harness, or when it fails, nothing is read.
 5. The inputs, through export's path-free parsers (C315, C327). A file that breaks its
    format is named by its kind, and by its row where the parser names one, never by a
-   cell's text. Every photo and crop must be there before anything is paid for.
+   cell's text. Every photo and crop must be there before anything is paid for. Then
+   the run's lock, <folder>\outputs\run.lock, which the OS holds for this window
+   until it ends: a second window, starting or resuming, is refused before anything
+   is asked or sent, and a closed window's lock goes with it.
 6. Rene's yes to the photos and crops to send and their estimated cost ($0.03 a photo,
    $0.0025 a SAM call). Then the labels that would be written as (other words) are
    counted, and any such count needs a second yes: those photos are excluded as
@@ -38,11 +44,13 @@ In order (MS6's C412):
    freeze-1, or freeze-2 for the rerun. Each Set A and A-neg photo goes once through
    the frozen pipeline, face blur first, with the 5 phrases the reading uses (C66),
    and is saved as the runner saves a run. Each Set B crop and Set D photo goes once
-   through the face blur and SAM's floodwater, wheel and wheel rim. A photo whose
-   run Meta's service failed (an HTTP error after the client's retries, a timeout or
-   a lost connection) is sent once more after the rest and counted; an invalid answer
-   is never sent again (MS6E-Q6, default (a)). Three such photos in a row stop the
-   run, as a lost connection would.
+   through the face blur and SAM's floodwater, wheel and wheel rim. A photo or crop
+   whose send Meta's service failed (an HTTP error after the client's retries, a
+   timeout or a lost connection) is saved as failed, sent once more after the rest,
+   into outputs\<RUN>\retry\, and counted; an invalid answer is never sent again
+   (MS6E-Q6, default (a)). Three such sends in a row stop the run, as a lost
+   connection would. A crop or Set D photo failed twice is exported with every
+   variant of its wheels unmeasured as model_error.
 8. The export, once the run is complete: run.json, set_a.jsonl, a_neg.jsonl and, when
    they exist, set_b.jsonl and set_d.jsonl, through export's rows (MS6's §4.3), each
    configuration from replays of the saved outputs (C309, C315). --results defaults
@@ -51,21 +59,25 @@ In order (MS6's C412):
 
 A stop (a rejected key, Ctrl+C, a crash, Meta's service failing) is kept in the run's
 state.json with its time and cause, and --resume RUN goes on as the same run: what was
-saved is never sent again (MS6's C419). A run that ended with no stop kept, as when
-its window closed, gets one at its last saved item. A new run whose folder exists is
-refused, so nothing is paid for twice. A resume must give the run's own settings.
+saved is never sent again (MS6's C419). An item counts as saved once its record,
+written last and whole, reads as a JSON object; one cut short is set aside, kept, and
+sent again. A run that ended with no stop kept, as when its window closed, gets one at
+its last saved item. A new run whose folder exists is refused, so nothing is paid for
+twice. A resume must give the run's own settings.
 
 It prints counts and timings only: never a photo's name, a path, a label, an answer,
 a reason or a key, and every line masks runs of 12 digits.
 
 Exit codes: 0 exported; 2 refused (a path, the console, the freeze, the harness, an
-input, a no, a missing or rejected key); 3 a stop or a failure, printed as its cause or
-its error's class only (R110). argparse's own usage errors exit 2 too.
+input, another window's run, a no, a missing or rejected key); 3 a stop or a failure,
+printed as its cause or its error's class only (R110). argparse's own usage errors
+exit 2 too.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -75,7 +87,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_UP, Decimal
 from pathlib import Path
@@ -133,10 +145,23 @@ SAM_ONLY_PHRASES = ("floodwater", "wheel", "wheel rim")
 SIDES = {"set_a": "A", "a_neg": "A-neg"}
 NAMES = {"set_a": "the Set A manifest", "a_neg": "the A-neg manifest"}
 RUNS = {"freeze-1": False, "freeze-2": True}  # each run, by its tag: a rerun's?
-SERVICE_STREAK = 3  # photos in a row that Meta's service fails: a stop
+SERVICE_STREAK = 3  # sends in a row that Meta's service fails: a stop
 CONSOLE_REFUSAL = "refused: run this yourself, in a Windows PowerShell window"
 RECORD = "run.json"  # a saved folder's record, written last
 STATE = "state.json"
+LOCK = "run.lock"  # in <folder>/outputs: held by the one window running
+LOCK_REFUSAL = (
+    "another window is running this folder's run: let it end or close it, then resume"
+)
+# The freeze check's status: untracked files shown, whatever git's settings say.
+STATUS = (
+    "-c",
+    "status.showUntrackedFiles=normal",
+    "status",
+    "--porcelain",
+    "--untracked-files=normal",
+)
+_DATE = re.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _MANILA = timezone(timedelta(hours=8))  # Manila keeps no daylight saving time
 _ACCOUNT = re.compile("[0-9]{12}")
 _COMMIT = re.compile("[0-9a-f]{40}")
@@ -189,13 +214,17 @@ def results_folder(given: Path | None, *, rerun: bool) -> Path:
 
 
 def read_git(args: Sequence[str]) -> str | None:
-    """git's output for `args`, run in the repo and stripped, or None when it fails."""
+    """git's output for `args`, run in the repo and stripped, or None when it fails.
+    Every GIT_ variable is left out of its environment, so none can point it at
+    another repo, work tree or index."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         done = subprocess.run(
             ["git", "-C", str(runner.REPO), *args],
             capture_output=True,
             text=True,
             timeout=60,
+            env=env,
             check=False,  # its exit code is read below
         )
     except (OSError, subprocess.SubprocessError):
@@ -299,10 +328,40 @@ def _run(
         if present is None and (results / f"{name}.jsonl").exists():
             _refuse("--results holds rows this export won't rewrite: use another")
     outputs = folder / "outputs" / run_name
+    # One window at a time: the state and what is saved are read under the lock.
+    with _one_run(outputs.parent):
+        return _locked_run(
+            args,
+            run_name,
+            outputs,
+            results,
+            freeze,
+            settings,
+            inputs,
+            make_client,
+            ask,
+            tuning,
+        )
+
+
+def _locked_run(
+    args: argparse.Namespace,
+    run_name: str,
+    outputs: Path,
+    results: Path,
+    freeze: str,
+    settings: Mapping[str, object],
+    inputs: Inputs,
+    make_client: Callable[[], ModelClient],
+    ask: Callable[[str], str] | None,
+    tuning: Tuning,
+) -> int:
+    """Steps 6 to 8, while this window holds the run's lock."""
     state = _state(outputs, args, run_name, freeze, settings)
     first = [p for p in inputs.photos if not _saved(_first_dir(outputs, p))]
-    items = [i for i in inputs.items if not _saved(outputs / i.kind / i.key)]
+    items = [i for i in inputs.items if not _saved(_item_dir(outputs, i))]
     retries = [p for p in inputs.photos if _to_retry(outputs, p)]
+    item_retries = [i for i in inputs.items if _item_to_retry(outputs, i)]
 
     # 6. Rene's yes, then the labels and his second yes.
     counts = Counter(photo.side for photo in inputs.photos)
@@ -313,14 +372,15 @@ def _run(
     )
     total = len(inputs.photos) + len(inputs.items)
     saved = total - len(first) - len(items)
-    say(f"run {run_name}: {saved} of {total} saved before, {len(retries)} to retry")
+    retrying = len(retries) + len(item_retries)
+    say(f"run {run_name}: {saved} of {total} saved before, {retrying} to retry")
     sending = len(first) + len(retries)
-    to_send = sending + len(items)
+    sam_alone = len(items) + len(item_retries)
     guards.confirm(
         _masked(
-            f"to send: {sending} to the pipeline and {len(items)} to SAM alone, about"
-            f" ${_cost(sending, len(items))}; a photo Meta's service fails is sent"
-            " once more (MS6E-Q6)"
+            f"to send: {sending} to the pipeline and {sam_alone} to SAM alone, about"
+            f" ${_cost(sending, sam_alone)}; a photo or crop Meta's service fails is"
+            " sent once more (MS6E-Q6)"
         ),
         ask=ask,
     )
@@ -331,8 +391,10 @@ def _run(
             "Their photos are excluded as unmapped (MS6's C420).",
             ask=ask,
         )
+    # Before the run is marked running, so a prompt that fails leaves no state.
+    prompt = load_prompt(runner.PROMPTS)
     client = None
-    if to_send:
+    if sending + sam_alone:
         try:
             client = make_client()
         except MissingApiKey:
@@ -340,7 +402,6 @@ def _run(
 
     # 7. The run, then 8. the export. Any stop from here on is kept.
     _begin(outputs, state)
-    prompt = load_prompt(runner.PROMPTS)
     geometry = settings["geometry_default"] == "on"
     tally: Counter[str] = Counter()
     started = time.monotonic()
@@ -348,9 +409,13 @@ def _run(
     try:
         stop = _send_photos(first, client, outputs, state, retry=False, **send)
         if stop is None:
-            _send_items(items, client, outputs, state, tally)
+            stop = _send_items(items, client, outputs, state, tally, retry=False)
+        if stop is None:
             retries = [p for p in inputs.photos if _to_retry(outputs, p)]
             stop = _send_photos(retries, client, outputs, state, retry=True, **send)
+        if stop is None:
+            item_retries = [i for i in inputs.items if _item_to_retry(outputs, i)]
+            stop = _send_items(item_retries, client, outputs, state, tally, retry=True)
         if stop is not None:
             _stop(outputs, state, stop)
             say(
@@ -365,7 +430,7 @@ def _run(
             _stop(outputs, state, "key_rejected")
             say(f"refused: Meta rejected the key or the account (HTTP {status})")
             return 2
-        _stop(outputs, state, "service_failed")  # a crop's call: sent again on resume
+        _stop(outputs, state, "service_failed")  # outside a send: sent again on resume
         http = "" if status is None else f" (HTTP {status})"
         say(f"stopped: {type(exc).__name__}{http}; resume with --resume {run_name}")
         return 3
@@ -380,6 +445,7 @@ def _run(
 
     seconds = time.monotonic() - started
     retried = sum(_saved(_retry_dir(outputs, photo)) for photo in inputs.photos)
+    retried += sum(_saved(_item_retry_dir(outputs, item)) for item in inputs.items)
     say(
         f"sent: {tally['photos']} to the pipeline, {tally['items']} to SAM alone;"
         f" service failures retried: {retried}"
@@ -415,7 +481,12 @@ def _parser() -> argparse.ArgumentParser:
         "--geometry-default", choices=("on", "off", "dropped"), default="on"
     )
     parser.add_argument("--dropped-reason", type=_token, metavar="TOKEN")
-    parser.add_argument("--datasets", default="{}", metavar="JSON")
+    parser.add_argument(
+        "--datasets",
+        required=True,
+        metavar="JSON",
+        help="MS2's dataset versions and split seeds, in MS6's run.json shape",
+    )
     which = parser.add_mutually_exclusive_group()
     which.add_argument(
         "--resume", choices=tuple(RUNS), metavar="RUN", help="freeze-1 or freeze-2"
@@ -439,16 +510,25 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
         parser.error(
             "--geometry-default dropped needs --dropped-reason, and only it takes one"
         )
+    try:
+        named = json.loads(args.datasets) != {}
+    except json.JSONDecodeError:
+        named = True  # _settings refuses it, by its rule
+    if not named:
+        parser.error(
+            "--datasets must name MS2's datasets, which run.json can't add later"
+        )
     return args
 
 
 def _date(text: str) -> str:
+    """A calendar date as YYYY-MM-DD, as MS6's _date takes it: no week date."""
+    if not _DATE.fullmatch(text):
+        raise argparse.ArgumentTypeError("must be a date, such as 2026-10-31")
     try:
         date.fromisoformat(text)
     except ValueError:
         raise argparse.ArgumentTypeError("must be a date, such as 2026-10-31") from None
-    if len(text) != 10:
-        raise argparse.ArgumentTypeError("must be a date, such as 2026-10-31")
     return text
 
 
@@ -505,12 +585,22 @@ def _cost(photos: int, items: int) -> Decimal:
 
 def _freeze(git: Git, tag: str) -> str:
     """HEAD's commit, once the tree has no changes and HEAD is the commit `tag`
-    names (MS6's C413, C421)."""
-    status = git(["status", "--porcelain"])
+    names (MS6's C413, C421). A file flagged assume-unchanged (a lowercase tag in
+    `git ls-files -v`) or skip-worktree (S) is refused too: git status never shows
+    its edits."""
+    status = git(list(STATUS))
     if status is None:
         _refuse("git couldn't read the repo")
     if status:
         _refuse("the tree has changes: commit or remove them first (MS6's C413)")
+    listing = git(["ls-files", "-v"])
+    if listing is None:
+        _refuse("git couldn't read the repo")
+    if any(line[:1].islower() or line[:1] == "S" for line in listing.splitlines()):
+        _refuse(
+            "the index hides changes to a file (assume-unchanged or skip-worktree):"
+            " clear its flag first (MS6's C413)"
+        )
     head = git(["rev-parse", "--verify", "HEAD"])
     tagged = git(["rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"])
     if tagged is None:
@@ -702,6 +792,40 @@ def _saved_item(outputs: Path, state: dict) -> None:
     _write_json(outputs / STATE, state)
 
 
+@contextlib.contextmanager
+def _one_run(folder: Path) -> Iterator[None]:
+    """Hold the OS's lock on `folder`/run.lock while the run lasts: msvcrt's on
+    Windows, flock elsewhere. A second window is refused, and the OS frees the lock
+    when this one's process ends, so a closed window's run still resumes."""
+    folder.mkdir(parents=True, exist_ok=True)
+    fd = os.open(folder / LOCK, os.O_RDWR | os.O_CREAT)
+    try:
+        try:
+            _os_lock(fd, take=True)
+        except OSError:  # another window holds it
+            _refuse(LOCK_REFUSAL)
+        try:
+            yield
+        finally:
+            _os_lock(fd, take=False)
+    finally:
+        os.close(fd)
+
+
+def _os_lock(fd: int, *, take: bool) -> None:
+    """Take the OS's lock on the file `fd` without waiting, which raises OSError
+    while another process holds it, or free it."""
+    if sys.platform == "win32":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)  # msvcrt locks bytes from the file's position
+        msvcrt.locking(fd, msvcrt.LK_NBLCK if take else msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, (fcntl.LOCK_EX | fcntl.LOCK_NB) if take else fcntl.LOCK_UN)
+
+
 def _first_dir(outputs: Path, photo: Photo) -> Path:
     return outputs / photo.side / photo.photo_id
 
@@ -710,9 +834,27 @@ def _retry_dir(outputs: Path, photo: Photo) -> Path:
     return outputs / "retry" / photo.side / photo.photo_id
 
 
+def _item_dir(outputs: Path, item: Item) -> Path:
+    return outputs / item.kind / item.key
+
+
+def _item_retry_dir(outputs: Path, item: Item) -> Path:
+    return outputs / "retry" / item.kind / item.key
+
+
+def _record(folder: Path) -> dict | None:
+    """The folder's record, written last, or None when it isn't there or isn't whole:
+    a stop mid-write can leave it empty or cut short, which isn't a JSON object."""
+    try:
+        record = json.loads((folder / RECORD).read_text(encoding="utf-8"))
+    except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
 def _saved(folder: Path) -> bool:
-    """Whether the folder's record, written last, is there."""
-    return (folder / RECORD).is_file()
+    """Whether the folder's record, written last, is there and whole."""
+    return _record(folder) is not None
 
 
 def _service_failed(outcome: Mapping, log: Mapping) -> bool:
@@ -725,16 +867,24 @@ def _service_failed(outcome: Mapping, log: Mapping) -> bool:
 def _to_retry(outputs: Path, photo: Photo) -> bool:
     """Whether the photo's first run, saved, failed at Meta's service, and its one
     retry isn't saved yet."""
-    folder = _first_dir(outputs, photo)
-    if not _saved(folder) or _saved(_retry_dir(outputs, photo)):
+    record = _record(_first_dir(outputs, photo))
+    if record is None or _saved(_retry_dir(outputs, photo)):
         return False
-    record = json.loads((folder / RECORD).read_text(encoding="utf-8"))
     return _service_failed(record["outcome"], record["log"])
 
 
+def _item_to_retry(outputs: Path, item: Item) -> bool:
+    """Whether the crop's or Set D photo's first send, saved, failed at Meta's
+    service (its record holds the status alone), and its one retry isn't saved."""
+    record = _record(_item_dir(outputs, item))
+    if record is None or _saved(_item_retry_dir(outputs, item)):
+        return False
+    return "meta_status" in record
+
+
 def _set_aside(folder: Path) -> None:
-    """Move aside a folder a stop left without its record, so the item is sent again
-    into a new one. Nothing is deleted."""
+    """Move aside a folder a stop left without its whole record, so the item is sent
+    again into a new one. Nothing is deleted."""
     if not folder.exists():
         return
     number = 1
@@ -792,30 +942,48 @@ def _send_items(
     outputs: Path,
     state: dict,
     tally: Counter[str],
-) -> None:
+    *,
+    retry: bool,
+) -> str | None:
     """Each crop and Set D photo once: the face blur, then SAM's phrases, saved as
-    set_b.py saves a crop: sam/ first, then its record."""
+    set_b.py saves a crop: sam/ first, then its record. A send that Meta's service
+    fails (any MetaApiError but a rejected key's) is saved as a record of its status
+    alone (MS6E-Q6). It returns "service_failed" once SERVICE_STREAK sends in a row
+    fail so (R164), else None."""
+    streak = 0
+    label = "retry SAM alone" if retry else "SAM alone"
     for number, item in enumerate(items, start=1):
-        folder = outputs / item.kind / item.key
+        folder = (_item_retry_dir if retry else _item_dir)(outputs, item)
         _set_aside(folder)
         began = time.monotonic()
         data = item.path.read_bytes()
         image = blur_for_meta(data)  # before any Meta call (C20)
-        sam = segment_all(client, image, SAM_ONLY_PHRASES)
-        save_sam_results(folder, sam)
-        record = {
-            "photo_sha256": hashlib.sha256(data).hexdigest(),
-            "phrases": list(SAM_ONLY_PHRASES),
-            "models": {"sam": SAM_MODEL},
-            "blur_version": image.blur_version,
-            "image": {"width": image.width, "height": image.height},
-        }
+        try:
+            sam = segment_all(client, image, SAM_ONLY_PHRASES)
+        except MetaApiError as exc:
+            if exc.status in KEY_REJECTED_STATUSES:
+                raise
+            folder.mkdir(parents=True)
+            record = {"meta_status": exc.status}
+        else:
+            save_sam_results(folder, sam)
+            record = {
+                "photo_sha256": hashlib.sha256(data).hexdigest(),
+                "phrases": list(SAM_ONLY_PHRASES),
+                "models": {"sam": SAM_MODEL},
+                "blur_version": image.blur_version,
+                "image": {"width": image.width, "height": image.height},
+            }
         _write_json(folder / RECORD, record)
         _saved_item(outputs, state)
         tally["items"] += 1
         tally["calls"] += len(SAM_ONLY_PHRASES)
         seconds = time.monotonic() - began
-        say(f"SAM alone {number} of {len(items)}: {seconds:.1f} s")
+        say(f"{label} {number} of {len(items)}: {seconds:.1f} s")
+        streak = streak + 1 if "meta_status" in record else 0
+        if streak == SERVICE_STREAK:
+            return "service_failed"
+    return None
 
 
 def _export(
@@ -827,7 +995,9 @@ def _export(
     tuning: Tuning,
 ) -> dict[str, int]:
     """run.json and the rows, from the saved outputs, into `results`. Each photo's
-    retry, when it has one, is its result. It returns each file's row count."""
+    or item's retry, when it has one, is its result: an item Meta's service failed
+    twice has every variant of its wheels unmeasured as model_error, and no water
+    found. It returns each file's row count."""
     settings = state["settings"]
     dropped = settings["geometry_default"] == "dropped"
     configurations = {"landmark": False} if dropped else export.CONFIGURATIONS
@@ -837,7 +1007,7 @@ def _export(
         run_dir = _retry_dir(outputs, photo)
         if not _saved(run_dir):
             run_dir = _first_dir(outputs, photo)
-        record = json.loads((run_dir / RECORD).read_text(encoding="utf-8"))
+        record = _record(run_dir)
         records.append(record)
         runs = export.replay_configurations(
             photo.path.read_bytes(),
@@ -859,24 +1029,35 @@ def _export(
     sam = {}
     for item in inputs.items:
         data = item.path.read_bytes()
-        found = _load_sam(outputs / item.kind / item.key, data)
+        run_dir = _item_retry_dir(outputs, item)
+        if not _saved(run_dir):
+            run_dir = _item_dir(outputs, item)
+        found = _load_sam(run_dir, data)
         sam[item.kind, item.key] = (found, quality_scores(data).brightness)
     if inputs.set_b is not None:
         built["set_b"] = []
         for row in inputs.set_b:
             found, brightness = sam["set_b", row.crop_id]
-            estimates = export.wheel_estimates(row, found, brightness, tuning=tuning)
-            built["set_b"].append(
-                export.set_b_row(row, estimates, water_found(found["floodwater"]))
-            )
+            if found is None:
+                estimates, water = _model_error(export.SET_B_VARIANTS), False
+            else:
+                estimates = export.wheel_estimates(
+                    row, found, brightness, tuning=tuning
+                )
+                water = water_found(found["floodwater"])
+            built["set_b"].append(export.set_b_row(row, estimates, water))
     if inputs.set_d is not None:
         built["set_d"] = []
         for row in inputs.set_d:
             found, brightness = sam["set_d", row.photo_id]
-            estimates = export.set_d_estimates(row, found, brightness, tuning=tuning)
-            built["set_d"].append(
-                export.set_d_row(row, estimates, water_found(found["floodwater"]))
-            )
+            if found is None:
+                estimates, water = _model_error(export.SET_D_VARIANTS), False
+            else:
+                estimates = export.set_d_estimates(
+                    row, found, brightness, tuning=tuning
+                )
+                water = water_found(found["floodwater"])
+            built["set_d"].append(export.set_d_row(row, estimates, water))
     sent = next((record for record in records if record["phrases"]), records[0])
     manifest = export.results_manifest(
         kind="sealed",
@@ -900,12 +1081,21 @@ def _export(
     return {name: len(rows) for name, rows in built.items()}
 
 
-def _load_sam(folder: Path, data: bytes) -> dict:
-    """SAM's results saved in `folder` for the file `data`."""
-    record = json.loads((folder / RECORD).read_text(encoding="utf-8"))
+def _load_sam(folder: Path, data: bytes) -> dict | None:
+    """SAM's results saved in `folder` for the file `data`, or None when Meta's
+    service failed the send, whose record holds the status alone."""
+    record = _record(folder)
+    if "meta_status" in record:
+        return None
     if record["photo_sha256"] != hashlib.sha256(data).hexdigest():
         raise PhotoMismatch("saved outputs belong to another photo")
     return load_sam_results(folder)
+
+
+def _model_error(variants: Sequence[str]) -> dict[str, dict]:
+    """Every variant unmeasured as model_error, in MS6's estimate shape (its rows.py
+    _estimate): Meta's service failed the item's send and its one retry."""
+    return {variant: export._unmeasured("model_error") for variant in variants}
 
 
 def _write(path: Path, text: str) -> None:

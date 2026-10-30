@@ -4,21 +4,26 @@ Synthetic data only. Each test makes its own folder named sealed under tmp_path,
 is synthetic, not sealed data, and no one opens it by hand. No test reads lusot-data or
 a real sealed folder, every export goes to a --results folder under tmp_path, and
 FakeClient stands in for Meta, so no test makes a Meta call. git, the console and
-Rene's answers are fakes passed to main. The harness's --label-words comes from a
-stand-in script, since eval/run_eval.py isn't on this branch.
+Rene's answers are fakes passed to main, but for one test that reads a real git repo
+under tmp_path. The harness's --label-words comes from a stand-in script that prints
+WORDS, so a test never runs the harness but where it checks WORDS against it.
 
 MS2's guard copies are on this branch (probes/set_b_masks.py), so run_sealed uses them
 as they are and makes no copies: there is no parity test to run (R132).
 """
 
+import contextlib
 import csv
 import dataclasses
 import importlib.util
 import io
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -41,7 +46,8 @@ REASON = "REASON-MARKER-31"  # the reason fakes.answer gives every answer
 FREE_TEXT = ("NOTE-MARKER-17", "CITY-MARKER-23", "SPOT-MARKER-29", "PLACE-MARKER-37")
 OTHER_LABEL = "Knee deep near MARKETMARKER"  # "near" isn't a label word
 TIME = re.compile("[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}")
-# The harness's --label-words, as printed on Window 4's branch at 1cafc88.
+# The harness's --label-words, as eval/run_eval.py prints them, which the last test
+# checks.
 WORDS = [
     "above",
     "all",
@@ -222,6 +228,29 @@ SEALED_RUN_FIELDS = {
     "baseline_class",
 }
 OPTIONAL_RUN_FIELDS = {"stops", "rerun_reason", "geometry_dropped_reason"}
+# --datasets, in MS6's shape: each set's MS2 version and split seed.
+DATASETS = {
+    name: {"version": "v1", "split_seed": "seed-1"} for name in ("set_a", "a_neg")
+}
+# The freeze check's git calls (Minor 2): the status, whatever git's configuration
+# says of untracked files, and the index's tags.
+STATUS = (
+    "-c",
+    "status.showUntrackedFiles=normal",
+    "status",
+    "--porcelain",
+    "--untracked-files=normal",
+)
+LISTING = ("ls-files", "-v")
+LOCK_REFUSAL = "refused: another window is running this folder's run"
+# An estimate that Meta's service failed twice (MS6E-Q6, (a)), in MS6's shape.
+MODEL_ERROR = {
+    "measured": False,
+    "depthInPoint": None,
+    "depthInMin": None,
+    "depthInMax": None,
+    "fail": "model_error",
+}
 
 
 def load_tool():
@@ -256,20 +285,25 @@ def offline(tmp_path, monkeypatch):
 
 
 class FakeGit:
-    """git as the freeze check reads it: the status, HEAD and the freeze tags. A None
-    status is a git that fails."""
+    """git as the freeze check reads it: the status, the index's tags, HEAD and the
+    freeze tags. A None status or listing is a git that fails."""
 
-    def __init__(self, *, status="", head=FREEZE_1, tags=None):
+    def __init__(
+        self, *, status="", listing="H eval/rules.md", head=FREEZE_1, tags=None
+    ):
         self.status = status
+        self.listing = listing
         self.head = head
         self.tags = {"freeze-1": FREEZE_1} if tags is None else tags
         self.calls = []
 
     def __call__(self, args):
         self.calls.append(tuple(args))
+        if tuple(args) == STATUS:
+            return self.status
+        if tuple(args) == LISTING:
+            return self.listing
         match tuple(args):
-            case ("status", "--porcelain"):
-                return self.status
             case ("rev-parse", "--verify", "HEAD"):
                 return self.head
             case ("rev-parse", "--verify", "--quiet", ref):
@@ -305,6 +339,73 @@ def photo_client(**keywords) -> FakeClient:
 
 def judged(*answers) -> Judged:
     return Judged(geometry_case()[1], answers)
+
+
+class SamAloneFails(FakeClient):
+    """geometry_case's client, whose SAM-alone sends fail with HTTP `status`: the
+    first `failures` of them, or every one when it is None. A SAM-alone send is one
+    made once all `photos` have their answer, as the run makes them, and is one
+    blurred image asked SAM's three phrases. `sends` holds each send's image."""
+
+    def __init__(self, photos: int, failures: int | None = None, status: int = 400):
+        _, sam, given = geometry_case()
+        super().__init__(sam, given)
+        self.photos = photos
+        self.failures = failures
+        self.status = status
+        self.sends = []
+        self._sending = threading.Lock()
+
+    def segment(self, image, phrase, *, deadline=None):
+        if calls(self, "judge") >= self.photos:
+            with self._sending:
+                if not any(sent is image for sent in self.sends):
+                    self.sends.append(image)
+                send = next(n for n, sent in enumerate(self.sends) if sent is image)
+            if self.failures is None or send < self.failures:
+                raise meta_error(self.status)
+        return super().segment(image, phrase, deadline=deadline)
+
+
+@contextlib.contextmanager
+def another_window(lock: Path):
+    """The OS's lock on `lock`, held as another window's run would hold it."""
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT)
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            try:
+                yield
+            finally:
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+    finally:
+        os.close(fd)
+
+
+def git_in(repo: Path, *args: str) -> None:
+    """git in a test's own repo, with no GIT_ variable and no global or system
+    configuration, so neither the machine's settings nor a hook's can reach it."""
+    empty = repo.parent / "empty.gitconfig"
+    empty.touch()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env |= {"GIT_CONFIG_GLOBAL": str(empty), "GIT_CONFIG_NOSYSTEM": "1"}
+    identity = ("-c", "user.name=Test", "-c", "user.email=test@example.invalid")
+    subprocess.run(
+        ["git", "-C", str(repo), *identity, *args],
+        env=env,
+        capture_output=True,
+        timeout=TIMEOUT,
+        check=True,
+    )
 
 
 def csv_text(columns, rows) -> str:
@@ -421,6 +522,8 @@ def argv_for(folder: Path, summary: Path, results: Path, *flags: str) -> list[st
         str(summary),
         "--self-check-decided",
         "2026-10-31",
+        "--datasets",
+        json.dumps(DATASETS),
         "--results",
         str(results),
         *flags,
@@ -596,12 +699,14 @@ def test_refuses_a_folder_not_named_sealed(tmp_path, monkeypatch, capsys):
     # The sealed folder itself passes, as far as the next check.
     git = FakeGit(status=" M backend/analysis/src/lusot_analysis/rules.py")
     assert run(sealed, results, git=git, made=[]) == (2, [])
-    assert git.calls[0] == ("status", "--porcelain")
+    assert git.calls[0] == STATUS
 
 
 def test_refuses_a_non_console_stdin(tmp_path):
     # From an agent's shell: stdin on NUL, a pipe or a file. Nothing is read, and
-    # nothing is made: the folder, the summary and --results don't exist.
+    # nothing is made: the folder, the summary and --results don't exist. The
+    # refusal's words aren't compared, as another OS may add a warning to them, but
+    # nothing printed holds a path.
     folder = tmp_path / "data" / "sealed" / "run-1"
     summary = tmp_path / "data" / "dev-results" / "summary.json"
     results = tmp_path / "results"
@@ -619,20 +724,72 @@ def test_refuses_a_non_console_stdin(tmp_path):
                 check=False,
             )
             assert shell.returncode == 2
-            assert shell.stderr == CONSOLE_REFUSAL
-            assert shell.stdout == ""
-    assert not (tmp_path / "data").exists()
-    assert not results.exists()
-    # stdout a console but stdin not: still refused, before git or any prompt.
+            printed = shell.stdout + shell.stderr
+            for path in (str(tmp_path), tmp_path.name, "run-1", "summary.json"):
+                assert path not in printed
+            assert not (tmp_path / "data").exists()
+            assert not results.exists()
+
+
+def test_refuses_a_console_stdout_with_another_stdin(tmp_path, monkeypatch, capsys):
+    # console_ok's own check finds stdout a console but stdin not: refused before
+    # git, the harness, the summary, the folder or any prompt is reached.
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    for reader in ("label_words", "_settings", "_read_inputs"):
+        monkeypatch.setattr(tool, reader, fail)
+    asked = []
+
+    def is_console(fd):
+        asked.append(fd)
+        return fd == 1
+
     code = tool.main(
-        argv_for(folder, summary, results),
+        sealed.argv(results),
         make_client=fail,
         git=fail,
-        is_console=lambda fd: fd == 1,
+        is_console=is_console,
         ask=fail,
         tuning=START,
     )
     assert code == 2
+    assert asked[0] == 0
+    assert capsys.readouterr().err == CONSOLE_REFUSAL
+    assert not results.exists()
+    assert not (sealed.root / "outputs").exists()
+
+
+def test_datasets_are_required(tmp_path, capsys):
+    # MS6's run.json can't take MS2's datasets later, so a run without them, or with
+    # none named, is refused before anything is read.
+    folder = tmp_path / "data" / "sealed" / "run-1"
+    argv = argv_for(folder, tmp_path / "summary.json", tmp_path / "results")
+    at = argv.index("--datasets")
+    for given in (
+        argv[:at] + argv[at + 2 :],
+        [*argv[: at + 1], "{ }", *argv[at + 2 :]],
+    ):
+        code = tool.main(
+            given, make_client=fail, git=fail, is_console=fail, ask=fail, tuning=START
+        )
+        assert code == 2
+        assert "--datasets" in capsys.readouterr().err
+    assert not (tmp_path / "data").exists()
+    assert not (tmp_path / "results").exists()
+
+
+def test_the_decision_date_is_a_calendar_date(tmp_path, capsys):
+    # An ISO week date is 10 characters too, and date.fromisoformat takes it.
+    folder = tmp_path / "data" / "sealed" / "run-1"
+    argv = argv_for(folder, tmp_path / "summary.json", tmp_path / "results")
+    at = argv.index("--self-check-decided") + 1
+    for text in ("2026-W44-5", "20261031", "2026-10-31T00"):
+        argv[at] = text
+        code = tool.main(
+            argv, make_client=fail, git=fail, is_console=fail, ask=fail, tuning=START
+        )
+        assert code == 2
+        assert "--self-check-decided" in capsys.readouterr().err
 
 
 def test_refuses_a_dirty_tree_or_another_commit(tmp_path, capsys):
@@ -651,15 +808,23 @@ def test_refuses_a_dirty_tree_or_another_commit(tmp_path, capsys):
             tuning=START,
         )
 
-    refused = {
-        "the tree has changes": FakeGit(status="?? stray.txt"),
-        "git couldn't read the repo": FakeGit(status=None),
-        "HEAD isn't the commit tagged freeze-1": FakeGit(head=FREEZE_2),
-        "there is no freeze-1 tag": FakeGit(tags={}),
-    }
-    for message, git in refused.items():
+    hidden = "the index hides changes to a file"
+    refused = [
+        ("the tree has changes", FakeGit(status="?? stray.txt")),
+        ("git couldn't read the repo", FakeGit(status=None)),
+        # A file flagged assume-unchanged (a lowercase tag) or skip-worktree (S),
+        # whose edits git status never shows.
+        (hidden, FakeGit(listing="H eval/rules.md\nh eval/run_eval.py")),
+        (hidden, FakeGit(listing="S eval/run_eval.py\nH eval/rules.md")),
+        (hidden, FakeGit(listing="s eval/run_eval.py")),
+        ("git couldn't read the repo", FakeGit(listing=None)),
+        ("HEAD isn't the commit tagged freeze-1", FakeGit(head=FREEZE_2)),
+        ("there is no freeze-1 tag", FakeGit(tags={})),
+    ]
+    for message, git in refused:
         assert main(git) == 2
         assert message in capsys.readouterr().out
+        assert git.calls[:2] == [STATUS, LISTING][: len(git.calls)]
     # The one disclosed rerun runs at freeze-2 only (MS6's C421).
     rerun = ("--rerun", "a fix to the waterline step")
     out = results / "rerun"
@@ -670,6 +835,44 @@ def test_refuses_a_dirty_tree_or_another_commit(tmp_path, capsys):
     assert "HEAD isn't the commit tagged freeze-2" in capsys.readouterr().out
     assert not folder.exists()
     assert not results.exists()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git isn't installed")
+@pytest.mark.parametrize("hidden", ["skip-worktree", "assume-unchanged", "untracked"])
+def test_the_freeze_check_reads_git_itself(tmp_path, monkeypatch, capsys, hidden):
+    # A real repo at its freeze-1 tag, with a change git is told to hide: a flagged
+    # file's edit, or an untracked file under status.showUntrackedFiles=no. GIT_DIR,
+    # GIT_WORK_TREE and GIT_INDEX_FILE point elsewhere, so a git that kept them
+    # couldn't read the repo at all.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git_in(repo, "init", "-q")
+    (repo / "frozen.txt").write_text("frozen\n", encoding="utf-8")
+    git_in(repo, "add", "frozen.txt")
+    git_in(repo, "commit", "-q", "-m", "freeze")
+    git_in(repo, "tag", "freeze-1")
+    if hidden == "untracked":
+        git_in(repo, "config", "status.showUntrackedFiles", "no")
+        (repo / "stray.txt").write_text("stray\n", encoding="utf-8")
+        expected = "the tree has changes"
+    else:
+        git_in(repo, "update-index", f"--{hidden}", "frozen.txt")
+        (repo / "frozen.txt").write_text("changed\n", encoding="utf-8")
+        expected = "the index hides changes to a file"
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+        monkeypatch.setenv(name, str(tmp_path / "elsewhere"))
+    monkeypatch.setattr(tool.runner, "REPO", repo)
+    folder = tmp_path / "data" / "sealed" / "run-1"  # never reached
+    code = tool.main(
+        argv_for(folder, write_summary(tmp_path), tmp_path / "results"),
+        make_client=fail,
+        is_console=lambda fd: True,
+        ask=fail,
+        tuning=START,
+    )
+    assert code == 2
+    assert expected in capsys.readouterr().out
+    assert not (tmp_path / "results").exists()
 
 
 def test_results_go_where_told(tmp_path, capsys):
@@ -946,6 +1149,170 @@ def test_every_stop_is_recorded(tmp_path, capsys):
     assert all(TIME.fullmatch(stop["resumed"]) for stop in stops)
 
 
+@pytest.mark.parametrize("cut", ["empty", "truncated", "not_an_object"])
+def test_a_cut_short_record_is_sent_again(tmp_path, capsys, cut):
+    # A101 is saved, then Ctrl+C comes during A102. A101's record is then cut short,
+    # as a kill or a closed window mid-write would leave it: it isn't saved, so it is
+    # set aside, kept, and A101 is sent once more (C419).
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    given = geometry_case()[2]
+    assert run(sealed, results, made=[judged(given, KeyboardInterrupt())])[0] == 3
+    record = sealed.outputs() / "set_a" / "A101" / "run.json"
+    text = record.read_text(encoding="utf-8")
+    left = {"empty": "", "truncated": text[: len(text) // 2], "not_an_object": "[]"}
+    record.write_text(left[cut], encoding="utf-8")
+    capsys.readouterr()
+    again = judged(given, given, given)  # A101 again, then A102 and N101
+    assert run(sealed, results, "--resume", "freeze-1", made=[again])[0] == 0
+    assert (calls(again, "judge"), again.answers) == (3, [])
+    assert "run freeze-1: 0 of 3 saved before" in capsys.readouterr().out
+    aside = sealed.outputs() / "set_a" / "A101.incomplete-1" / "run.json"
+    assert aside.read_text(encoding="utf-8") == left[cut]
+    assert read_json(record)["outcome"]["status"] == "done"
+    rows = {row["photo_id"]: row for row in read_lines(results / "set_a.jsonl")}
+    assert sorted(rows) == ["A101", "A102"]
+    assert rows["A101"]["outcomes"]["landmark"]["status"] == "done"
+
+
+def test_a_cut_short_retry_is_sent_again(tmp_path, capsys):
+    # A101's first run fails at Meta's service; Ctrl+C comes during its retry, whose
+    # record a closed window then leaves empty. The resume sends the retry again.
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    given = geometry_case()[2]
+    first = judged(meta_error(503), given, given, KeyboardInterrupt())
+    assert run(sealed, results, made=[first])[0] == 3
+    retry = sealed.outputs() / "retry" / "set_a" / "A101"
+    retry.mkdir(parents=True)
+    (retry / "run.json").write_text("", encoding="utf-8")
+    capsys.readouterr()
+    again = judged(given)
+    assert run(sealed, results, "--resume", "freeze-1", made=[again])[0] == 0
+    assert again.answers == []
+    assert "service failures retried: 1" in capsys.readouterr().out
+    assert (retry.with_name("A101.incomplete-1") / "run.json").is_file()
+    rows = {row["photo_id"]: row for row in read_lines(results / "set_a.jsonl")}
+    assert rows["A101"]["outcomes"]["landmark"]["status"] == "done"
+
+
+SAM_ALONE = {
+    "set_b": ("B02-1-1", {"set_b": [truth_row(), truth_row(wheel="2")]}),
+    "set_d": ("D01", {"set_d": [set_d_row(), set_d_row(wheel="right")]}),
+}
+
+
+@pytest.mark.parametrize("kind", ["set_b", "set_d"])
+def test_an_item_meta_fails_is_retried_once(tmp_path, capsys, kind):
+    # A Set B crop or a Set D photo whose send fails at Meta's service (a 400 on
+    # every call) is saved as failed, sent once more after the rest, and counted
+    # (MS6E-Q6, (a)). Failing again, its wheels are unmeasured as model_error.
+    key, rows = SAM_ALONE[kind]
+    variants = export.SET_B_VARIANTS if kind == "set_b" else export.SET_D_VARIANTS
+    sealed = write_sealed(tmp_path / "down", **rows)
+    results = tmp_path / "down" / "results"
+    down = SamAloneFails(photos=3)
+    assert run(sealed, results, made=[down])[0] == 0
+    assert len(down.sends) == 2
+    assert "service failures retried: 1" in capsys.readouterr().out
+    # Each send's record holds the status alone, under the synthetic sealed folder.
+    outputs = sealed.outputs()
+    for folder in (outputs / kind / key, outputs / "retry" / kind / key):
+        assert read_json(folder / "run.json") == {"meta_status": 400}
+        assert sorted(path.name for path in folder.iterdir()) == ["run.json"]
+    exported = read_lines(results / f"{kind}.jsonl")
+    assert len(exported) == 2
+    for row in exported:
+        assert row["estimates"] == dict.fromkeys(variants, MODEL_ERROR)
+        assert row["sam_water_found"] is False
+    # A 400 once, then an answer: the retry's row is the row a clean run gives.
+    clean = write_sealed(tmp_path / "clean", **rows)
+    clean_results = tmp_path / "clean" / "results"
+    assert run(clean, clean_results, made=[photo_client()])[0] == 0
+    sealed = write_sealed(tmp_path / "once", **rows)
+    results = tmp_path / "once" / "results"
+    once = SamAloneFails(photos=3, failures=1)
+    capsys.readouterr()
+    assert run(sealed, results, made=[once])[0] == 0
+    assert len(once.sends) == 2
+    assert "service failures retried: 1" in capsys.readouterr().out
+    retried = read_lines(results / f"{kind}.jsonl")
+    assert retried == read_lines(clean_results / f"{kind}.jsonl")
+    assert any(e["measured"] for row in retried for e in row["estimates"].values())
+
+
+def test_item_service_failures_in_a_row_stop_the_run(tmp_path, capsys):
+    # Three Set D photos in a row that Meta's service fails are a lost connection,
+    # as three photos are (R164): a stop, and each keeps its one retry.
+    set_d = [set_d_row(photo_id) for photo_id in ("D01", "D02", "D03")]
+    sealed = write_sealed(tmp_path, set_d=set_d)
+    results = tmp_path / "results"
+    down = SamAloneFails(photos=3, status=503)
+    assert run(sealed, results, made=[down])[0] == 3
+    assert len(down.sends) == 3
+    assert "stopped: Meta's service failed on 3 photos in a row" in (
+        capsys.readouterr().out
+    )
+    state = read_json(sealed.outputs() / "state.json")
+    assert [stop["cause"] for stop in state["stops"]] == ["service_failed"]
+    up = photo_client()
+    assert run(sealed, results, "--resume", "freeze-1", made=[up])[0] == 0
+    assert (calls(up, "segment"), calls(up, "judge")) == (3 * 3, 0)
+    assert "service failures retried: 3" in capsys.readouterr().out
+    rows = read_lines(results / "set_d.jsonl")
+    assert [row["crop_id"] for row in rows] == ["D01", "D02", "D03"]
+    assert all(row["estimates"]["geometry"]["measured"] for row in rows)
+
+
+def test_one_run_at_a_time(tmp_path, capsys):
+    # Another window holds the run's lock: a start and a resume are refused before
+    # any client is built or any prompt asked. The OS frees the lock when that
+    # window ends, as when it closes, and the run resumes.
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    lock = sealed.root / "outputs" / "run.lock"
+    with another_window(lock):
+        assert run(sealed, results, made=[]) == (2, [])
+        assert LOCK_REFUSAL in capsys.readouterr().out
+    assert not sealed.outputs().exists()
+    given = geometry_case()[2]
+    assert run(sealed, results, made=[judged(given, KeyboardInterrupt())])[0] == 3
+    state = sealed.outputs() / "state.json"
+    before = state.read_bytes()
+    with another_window(lock):
+        assert run(sealed, results, "--resume", "freeze-1", made=[]) == (2, [])
+        assert LOCK_REFUSAL in capsys.readouterr().out
+    assert state.read_bytes() == before
+    again = judged(given, given)
+    assert run(sealed, results, "--resume", "freeze-1", made=[again])[0] == 0
+    stops = read_json(results / "run.json")["stops"]
+    assert [stop["cause"] for stop in stops] == ["interrupted"]
+
+
+def test_a_prompt_that_fails_to_load_leaves_no_run(tmp_path, monkeypatch, capsys):
+    # The prompt loads before the run is marked running, so its failure leaves no
+    # state behind: a new start then goes ahead as the first.
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    loaded = tool.load_prompt
+
+    class PromptUnreadable(Exception):
+        pass
+
+    def unreadable(folder):
+        raise PromptUnreadable
+
+    monkeypatch.setattr(tool, "load_prompt", unreadable)
+    fake = photo_client()
+    assert run(sealed, results, made=[fake])[0] == 3
+    assert capsys.readouterr().err == "stopped: PromptUnreadable\n"
+    assert fake.calls == []
+    assert not sealed.outputs().exists()
+    monkeypatch.setattr(tool, "load_prompt", loaded)
+    assert run(sealed, results, made=[photo_client()])[0] == 0
+    assert read_json(results / "run.json")["stops"] == []
+
+
 def test_export_holds_only_the_row_contract(tmp_path, capsys):
     sealed = write_sealed(
         tmp_path,
@@ -974,7 +1341,7 @@ def test_export_holds_only_the_row_contract(tmp_path, capsys):
     assert manifest["self_check_decided"] == "2026-10-31"
     assert (manifest["self_check"], manifest["geometry_default"]) == ("off", "on")
     assert manifest["stops"] == []
-    assert manifest["datasets"] == {}
+    assert manifest["datasets"] == DATASETS
     assert (
         manifest["frozen"]["sam_phrases"] == "floodwater,wheel,wheel rim,person,vehicle"
     )
@@ -1109,3 +1476,13 @@ def test_a_resume_takes_the_run_s_own_settings(tmp_path, capsys):
     write_summary(tmp_path, baseline_level="waist")
     assert run(sealed, results, "--resume", "freeze-1", made=[]) == (2, [])
     assert "the run started with other settings" in capsys.readouterr().out
+
+
+def test_words_are_the_harness_s(monkeypatch):
+    # The stand-in prints WORDS: they must be the words the real harness prints, run
+    # as the tool runs it (MS6's C420).
+    harness = REPO / "eval" / "run_eval.py"
+    if not harness.is_file():
+        pytest.skip("eval/run_eval.py isn't in this tree")
+    monkeypatch.setattr(tool, "RUN_EVAL", harness)
+    assert sorted(tool.label_words()) == WORDS
