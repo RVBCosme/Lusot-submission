@@ -614,25 +614,50 @@ describe('a sample and a demo pin', () => {
     expect(caption()).not.toMatch(/outline/i)
   })
 
-  // The credit states how Lusot changed the photo (C617's CC BY change note), so the card says it once, in the credit.
+  // The credit states how Lusot changed the photo (C617's CC BY change note), so the card says each change once. MS4's
+  // sample credit states the blur only, since the stored photo has no outlines; its demo pin credit states both.
   const CHANGED_CREDIT = 'Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred by Lusot.'
+  const DEMO_CREDIT = 'Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred, and outlines drawn, by Lusot.'
 
-  it("leaves out its own blurred and outlines lines when the sample's credit already says the photo was blurred", async () => {
+  it("says only that it drew outlines when the sample's credit already says the photo was blurred", async () => {
     const { sample, result } = await sampleRun()
     expect(result.overlayUrl ?? result.layersUrl).toBeDefined()
     renderCard({ result, source: 'sample', sample: { ...sample, credit: CHANGED_CREDIT } })
 
     expect(caption()).toContain(CHANGED_CREDIT)
     expect(text()).not.toContain(BLURRED)
-    expect(text()).not.toContain(OUTLINES)
+    expect(screen.getByText(OUTLINES)).toBeTruthy()
     cleanup()
 
     // Any case counts, and the whole word: "Blurred" states it, "unblurred" does not.
     renderCard({ result, source: 'sample', sample: { ...sample, credit: 'Photo: Someone. Blurred by Lusot.' } })
     expect(text()).not.toContain(BLURRED)
+    expect(screen.getByText(OUTLINES)).toBeTruthy()
     cleanup()
     renderCard({ result, source: 'sample', sample: { ...sample, credit: 'Photo: Someone. Unblurred original.' } })
-    expect(caption()).toContain(BLURRED)
+    expect(caption()).toContain(`${BLURRED} ${OUTLINES}`)
+  })
+
+  it("has no line of its own when the sample's credit says the photo was blurred and there are no outlines to show", async () => {
+    for (const scenario of ['no_flood_seen', 'refused_no_usable_reference'] as const) {
+      const { sample, result } = await sampleRun(scenario)
+      renderCard({ result, source: 'sample', sample: { ...sample, credit: CHANGED_CREDIT } })
+      expect(caption(), scenario).toContain(CHANGED_CREDIT)
+      expect(text(), scenario).not.toContain(BLURRED)
+      expect(text(), scenario).not.toMatch(/outline/i)
+      cleanup()
+    }
+    const { sample, result } = await sampleRun()
+    renderCard({
+      result: { ...result, overlayUrl: undefined, layersUrl: undefined },
+      source: 'sample',
+      sample: { ...sample, credit: CHANGED_CREDIT },
+    })
+    expect(text()).not.toContain(BLURRED)
+    expect(text()).not.toMatch(/outline/i)
+    // The caption holds the credit and nothing after it.
+    const figcaption = (screen.getByRole('img').closest('figure') as HTMLElement).querySelector('figcaption') as HTMLElement
+    expect(figcaption.lastElementChild?.textContent).toBe(CHANGED_CREDIT)
   })
 
   it('keeps its own blurred line and its outlines rule when the credit does not say the photo was blurred', async () => {
@@ -647,21 +672,29 @@ describe('a sample and a demo pin', () => {
     expect(caption()).not.toMatch(/outline/i)
   })
 
-  it('does the same for a demo pin: its credit says the photo was blurred, so the card does not, with or without the photo', async () => {
+  it("says nothing more on a demo pin whose credit names the blur and the outlines, with or without the photo", async () => {
     const { fetchFn } = mockWith()
     const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
     const report = (await getReport(API, demo.id, fetchFn)) as ReportResult
-    expect(demo.credit).toMatch(/\bblurred\b/i)
     expect(report.overlayUrl ?? report.layersUrl).toBeDefined()
-    renderCard({ result: report, source: 'pin' })
-    expect(caption()).toContain(demo.credit as string)
+    renderCard({ result: { ...report, credit: DEMO_CREDIT }, source: 'pin' })
+    expect(caption()).toContain(DEMO_CREDIT)
     expect(text()).not.toContain(BLURRED)
     expect(text()).not.toContain(OUTLINES)
     cleanup()
 
-    renderCard({ result: demo, source: 'pin' })
-    expect(screen.getByText(demo.credit as string)).toBeTruthy()
+    renderCard({ result: { ...demo, credit: DEMO_CREDIT }, source: 'pin' })
+    expect(screen.getByText(DEMO_CREDIT)).toBeTruthy()
     expect(text()).not.toContain(BLURRED)
+    expect(text()).not.toContain(OUTLINES)
+    cleanup()
+
+    // The mock's demo credit names the blur only, so the card adds its outlines line and nothing else.
+    expect(demo.credit).toMatch(/\bblurred\b/i)
+    expect(demo.credit).not.toMatch(/outline/i)
+    renderCard({ result: report, source: 'pin' })
+    expect(text()).not.toContain(BLURRED)
+    expect(screen.getByText(OUTLINES)).toBeTruthy()
   })
 
   it('leaves out a place or event of "unknown" on a sample card and a demo pin, and shows a real one as written', async () => {
@@ -705,10 +738,30 @@ describe('a sample and a demo pin', () => {
     expect(screen.getByRole('img').getAttribute('src')).toBe(report.photoUrl)
     expect(screen.getByText('Photo from Sep 26, 2009, Marikina, Typhoon Ondoy')).toBeTruthy()
     expect(screen.getByText(demo.credit as string)).toBeTruthy()
-    expect(screen.getByText('This is a live reading of a credited photo, not a test result.')).toBeTruthy()
     expect(screen.getByText('Above chest deep at this spot.')).toBeTruthy()
     expect(text()).not.toMatch(/Photo taken|Location within/)
     expect(screen.queryByText('Sample')).toBeNull()
+  })
+
+  // I1: a demo pin's reading was made once, at seeding, of a photo from another day, so its card never calls it live.
+  // The Demo badge and the photo's own date say what it is. A sample's run is live, and its card says so.
+  it('never says a demo pin is a live reading, with or without its photo, and a sample run still says it', async () => {
+    const LIVE = 'This is a live reading of a credited photo, not a test result.'
+    const { fetchFn } = mockWith()
+    const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    const report = (await getReport(API, demo.id, fetchFn)) as ReportResult
+    for (const result of [demo, report]) {
+      renderCard({ result, source: 'pin' })
+      expect(screen.getByText('Demo')).toBeTruthy()
+      expect(screen.getByText('Above chest deep at this spot.')).toBeTruthy()
+      expect(text()).not.toContain('live reading')
+      expect(text()).not.toContain('saved reading')
+      cleanup()
+    }
+
+    const { sample, result } = await sampleRun()
+    renderCard({ result, source: 'sample', sample })
+    expect(screen.getByText(LIVE)).toBeTruthy()
   })
 
   it('marks the credit as English on a Taglish screen', async () => {
@@ -938,8 +991,9 @@ describe('the photo and its overlay', () => {
     expect(after(photo, from)).toBe(true)
     expect(after(within(figure()).getByRole('list'), from)).toBe(true)
     expect(caption()).toContain(`${BLURRED} ${OUTLINES}`)
-    // The live-reading note and the rest of the card are still there, after the photo.
-    expect(after(figure(), screen.getByText('This is a live reading of a credited photo, not a test result.'))).toBe(true)
+    // The rest of the card is still there, after the photo, with no claim that the demo reading is live (I1).
+    expect(after(figure(), screen.getByRole('list', { name: 'Official advisories' }))).toBe(true)
+    expect(text()).not.toContain('live reading')
   })
 
   it('keeps a demo pin that has no photo as it was: the badge, the level line, then its credit and the blurred line', async () => {

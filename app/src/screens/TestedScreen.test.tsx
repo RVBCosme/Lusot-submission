@@ -372,6 +372,22 @@ describe('the samples', () => {
     }
   })
 
+  // I2: the credit states the blur, never the outlines a run draws, so the run's card says it drew them, and the
+  // blurred line stays left out, as in the list.
+  it("a run of a sample whose credit says it was blurred says only that Lusot drew its outlines", async () => {
+    adult()
+    await openWithSamples('level_knee')
+    fireEvent.click(runButtons()[1])
+    await settle()
+    await advance(POLL.fastMs)
+    await advance(POLL.fastMs)
+    const card = page().querySelector('article[data-outcome="level"]') as HTMLElement
+    expect(card).not.toBeNull()
+    expect(card.textContent).toMatch(/blurred by Lusot/)
+    expect(card.textContent).not.toContain(text('sample.edited'))
+    expect(within(card).getByText(text('sample.outlines'))).toBeTruthy()
+  })
+
   it('leaves out a place or event of "unknown", and shows a real one as written', async () => {
     const listed = (await (await createMockFetch({ now: () => Date.now() })(`${API}/samples`)).json()) as {
       samples: Record<string, unknown>[]
