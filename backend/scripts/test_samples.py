@@ -88,8 +88,9 @@ def test_samples_qualify_on_a_level_or_no_flood_seen(data, capsys):
     ]
     assert [c["Key"] for c in copies] == [f"samples/{s}.jpg" for s in kept]
     assert {c["TaggingDirective"] for c in copies} == {"REPLACE"}
+    # A refused seed keeps no copy at all (the tracker's ruling, Oct 30, 10:31 AM).
     refused_copy = f"blurred/{seeds[2]['reportId']['S']}.jpg"
-    assert refused_copy in cloud.objects
+    assert refused_copy not in cloud.objects
     put_under_samples = [
         p["Key"]
         for p in cloud.called("s3_put_object")

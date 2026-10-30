@@ -95,7 +95,8 @@ def eval_item(report_id: str, now_s: int, *, seed: bool = False) -> dict:
 
     The receive time stands in for a capture time, as for a sample, and the item has
     no location and no visibleUntil, so it never pins. `seed` marks a sample's seeding
-    run, whose stored copy Task 13's keep_photo keeps whatever the outcome (C512).
+    run, whose stored copy the handler keeps only for a level or no flood seen (C512;
+    the tracker's ruling, Oct 30, 10:31 AM).
     """
     received = iso_seconds(now_s)
     item = {

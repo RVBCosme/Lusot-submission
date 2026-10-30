@@ -259,7 +259,12 @@ class ScriptCloud:
         level = "level" in fields
         mode = item["mode"]["S"]
         prefix = "demo/" if mode == "demo" else ""
-        if keeps and (level or item.get("seed") == {"BOOL": True}):
+        # The handler stores a seed's copy only for a level or no flood seen (the
+        # tracker's ruling, Oct 30, 10:31 AM), as for any report a level's.
+        seed_kept = item.get("seed") == {"BOOL": True} and (
+            level or fields.get("noFloodSeen") is True
+        )
+        if keeps and (level or seed_kept):
             fields["photoKey"] = f"{prefix}blurred/{report_id}.jpg"
             self.objects[fields["photoKey"]] = b"blurred " + report_id.encode()
             if level:
