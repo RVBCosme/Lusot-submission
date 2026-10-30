@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -22,7 +22,7 @@ from lusot_analysis.annotate import (
     draw_numbered_boxes,
     number_boxes,
 )
-from lusot_analysis.face_blur import UndecodableImage, blur_for_meta
+from lusot_analysis.face_blur import BlurredImage, UndecodableImage, blur_for_meta
 from lusot_analysis.meta_client import (
     REASONING_EFFORTS,
     SAM_MODEL,
@@ -75,8 +75,8 @@ class PipelineRun:
     """How a report ends, its log fields, the photo to store, and the evidence record.
 
     `publish_jpeg` is set on a level result only, with SAM's faces and plates blurred
-    (C48, C61). The run holds no answer, so Muse Spark's reason never reaches the
-    handler (C62).
+    (C48, C61), or, with run_pipeline's `keep_photo`, on any run past SAM (C512). The
+    run holds no answer, so Muse Spark's reason never reaches the handler (C62).
 
     `evidence` is the record MS4 draws from (C328). It is set once Muse Spark's
     answer has passed the schema and the id check, on a gate result too, and is None
@@ -97,6 +97,7 @@ def run_pipeline(
     *,
     phrases: Sequence[str] = SAM_PHRASES,
     deadline: float | None = None,
+    keep_photo: bool = False,
     geometry_in_level: bool = False,
     tuning: Tuning = TUNING,
 ) -> PipelineRun:
@@ -107,6 +108,14 @@ def run_pipeline(
     `deadline` is the run's deadline as a time.monotonic() value, and every segment
     and judge call gets it (C84); None sets none. A file blur_for_meta refuses ends
     failed, bad_file, before any Meta call.
+
+    `keep_photo` is for a sample's seeding run (C512, MS4-Q14). With it, and both
+    PUBLISH_PHRASES in `phrases`, every run whose segment_all returned gets step 8.1's
+    copy, whatever its outcome: no flood seen, a refusal or an error after SAM. A run
+    that ends before SAM has returned gets none. The copy is made once the outcome is
+    settled, so the outcome, the log and the evidence are the same with and without
+    it. A copy that fails to be made leaves the run without one, and isn't logged.
+    Off, C61 holds: a copy for a level result only.
 
     `geometry_in_level` puts rim geometry in the level path (C309). Off is MS3a's
     rules plus step 3, so vans and `unknown` are dropped by type and no geometry is
@@ -140,6 +149,7 @@ def run_pipeline(
       inches as the item stores them, [min, max] rounded outward (C308)
     """
     log: dict[str, object] = {"meta_calls": 0}
+    after_sam: list[tuple[BlurredImage, Mapping[str, SamResult]]] = []
     try:
         outcome, photo, evidence = _run_steps(
             data,
@@ -148,24 +158,30 @@ def run_pipeline(
             phrases,
             deadline,
             log,
+            after_sam,
             geometry_in_level=geometry_in_level,
             tuning=tuning,
         )
     except ModelRefused:
-        return PipelineRun(Outcome.refused("model_declined"), log, None)
+        run = PipelineRun(Outcome.refused("model_declined"), log, None)
     except MetaApiError as exc:  # before Exception, as it is a RuntimeError
         if exc.status in KEY_REJECTED_STATUSES:
             raise ModelKeyRejected(exc.status) from exc
         log |= {"error": type(exc).__name__, "meta_status": exc.status}
-        return PipelineRun(Outcome.failed("model_error"), log, None)
+        run = PipelineRun(Outcome.failed("model_error"), log, None)
     except ModelAnswerError as exc:
         log["error"] = type(exc).__name__
-        return PipelineRun(Outcome.failed("model_error"), log, None)
+        run = PipelineRun(Outcome.failed("model_error"), log, None)
     except Exception as exc:  # noqa: BLE001
         # Anything else is the pipeline's own fault (C59), logged by class name only.
         log["error"] = type(exc).__name__
-        return PipelineRun(Outcome.failed("pipeline_error"), log, None)
-    return PipelineRun(outcome, log, photo, evidence)
+        run = PipelineRun(Outcome.failed("pipeline_error"), log, None)
+    else:
+        run = PipelineRun(outcome, log, photo, evidence)
+    keeps = keep_photo and all(phrase in phrases for phrase in PUBLISH_PHRASES)
+    if keeps and after_sam and run.publish_jpeg is None:  # C512, MS4-Q14
+        run = replace(run, publish_jpeg=_kept_copy(*after_sam[0]))
+    return run
 
 
 def _run_steps(
@@ -175,6 +191,7 @@ def _run_steps(
     phrases: Sequence[str],
     deadline: float | None,
     log: dict[str, object],
+    after_sam: list[tuple[BlurredImage, Mapping[str, SamResult]]],
     *,
     geometry_in_level: bool,
     tuning: Tuning,
@@ -182,7 +199,9 @@ def _run_steps(
     """The steps, adding each one's fields to `log` as it runs. Errors propagate.
 
     It returns the outcome, the photo to store, and the evidence record, which is
-    None until the answer passes the id check (C328).
+    None until the answer passes the id check (C328). Once segment_all returns, it
+    adds the face-blurred image and SAM's results to `after_sam`, so run_pipeline can
+    keep a copy of a run that ends later, an error included (C512).
     """
     # What Muse Spark is to be sent, checked before anything is paid for (R146).
     effort = tuning.reasoning_effort
@@ -223,6 +242,7 @@ def _run_steps(
         "meta_calls": len(phrases),
     }
     sam = segment_all(client, image, phrases, deadline=deadline)
+    after_sam.append((image, sam))
     log["sam_ms"] = {phrase: _ms(result.elapsed_s) for phrase, result in sam.items()}
     log["instances"] = {phrase: len(result.instances) for phrase, result in sam.items()}
 
@@ -336,6 +356,19 @@ def _run_steps(
         low, high = rules.round_out(outcome.depth_in_min, outcome.depth_in_max)
         log["depth_in"] = [low, high]
     return outcome, photo, evidence
+
+
+def _kept_copy(image: BlurredImage, sam: Mapping[str, SamResult]) -> bytes | None:
+    """Step 8.1's copy for a run keep_photo keeps, or None when it can't be made.
+
+    The run's outcome is settled before this runs, so a failure here changes nothing
+    but the copy, and isn't logged, as the log must match a run without keep_photo
+    (MS4-Q14). The seed it was for is then skipped as copyless (C512).
+    """
+    try:
+        return publish_jpeg(image, sam)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _rim_links(
