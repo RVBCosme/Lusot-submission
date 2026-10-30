@@ -1,25 +1,41 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiBaseUrl, HttpError, pollReport, PollTimeoutError, postToS3, requestUpload } from './api'
+import {
+  apiBaseUrl,
+  flagPin,
+  getLayers,
+  getPins,
+  getReport,
+  getSamples,
+  HttpError,
+  postToS3,
+  RequestTimeoutError,
+  requestUpload,
+  runSample,
+} from './api'
 
 const API = 'https://api.example.test'
 const ID = 'r_0123456789abcdef0123456789abcdef'
-const NOW = Date.parse('2026-10-30T10:06:40Z')
-const REQ = { lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedAt: '2026-10-30T10:05:12.000Z' }
+const DEVICE = '0f8e4a52-3c1d-4b7a-9e26-5d0c8b1f7a43'
+const REQ = {
+  lat: 14.6095,
+  lng: 120.9894,
+  gpsAccuracyM: 12,
+  capturedAt: '2026-10-30T10:05:12.000Z',
+  nudgeM: 18,
+  consentVersion: '3f9a1c07',
+}
 const UPLOAD = {
   url: 'https://lusot-test01-uploads.s3.ap-southeast-1.amazonaws.com/',
   fields: { 'Content-Type': 'image/jpeg', key: `raw/${ID}.jpg`, Policy: 'cG9saWN5', 'X-Amz-Signature': 'c2lnbmF0dXJl' },
 }
+const LAYERS_URL = 'https://lusot-test01-uploads.s3.ap-southeast-1.amazonaws.com/overlay/layers.json?X-Amz-Signature=c2ln'
 
 afterEach(() => {
   vi.useRealTimers()
 })
 
-function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
-}
-
-function report(status: string, refusalReason?: string): Response {
-  return json(200, { reportId: ID, status, refusalReason, capturedAt: '2026-10-30T10:05:12Z' })
+function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } })
 }
 
 // A fetch that answers each call with the next response.
@@ -29,16 +45,9 @@ function fetchReplying(...responses: Response[]) {
   return fetchFn
 }
 
-function noSleep() {
-  return vi.fn((_ms: number) => Promise.resolve())
-}
-
-// A sleep that moves the mocked clock instead of waiting, so the poll deadline runs on test time.
-function clockSleep() {
-  vi.setSystemTime(NOW)
-  return vi.fn(async (ms: number) => {
-    vi.setSystemTime(Date.now() + ms)
-  })
+// The headers of the fetch's call at this index.
+function headersOf(fetchFn: ReturnType<typeof fetchReplying>, call = 0): Headers {
+  return new Headers(fetchFn.mock.calls[call][1]?.headers)
 }
 
 // Follows a promise without awaiting it, so a test can check whether it has settled yet.
@@ -56,6 +65,112 @@ function track(promise: Promise<unknown>) {
   return state
 }
 
+// A level result as GET /reports/{id} returns it (MS4's §4.3), with one dropped reference.
+const LEVEL_REPORT = {
+  reportId: ID,
+  status: 'done',
+  capturedAt: '2026-10-30T10:05:12Z',
+  mode: 'live',
+  published: true,
+  noFloodSeen: false,
+  level: 'knee',
+  landmark: 'rim_three_quarters',
+  passability: 'NPLV',
+  basis: { vehicles: 1, people: 1 },
+  levelIsFloor: false,
+  levelFrom: 'landmark',
+  readings: [
+    { id: 1, kind: 'wheel', landmark: 'rim_three_quarters', level: 'knee', used: true, dropped: null },
+    { id: 2, kind: 'person', landmark: null, level: null, used: false, dropped: 'occluded' },
+  ],
+  gpsAccuracyM: 12,
+  photoUrl: 'https://bucket.example.test/blurred/photo.jpg?sig=1',
+  overlayUrl: 'https://bucket.example.test/overlay/photo.jpg?sig=2',
+  layersUrl: 'https://bucket.example.test/overlay/photo.json?sig=3',
+}
+
+const LIVE_PIN = {
+  id: ID,
+  lat: 14.6095,
+  lng: 120.9894,
+  gpsAccuracyM: 12,
+  capturedAt: '2026-10-30T10:05:12Z',
+  mode: 'live',
+  level: 'knee',
+  landmark: 'rim_three_quarters',
+  passability: 'NPLV',
+  levelIsFloor: false,
+  basis: { vehicles: 1, people: 0 },
+  flags: 0,
+}
+const DEMO_PIN = {
+  ...LIVE_PIN,
+  id: 'r_fedcba9876543210fedcba9876543210',
+  lat: 14.5547,
+  lng: 121.0244,
+  gpsAccuracyM: null,
+  mode: 'demo',
+  credit: 'Photo: A. Contributor, CC BY 4.0, faces and plates blurred by Lusot',
+  place: 'Ayala Avenue, Makati',
+  event: 'Typhoon Example, 2025',
+}
+
+// C524's layers file: the water outline and two references, the second dropped.
+const LAYERS = {
+  version: 1,
+  width: 1600,
+  height: 1200,
+  water: [
+    [
+      [0, 700],
+      [1600, 690],
+      [1600, 1200],
+      [0, 1200],
+    ],
+  ],
+  refs: [
+    {
+      id: 1,
+      kind: 'wheel',
+      box: [400, 600, 700, 900],
+      outline: [
+        [
+          [400, 600],
+          [700, 600],
+          [700, 900],
+        ],
+      ],
+      landmark: 'rim_three_quarters',
+      level: 'knee',
+      level_from: 'landmark',
+      used: true,
+      dropped: null,
+      rechecked: false,
+      rim_outline: null,
+      rim: null,
+      waterline: [
+        [400, 705],
+        [700, 702],
+      ],
+    },
+    {
+      id: 2,
+      kind: 'person',
+      box: [900, 300, 1100, 1000],
+      outline: [],
+      landmark: null,
+      level: null,
+      level_from: null,
+      used: false,
+      dropped: 'occluded',
+      rechecked: false,
+      rim_outline: null,
+      rim: null,
+      waterline: null,
+    },
+  ],
+}
+
 it('apiBaseUrl drops trailing slashes and is empty when VITE_API_URL is unset', () => {
   expect(apiBaseUrl('https://api.example.test')).toBe('https://api.example.test')
   expect(apiBaseUrl('https://api.example.test//')).toBe('https://api.example.test')
@@ -63,18 +178,29 @@ it('apiBaseUrl drops trailing slashes and is empty when VITE_API_URL is unset', 
   expect(apiBaseUrl(undefined)).toBe('')
 })
 
-it('requestUpload posts the fix and capture time as JSON', async () => {
+it('requestUpload sends the device header and a body with nudgeM and consentVersion', async () => {
   const fetchFn = fetchReplying(json(201, { reportId: ID, upload: UPLOAD, expiresInS: 300 }))
 
-  const result = await requestUpload(API, REQ, fetchFn)
+  const result = await requestUpload(API, REQ, DEVICE, fetchFn)
 
   expect(result).toEqual({ reportId: ID, upload: UPLOAD })
   expect(fetchFn).toHaveBeenCalledOnce()
   const [url, init] = fetchFn.mock.calls[0]
   expect(url).toBe(`${API}/uploads`)
   expect(init?.method).toBe('POST')
-  expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+  expect(headersOf(fetchFn).get('content-type')).toBe('application/json')
+  expect(headersOf(fetchFn).get('x-lusot-device')).toBe(DEVICE)
   expect(JSON.parse(String(init?.body))).toEqual(REQ)
+})
+
+it('requestUpload sends only the request fields', async () => {
+  const fetchFn = fetchReplying(json(201, { reportId: ID, upload: UPLOAD, expiresInS: 300 }))
+  // A caller's object can hold more than the type names; only the request's fields leave the phone.
+  const withExtra = { ...REQ, deviceId: DEVICE, photo: 'jpeg bytes' }
+
+  await requestUpload(API, withExtra, DEVICE, fetchFn)
+
+  expect(Object.keys(JSON.parse(String(fetchFn.mock.calls[0][1]?.body))).sort()).toEqual(Object.keys(REQ).sort())
 })
 
 it('postToS3 appends every field before the file', async () => {
@@ -95,130 +221,62 @@ it('postToS3 appends every field before the file', async () => {
   expect(file.type).toBe('image/jpeg')
 })
 
-it('pollReport resolves on a final status', async () => {
-  const fetchFn = fetchReplying(report('pending'), report('pending'), report('failed', 'pipeline_not_built'))
-  const sleep = noSleep()
+it('getReport gives the result fields and nothing else', async () => {
+  // Anything outside the result, such as a location, stays out of the app's state.
+  const fetchFn = fetchReplying(json(200, { ...LEVEL_REPORT, lat: 14.6095, lng: 120.9894, nudgeM: 18 }))
 
-  const result = await pollReport(API, ID, undefined, fetchFn, sleep)
+  const result = await getReport(API, ID, fetchFn)
 
-  expect(result).toEqual({ status: 'failed', refusalReason: 'pipeline_not_built' })
-  expect(sleep.mock.calls).toEqual([[2000], [2000]])
-  expect(fetchFn.mock.calls.map(([url]) => url)).toEqual(Array(3).fill(`${API}/reports/${ID}`))
+  expect(result).toEqual(LEVEL_REPORT)
+  expect(fetchFn.mock.calls[0][0]).toBe(`${API}/reports/${ID}`)
 })
 
-it('pollReport keeps polling while processing', async () => {
-  const fetchFn = fetchReplying(report('pending'), report('processing'), report('failed', 'pipeline_not_built'))
-  const sleep = noSleep()
+it("getReport gives a demo pin's credit, place and event", async () => {
+  const demo = { ...LEVEL_REPORT, mode: 'demo', credit: DEMO_PIN.credit, place: DEMO_PIN.place, event: DEMO_PIN.event }
 
-  const result = await pollReport(API, ID, undefined, fetchFn, sleep)
-
-  expect(result).toEqual({ status: 'failed', refusalReason: 'pipeline_not_built' })
-  expect(sleep.mock.calls).toEqual([[2000], [2000]])
+  expect(await getReport(API, ID, fetchReplying(json(200, demo)))).toEqual(demo)
 })
 
-it('pollReport keeps polling through a 404', async () => {
-  // The reports index is eventually consistent, so a fresh report can briefly 404.
-  const fetchFn = fetchReplying(json(404, { error: 'not_found' }), report('pending'), report('failed', 'pipeline_not_built'))
-  const sleep = noSleep()
+it('getReport reads a missing published as false', async () => {
+  const pending = { reportId: ID, status: 'pending', capturedAt: '2026-10-30T10:05:12Z', mode: 'private' }
 
-  const result = await pollReport(API, ID, undefined, fetchFn, sleep)
-
-  expect(result).toEqual({ status: 'failed', refusalReason: 'pipeline_not_built' })
-  expect(sleep).toHaveBeenCalledTimes(2)
+  expect(await getReport(API, ID, fetchReplying(json(200, pending)))).toEqual({ ...pending, published: false })
 })
 
-it('pollReport returns the result fields', async () => {
-  // A knee reading from a wheel and a person, as GET /reports/{id} returns it (C67).
-  const fields = {
-    status: 'done',
-    noFloodSeen: false,
-    level: 'knee',
-    landmark: 'rim_three_quarters',
-    passability: 'NPLV',
-    basis: { vehicles: 1, people: 1 },
-    levelIsFloor: false,
-  }
-  const fetchFn = fetchReplying(json(200, { reportId: ID, ...fields, capturedAt: '2026-10-30T10:05:12Z' }))
-
-  const result = await pollReport(API, ID, undefined, fetchFn, noSleep())
-
-  // Only the result: reportId and capturedAt stay behind, as in MS1.
-  expect(result).toEqual(fields)
+it('getReport gives undefined on a 404', async () => {
+  // A fresh report the index hasn't caught up with, or one past expiresAt (C526).
+  expect(await getReport(API, ID, fetchReplying(json(404, { error: 'not_found' })))).toBeUndefined()
 })
 
-it('pollReport times out with a clear error', async () => {
-  const fetchFn = vi.fn<typeof fetch>(async () => report('pending'))
-  const sleep = clockSleep()
-
-  const poll = pollReport(API, ID, { intervalMs: 2000, timeoutMs: 6000 }, fetchFn, sleep)
-
-  await expect(poll).rejects.toThrow(`No result for report ${ID} after 6 s`)
-  // Its own class, so the screen can read a timeout as processing failed (spec §3.8).
-  await expect(poll).rejects.toBeInstanceOf(PollTimeoutError)
-  expect(sleep).toHaveBeenCalledTimes(3)
-  expect(fetchFn).toHaveBeenCalledTimes(4)
-})
-
-it('pollReport gives up when 404s run into the deadline', async () => {
-  const fetchFn = vi.fn<typeof fetch>(async () => json(404, { error: 'not_found' }))
-  const sleep = clockSleep()
-
-  await expect(pollReport(API, ID, { intervalMs: 2000, timeoutMs: 6000 }, fetchFn, sleep)).rejects.toThrow(
-    `No result for report ${ID} after 6 s`,
-  )
-  expect(fetchFn).toHaveBeenCalledTimes(4)
-})
-
-it('pollReport waits 120 s by default', async () => {
-  const fetchFn = vi.fn<typeof fetch>(async () => report('pending'))
-  const sleep = clockSleep()
-
-  await expect(pollReport(API, ID, undefined, fetchFn, sleep)).rejects.toThrow(`No result for report ${ID} after 120 s`)
-  expect(sleep).toHaveBeenCalledTimes(60)
-  expect(fetchFn).toHaveBeenCalledTimes(61)
-})
-
-it("pollReport's deadline counts the time requests take", async () => {
-  const sleep = clockSleep()
-  // Each answer takes 10 s to arrive.
-  const fetchFn = vi.fn<typeof fetch>(async () => {
-    vi.setSystemTime(Date.now() + 10_000)
-    return report('pending')
-  })
-
-  await expect(pollReport(API, ID, { intervalMs: 2000, timeoutMs: 30_000 }, fetchFn, sleep)).rejects.toThrow(
-    `No result for report ${ID} after 30 s`,
-  )
-  expect(fetchFn).toHaveBeenCalledTimes(3)
-})
-
-it('requests give up on a stalled connection', async () => {
+it('requests give up on a stalled connection with RequestTimeoutError', async () => {
   vi.useFakeTimers()
   const stalled = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}))
   const jpeg = new Blob(['jpeg bytes'], { type: 'image/jpeg' })
 
-  const upload = track(requestUpload(API, REQ, stalled))
-  const poll = track(pollReport(API, ID, undefined, stalled, noSleep()))
+  const upload = track(requestUpload(API, REQ, DEVICE, stalled))
+  const report = track(getReport(API, ID, stalled))
   const s3 = track(postToS3(UPLOAD, jpeg, stalled))
 
   await vi.advanceTimersByTimeAsync(14_999)
-  expect([upload.settled, poll.settled, s3.settled]).toEqual([false, false, false])
+  expect([upload.settled, report.settled, s3.settled]).toEqual([false, false, false])
   await vi.advanceTimersByTimeAsync(1)
-  expect(upload.error).toEqual(new Error('No answer after 15 s'))
-  expect(poll.error).toEqual(new Error('No answer after 15 s'))
+  expect(upload.error).toBeInstanceOf(RequestTimeoutError)
+  expect(report.error).toBeInstanceOf(RequestTimeoutError)
+  expect(upload.error).toMatchObject({ name: 'RequestTimeoutError', message: 'No answer after 15 s' })
   // The photo upload gets longer.
   expect(s3.settled).toBe(false)
   await vi.advanceTimersByTimeAsync(45_000)
-  expect(s3.error).toEqual(new Error('No answer after 60 s'))
+  expect(s3.error).toBeInstanceOf(RequestTimeoutError)
+  expect(s3.error).toMatchObject({ message: 'No answer after 60 s' })
   // Each stalled request is aborted too, which frees the connection.
   expect(stalled.mock.calls.map(([, init]) => init?.signal?.aborted)).toEqual([true, true, true])
 })
 
 it('non-2xx responses throw with the status', async () => {
-  const refused = requestUpload(API, REQ, fetchReplying(json(422, { error: 'capture_too_old' })))
+  const refused = requestUpload(API, REQ, DEVICE, fetchReplying(json(422, { error: 'capture_too_old' })))
   await expect(refused).rejects.toThrow('HTTP 422 capture_too_old')
   await expect(refused).rejects.toBeInstanceOf(HttpError)
-  await expect(refused).rejects.toMatchObject({ status: 422, code: 'capture_too_old' })
+  await expect(refused).rejects.toMatchObject({ status: 422, code: 'capture_too_old', isDeviceLimit: false })
 
   // S3 answers in XML, so only the status is named.
   const denied = new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 })
@@ -226,13 +284,219 @@ it('non-2xx responses throw with the status', async () => {
   await expect(postToS3(UPLOAD, jpeg, fetchReplying(denied))).rejects.toThrow('HTTP 403')
 
   const broken = fetchReplying(json(500, { error: 'internal' }))
-  await expect(pollReport(API, ID, undefined, broken, noSleep())).rejects.toThrow('HTTP 500 internal')
+  await expect(getReport(API, ID, broken)).rejects.toThrow('HTTP 500 internal')
 })
 
 it("a 400 names the API's detail", async () => {
   const detail = 'lat must be a number from -90 to 90'
-  const invalid = requestUpload(API, REQ, fetchReplying(json(400, { error: 'bad_request', detail })))
+  const invalid = requestUpload(API, REQ, DEVICE, fetchReplying(json(400, { error: 'bad_request', detail })))
 
   await expect(invalid).rejects.toThrow(`HTTP 400 bad_request: ${detail}`)
   await expect(invalid).rejects.toMatchObject({ status: 400, code: 'bad_request', detail })
+})
+
+it.each(['device_limit', 'global_cap', 'question_limit', 'question_cap'])(
+  'a 429 %s is a device limit, with its Retry-After',
+  async (code) => {
+    const limited = requestUpload(API, REQ, DEVICE, fetchReplying(json(429, { error: code }, { 'retry-after': '1234' })))
+
+    await expect(limited).rejects.toMatchObject({ status: 429, code, isDeviceLimit: true, retryAfterMs: 1_234_000 })
+  },
+)
+
+it("API Gateway's throttling 429 isn't a device limit", async () => {
+  // API Gateway's own throttle answers with a message and no error code (MS4's C522).
+  const throttled = requestUpload(API, REQ, DEVICE, fetchReplying(json(429, { message: 'Too Many Requests' })))
+
+  await expect(throttled).rejects.toMatchObject({ status: 429, code: undefined, isDeviceLimit: false, retryAfterMs: undefined })
+})
+
+it('only a 429 makes a limit code a device limit', () => {
+  expect(new HttpError(503, 'device_limit').isDeviceLimit).toBe(false)
+  expect(new HttpError(429, 'device_limit').isDeviceLimit).toBe(true)
+})
+
+it('Retry-After is read only as whole seconds', async () => {
+  const at = (value: string) => requestUpload(API, REQ, DEVICE, fetchReplying(json(429, {}, { 'retry-after': value })))
+
+  await expect(at('7')).rejects.toMatchObject({ retryAfterMs: 7000 })
+  await expect(at(' 7 ')).rejects.toMatchObject({ retryAfterMs: 7000 })
+  // An HTTP date, a negative or a fraction isn't read; the poll then waits its interval plus jitter.
+  await expect(at('Fri, 30 Oct 2026 11:00:00 GMT')).rejects.toMatchObject({ retryAfterMs: undefined })
+  await expect(at('-5')).rejects.toMatchObject({ retryAfterMs: undefined })
+  await expect(at('1.5')).rejects.toMatchObject({ retryAfterMs: undefined })
+})
+
+it('getPins reads the map route', async () => {
+  const noId = { ...LIVE_PIN, id: undefined }
+  const demoNoCredit = { ...DEMO_PIN, id: `r_${'b'.repeat(32)}`, credit: undefined }
+  const demoBlankCredit = { ...DEMO_PIN, id: `r_${'c'.repeat(32)}`, credit: '  ' }
+  const fetchFn = fetchReplying(json(200, { pins: [LIVE_PIN, noId, DEMO_PIN, demoNoCredit, demoBlankCredit] }))
+
+  const pins = await getPins(API, fetchFn)
+
+  const [url, init] = fetchFn.mock.calls[0]
+  expect(url).toBe(`${API}/map/pins`)
+  expect(init?.method ?? 'GET').toBe('GET')
+  expect(pins.map((pin) => [pin.id, pin.lat, pin.lng])).toEqual([
+    [LIVE_PIN.id, LIVE_PIN.lat, LIVE_PIN.lng],
+    [DEMO_PIN.id, DEMO_PIN.lat, DEMO_PIN.lng],
+  ])
+  expect(pins).toEqual([LIVE_PIN, DEMO_PIN])
+})
+
+it('getPins skips a pin with no usable position', async () => {
+  const noLat = { ...LIVE_PIN, id: `r_${'d'.repeat(32)}`, lat: undefined }
+  const textLng = { ...LIVE_PIN, id: `r_${'e'.repeat(32)}`, lng: '120.9894' }
+
+  expect(await getPins(API, fetchReplying(json(200, { pins: [noLat, textLng, LIVE_PIN] })))).toEqual([LIVE_PIN])
+})
+
+it('getPins throws on an error or an answer without a pins list', async () => {
+  await expect(getPins(API, fetchReplying(json(503, { message: 'Service Unavailable' })))).rejects.toBeInstanceOf(HttpError)
+  await expect(getPins(API, fetchReplying(json(200, { features: [] })))).rejects.toThrow()
+})
+
+it('getSamples keeps only credited samples under an allowed licence', async () => {
+  const sample = (sampleId: string, license: string, credit?: string | null) => ({
+    sampleId,
+    // null leaves the credit out, as JSON drops an undefined field.
+    credit: credit === null ? undefined : (credit ?? `Photo: ${sampleId}`),
+    license,
+    place: 'España Boulevard, Manila',
+    date: '2025-07-24',
+    photoUrl: `https://bucket.example.test/samples/${sampleId}.jpg?sig=1`,
+  })
+  const samples = [
+    sample('cc0', 'CC0'),
+    sample('cc0-v1', 'CC0 1.0'),
+    sample('ccby2', 'CC BY 2.0'),
+    sample('ccby4', 'CC BY 4.0'),
+    sample('consented', 'used with permission'),
+    sample('bysa', 'CC BY-SA 4.0'),
+    sample('attribution-sa', 'Attribution-ShareAlike 4.0'),
+    sample('bync', 'CC BY-NC 2.0'),
+    sample('pd', 'Public domain'),
+    sample('m9-v3', 'Used with permission (M9-v3)'),
+    sample('uncredited', 'CC0', null),
+    sample('blank-credit', 'CC BY 4.0', ' '),
+  ]
+  const fetchFn = fetchReplying(json(200, { samples }))
+
+  const kept = await getSamples(API, fetchFn)
+
+  expect(fetchFn.mock.calls[0][0]).toBe(`${API}/samples`)
+  expect(kept.map((s) => s.sampleId)).toEqual(['cc0', 'cc0-v1', 'ccby2', 'ccby4', 'consented'])
+  expect(kept[0]).toEqual(samples[0])
+})
+
+it('runSample gives the report id on a 201, and sends the device header', async () => {
+  const fetchFn = fetchReplying(json(201, { reportId: ID }))
+
+  expect(await runSample(API, 'manila-espana-01', DEVICE, fetchFn)).toEqual({ reportId: ID })
+  const [url, init] = fetchFn.mock.calls[0]
+  expect(url).toBe(`${API}/samples/manila-espana-01`)
+  expect(init?.method).toBe('POST')
+  expect(headersOf(fetchFn).get('x-lusot-device')).toBe(DEVICE)
+})
+
+it('runSample gives the saved answer on a 200 with saved: true', async () => {
+  // MS4's C527 while model calls are paused: the seeding run's result, marked as saved and dated.
+  const saved = {
+    saved: true,
+    savedAt: '2026-10-30',
+    result: { status: 'done', noFloodSeen: false, level: 'half_knee', landmark: 'mid_shin', passability: 'PATV', levelIsFloor: false },
+  }
+
+  expect(await runSample(API, 'manila-espana-01', DEVICE, fetchReplying(json(200, saved)))).toEqual(saved)
+
+  const refused = { saved: true, savedAt: '2026-10-30', result: { status: 'refused', refusalReason: 'water_unsure' } }
+  expect(await runSample(API, 'manila-espana-01', DEVICE, fetchReplying(json(200, refused)))).toEqual(refused)
+})
+
+it('runSample throws HttpError on a 503 uploads_paused and a 404 not_found', async () => {
+  const paused = runSample(API, 'manila-espana-01', DEVICE, fetchReplying(json(503, { error: 'uploads_paused' })))
+  await expect(paused).rejects.toBeInstanceOf(HttpError)
+  await expect(paused).rejects.toMatchObject({ status: 503, code: 'uploads_paused' })
+
+  const gone = runSample(API, 'manila-espana-01', DEVICE, fetchReplying(json(404, { error: 'not_found' })))
+  await expect(gone).rejects.toMatchObject({ status: 404, code: 'not_found' })
+})
+
+it('runSample throws on a 201 without a report id', async () => {
+  // Polling "undefined" for 10 minutes would only end on "No result yet".
+  await expect(runSample(API, 'manila-espana-01', DEVICE, fetchReplying(json(201, {})))).rejects.toThrow()
+})
+
+it('flagPin posts to the pin and gives its count, a repeat included', async () => {
+  const fetchFn = fetchReplying(json(200, { flags: 3 }), json(200, { flags: 3 }))
+
+  expect(await flagPin(API, ID, DEVICE, fetchFn)).toEqual({ flags: 3 })
+  // A repeat from the same phone answers 200 with the count unchanged (MS4's C522).
+  expect(await flagPin(API, ID, DEVICE, fetchFn)).toEqual({ flags: 3 })
+  const [url, init] = fetchFn.mock.calls[0]
+  expect(url).toBe(`${API}/reports/${ID}/flag`)
+  expect(init?.method).toBe('POST')
+  expect(headersOf(fetchFn).get('x-lusot-device')).toBe(DEVICE)
+})
+
+it('flagPin throws HttpError on a 404', async () => {
+  // A demo pin, or a pin that has left the map.
+  const missing = flagPin(API, ID, DEVICE, fetchReplying(json(404, { error: 'not_found' })))
+
+  await expect(missing).rejects.toBeInstanceOf(HttpError)
+  await expect(missing).rejects.toMatchObject({ status: 404, code: 'not_found' })
+})
+
+it('the device header goes only with uploads, samples and flags', async () => {
+  const fetchFn = fetchReplying(
+    json(200, LEVEL_REPORT),
+    json(200, { pins: [] }),
+    json(200, { samples: [] }),
+    json(200, LAYERS),
+    new Response(null, { status: 204 }),
+  )
+
+  await getReport(API, ID, fetchFn)
+  await getPins(API, fetchFn)
+  await getSamples(API, fetchFn)
+  await getLayers(LAYERS_URL, fetchFn)
+  await postToS3(UPLOAD, new Blob(['jpeg bytes'], { type: 'image/jpeg' }), fetchFn)
+
+  expect(fetchFn).toHaveBeenCalledTimes(5)
+  for (let call = 0; call < 5; call++) expect(headersOf(fetchFn, call).has('x-lusot-device')).toBe(false)
+})
+
+it('getLayers gives the layers file in C524 shape', async () => {
+  const fetchFn = fetchReplying(json(200, LAYERS))
+
+  expect(await getLayers(LAYERS_URL, fetchFn)).toEqual(LAYERS)
+  expect(fetchFn.mock.calls[0][0]).toBe(LAYERS_URL)
+})
+
+it('getLayers gives undefined when the fetch fails or the JSON does not parse', async () => {
+  // A bucket without GET in its CORS rule fails as a network error in the browser (N14).
+  const blocked = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  expect(await getLayers(LAYERS_URL, blocked)).toBeUndefined()
+
+  const garbled = new Response('{"version": 1, "water": [', { status: 200, headers: { 'content-type': 'application/json' } })
+  expect(await getLayers(LAYERS_URL, fetchReplying(garbled))).toBeUndefined()
+})
+
+it('getLayers gives undefined on an expired link or a file in another shape', async () => {
+  const expired = new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 })
+  expect(await getLayers(LAYERS_URL, fetchReplying(expired))).toBeUndefined()
+
+  expect(await getLayers(LAYERS_URL, fetchReplying(json(200, { ...LAYERS, version: 2 })))).toBeUndefined()
+  expect(await getLayers(LAYERS_URL, fetchReplying(json(200, { ...LAYERS, refs: undefined })))).toBeUndefined()
+  expect(await getLayers(LAYERS_URL, fetchReplying(json(200, null)))).toBeUndefined()
+})
+
+it('getLayers gives undefined on a stalled link', async () => {
+  vi.useFakeTimers()
+  const layers = track(getLayers(LAYERS_URL, vi.fn<typeof fetch>(() => new Promise<Response>(() => {}))))
+
+  await vi.advanceTimersByTimeAsync(15_000)
+
+  expect(layers).toEqual({ settled: true })
 })
