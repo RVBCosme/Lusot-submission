@@ -213,6 +213,9 @@ def test_device_limit_429_not_retried():
     assert harden.classify_429({"message": "Too Many Requests"}) == "throttle"
     assert harden.classify_429(None) == "throttle"
     assert harden.classify_429({"error": ["device_limit"]}) == "throttle"
+    # Any code is a limit, as MS5's retry.ts reads it: Ask Lusot's and unknown ones too.
+    assert harden.classify_429({"error": "question_limit"}) == "device_limit"
+    assert harden.classify_429({"error": "a_new_limit"}) == "device_limit"
     assert harden.should_retry("device_limit", 0) is False
     assert harden.should_retry("throttle", 0) is True
     assert harden.should_retry("throttle", 1) is False
@@ -316,11 +319,13 @@ def test_budget_status_prints_no_account(capsys):
         "plan_end": "2027-04-27",
     }
     assert session.regions["freetier"] == "us-east-1"  # it answers only there
-    for line in harden.budget_meaning(status):
+    lines = harden.budget_meaning(status)
+    for line in lines:
         harden.say(line)
-    printed = capsys.readouterr().out
-    assert ACCOUNT not in printed + repr(status)
-    assert re.search(r"[0-9]{12}", printed + repr(status)) is None
+    # The raw lines and the result, before say's mask could hide a leak.
+    unmasked = "\n".join(lines) + repr(status) + capsys.readouterr().out
+    assert ACCOUNT not in unmasked
+    assert re.search(r"[0-9]{12}", unmasked) is None
 
 
 def test_budget_status_needs_one_five_dollar_budget():
@@ -359,10 +364,11 @@ def test_budget_meaning_reads_credits_right():
         harden.budget_meaning(
             plan_status(credits_left=196.40), last_credits=199.40, days_since=1
         ),
+        harden.budget_meaning(plan_status(), last_credits=200.30),  # $0.90 in a day
     ):
         assert " ".join(flagged).count("FLAG") == 1
     # A slow fall over several days is still cents a day.
-    _, slow = harden.budget_meaning(plan_status(), last_credits=201.40, days_since=4)
+    _, slow = harden.budget_meaning(plan_status(), last_credits=200.20, days_since=4)
     assert "FLAG" not in slow
     _, unforecast = harden.budget_meaning(plan_status(forecast=None, plan_end=None))
     assert "FLAG" not in unforecast
@@ -382,6 +388,7 @@ def alarm(logical, **changes):
     name = RESOURCES[logical]
     found = {
         "AlarmName": name,
+        "ActionsEnabled": True,
         "AlarmActions": [TOPIC],
         "OKActions": [],
         "Namespace": "AWS/Lambda",
@@ -492,6 +499,13 @@ def test_alarm_problems(capsys):
     )
     [elsewhere] = problems_of(stub_alarms(alarms=wrong_function), capsys)
     assert "ApiInvocationsAlarm" in elsewhere
+    # Actions that are off send no email, whatever they list (review, Minor 6).
+    silent = [alarm(n) for n in RESOURCES if n.endswith("Alarm")]
+    silent[1] = alarm("AnalysisInvocationsAlarm", ActionsEnabled=False)
+    [disabled] = problems_of(stub_alarms(alarms=silent), capsys)
+    assert "AnalysisInvocationsAlarm" in disabled and "disabled" in disabled
+    [gone] = problems_of(stub_alarms(missing="AnalysisFunction"), capsys)
+    assert gone == "AnalysisFunction: not in the stack"
 
 
 class FakeApi:
@@ -669,8 +683,8 @@ def test_api_urls_reads_both_apis():
 def test_synthetic_items_have_ms4s_shape_and_are_hidden():
     times = {
         "publish": (NOW_S + 180, NOW_S + 3600),
-        "hidden_expired": (NOW_S - 60, NOW_S + 3600),
-        "read_expired": (NOW_S - 7200, NOW_S - 60),
+        "hidden_expired": (NOW_S - 3600, NOW_S + 3600),
+        "read_expired": (NOW_S - 7200, NOW_S - 3600),
     }
     serializer, ids = TypeSerializer(), set()
     for kind, (visible_until, expires_at) in times.items():
@@ -698,6 +712,23 @@ def test_synthetic_items_have_ms4s_shape_and_are_hidden():
     assert len(ids) == 3
     with pytest.raises(ValueError):
         harden.synthetic_item("visible", now_s=NOW_S)
+
+
+def test_synthetic_items_hold_under_skew():
+    """Review Focus 3: built from the server's time with the laptop 101 s fast, each
+    item is hidden, or visible only for the switch to hide, even by a clock 101 s off
+    either way (Task 1's review, Important 1)."""
+    laptop = float(NOW_S)
+    server = laptop - 101
+    now_s = int(harden.server_now(-101, clock=lambda: laptop).timestamp())
+    assert now_s == server
+    for seen_at in (server - 101, server, server + 101):
+        hidden = harden.synthetic_item("hidden_expired", now_s=now_s)
+        assert hidden["visibleUntil"] < seen_at
+        gone = harden.synthetic_item("read_expired", now_s=now_s)
+        assert gone["visibleUntil"] < seen_at and gone["expiresAt"] < seen_at
+        shown = harden.synthetic_item("publish", now_s=now_s)
+        assert shown["visibleUntil"] > seen_at  # so only the switch can hide it
 
 
 def test_names_follow_ms4s_code():

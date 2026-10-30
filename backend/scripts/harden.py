@@ -122,7 +122,7 @@ PRIVATE_EVERY_S = 1
 PRIVATE_FOR_S = 30  # through the report index's 404s
 FREE_TIER_REGION = "us-east-1"  # the Free Tier API answers only there
 BUDGET_LIMIT_USD = 5  # C25's budget, made at sign-up, outside the template
-CREDIT_FALL_FLAG_USD = 1.0  # a day: more than cents a day goes to Rene at once
+CREDIT_FALL_FLAG_USD = 0.25  # a day: faster than cents a day goes to Rene at once
 # C32's id anywhere, file names included: MS7 prints none (C812).
 _ANY_REPORT_ID = re.compile(r"r_[0-9a-fA-F]{32}")
 _WHOLE_SECONDS = re.compile(r"[0-9]+")
@@ -318,13 +318,11 @@ def wait_after_429(
 
 
 def classify_429(body: object) -> str:
-    """A limit's 429 names its code (MS4's C522); API Gateway's own throttle doesn't."""
+    """A limit's 429 names its code; API Gateway's own throttle has none. As MS5 reads
+    it (retry.ts), any code is a limit, never retried: DEVICE_LIMIT_CODES (C522) for an
+    upload, and Ask Lusot's question_limit and question_cap too."""
     error = body.get("error") if isinstance(body, dict) else None
-    return (
-        "device_limit"
-        if isinstance(error, str) and error in DEVICE_LIMIT_CODES
-        else "throttle"
-    )
+    return "device_limit" if isinstance(error, str) else "throttle"
 
 
 def should_retry(kind: str, attempt: int) -> bool:
@@ -421,16 +419,21 @@ def synthetic_item(kind: str, *, now_s: int) -> dict:
     photo (C810). Each kind is hidden by the clock or kept hidden by the switch:
 
     - "publish": visible for 180 s, so only the publish switch hides it (S3)
-    - "hidden_expired": past its visibleUntil, so it is never visible (P5)
-    - "read_expired": past its expiresAt too, so GET /reports/{id} answers 404 (P5)
+    - "hidden_expired": an hour past its visibleUntil, so it is never visible (P5)
+    - "read_expired": an hour past its expiresAt too, so GET /reports/{id} answers 404
+      (P5)
 
-    Numbers are ints or Decimals, so boto3 serialises the item as built. Its capture
-    time is visibleUntil less 3 h, as POST /uploads sets it.
+    `now_s` must be the server's time, `int(server_now(offset_s).timestamp())`: the API
+    compares these times with its own clock, and the laptop's ran 101 s fast on Oct 28.
+    The expired kinds keep an hour's margin all the same (the plan's 60 s, widened
+    after Task 1's review), so a wrong clock can't show one. Numbers are ints or
+    Decimals, so boto3 serialises the item as built. Its capture time is visibleUntil
+    less 3 h, as POST /uploads sets it.
     """
     times = {
         "publish": (now_s + 180, now_s + 3600),
-        "hidden_expired": (now_s - 60, now_s + 3600),
-        "read_expired": (now_s - 7200, now_s - 60),
+        "hidden_expired": (now_s - 3600, now_s + 3600),
+        "read_expired": (now_s - 7200, now_s - 3600),
     }
     if kind not in times:
         raise ValueError(f"unknown synthetic item: {kind}")
@@ -567,10 +570,10 @@ def budget_meaning(
 
 def alarm_problems(session) -> list[str]:
     """C830: the dead-letter alarm (with OKActions) and MS4's two invocation alarms
-    (Invocations summed per hour, on the analysis and API functions) must each list the
-    stack's alarm topic among their actions, and the topic needs at least one
-    confirmed email subscription. Each problem names a logical id, never an ARN, an
-    alarm's name or a subscription's endpoint."""
+    (Invocations summed per hour, on the analysis and API functions) must each have
+    their actions enabled and list the stack's alarm topic among them, and the topic
+    needs at least one confirmed email subscription. Each problem names a logical id,
+    never an ARN, an alarm's name or a subscription's endpoint."""
     cloudformation = session.client("cloudformation")
 
     def physical(logical: str) -> str | None:
@@ -591,6 +594,9 @@ def alarm_problems(session) -> list[str]:
     functions = {
         logical: physical(logical) for logical in ("AnalysisFunction", "ApiFunction")
     }
+    problems += [
+        f"{logical}: not in the stack" for logical, n in functions.items() if not n
+    ]
     names: dict[str, str] = {}
     for logical in ("DeadLetterAlarm", *_INVOCATION_ALARMS):
         name = physical(logical)
@@ -613,6 +619,8 @@ def alarm_problems(session) -> list[str]:
         if alarm is None:
             problems.append(f"{logical}: not found in CloudWatch")
             continue
+        if alarm.get("ActionsEnabled") is not True:
+            problems.append(f"{logical}: its actions are disabled")
         if topic is not None and topic not in alarm.get("AlarmActions", []):
             problems.append(f"{logical}: the alarm topic isn't among its AlarmActions")
         if logical == "DeadLetterAlarm":
@@ -622,6 +630,8 @@ def alarm_problems(session) -> list[str]:
                 )
             continue
         function = functions[_INVOCATION_ALARMS[logical]]
+        if function is None:
+            continue  # already a problem
         if not (
             alarm.get("Namespace") == "AWS/Lambda"
             and alarm.get("MetricName") == "Invocations"
