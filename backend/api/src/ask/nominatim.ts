@@ -205,7 +205,7 @@ export function createGeocoder(deps: GeocoderDeps): Geocoder {
 }
 
 // The place as it is sent: control characters become spaces, spaces collapse, and at most 100 characters stay (C726).
-function cleanPlace(place: string): string {
+export function cleanPlace(place: string): string {
   const spaced = place.replace(/\p{Cc}/gu, " ").replace(/\s+/g, " ").trim();
   return Array.from(spaced).slice(0, MAX_PLACE_CHARS).join("").trimEnd();
 }
