@@ -16,6 +16,7 @@ export function LicencesScreen() {
   const [state, setState] = useState<State>({ kind: 'loading' })
   const heading = useRef<HTMLHeadingElement>(null)
   const otherTitle = useId()
+  const packagesTitle = useId()
   useHeadingFocus(heading, undefined)
 
   useEffect(() => {
@@ -60,23 +61,31 @@ export function LicencesScreen() {
         </p>
       </section>
 
-      {state.kind === 'ready' ? (
-        // A scrolling box the keyboard can reach, so the long text never pushes the rest of the screen away.
-        <div
-          role="region"
-          aria-label={t('licences.textLabel').text}
-          tabIndex={0}
-          className="mt-6 max-h-[60dvh] overflow-auto rounded-control border border-outline p-3"
-        >
-          <pre lang="en" className="font-sans text-small break-words whitespace-pre-wrap">
-            {state.text}
-          </pre>
-        </div>
-      ) : (
-        <p role="status" className="mt-6 text-ink-2">
-          <T k={state.kind === 'loading' ? 'licences.loading' : 'licences.unavailable'} />
+      <section aria-labelledby={packagesTitle} className="mt-6">
+        <h2 id={packagesTitle} className="text-heading font-bold">
+          <T k="licences.packagesTitle" />
+        </h2>
+        <p className="mt-2">
+          <T k="licences.packagesNote" />
         </p>
-      )}
+        {state.kind === 'ready' ? (
+          // A scrolling box the keyboard can reach, so the long text never pushes the rest of the screen away.
+          <div
+            role="region"
+            aria-label={t('licences.textLabel').text}
+            tabIndex={0}
+            className="mt-4 max-h-[60dvh] overflow-auto rounded-control border border-outline p-3"
+          >
+            <pre lang="en" className="font-sans text-small break-words whitespace-pre-wrap">
+              {state.text}
+            </pre>
+          </div>
+        ) : (
+          <p role="status" className="mt-4 text-ink-2">
+            <T k={state.kind === 'loading' ? 'licences.loading' : 'licences.unavailable'} />
+          </p>
+        )}
+      </section>
     </article>
   )
 }

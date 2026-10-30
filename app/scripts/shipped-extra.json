@@ -6,7 +6,7 @@
   },
   {
     "package": "rolldown",
-    "ships": "the bundler's small runtime helpers, at the top of the page's script"
+    "ships": "the helpers at the top of the page's script, which are esbuild's code, shipped through rolldown"
   },
   {
     "package": "tailwindcss",

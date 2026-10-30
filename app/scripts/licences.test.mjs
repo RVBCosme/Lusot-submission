@@ -21,8 +21,16 @@ function put(root, path, content) {
 
 // `packages` maps "where under the root" (node_modules/alpha, app/node_modules/delta, ...) to
 // { name, version, deps, license, files }. `appDeps` are the app's production dependencies, `devDeps` its dev ones.
-function makeRepo({ packages, appDeps = {}, devDeps = {}, extra, apk }) {
-  const root = mkdtempSync(join(tmpdir(), "lusot-licences-"));
+// The repo is the `repo` folder inside a temporary one, so `outside` can place packages in the folder above the repo
+// root, where the script must never look. The test removes the temporary folder, which is `dirname(root)`.
+function makeRepo({ packages, appDeps = {}, devDeps = {}, extra, apk, outside = {} }) {
+  const base = mkdtempSync(join(tmpdir(), "lusot-licences-"));
+  const root = join(base, "repo");
+  mkdirSync(root);
+  for (const [where, pkg] of Object.entries(outside)) {
+    put(base, `${where}/package.json`, JSON.stringify({ name: pkg.name, version: pkg.version }));
+    for (const [file, content] of Object.entries(pkg.files ?? {})) put(base, `${where}/${file}`, content);
+  }
   put(root, "package.json", JSON.stringify({ name: "fixture", private: true, workspaces: ["app"] }));
   put(
     root,
@@ -56,7 +64,7 @@ function withRepo(options, check) {
   try {
     check(root, run(root));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(dirname(root), { recursive: true, force: true });
   }
 }
 
@@ -205,7 +213,7 @@ test("a failed run leaves no old licences.txt standing in for a current one", ()
     assert.notEqual(code, 0);
     assert.equal(existsSync(join(root, "app", "public", "licences.txt")), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(dirname(root), { recursive: true, force: true });
   }
 });
 
@@ -330,3 +338,123 @@ test("the log names counts, never a licence's text", () => {
     assert.ok(!log.includes("Permission is hereby granted"));
   });
 });
+
+// Fix round 1 (review of Task 16): third-party notices and NOTICE files travel with a package (C636), the search stays
+// inside the repo, the first section says what it covers, and apk-licences.json's errors are exact.
+for (const file of ["THIRD-PARTY-LICENSE", "third_party_licenses.txt", "ThirdPartyLicense.md", "NOTICE", "Notice.md", "notice.TXT"]) {
+  test(`${file} is written after the package's own licence file, under its name`, () => {
+    const options = {
+      packages: {
+        "node_modules/alpha": { name: "alpha", version: "1.0.0", files: { LICENSE: "own terms\n", [file]: `extra terms in ${file}\n` } },
+      },
+      appDeps: { alpha: "1.0.0" },
+    };
+    withRepo(options, (_root, { code, log, text }) => {
+      assert.equal(code, 0, log);
+      assert.ok(text.includes("File: LICENSE\nown terms"));
+      assert.ok(text.includes(`File: ${file}\nextra terms in ${file}`));
+      assert.ok(text.indexOf("own terms") < text.indexOf(`extra terms in ${file}`));
+    });
+  });
+}
+
+test("a package with one licence file gets no file label", () => {
+  const options = { packages: { "node_modules/alpha": { ...ALPHA, deps: undefined } }, appDeps: { alpha: "1.2.3" } };
+  withRepo(options, (_root, { code, log, text }) => {
+    assert.equal(code, 0, log);
+    assert.ok(!text.includes("File: "));
+  });
+});
+
+for (const file of ["NOTICE", "THIRD-PARTY-LICENSE"]) {
+  test(`a package with only a ${file} file still has no licence file, and fails`, () => {
+    const options = {
+      packages: { "node_modules/alpha": { name: "alpha", version: "1.0.0", files: { [file]: "not the licence\n" } } },
+      appDeps: { alpha: "1.0.0" },
+    };
+    withRepo(options, (_root, { code, log, text }) => {
+      assert.notEqual(code, 0);
+      assert.match(log, /alpha@1\.0\.0/);
+      assert.equal(text, undefined);
+    });
+  });
+}
+
+test("a shipped-extra.json entry carries its third-party notice file too", () => {
+  const options = {
+    packages: {
+      "node_modules/buildtool": {
+        name: "buildtool",
+        version: "7.0.0",
+        files: { LICENSE: MIT("Buildtool Authors"), "THIRD-PARTY-LICENSE": "MIT License\n\nCopyright (c) 2020 Origin Author\n" },
+      },
+    },
+    devDeps: { buildtool: "7.0.0" },
+    extra: [{ package: "buildtool", ships: "its helpers" }],
+  };
+  withRepo(options, (_root, { code, log, text }) => {
+    assert.equal(code, 0, log);
+    assert.ok(text.includes(MIT("Buildtool Authors")));
+    assert.ok(text.includes("Copyright (c) 2020 Origin Author"));
+  });
+});
+
+test("the repo's own shipped-extra.json says rolldown's helpers are esbuild's code, shipped through rolldown", () => {
+  const entries = JSON.parse(readFileSync(fileURLToPath(new URL("./shipped-extra.json", import.meta.url)), "utf8"));
+  const rolldown = entries.find((entry) => entry.package === "rolldown");
+  assert.ok(rolldown, "rolldown is listed");
+  assert.match(rolldown.ships, /esbuild/);
+  assert.match(rolldown.ships, /through rolldown/);
+});
+
+test("a node_modules above the repo root is never read", () => {
+  const options = {
+    packages: { "node_modules/alpha": { ...ALPHA, deps: undefined } },
+    appDeps: { alpha: "1.2.3" },
+    extra: [{ package: "ghost", ships: "nothing" }],
+    outside: { "node_modules/ghost": { name: "ghost", version: "1.0.0", files: { LICENSE: "ghost terms\n" } } },
+  };
+  withRepo(options, (_root, { code, log, text }) => {
+    assert.notEqual(code, 0);
+    assert.match(log, /ghost is not installed/);
+    assert.equal(text, undefined);
+  });
+});
+
+test("the first section says it lists the app's production packages, not the web app's", () => {
+  const options = { packages: { "node_modules/alpha": { ...ALPHA, deps: undefined } }, appDeps: { alpha: "1.2.3" } };
+  withRepo(options, (_root, { code, log, text }) => {
+    assert.equal(code, 0, log);
+    assert.ok(text.includes("PRODUCTION PACKAGES OF THE APP (1)"));
+    assert.ok(!text.includes("PACKAGES IN THE WEB APP"));
+  });
+});
+
+test("an apk-licences.json that isn't JSON is named once in the error", () => {
+  const options = { packages: { "node_modules/alpha": { ...ALPHA, deps: undefined } }, appDeps: { alpha: "1.2.3" }, apk: "{ not json" };
+  withRepo(options, (_root, { code, log }) => {
+    assert.notEqual(code, 0);
+    assert.equal(log.match(/apk-licences\.json/g).length, 1, log);
+  });
+});
+
+for (const [field, value] of [
+  ["version", { major: 1 }],
+  ["version", 1],
+  ["licence", { type: "Apache-2.0" }],
+  ["licence", 5],
+]) {
+  test(`an apk-licences.json entry whose ${field} is ${JSON.stringify(value)} fails, naming the entry`, () => {
+    const options = {
+      packages: { "node_modules/alpha": { ...ALPHA, deps: undefined } },
+      appDeps: { alpha: "1.2.3" },
+      apk: [{ name: "AndroidX", text: "Apache terms", [field]: value }],
+    };
+    withRepo(options, (_root, { code, log, text }) => {
+      assert.notEqual(code, 0);
+      assert.match(log, /apk-licences\.json entry 1/);
+      assert.match(log, new RegExp(`"${field}"`));
+      assert.equal(text, undefined);
+    });
+  });
+}

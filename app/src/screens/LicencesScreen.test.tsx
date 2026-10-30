@@ -18,6 +18,8 @@ const NEW_KEYS: StringKey[] = [
   'licences.osm',
   'licences.osmLink',
   'licences.samples',
+  'licences.packagesTitle',
+  'licences.packagesNote',
 ]
 
 const text = (key: StringKey) => EN[key].text
@@ -114,6 +116,27 @@ describe('the page', () => {
     expect(link.getAttribute('href')).toBe('https://www.openstreetmap.org/copyright')
     expect(screen.getByText(text('licences.samples'))).toBeTruthy()
     expect(document.body.textContent).toContain('OpenStreetMap contributors')
+  })
+
+  it('heads the package list with what it covers, the Android app and type-only packages included', async () => {
+    answer(TEXT)
+    renderPage()
+    const region = await screen.findByRole('region', { name: text('licences.textLabel') })
+
+    const heading = screen.getByRole('heading', { level: 2, name: text('licences.packagesTitle') })
+    const note = screen.getByText(text('licences.packagesNote'))
+    expect(heading.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(note.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(text('licences.packagesNote')).toMatch(/Android/)
+    expect(text('licences.packagesNote')).toMatch(/type/)
+  })
+
+  it('shows that heading while the file is loading, and if it fails', async () => {
+    fetchSpy.mockRejectedValue(new TypeError('offline'))
+    renderPage()
+    await screen.findByText(text('licences.unavailable'))
+
+    expect(screen.getByRole('heading', { level: 2, name: text('licences.packagesTitle') })).toBeTruthy()
   })
 
   it('in Taglish, its own lines are Taglish, and the licence text stays English and is marked so', async () => {

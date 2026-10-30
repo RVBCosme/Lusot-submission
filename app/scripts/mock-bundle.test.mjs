@@ -6,7 +6,7 @@
 // something else keeps the mock; the chained check is what fails that build. Run: node --test "app/scripts/*.test.mjs"
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -76,6 +76,8 @@ async function bundleAndCheck({ nodeEnv, mode = nodeEnv }) {
       plugins: [entryPlugin],
       build: { outDir: join(scratch, "dist"), emptyOutDir: true, rollupOptions: { input: "virtual:client-probe" } },
     });
+    // What `prebuild` leaves for the build to copy from public/. A fresh clone has none, and the check wants one.
+    writeFileSync(join(scratch, "dist", "licences.txt"), "licences stand-in\n");
     return runChain(scratch);
   } finally {
     for (const [name, value] of Object.entries(saved)) {

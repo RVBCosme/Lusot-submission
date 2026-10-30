@@ -25,12 +25,37 @@ function check(files, args) {
   }
 }
 
-const CLEAN = { "index.html": "<html></html>", "assets/index-abc.js": 'console.log("hello");' };
+// A built folder holds licences.txt, which `prebuild` writes (C636).
+const CLEAN = {
+  "index.html": "<html></html>",
+  "assets/index-abc.js": 'console.log("hello");',
+  "licences.txt": "leaflet 1.9.4\nBSD 2-Clause License\n",
+};
 
 test("a folder with none of the markers passes", () => {
   const { code, out } = check(CLEAN);
   assert.equal(code, 0, out);
   assert.match(out, /clean/);
+});
+
+test("a folder with no licences.txt fails, so a skipped prebuild can't ship a missing page", () => {
+  const { "licences.txt": _licences, ...without } = CLEAN;
+  const { code, out } = check(without);
+  assert.equal(code, 1, out);
+  assert.match(out, /licences\.txt/);
+  assert.match(out, /missing or empty/);
+});
+
+test("a licences.txt with nothing in it fails too", () => {
+  const { code, out } = check({ ...CLEAN, "licences.txt": "  \n" });
+  assert.equal(code, 1, out);
+  assert.match(out, /licences\.txt/);
+});
+
+test("a licences.txt inside a folder doesn't stand in for the one at the top of dist", () => {
+  const { "licences.txt": _licences, ...without } = CLEAN;
+  const { code, out } = check({ ...without, "assets/licences.txt": "text\n" });
+  assert.equal(code, 1, out);
 });
 
 for (const marker of MARKERS) {

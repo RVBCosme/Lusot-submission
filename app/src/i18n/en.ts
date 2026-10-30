@@ -193,6 +193,11 @@ export const EN = {
   },
   'licences.osmLink': { text: 'OpenStreetMap copyright and licence', reviewed: false },
   'licences.samples': { text: 'Each sample photo carries its own credit, shown with that sample.', reviewed: false },
+  'licences.packagesTitle': { text: 'Packages the app is built from', reviewed: false },
+  'licences.packagesNote': {
+    text: "The app's production packages, as npm lists them. The list includes the package the Android app is built on, and packages that only describe types and don't ship in the page.",
+    reviewed: false,
+  },
   // D19's refusal, which Rene confirmed in English.
   'refusal.d19': {
     text: "I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road.",

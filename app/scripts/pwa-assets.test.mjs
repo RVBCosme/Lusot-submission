@@ -80,3 +80,9 @@ test("the icons' SVG source uses only the tokens' colours, and its first shape f
   assert.match(svg, /<rect width="512" height="512" fill="#[0-9A-Fa-f]{6}"\s*\/>/);
   assert.match(svg, /viewBox="0 0 512 512"/);
 });
+
+test("the page's icon is Lusot's own, and Vite's template icon is gone", () => {
+  assert.match(html(), /<link rel="icon" type="image\/svg\+xml" href="\/icons\/icon\.svg"\s*\/?>/);
+  assert.doesNotMatch(html(), /favicon\.svg/);
+  assert.equal(existsSync(app("public/favicon.svg")), false);
+});

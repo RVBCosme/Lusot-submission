@@ -182,6 +182,11 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'licences.osmLink': { text: 'Copyright at lisensya ng OpenStreetMap', reviewed: false },
   'licences.samples': { text: 'May sariling credit ang bawat sample na photo, na makikita kasama ng sample.', reviewed: false },
+  'licences.packagesTitle': { text: 'Mga package na pinagmulan ng app', reviewed: false },
+  'licences.packagesNote': {
+    text: 'Ang mga production package ng app, ayon sa listahan ng npm. Kasama sa listahan ang package na pinagbabatayan ng Android app, at mga package na naglalarawan lang ng mga type at hindi kasama sa page.',
+    reviewed: false,
+  },
   // The draft of D19's line from the Oct 28 log.
   'refusal.d19': {
     text: 'Hindi ko masabi mula sa photo na ito. Kunan ulit mula sa tuyong lugar, kita ang gulong ng nakaparadang sasakyan o isang taong nakatayo. Huwag lumusong sa baha o pumunta sa kalsada.',
