@@ -13,6 +13,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import httpcore
 import httpx
 import pytest
 from fakes import FakeSpend
@@ -253,14 +254,28 @@ def test_the_canned_tool_output_has_two_live_reports_and_a_demo_pin():
         assert forbidden not in text
 
 
-def test_the_estimate_prices_the_input_and_the_full_output_cap():
+def test_the_estimate_prices_the_bodys_bytes_as_input_and_the_full_output_cap():
     body = probe.build_turn1(PROMPTS, QUESTION, False, "minimal", "schema")
-    chars = len(json.dumps(body, ensure_ascii=False))
-    expected = cost_of(
-        spark_input_tokens=-(-chars // probe.CHARS_PER_TOKEN),
-        spark_output_tokens=800,
-    )
+    sent = len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
+    expected = cost_of(spark_input_tokens=sent, spark_output_tokens=800)
     assert probe.estimate_cost(body) == expected
+
+
+def test_the_estimate_counts_bytes_not_characters():
+    plain = probe.build_turn1(PROMPTS, "Baha ba dito?", False, "minimal", "schema")
+    accented = probe.build_turn1(PROMPTS, "Baha ba díto?", False, "minimal", "schema")
+    # The same number of characters, one more byte, so one more input token's cost.
+    assert probe.estimate_cost(accented) - probe.estimate_cost(plain) == cost_of(
+        spark_input_tokens=1
+    )
+
+
+def test_the_canned_output_names_the_place_it_is_given():
+    default = json.loads(probe.canned_tool_output())
+    assert default["place"] == "Araneta Avenue cor. E. Rodriguez"
+    other = json.loads(probe.canned_tool_output("Quezon Avenue"))
+    assert other["place"] == "Quezon Avenue"
+    assert {**other, "place": default["place"]} == default
 
 
 # --- AskClient: one call, once -------------------------------------------------
@@ -378,6 +393,103 @@ def test_a_lost_connection_is_a_call_with_no_status():
     )
     assert reply.status is None
     assert reply.error["type"] == "APIConnectionError"
+
+
+def schema_body():
+    return probe.build_turn1(PROMPTS, QUESTION, False, "minimal", "schema")
+
+
+def test_the_key_is_replaced_before_a_long_message_is_cut():
+    # The SDK wraps the body's message in its own text, so where the key falls in
+    # the 300 characters isn't known here: try every offset around the cut.
+    for offset in range(240, 310):
+        message = "x" * offset + KEY + " and more"
+
+        def handler(request, message=message):
+            error = {"message": message, "type": "bad", "param": None, "code": None}
+            return httpx.Response(400, json={"error": error})
+
+        reply = client_with(handler).send(schema_body())
+        kept = reply.error["message"]
+        assert len(kept) <= 300
+        for n in range(4, len(KEY) + 1):
+            assert KEY[:n] not in kept, (offset, n)
+
+
+def test_a_200_whose_body_is_not_a_response_is_that_calls_result():
+    answers = [
+        httpx.Response(200, text="oops", headers={"content-type": "text/plain"}),
+        httpx.Response(200, json={"id": "resp_1"}),
+    ]
+    for answer in answers:
+        reply = client_with(lambda request, answer=answer: answer).send(schema_body())
+        assert reply.status == 200
+        assert reply.response_status == "unreadable"
+        assert reply.error["type"] == "UnreadableResponse"
+        assert reply.output == []
+        assert (
+            reply.input_tokens is None
+        )  # so the run charges it at the unreported rate
+
+
+def test_a_response_with_usage_but_no_output_keeps_the_usage():
+    usage = {
+        "input_tokens": 5,
+        "output_tokens": 7,
+        "total_tokens": 12,
+        "input_tokens_details": {"cached_tokens": 0},
+        "output_tokens_details": {"reasoning_tokens": 1},
+    }
+    body = {"id": "resp_1", "status": "completed", "usage": usage}
+    reply = client_with(lambda request: httpx.Response(200, json=body)).send(
+        schema_body()
+    )
+    assert reply.response_status == "unreadable"
+    assert (reply.input_tokens, reply.output_tokens, reply.reasoning_tokens) == (
+        5,
+        7,
+        1,
+    )
+
+
+def http_response(body, close=False):
+    """A raw HTTP/1.1 answer with a JSON body, for httpcore's mock network."""
+    raw = json.dumps(body).encode()
+    head = ["HTTP/1.1 200 OK", "Content-Type: application/json"]
+    head.append(f"Content-Length: {len(raw)}")
+    if close:
+        head.append("Connection: close")
+    return ("\r\n".join(head) + "\r\n\r\n").encode() + raw
+
+
+def mock_network(*answers):
+    """An httpx transport on httpcore's mock network backend: real connection pool,
+    real trace events, no socket."""
+    transport = httpx.HTTPTransport()
+    pool = httpcore.ConnectionPool(network_backend=httpcore.MockBackend(list(answers)))
+    transport._pool = pool
+    return transport
+
+
+def test_a_call_that_opens_a_new_connection_is_marked_reconnected():
+    out = responses_json([reasoning_item(1, []), call_item(args={"place": "x"})])
+    transport = mock_network(
+        http_response(out),  # the first call connects
+        http_response(out, close=True),  # reuses it; the server then closes
+        http_response(out),  # so the third connects again
+        http_response(out),
+    )
+    client = probe.AskClient(KEY, transport=transport, timeout_s=5)
+    flags = [client.send(schema_body()).reconnected for _ in range(4)]
+    assert flags == [True, False, True, False]
+
+
+def test_the_warm_up_connection_is_not_a_calls_reconnect():
+    out = responses_json([call_item(args={"place": "x"})])
+    transport = mock_network(http_response({"x": 1}), http_response(out))
+    client = probe.AskClient(KEY, transport=transport, timeout_s=5)
+    assert client.warm_up()["ok"] is True
+    assert client.send(schema_body()).reconnected is False
 
 
 def test_warm_up_sends_no_key_and_reports_the_connection_time():
@@ -535,12 +647,53 @@ def test_without_yes_it_prints_the_plan_and_makes_no_call(
     assert "--yes" in out
 
 
-def test_the_plan_is_44_calls_and_5_more_and_its_worst_case_fits_the_cap():
-    prompts = probe.load_prompts()
+def test_the_plan_is_44_calls_and_5_more():
     main, fallback = probe.main_jobs(10), probe.fallback_jobs()
     assert sum(probe.calls_of(job) for job in main) == 44
     assert sum(probe.calls_of(job) for job in fallback) == 5
-    assert probe.estimate_plan(prompts, main + fallback) < probe.COST_CAP_USD
+
+
+def test_runs_takes_1_to_10_only(data, go, monkeypatch, capsys):
+    monkeypatch.delenv("MODEL_API_KEY")
+    for bad in ("0", "11", "-1", "many"):
+        with pytest.raises(SystemExit) as exit_:
+            go(["--runs", bad])
+        assert exit_.value.code == 2
+    capsys.readouterr()
+    for good in ("1", "10"):
+        assert go(["--runs", good])[0] == 0
+
+
+def test_a_plan_whose_worst_case_passes_the_cap_is_refused_before_any_call(
+    data, go, monkeypatch, capsys
+):
+    monkeypatch.setattr(probe, "COST_CAP_USD", Decimal("0.01"))
+    code, meta, _spend, events = go(["--yes", "--runs", "2"])
+    assert code == probe.COST_GUARD_EXIT == 4
+    assert events == []  # the counter wasn't read and no client was built
+    assert meta.bodies == []
+    assert not data.exists()  # nothing written
+    out = capsys.readouterr().out
+    assert "refused" in out and "lower --runs" in out
+
+
+def test_the_dry_run_names_the_most_runs_that_fit(data, go, monkeypatch, capsys):
+    monkeypatch.delenv("MODEL_API_KEY")
+    prompts = probe.load_prompts()
+    # A cap that holds 6 runs' worst case and not 7's.
+    cap = probe.estimate_plan(prompts, probe.main_jobs(6))
+    monkeypatch.setattr(probe, "COST_CAP_USD", cap)
+    assert probe.most_runs_that_fit(prompts) == 6
+    code, *_ = go([])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "passes the cap" in out
+    assert "most --runs that fits is 6" in out
+
+
+def test_a_plan_that_fits_the_cap_gets_no_warning(data, go, capsys):
+    go(["--runs", "1"])
+    assert "passes the cap" not in capsys.readouterr().out
 
 
 def test_a_missing_or_short_key_refuses_and_prints_only_that(
@@ -708,30 +861,66 @@ def test_no_output_file_or_line_holds_the_key(data, go, capsys):
     assert any("[key]" in text for text in texts)  # the message stays, scrubbed
 
 
-def test_the_cost_guard_stops_before_a_call_that_would_pass_the_cap(
-    data, go, monkeypatch
-):
-    first = probe.build_turn1(PROMPTS, QUESTION, False, "minimal", "schema")
-    # Room for the first call's worst case and not for the second's.
-    cap = probe.estimate_cost(first) + Decimal("0.0001")
+def fresh_run(folder, meta):
+    """A Run on a client of its own, writing to `folder`, for tests of the guard."""
+    out = probe.Output(folder, KEY)
+    folder.mkdir(parents=True)
+    return probe.Run(meta, PROMPTS, out)
+
+
+def test_the_guard_counts_what_was_already_spent(tmp_path, monkeypatch):
+    # An uncapped run first, to learn what the guard sees of each call.
+    meta = ScriptedMeta()
+    run = fresh_run(tmp_path / "learn", meta)
+    for job in probe.main_jobs(10)[:6]:
+        run.do(job)
+    estimates = [probe.estimate_cost(body) for body in meta.bodies]
+    each = cost_of(spark_input_tokens=900, spark_output_tokens=60)
+    # The estimates of different calls differ by less than what one call costs, so
+    # the spent total, not the call's own size, decides where the guard stops.
+    assert max(estimates) - min(estimates) < each
+    kept = 5
+    cap = (kept - 1) * each + max(estimates[:kept])
     monkeypatch.setattr(probe, "COST_CAP_USD", cap)
-    code, meta, spend, _ = go(["--yes"])
+    capped = ScriptedMeta()
+    run = fresh_run(tmp_path / "capped", capped)
+    with pytest.raises(probe.CostGuard):
+        for job in probe.main_jobs(10):
+            run.do(job)
+    # Calls 1 to 5 fit with what the earlier ones cost; the 6th doesn't. A guard that
+    # looked at one call's estimate alone would let all 44 through.
+    assert len(capped.bodies) == kept
+    assert run.spent == kept * each
+
+
+def test_a_run_that_has_spent_nearly_the_cap_stops_before_the_next_call(data, go):
+    def costly(body):
+        reply = ScriptedMeta().default(body)
+        reply.input_tokens, reply.output_tokens = 59_000, 0  # $0.07375 a call
+        return reply
+
+    prompts = probe.load_prompts()
+    assert probe.estimate_plan(prompts, probe.main_jobs(2)) <= probe.COST_CAP_USD
+    code, meta, spend, _ = go(["--yes", "--runs", "2"], meta=ScriptedMeta(costly))
     assert code == probe.COST_GUARD_EXIT == 4
-    assert len(meta.bodies) == 1
+    assert len(meta.bodies) == 4
+    spent = cost_of(spark_input_tokens=4 * 59_000)
+    assert spent < probe.COST_CAP_USD  # the cap isn't reached...
+    # ...but no call that was left would fit in what remains of it.
+    assert probe.COST_CAP_USD - spent < min(map(probe.estimate_cost, meta.bodies))
+    assert spend.records == [(spent, "ask_probe")]  # what was paid is recorded
     summary = summary_of(data)
     assert summary["stopped"] == "cost_guard"
-    assert summary["calls"] == 1
-    spent = cost_of(spark_input_tokens=900, spark_output_tokens=60)
-    assert spend.records == [(spent, "ask_probe")]  # what was paid is recorded
+    assert summary["calls"] == 4
 
 
-def test_a_cap_below_the_first_calls_worst_case_makes_no_call(data, go, monkeypatch):
+def test_a_cap_below_the_first_calls_worst_case_makes_no_call(tmp_path, monkeypatch):
     monkeypatch.setattr(probe, "COST_CAP_USD", Decimal("0.001"))
-    code, meta, spend, _events = go(["--yes"])
-    assert code == 4
+    meta = ScriptedMeta()
+    run = fresh_run(tmp_path / "ask", meta)
+    with pytest.raises(probe.CostGuard):
+        run.do(probe.main_jobs(1)[0])
     assert meta.bodies == []
-    assert spend.records == []
-    assert summary_of(data)["stopped"] == "cost_guard"
 
 
 def test_calls_that_cost_nothing_are_not_recorded(data, go):
@@ -804,19 +993,6 @@ def test_an_error_that_is_not_a_400_does_not_start_step_5(data, go):
     assert summary_of(data)["step5"]["ran"] is False
 
 
-def test_a_400_about_the_reasoning_effort_does_not_start_step_5(data, go):
-    def no_minimal(body):
-        if body["reasoning"]["effort"] == "minimal":
-            error = {"type": "bad", "param": "reasoning.effort", "message": "no"}
-            return ScriptedMeta.reply(status=400, error=error)
-        return ScriptedMeta().default(body)
-
-    go(["--yes", "--runs", "1"], meta=ScriptedMeta(no_minimal))
-    step5 = summary_of(data)["step5"]
-    assert step5["ran"] is False
-    assert step5["schema_400s"] == 0
-
-
 def test_turn_2_is_skipped_when_turn_1_made_no_call(data, go):
     def never_calls(body):
         return ScriptedMeta.answer("depth", "none", [])
@@ -869,6 +1045,7 @@ def test_a_cold_first_connection_is_left_out_of_the_timings(data, go):
     assert summary["connect"]["ok"] is False
     assert summary["efforts"]["minimal"]["turn1"]["calls"] == 1  # run 0 left out
     assert summary["efforts"]["minimal"]["two_turn"]["calls"] == 1
+    assert summary["efforts"]["minimal"]["left_out"] == 1
 
 
 def test_a_warm_connection_leaves_every_call_in_the_timings(data, go):
@@ -876,3 +1053,143 @@ def test_a_warm_connection_leaves_every_call_in_the_timings(data, go):
     summary = summary_of(data)
     assert summary["connect"]["ok"] is True
     assert summary["efforts"]["minimal"]["turn1"]["calls"] == 2
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("boom"), KeyboardInterrupt()])
+def test_a_call_that_raises_is_charged_logged_and_summarised(data, go, failure):
+    def raises_on_third(body):
+        if len(meta.bodies) == 3:
+            raise failure
+        return ScriptedMeta().default(body)
+
+    meta = ScriptedMeta(raises_on_third)
+    spend = FakeSpend()
+    with pytest.raises(type(failure)):
+        go(["--yes", "--runs", "1"], meta=meta, spend=spend)
+    # Two calls as reported, and the third at the counter's unreported rate: it may
+    # have been billed, Ctrl+C or not.
+    unreported_in, unreported_out = SPARK_TOKENS_IF_UNREPORTED
+    owed = cost_of(
+        spark_input_tokens=2 * 900 + unreported_in,
+        spark_output_tokens=2 * 60 + unreported_out,
+    )
+    assert spend.records == [(owed, "ask_probe")]
+    summary = summary_of(data)
+    assert summary["stopped"] == type(failure).__name__
+    assert summary["calls"] == 3
+    rows = calls_log(data)
+    assert len(rows) == 3
+    assert rows[2]["status"] is None
+    assert rows[2]["error"]["type"] == type(failure).__name__
+    assert summary["efforts"]["minimal"]["turn1"]["calls"] == 1
+
+
+def test_an_unreadable_200_is_charged_at_the_unreported_rate(data, go):
+    def unreadable(body):
+        return ScriptedMeta.reply(
+            input_tokens=None,
+            output_tokens=None,
+            reasoning_tokens=None,
+            response_status="unreadable",
+            error={"type": "UnreadableResponse", "message": "AttributeError"},
+        )
+
+    code, meta, spend, _ = go(["--yes", "--runs", "1"], meta=ScriptedMeta(unreadable))
+    assert code == 0
+    unreported_in, unreported_out = SPARK_TOKENS_IF_UNREPORTED
+    one = cost_of(spark_input_tokens=unreported_in, spark_output_tokens=unreported_out)
+    assert spend.records == [(one * len(meta.bodies), "ask_probe")]
+    first = calls_log(data)[0]
+    assert first["status"] == 200
+    assert first["verdict"]["right"] is False
+    assert "unreadable" in " ".join(first["verdict"]["why"])
+
+
+F4_ERRORS = [
+    {"param": "text", "message": "no"},
+    {"param": "text.format", "message": "no"},
+    {"param": "tools[0].strict", "message": "no"},
+    {"param": "tool_choice", "message": "no"},
+    {"param": None, "message": "tools can't be combined with a structured format"},
+    {"param": None, "code": "format", "message": "no"},
+]
+
+
+@pytest.mark.parametrize("error", F4_ERRORS)
+def test_a_400_that_names_tools_beside_text_format_starts_step_5(data, go, error):
+    def refused(body):
+        if "tools" in body and "text" in body:
+            return ScriptedMeta.reply(status=400, error={"type": "invalid", **error})
+        return ScriptedMeta().default(body)
+
+    go(["--yes", "--runs", "1"], meta=ScriptedMeta(refused))
+    step5 = summary_of(data)["step5"]
+    assert step5["ran"] is True
+    assert step5["schema_400s"] == 5
+    assert step5["other_400s"] == []
+
+
+OTHER_ERRORS = [
+    {"param": "input[2].status", "message": "Unknown parameter"},
+    {"param": "include", "code": "invalid_value", "message": "bad"},
+    {"param": "reasoning.effort", "message": "Unsupported value"},
+    {"param": None, "message": "bad request"},
+]
+
+
+@pytest.mark.parametrize("where", ["turn 1", "the replay turn"])
+@pytest.mark.parametrize("error", OTHER_ERRORS)
+def test_any_other_400_is_recorded_and_starts_no_step_5(data, go, error, where):
+    def refused(body):
+        replay = "tools" in body and ScriptedMeta.final(body)
+        if replay or (where == "turn 1" and "text" in body and "tools" in body):
+            return ScriptedMeta.reply(status=400, error={"type": "invalid", **error})
+        return ScriptedMeta().default(body)
+
+    code, meta, _, _ = go(["--yes", "--runs", "1"], meta=ScriptedMeta(refused))
+    assert code == 0
+    step5 = summary_of(data)["step5"]
+    assert step5["ran"] is False
+    assert step5["schema_400s"] == 0
+    assert step5["other_400s"]
+    assert {entry["param"] for entry in step5["other_400s"]} == {error["param"]}
+    assert not [b for b in meta.bodies if "tools" in b and "text" not in b]
+    if where == "turn 1":  # the 400 ended each job: no final turn followed
+        assert not [b for b in meta.bodies if ScriptedMeta.final(b)]
+
+
+def test_the_tool_output_names_the_place_each_question_asked_about(data, go):
+    _, meta, _, _ = go(["--yes", "--runs", "1"])
+    places = {}
+    for body in meta.bodies:
+        for item in body["input"]:
+            if item.get("type") == "function_call_output":
+                places[ScriptedMeta.question(body)] = json.loads(item["output"])[
+                    "place"
+                ]
+    assert places[QUESTION] == "Araneta Avenue cor. E. Rodriguez"
+    assert places["Kaya ba ng kotse ko sa Quezon Avenue?"] == "Quezon Avenue"
+
+
+def test_calls_on_a_new_connection_are_marked_and_left_out_of_the_timings(
+    data, go, capsys
+):
+    def handler(body):
+        reply = ScriptedMeta().default(body)
+        reply.reconnected = len(meta.bodies) == 2  # run 0, minimal, turn 2
+        return reply
+
+    meta = ScriptedMeta(handler)
+    go(["--yes", "--runs", "2"], meta=meta)
+    rows = calls_log(data)
+    assert [r["reconnected"] for r in rows[:3]] == [False, True, False]
+    summary = summary_of(data)
+    assert summary["reconnected_calls"] == 1
+    minimal, low = summary["efforts"]["minimal"], summary["efforts"]["low"]
+    assert minimal["left_out"] == 1
+    assert minimal["turn1"]["calls"] == 2
+    assert minimal["turn2"]["calls"] == 1  # run 0's turn 2 is left out
+    assert minimal["two_turn"]["calls"] == 1  # so run 0's pair is too
+    assert low["left_out"] == 0
+    assert low["two_turn"]["calls"] == 2
+    assert "on a new connection" in capsys.readouterr().out

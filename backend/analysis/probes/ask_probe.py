@@ -12,13 +12,19 @@ Run from the repo root, with MODEL_API_KEY set and `aws login --profile lusot` d
     uv run --directory backend/analysis --with "botocore[crt]==1.43.120"
         python probes/ask_probe.py [--yes] [--runs 10]
 
-Without --yes it prints the planned call count and the estimated cost, and stops:
+Without --yes it prints the planned call count and the worst-case cost, and stops:
 no key, no counter and no network. With --yes it spends Meta credits: 44 calls in the
-main plan, 49 with step 5, and the plan line says the worst case. Real usage is well
-under it, because the estimate prices every call's output at the full cap. The run
-stops before any call whose worst case would take the cost so far past COST_CAP_USD
-($0.30), and exits 4. Each call is made once, with no retry: a 429 or a 5xx is that
-call's result.
+main plan at --runs 10 (49 with step 5). --runs takes 1 to 10.
+
+The cost guard holds the run to COST_CAP_USD ($0.30). A call's worst case is its
+request body's UTF-8 byte count as input tokens (a token is never fewer than one
+byte, so the text sent can't cost more tokens than bytes) plus the whole
+max_output_tokens as output. That bound covers the bytes sent, not Meta's own chat
+template or the reasoning behind a replayed encrypted_content, which the body doesn't
+show. Real usage is far under it. Before the first paid call the main plan's worst
+case must fit the cap, or the run exits 4 without a call; before each call, what has
+been spent so far plus that call's worst case must fit, or the run stops and exits 4.
+Each call is made once, with no retry: a 429 or a 5xx is that call's result.
 
 The prompt, tools and schema are read from backend/api/prompts/ (ask_v1.*). Outputs go
 to LUSOT_DATA_DIR/probes/<today>/ask/ as ask_summary.json and ask_calls.jsonl, never
@@ -29,9 +35,12 @@ in the request's Authorization header, and replaced by "[key]" in every line and
 this script writes.
 
 Before the client is built, MS4's spend counter is read with the lusot profile, and
-the run's estimated cost is recorded once at its end however it ends, as run_probe.py
-does (C527, R126). Exit codes: 0 done; 2 refused (nothing was paid for); 3 the cost
-couldn't be recorded; 4 stopped at the cost guard.
+the run's cost is recorded once at its end however it ends, as run_probe.py does
+(C527, R126). A call that raises, Ctrl+C included, or that Meta answers with a body
+that can't be read, is charged at the counter's unreported rate, since it may have
+been billed. ask_summary.json is written however the run ends, and says how. Exit
+codes: 0 done; 2 refused (nothing was paid for); 3 the cost couldn't be recorded; 4
+stopped at the cost guard, or refused because the plan's worst case passes the cap.
 """
 
 from __future__ import annotations
@@ -40,6 +49,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import statistics
 import time
 from collections import Counter
@@ -67,12 +77,12 @@ SPEND_SOURCE = "ask_probe"  # its name on MS4's spend counter
 MAX_OUTPUT_TOKENS = 800  # spec 4.3
 EFFORTS = ("minimal", "low")
 RUNS = 10  # timings for each effort (plan Task 2, step 1)
+MAX_RUNS = 10
 COST_CAP_USD = Decimal("0.30")
-# Input tokens are estimated from the request's JSON, before the call: 3 characters a
-# token runs over for English and for Taglish, so the estimate errs high. The output
-# is priced at the whole cap, so a call's estimate is its worst case.
-CHARS_PER_TOKEN = 3
 MIN_KEY_LENGTH = 20  # MetaClient's rule: the real key has 48 characters
+# What a 400 must name to count as Meta refusing tools beside text.format (F4).
+_F4_WORDS = re.compile(r"\b(text|format|tools|tool_choice)\b", re.IGNORECASE)
+DEFAULT_PLACE = "Araneta Avenue cor. E. Rodriguez"
 COST_GUARD_EXIT = 4
 RESPONSE_TIMEOUT_S = 120.0  # a long timeout, so a slow call is a result, not an error
 CANNED_REFS = ("r1", "r2", "d1")
@@ -215,13 +225,14 @@ def build_turn2(
     return _with_tools(body, [prompts.get_reports]) | _answer_format(prompts)
 
 
-def canned_tool_output() -> str:
-    """Two live reports and one demo pin, as Task 8's toModelOutput shapes them: no
-    coordinates and no report ids, only refs and distances."""
+def canned_tool_output(place: str = DEFAULT_PLACE) -> str:
+    """Two live reports and one demo pin for `place`, the one the question names, as
+    Task 8's toModelOutput shapes them: no coordinates and no report ids, only refs
+    and distances."""
     return json.dumps(
         {
             "status": "ok",
-            "place": "España Blvd cor. Maceda St",
+            "place": place,
             "window_minutes": 180,
             "radius_m": 300,
             "count": 2,
@@ -259,13 +270,15 @@ class Question:
     """A probe question (not Task 18's T1 to T10, which stay frozen), and what Meta
     should do with it. `expect` holds the arguments the get_reports call must have;
     None means the question is off-topic. `final` holds the kind and vehicle of the
-    answer after the tool's output."""
+    answer after the tool's output. `place` is the place the question names, which
+    the canned tool output then answers for."""
 
     text: str
     shared: bool
     expect: dict | None
     place_word: str | None = None
     final: dict | None = None
+    place: str = DEFAULT_PLACE
 
 
 QUESTIONS = {
@@ -284,6 +297,7 @@ QUESTIONS = {
         {"here": False, "kind": "crossing", "vehicle": "light"},
         "quezon",
         {"kind": "crossing", "vehicle": "light"},
+        "Quezon Avenue",
     ),
 }
 
@@ -364,7 +378,7 @@ def job_bodies(prompts: Prompts, job: Job) -> list[dict]:
                 question.text,
                 question.shared,
                 _PLACEHOLDER_OUTPUT,
-                canned_tool_output(),
+                canned_tool_output(question.place),
                 job.effort,
                 job.form2,
             )
@@ -376,12 +390,14 @@ def job_bodies(prompts: Prompts, job: Job) -> list[dict]:
 
 
 def estimate_cost(body: dict) -> Decimal:
-    """A call's worst case before it is made: the input from the body's size, and the
-    output at the whole max_output_tokens."""
-    chars = len(json.dumps(body, ensure_ascii=False))
+    """A call's worst case before it is made. Input: the request body's UTF-8 byte
+    count as tokens, since a token is never fewer than one byte of the text sent.
+    Output: the whole max_output_tokens, which covers reasoning and the answer. The
+    bound is on the bytes sent, so it leaves out Meta's own chat template and the
+    reasoning behind a replayed encrypted_content."""
+    sent = len(json.dumps(body, ensure_ascii=False).encode("utf-8"))
     return cost_of(
-        spark_input_tokens=-(-chars // CHARS_PER_TOKEN),
-        spark_output_tokens=body["max_output_tokens"],
+        spark_input_tokens=sent, spark_output_tokens=body["max_output_tokens"]
     )
 
 
@@ -409,6 +425,14 @@ class Reply:
     reasoning_tokens: int | None = None
     response_status: str | None = None
     error: dict | None = None
+    reconnected: bool = False  # the call opened a new connection, so its time has it
+
+
+# httpcore's trace events for a new TCP connection (httpcore 1.0: "connect_tcp" in
+# its connection module, under the "connection." prefix).
+_CONNECT_EVENTS = frozenset(
+    {"connection.connect_tcp.started", "connection.connect_unix_socket.started"}
+)
 
 
 class AskClient:
@@ -424,10 +448,13 @@ class AskClient:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._base_url = base_url
+        self._key = api_key
+        self._connects = 0  # new connections opened, counted from httpcore's trace
         self._http = httpx.Client(
             transport=transport,
             timeout=timeout_s,
             limits=httpx.Limits(keepalive_expiry=120),
+            event_hooks={"request": [self._watch_connections]},
         )
         self._openai = openai.OpenAI(
             api_key=api_key,
@@ -436,6 +463,16 @@ class AskClient:
             timeout=timeout_s,
             http_client=self._http,
         )
+
+    def _watch_connections(self, request: httpx.Request) -> None:
+        """Ask httpcore to report this request's connection events (its `trace`
+        extension), and count each new TCP connection."""
+
+        def trace(name: str, info: object) -> None:
+            if name in _CONNECT_EVENTS:
+                self._connects += 1
+
+        request.extensions["trace"] = trace
 
     def warm_up(self) -> dict:
         """Open the connection with a request that holds no key and costs nothing, so
@@ -453,8 +490,9 @@ class AskClient:
         }
 
     def send(self, body: dict) -> Reply:
-        """Make one call, once. An HTTP error or a lost connection is the call's
-        result, not an exception."""
+        """Make one call, once. An HTTP error, a lost connection and a 200 whose body
+        can't be read are the call's result, not an exception."""
+        connects = self._connects
         started = time.monotonic()
         try:
             response = self._openai.responses.create(**body)
@@ -462,6 +500,9 @@ class AskClient:
             # A rejected key's message may echo part of the key, which no scrub of
             # the whole key would catch: keep nothing but the type and code then.
             rejected = exc.status_code in (401, 403)
+            # The key is replaced before the message is cut, so a key that straddles
+            # the cut can't leave its first part behind.
+            message = str(exc.message).replace(self._key, "[key]")[:300]
             return Reply(
                 exc.status_code,
                 time.monotonic() - started,
@@ -469,31 +510,66 @@ class AskClient:
                     "type": exc.type,
                     "code": exc.code,
                     "param": exc.param,
-                    "message": "" if rejected else str(exc.message)[:300],
+                    "message": "" if rejected else message,
                 },
+                reconnected=self._connects > connects,
             )
         except openai.APIConnectionError as exc:  # a timeout is one too
             return Reply(
                 None,
                 time.monotonic() - started,
                 error={"type": type(exc).__name__, "message": "no answer"},
+                reconnected=self._connects > connects,
             )
         elapsed = time.monotonic() - started
-        usage = response.usage
-        details = usage.output_tokens_details if usage else None
+        reconnected = self._connects > connects
+        tokens = _tokens(response)
+        try:
+            output = [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in response.output
+            ]
+            text = response.output_text
+            status = response.status
+        except (AttributeError, TypeError, ValueError) as exc:
+            # A 200 that isn't a Response (the SDK hands back the body's text when it
+            # isn't JSON): it may have been billed, so it is a result, not a crash.
+            return Reply(
+                200,
+                elapsed,
+                input_tokens=tokens[0],
+                output_tokens=tokens[1],
+                reasoning_tokens=tokens[2],
+                response_status="unreadable",
+                error={"type": "UnreadableResponse", "message": type(exc).__name__},
+                reconnected=reconnected,
+            )
         return Reply(
             200,
             elapsed,
-            output=[
-                item.model_dump(mode="json", exclude_none=True)
-                for item in response.output
-            ],
-            text=response.output_text,
-            input_tokens=usage.input_tokens if usage else None,
-            output_tokens=usage.output_tokens if usage else None,
-            reasoning_tokens=details.reasoning_tokens if details else None,
-            response_status=response.status,
+            output=output,
+            text=text,
+            input_tokens=tokens[0],
+            output_tokens=tokens[1],
+            reasoning_tokens=tokens[2],
+            response_status=status,
+            reconnected=reconnected,
         )
+
+
+def _tokens(response: object) -> tuple[int | None, int | None, int | None]:
+    """The input, output and reasoning tokens a response reports, None for any it
+    doesn't (or for a body that has no usage to read)."""
+    try:
+        usage = response.usage
+        details = usage.output_tokens_details if usage else None
+        return (
+            usage.input_tokens if usage else None,
+            usage.output_tokens if usage else None,
+            details.reasoning_tokens if details else None,
+        )
+    except (AttributeError, TypeError, ValueError):
+        return None, None, None
 
 
 # --- what a call's answer is checked against -----------------------------------------
@@ -636,9 +712,24 @@ class Run:
         )
 
     def send(self, job: Job, turn: int, form: str, body: dict) -> Reply:
+        """One call, once, after the guard. Whatever ends it, the call is charged
+        and logged: one that raises (Ctrl+C included) may have been billed."""
         if self.spent + estimate_cost(body) > COST_CAP_USD:
             raise CostGuard
-        reply = self.client.send(body)
+        started = time.monotonic()
+        try:
+            reply = self.client.send(body)
+        except BaseException as exc:
+            error = {"type": type(exc).__name__, "message": "the call raised"}
+            self._record(
+                job, turn, form, Reply(None, time.monotonic() - started, error=error)
+            )
+            raise
+        self._record(job, turn, form, reply)
+        return reply
+
+    def _record(self, job: Job, turn: int, form: str, reply: Reply) -> None:
+        # The cost first, so nothing after it can lose it.
         if reply.status is None or reply.status == 200:
             # Meta's HTTP error answers aren't billed. A timeout or a lost
             # connection may have been, and a missing count is charged at the
@@ -666,6 +757,7 @@ class Run:
             "status": reply.status,
             "elapsed_s": round(reply.elapsed_s, 3),
             "includes_connect": self.cold and not self.rows,
+            "reconnected": reply.reconnected,
             "response_status": reply.response_status,
             "input_tokens": reply.input_tokens,
             "output_tokens": reply.output_tokens,
@@ -676,10 +768,10 @@ class Run:
         self.rows.append(row)
         self.out.log_call(row)
         self.out.say(_line(row))
-        return reply
 
     def do(self, job: Job) -> None:
-        """One job: turn 1, then turn 2 if turn 1 called get_reports."""
+        """One job: turn 1, then turn 2 if turn 1 called get_reports. A 400 or any
+        other answer without that call ends the job."""
         question = QUESTIONS[job.question]
         first = self.send(
             job,
@@ -700,21 +792,49 @@ class Run:
             question.text,
             question.shared,
             first.output,
-            canned_tool_output(),
+            canned_tool_output(question.place),
             job.effort,
             job.form2,
         )
         self.send(job, 2, job.form2, body)
 
-    def schema_400s(self) -> int:
-        """Requests with tools beside text.format that Meta refused with a 400 that
-        isn't about the reasoning effort."""
-        return sum(
-            row["status"] == 400
-            and row["form"] in ("schema", "replay")
-            and not str((row["error"] or {}).get("param") or "").startswith("reasoning")
-            for row in self.rows
-        )
+    def refusals(self) -> dict:
+        """The 400s so far. Step 5 starts only on a 400 to tools beside text.format
+        whose error names text, format, tools or tool_choice (F4); any other 400 is
+        listed, with its param and code, and starts nothing."""
+        f4, other = [], []
+        for row in self.rows:
+            if row["status"] != 400:
+                continue
+            if row["form"] in ("schema", "replay") and concerns_f4(row["error"]):
+                f4.append(row)
+            else:
+                error = row["error"] or {}
+                other.append(
+                    {
+                        "n": row["n"],
+                        "question": row["question"],
+                        "turn": row["turn"],
+                        "form": row["form"],
+                        "param": error.get("param"),
+                        "code": error.get("code"),
+                    }
+                )
+        return {
+            "schema_400s": len(f4),
+            "forms": dict(Counter(row["form"] for row in f4)),
+            "other_400s": other,
+        }
+
+
+def concerns_f4(error: dict | None) -> bool:
+    """Whether an error's param, code or message names text, format, tools or
+    tool_choice, as a 400 to tools beside text.format would (F4)."""
+    error = error or {}
+    named = " ".join(
+        str(error.get(field) or "") for field in ("param", "code", "message")
+    )
+    return bool(_F4_WORDS.search(named))
 
 
 def _line(row: dict) -> str:
@@ -725,11 +845,16 @@ def _line(row: dict) -> str:
         if row["input_tokens"] is not None
         else "no usage"
     )
-    cold = ", with the connection" if row["includes_connect"] else ""
+    if row["includes_connect"]:
+        note = ", with the connection"
+    elif row["reconnected"]:
+        note = ", on a new connection"
+    else:
+        note = ""
     return (
         f"call {row['n']}: step {row['step']} {row['question']} {row['effort']} "
         f"turn {row['turn']} {row['form']}: status {row['status']} in "
-        f"{row['elapsed_s']} s ({tokens}){cold}, {verdict_}"
+        f"{row['elapsed_s']} s ({tokens}){note}, {verdict_}"
     )
 
 
@@ -745,15 +870,15 @@ def stats(times: list[float]) -> dict:
 
 
 def effort_summary(rows: list[dict], effort: str) -> dict:
-    """Step 1's rows at one effort: timings per turn and per two-turn run (the ones
-    that carried the connection setup are left out), tokens, and what was right."""
+    """Step 1's rows at one effort: timings per turn and per two-turn run, tokens, and
+    what was right. A call that carried a connection setup (the first, if the warm-up
+    failed, or one that opened a new connection) is left out of every timing, and
+    `left_out` says how many were."""
     mine = [r for r in rows if r["step"] == "1" and r["effort"] == effort]
+    answered = [r for r in mine if r["status"] == 200]
+    marked = [r for r in answered if r["includes_connect"] or r["reconnected"]]
     timed = {
-        turn: {
-            r["run"]: r
-            for r in mine
-            if r["turn"] == turn and r["status"] == 200 and not r["includes_connect"]
-        }
+        turn: {r["run"]: r for r in answered if r["turn"] == turn and r not in marked}
         for turn in (1, 2)
     }
     both = [
@@ -768,6 +893,7 @@ def effort_summary(rows: list[dict], effort: str) -> dict:
         "turn1": stats([r["elapsed_s"] for r in timed[1].values()]),
         "turn2": stats([r["elapsed_s"] for r in timed[2].values()]),
         "two_turn": stats([round(t, 3) for t in both]),
+        "left_out": len(marked),
         "tool_call_right": f"{sum(r['verdict']['right'] for r in turn1)}/{len(turn1)}",
         "final_right": f"{sum(r['verdict']['right'] for r in turn2)}/{len(turn2)}",
         "input_tokens": sum(r["input_tokens"] or 0 for r in mine),
@@ -785,6 +911,8 @@ def summarize(
     stopped: str | None,
     step5: dict,
 ) -> dict:
+    """The summary. `stopped` says how the run ended early: "cost_guard", or the
+    class name of the exception that ended it; None when every step ran."""
     return {
         "started": started.isoformat(timespec="seconds"),
         "run_s": round(time.monotonic() - clock, 1),
@@ -793,6 +921,7 @@ def summarize(
         "runs": runs,
         "connect": warm,
         "calls": len(run.rows),
+        "reconnected_calls": sum(bool(r["reconnected"]) for r in run.rows),
         "stopped": stopped,
         "cost_cap_usd": str(COST_CAP_USD),
         "estimated_cost_usd": str(run.spent),
@@ -819,7 +948,8 @@ def summarize(
 
 def _run(run: Run, runs: int) -> int:
     """The paid part: steps 1 to 4, then 5 if tools beside text.format were refused.
-    It writes the summary however the steps end, and returns the exit code."""
+    The summary is written however the steps end, an exception or Ctrl+C included
+    (which then go on), and says how. Returns the exit code."""
     out = run.out
     out.folder.mkdir(parents=True, exist_ok=True)
     started = datetime.now().astimezone()
@@ -829,26 +959,39 @@ def _run(run: Run, runs: int) -> int:
     out.say(
         f"connection: {'ready' if warm['ok'] else 'not opened'} in {warm['elapsed_s']} s"
     )
-    step5 = {"ran": False, "schema_400s": 0}
+    step5 = {"ran": False, "schema_400s": 0, "forms": {}, "other_400s": []}
     stopped = None
     try:
         for job in main_jobs(runs):
             run.do(job)
-        step5["schema_400s"] = run.schema_400s()
-        if step5["schema_400s"]:
+        if run.refusals()["schema_400s"]:
             step5["ran"] = True
             for job in fallback_jobs():
                 run.do(job)
     except CostGuard:
         stopped = "cost_guard"
         out.say(f"stopped before the next call: its worst case passes ${COST_CAP_USD}")
-    summary = summarize(run, runs, warm, started, clock, stopped, step5)
-    out.write_summary(summary)
-    out.say(
-        f"done in {summary['run_s']} s: {summary['calls']} calls, tokens "
-        f"{json.dumps(run.tokens)}, estimated ${run.spent:.4f} of ${COST_CAP_USD}"
-    )
+    except BaseException as exc:
+        stopped = type(exc).__name__
+        raise
+    finally:
+        step5 |= run.refusals()
+        summary = summarize(run, runs, warm, started, clock, stopped, step5)
+        out.write_summary(summary)
+        out.say(
+            f"done in {summary['run_s']} s: {summary['calls']} calls, tokens "
+            f"{json.dumps(run.tokens)}, estimated ${run.spent:.4f} of ${COST_CAP_USD}"
+            + (f", ended by {stopped}" if stopped else "")
+        )
     return COST_GUARD_EXIT if stopped else 0
+
+
+def most_runs_that_fit(prompts: Prompts) -> int:
+    """The largest --runs whose main plan's worst case fits the cap; 0 if none."""
+    for runs in range(MAX_RUNS, 0, -1):
+        if estimate_plan(prompts, main_jobs(runs)) <= COST_CAP_USD:
+            return runs
+    return 0
 
 
 def main(
@@ -859,7 +1002,14 @@ def main(
     """The probe. `make_client` is for tests: AskClient, given MODEL_API_KEY's key."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--yes", action="store_true", help="spend the credits")
-    parser.add_argument("--runs", type=int, default=RUNS, help="timings per effort")
+    parser.add_argument(
+        "--runs",
+        type=int,
+        choices=range(1, MAX_RUNS + 1),
+        default=RUNS,
+        metavar=f"1..{MAX_RUNS}",
+        help="timings per effort",
+    )
     args = parser.parse_args(argv)
     out_folder = DATA / "probes" / date.today().isoformat() / "ask"
     # Before anything is opened or made: a sealed path, or a data folder in the repo.
@@ -886,14 +1036,24 @@ def main(
     estimate_all = estimate_plan(prompts, main_plan + fallback)
     print(
         f"planned: {n_main} calls to {SPARK_MODEL} ({n_all} with step 5's other forms),"
-        f" at most ${estimate:.4f} (${estimate_all:.4f} with step 5) by the probe's"
-        f" estimate, against the ${COST_CAP_USD} cap. The estimate prices every call's"
-        f" output at the full {MAX_OUTPUT_TOKENS} tokens, which the real calls don't use.",
+        f" worst case ${estimate:.4f} (${estimate_all:.4f} with step 5), against the"
+        f" ${COST_CAP_USD} cap. The worst case counts the request's bytes as input"
+        f" tokens and the full {MAX_OUTPUT_TOKENS} output tokens; real calls use far less.",
         flush=True,
     )
+    over = estimate > COST_CAP_USD
+    if over:
+        print(
+            f"the main plan's worst case passes the cap: --yes would refuse it. The most"
+            f" --runs that fits is {most_runs_that_fit(prompts) or 'none'}.",
+            flush=True,
+        )
     if not args.yes:
         print("add --yes to run it", flush=True)
         return 0
+    if over:
+        runner.say("refused: the plan's worst case passes the cap; lower --runs")
+        return COST_GUARD_EXIT
 
     spend = check_before_paying()  # MS4's counter, before any client (C527)
     run = Run(make_client(key), prompts, out)  # one client, so connections are kept
