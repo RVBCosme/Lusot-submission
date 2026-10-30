@@ -36,8 +36,8 @@ from lusot_analysis.rules import (
 TIRE_FLOOR = Reading("tire", floor=True)  # tire or deeper (C54)
 HUB_FLOOR = Reading("half_tire", floor=True)  # a hub's sedan row, as a floor (M5)
 
-# The types kept for geometry: van and unknown, and pickup and jeepney since M11's
-# tire codes (C318).
+# The types kept for geometry: van and unknown, and pickup since M11's tire codes
+# (C318). Jeepney has none yet (R170).
 GEOMETRY_TYPES = sorted(GEOMETRY_ONLY_TYPES)
 
 # The marks that give a reading, shallowest first. not_visible gives none.

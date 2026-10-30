@@ -104,14 +104,17 @@ def test_only_sedans_and_suvs_are_read(type_):
 @pytest.mark.parametrize(
     ("type_", "for_geometry"),
     [
-        *((type_, True) for type_ in ("van", "unknown", "pickup", "jeepney")),
-        *((type_, False) for type_ in ("tricycle", "motorcycle", "bus_truck")),
+        *((type_, True) for type_ in ("van", "unknown", "pickup")),
+        *(
+            (type_, False)
+            for type_ in ("jeepney", "tricycle", "motorcycle", "bus_truck")
+        ),
     ],
 )
 def test_geometry_only_types_are_kept_only_for_geometry(type_, for_geometry):
     # C318 narrows C45: with geometry on, the types that have tire codes but no Table
-    # 8 wheel rows are kept for geometry, pickup and jeepney too since M11's codes.
-    # The other types have no codes yet (C304).
+    # 8 wheel rows are kept for geometry, pickup too since M11's codes. The other
+    # types have no codes yet (C304), jeepney among them (R170).
     given = answer(vehicles=[vehicle(1, type=type_)], wheels=[wheel(2, "hub")])
     boxes = numbered(vehicles=[1], wheels={2: 1})
     dropped = (

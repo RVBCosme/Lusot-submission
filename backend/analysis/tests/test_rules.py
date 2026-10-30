@@ -42,7 +42,6 @@ SUV_CODES = [
 VAN_CODES = ["215/70R16C", "215/65R16"]  # Hiace, then M11's Tamaraw
 # M11 Table 1, rows 1 to 4 and row 6, Rene approved Oct 30.
 PICKUP_CODES = ["205/70R15", "225/70R17", "265/65R17", "265/60R18"]
-JEEPNEY_CODES = ["205/75R16"]
 
 
 def exact(level: str) -> Reading:
@@ -228,14 +227,14 @@ def test_tire_codes_match_the_spec():
     assert [c.code for c in tire_codes("suv_mpv")] == SUV_CODES
     assert [c.code for c in tire_codes("van")] == VAN_CODES
     assert [c.code for c in tire_codes("pickup")] == PICKUP_CODES
-    assert [c.code for c in tire_codes("jeepney")] == JEEPNEY_CODES
     every = tire_codes("unknown")
     assert [c.code for c in every] == (
-        SEDAN_CODES + SUV_CODES + VAN_CODES + PICKUP_CODES + JEEPNEY_CODES
+        SEDAN_CODES + SUV_CODES + VAN_CODES + PICKUP_CODES
     )
-    assert len(every) == 18
+    assert len(every) == 17
     assert every == tuple(TireCode.parse(c.code) for c in every)
-    for vehicle_type in ("tricycle", "motorcycle", "bus_truck"):
+    # One code can't stand for every jeepney (R170), so jeepney has none yet.
+    for vehicle_type in ("jeepney", "tricycle", "motorcycle", "bus_truck"):
         assert tire_codes(vehicle_type) == ()
 
 
@@ -248,7 +247,6 @@ def test_tire_sizes_match_table_7():
         "suv_mpv": (24.5, 26.7),
         "van": (27.0, 27.9),
         "pickup": (26.3, 30.6),
-        "jeepney": (28.1, 28.1),
         "unknown": (23.0, 30.6),
     }
     for vehicle_type, expected in diameters.items():
@@ -261,7 +259,6 @@ def test_tire_sizes_match_table_7():
         "265/65R17": 30.56,
         "265/60R18": 30.52,
         "215/65R16": 27.00,
-        "205/75R16": 28.11,
     }
     for code, diameter in m11.items():
         assert 2 * TireCode.parse(code).radius_in == pytest.approx(diameter, abs=0.005)
@@ -281,7 +278,7 @@ def test_every_code_names_its_source():
     text = files("lusot_analysis").joinpath("tire_codes.json").read_text("utf-8")
     data = json.loads(text)
     assert data["version"] == TIRE_CODES_VERSION == "tire-codes-v2"
-    assert list(data["types"]) == ["sedan_hatch", "suv_mpv", "van", "pickup", "jeepney"]
+    assert list(data["types"]) == ["sedan_hatch", "suv_mpv", "van", "pickup"]
     for entries in data["types"].values():
         for entry in entries:
             assert set(entry) == {"code", "vehicle", "source"}
@@ -291,8 +288,8 @@ def test_every_code_names_its_source():
 
 def test_geometry_only_types():
     # The types with codes, less the ones Table 8's wheel rows read (C318). M11's
-    # codes add pickup and jeepney.
-    assert GEOMETRY_ONLY_TYPES == {"van", "unknown", "pickup", "jeepney"}
+    # codes add pickup; jeepney waits for codes that cover its chassis (R170).
+    assert GEOMETRY_ONLY_TYPES == {"van", "unknown", "pickup"}
     assert isinstance(GEOMETRY_ONLY_TYPES, frozenset)
 
 
