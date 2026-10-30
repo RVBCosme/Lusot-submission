@@ -13,7 +13,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import type { Response, ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { SPEND_STOP_PARAM } from "../../src/ask/handler";
-import type { Meta, MetaCall } from "../../src/ask/meta";
+import { type Meta, type MetaCall, MetaError } from "../../src/ask/meta";
 import { SPOTS } from "../../src/ask/spots";
 import { LEVELS } from "../../src/ask/tool";
 import { inMetroManila } from "../../src/metroManila";
@@ -231,17 +231,21 @@ function reply(name: "ask_call" | "ask_answer", content: string): Response {
 
 // One question's Meta, as the handler's factory makes it. It finds the question by its text (the user message's
 // second part, after the location line), answers turn 1 with READINGS' call, and the final turn by citing every live
-// report the tool returned.
-function scriptedMeta(): Meta {
+// report the tool returned. `fault` names a question's failure instead: a MetaError is thrown with its status, and any
+// other error after a 200, as an answer the SDK couldn't read would be.
+function scriptedMeta(fault: (id: string) => Error | undefined = () => undefined): Meta {
   const ids = new Map(loadQuestions().map((q) => [q.text, q.id]));
   const calls: MetaCall[] = [];
   return {
     calls,
     async respond(body: ResponseCreateParamsNonStreaming) {
-      calls.push({ model: "muse-spark-1.3", status: 200, ms: 0 });
       const items = body.input as unknown as Record<string, unknown>[];
       const question = (items[0].content as { text: string }[])[1].text;
-      const reading = READINGS[ids.get(question) ?? ""];
+      const id = ids.get(question) ?? "";
+      const error = fault(id);
+      calls.push({ model: "muse-spark-1.3", status: error instanceof MetaError ? error.status : 200, ms: 0 });
+      if (error !== undefined) throw error;
+      const reading = READINGS[id];
       if (reading === undefined) throw new Error("the dry run has no reading for this question");
       const output = items.find((item) => item.type === "function_call_output");
       if (reading === "off_topic") return reply("ask_answer", JSON.stringify({ kind: "off_topic", vehicle: "none", cited: [] }));
@@ -268,20 +272,56 @@ describe("the dry run", () => {
 
     const summary = await runHarness(options());
 
-    // With a model that reads each question right, the fixtures give every expected answer.
-    expect(summary).toMatchObject({ questions: 10, passed: 10, failed: 0, plainLists: 0, paused: 0, spendErrors: 0, metaCalls: 19 });
+    // With a model that reads each question right, the fixtures give every expected answer, and the run passes.
+    expect(summary).toMatchObject({
+      questions: 10,
+      asked: 10,
+      passed: 10,
+      failed: 0,
+      notAsked: 0,
+      modelAnswers: 10,
+      plainLists: 0,
+      paused: 0,
+      spendStops: 0,
+      spendErrors: 0,
+      metaCalls: 19,
+      ok: true,
+    });
     expect(createMeta).toHaveBeenCalledTimes(10);
-    const lines = readFileSync(answersPath(dataDir, "2026-10-31"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const lines = answerLines();
     expect(lines.map((line) => line.id)).toEqual(loadQuestions().map((q) => q.id));
     for (const line of lines) {
-      expect(line, line.id).toMatchObject({ route: "ask", status: 200, pass: true, source: "model", spend: "ok" });
+      expect(line, line.id).toMatchObject({ route: "ask", status: 200, pass: true, source: "model", spend: "ok", meta_status: null, error: null });
       expect(Object.keys(line).sort(), line.id).toEqual(
-        ["answer", "checks", "est_usd", "fallback", "id", "input_tokens", "meta_calls", "ms", "output_tokens", "pass", "reasoning_tokens", "route", "run", "source", "spend", "status"].sort(),
+        [
+          "answer",
+          "checks",
+          "error",
+          "est_usd",
+          "fallback",
+          "final",
+          "id",
+          "input_tokens",
+          "meta_calls",
+          "meta_status",
+          "ms",
+          "output_tokens",
+          "pass",
+          "reasoning_tokens",
+          "route",
+          "run",
+          "source",
+          "spend",
+          "status",
+        ].sort(),
       );
       expect(Object.values(line.checks).every((check) => check === true || check === null), line.id).toBe(true);
     }
-    // T1's tokens are the two fixture turns' (ask_call, then ask_answer).
-    expect(lines[0]).toMatchObject({ meta_calls: 2, input_tokens: 1285 + 1897, output_tokens: 445 + 320, reasoning_tokens: 307 + 287 });
+    // T1's tokens are the two fixture turns' (ask_call, then ask_answer); its final turn ran. T10 had none.
+    expect(lines[0]).toMatchObject({ meta_calls: 2, input_tokens: 1285 + 1897, output_tokens: 445 + 320, reasoning_tokens: 307 + 287, final: "ok" });
+    expect(lines[9]).toMatchObject({ meta_calls: 1, final: null });
+    expect(printed).toContain("ask-eval: 10 model answers, 0 plain lists (model misses), 0 paused");
+    expect(printed.at(-1)).toBe("ask-eval: run passed");
 
     // Every question's cost went to the counter through the harness's spend client, under the source "ask".
     expect(spendMock.commandCalls(UpdateCommand)).toHaveLength(10);
@@ -305,8 +345,78 @@ describe("the dry run", () => {
 
     const summary = await runHarness(options());
 
-    expect(summary).toMatchObject({ questions: 10, passed: 0, failed: 10, plainLists: 10, paused: 10, metaCalls: 0 });
+    expect(summary).toMatchObject({ questions: 10, passed: 0, failed: 10, modelAnswers: 0, plainLists: 10, paused: 10, metaCalls: 0, ok: false });
     expect(createMeta).not.toHaveBeenCalled();
-    expect(printed.some((line) => /\b10 paused\b/.test(line))).toBe(true);
+    expect(printed).toContain("ask-eval: 0 model answers, 10 plain lists (model misses), 10 paused");
+    expect(printed.at(-1)).toBe("ask-eval: run failed");
+  });
+
+  // C736: the handler logs spend_error (a write that failed after its retries) or spend_stop (a total that reached
+  // the stop) and sets the stack's model-calls switch on. The harness's own switch read stays cached for 30 s, so it
+  // stops asking itself: no question after that one pays Meta while the counter may miss its cost.
+  it.each([
+    ["the spend write fails", "error", () => spendMock.on(UpdateCommand).rejects(awsError("ProvisionedThroughputExceededException", 400))],
+    ["the spend total reaches the stop", "stop", () => spendMock.on(UpdateCommand).resolves({ Attributes: { micro_usd: 60_000_000 } })],
+  ])("stops asking after a question whose spend isn't ok (%s), and fails the run", async (_name, spend, setup) => {
+    setup();
+    createMeta.mockImplementation(() => scriptedMeta());
+
+    const summary = await runHarness(options());
+
+    expect(createMeta).toHaveBeenCalledTimes(1);
+    expect(summary).toMatchObject({
+      questions: 10,
+      asked: 1,
+      notAsked: 9,
+      spendErrors: spend === "error" ? 1 : 0,
+      spendStops: spend === "stop" ? 1 : 0,
+      ok: false,
+    });
+    const lines = answerLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ id: "T1", spend });
+    // The handler set the deployed switch on, as C736 has it.
+    expect(ssmMock.commandCalls(PutParameterCommand).map((call) => call.args[0].input)).toEqual([
+      expect.objectContaining({ Name: `${STOP_PREFIX}model-calls`, Value: "on" }),
+    ]);
+    expect(printed).toContain(
+      `ask-eval: ${spend === "stop" ? 1 : 0} spend stops, ${spend === "error" ? 1 : 0} spend errors, 9 not asked (the run stops asking at the first)`,
+    );
+    expect(printed.at(-1)).toBe("ask-eval: run failed");
+  });
+
+  it("fails a run in which no question got a model answer", async () => {
+    createMeta.mockImplementation(() => scriptedMeta(() => new MetaError(503)));
+
+    const summary = await runHarness(options());
+
+    // Every question fell back to the plain list (model_error), which passes on its own rules, so only the count of
+    // model answers shows the run never tested the model.
+    expect(summary).toMatchObject({ questions: 10, asked: 10, failed: 0, modelAnswers: 0, plainLists: 10, paused: 0, ok: false });
+    expect(printed).toContain("ask-eval: 0 model answers, 10 plain lists (model misses), 0 paused");
+    expect(printed.at(-1)).toBe("ask-eval: run failed");
+  });
+
+  it("keeps a failed question's meta_status, error and final", async () => {
+    // T1: Meta answers 503, so the plain list answers (model_error). T2: an answer the SDK couldn't read, so a 500.
+    const fault = (id: string) => (id === "T1" ? new MetaError(503) : id === "T2" ? new TypeError("unreadable") : undefined);
+    createMeta.mockImplementation(() => scriptedMeta(fault));
+
+    const summary = await runHarness(options());
+
+    const lines = answerLines();
+    expect(lines[0]).toMatchObject({ id: "T1", status: 200, source: "plain_list", fallback: "model_error", meta_status: 503, error: null, final: null });
+    expect(lines[1]).toMatchObject({ id: "T2", status: 500, answer: null, pass: false, meta_status: null, error: "TypeError", final: null });
+    // The error's name only, never its message.
+    expect(JSON.stringify(lines[1])).not.toContain("unreadable");
+    expect(lines[2]).toMatchObject({ id: "T3", final: "ok", meta_status: null, error: null });
+    expect(summary).toMatchObject({ asked: 10, failed: 1, modelAnswers: 8, plainLists: 1, ok: false });
   });
 });
+
+type AnswerLine = Record<string, unknown> & { id: string; checks: Record<string, boolean | null> };
+const answerLines = (): AnswerLine[] =>
+  readFileSync(answersPath(dataDir, "2026-10-31"), "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));

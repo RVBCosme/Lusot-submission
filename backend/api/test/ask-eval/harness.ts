@@ -302,15 +302,21 @@ export type HarnessOptions = {
 
 export type Summary = {
   questions: number;
+  asked: number;
   passed: number;
   failed: number;
+  notAsked: number; // after a question whose spend wasn't ok, the run stops asking
+  modelAnswers: number;
   plainLists: number; // model misses
   paused: number; // plain lists while model calls were paused (failures)
-  spendStops: number; // questions after which the counter reached its stop
+  spendStops: number; // questions after which the counter reached its stop, or couldn't be read
   spendErrors: number; // questions whose cost didn't reach the counter
   metaCalls: number;
   estUsd: string;
   ms: number[];
+  // The run passes only when every question was asked and passed, every cost reached the counter below its stop,
+  // and at least one answer came from the model (AK1 asks for real Muse Spark calls).
+  ok: boolean;
 };
 
 const CONSOLE = ["log", "info", "warn", "error", "debug"] as const;
@@ -344,13 +350,21 @@ function jsonLines(lines: string[]): Record<string, unknown>[] {
 }
 
 const count = (value: unknown): number => (typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0);
+// The log line's fields kept for a failed question's diagnosis (spec §4.9): Meta's error status, the error's class
+// name for a 500 (logAsk writes only the name), and the final turn's ending. Null when absent.
+const metaStatus = (value: unknown): number | null => (typeof value === "number" ? value : null);
+const loggedError = (value: unknown): string | null => (typeof value === "string" ? value : null);
+const finalTurn = (value: unknown): string | null => (value === "ok" || value === "skipped" || value === "failed" ? value : null);
 
 export function localDate(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// The questions in order, each through askTyped once; every answer appended to the answers file as it comes.
+// The questions in order, each through askTyped once; every answer appended to the answers file as it comes. After a
+// question whose spend wasn't ok (a spend_error or spend_stop line), the run stops asking: the handler has set the
+// stack's model-calls switch on, but this run's own switch read stays cached for 30 s, so a later question could
+// still pay Meta while the counter misses its cost (C736). The caller fails the run when `ok` is false.
 export async function runHarness(o: HarnessOptions): Promise<Summary> {
   const out = answersPath(o.dataDir, o.date);
   const questions = loadQuestions();
@@ -381,7 +395,22 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
 
   mkdirSync(dirname(out), { recursive: true });
   const run = new Date(now()).toISOString();
-  const summary: Summary = { questions: questions.length, passed: 0, failed: 0, plainLists: 0, paused: 0, spendStops: 0, spendErrors: 0, metaCalls: 0, estUsd: "0", ms: [] };
+  const summary: Summary = {
+    questions: questions.length,
+    asked: 0,
+    passed: 0,
+    failed: 0,
+    notAsked: 0,
+    modelAnswers: 0,
+    plainLists: 0,
+    paused: 0,
+    spendStops: 0,
+    spendErrors: 0,
+    metaCalls: 0,
+    estUsd: "0",
+    ms: [],
+    ok: false,
+  };
   let input = 0;
   let output = 0;
 
@@ -401,9 +430,11 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
       const tokens = { input: count(line.input_tokens), output: count(line.output_tokens), reasoning: count(line.reasoning_tokens) };
       input += tokens.input;
       output += tokens.output;
+      summary.asked++;
       summary.ms.push(ms);
       summary.metaCalls += count(line.meta_calls);
       summary[pass ? "passed" : "failed"]++;
+      if (answer?.source === "model") summary.modelAnswers++;
       if (answer?.source === "plain_list") summary.plainLists++;
       if (answer?.fallback === "model_calls_paused") summary.paused++;
       if (spend === "stop") summary.spendStops++;
@@ -421,6 +452,9 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
         source: answer?.source ?? null,
         fallback: answer?.fallback ?? null,
         meta_calls: count(line.meta_calls),
+        meta_status: metaStatus(line.meta_status),
+        error: loggedError(line.error),
+        final: finalTurn(line.final),
         input_tokens: tokens.input,
         output_tokens: tokens.output,
         reasoning_tokens: tokens.reasoning,
@@ -428,17 +462,23 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
         spend,
       };
       appendFileSync(out, `${JSON.stringify(record)}\n`);
+      if (spend !== "ok") break;
     }
   });
 
+  summary.notAsked = summary.questions - summary.asked;
+  summary.ok =
+    summary.notAsked === 0 && summary.failed === 0 && summary.spendStops === 0 && summary.spendErrors === 0 && summary.modelAnswers > 0;
   summary.estUsd = costOf({ spark_input_tokens: input, spark_output_tokens: output });
   const sorted = [...summary.ms].sort((a, b) => a - b);
   const at = (i: number) => sorted[Math.max(0, Math.min(sorted.length - 1, i))] ?? 0;
-  o.print(`ask-eval: ${summary.questions} questions, ${summary.passed} passed, ${summary.failed} failed`);
+  o.print(`ask-eval: ${summary.questions} questions, ${summary.asked} asked, ${summary.passed} passed, ${summary.failed} failed`);
+  o.print(`ask-eval: ${summary.modelAnswers} model answers, ${summary.plainLists} plain lists (model misses), ${summary.paused} paused`);
   o.print(
-    `ask-eval: ${summary.plainLists} plain lists (model misses), ${summary.paused} paused, ${summary.spendStops} spend stops, ${summary.spendErrors} spend errors`,
+    `ask-eval: ${summary.spendStops} spend stops, ${summary.spendErrors} spend errors, ${summary.notAsked} not asked (the run stops asking at the first)`,
   );
   o.print(`ask-eval: handler ms min ${at(0)}, median ${at(Math.floor((sorted.length - 1) / 2))}, max ${at(sorted.length - 1)}`);
   o.print(`ask-eval: ${summary.metaCalls} Meta calls, est. $${summary.estUsd}`);
+  o.print(`ask-eval: run ${summary.ok ? "passed" : "failed"}`);
   return summary;
 }

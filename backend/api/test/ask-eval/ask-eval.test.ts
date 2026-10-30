@@ -37,6 +37,12 @@ describe.skipIf(!PAID)("Ask Lusot's 10 typed questions, with real Muse Spark cal
       print: (line) => console.log(line),
     });
 
+    // A cost that didn't reach the counter, or a counter at its stop, fails the run: the handler has already set the
+    // stack's model-calls switch on, and the harness stopped asking after that question (C736).
+    expect(summary.spendErrors).toBe(0);
+    expect(summary.spendStops).toBe(0);
     expect(summary.failed).toBe(0);
+    // Every question asked, and at least one model answer (summary.ok).
+    expect(summary.ok).toBe(true);
   }, 600_000);
 });
