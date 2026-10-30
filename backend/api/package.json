@@ -14,7 +14,8 @@
     "@aws-sdk/lib-dynamodb": "3.1157.0",
     "@aws-sdk/s3-presigned-post": "3.1157.0",
     "@aws-sdk/s3-request-presigner": "3.1157.0",
-    "ngeohash": "0.6.4"
+    "ngeohash": "0.6.4",
+    "openai": "7.34.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "8.10.164",

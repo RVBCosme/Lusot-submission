@@ -1,8 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-
-// Task 7 replaces this with the openai SDK's function tool type.
-export type FunctionTool = { type: "function"; name: string; description: string; strict: true; parameters: Record<string, unknown> };
+import type { FunctionTool } from "openai/resources/responses/responses";
 
 export const PROMPT_VERSION = "ask_v1";
 
