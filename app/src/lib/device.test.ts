@@ -15,6 +15,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   localStorage.clear()
 })
 
@@ -34,6 +35,38 @@ it('getDeviceId is made with crypto.randomUUID', async () => {
 
   expect(getDeviceId()).toBe(STORED)
   expect(randomUUID).toHaveBeenCalledOnce()
+})
+
+it('getDeviceId builds a version-4 UUID when crypto.randomUUID is missing', async () => {
+  // Plain http on a LAN IP isn't a secure context, so the browser offers getRandomValues but not randomUUID.
+  const getRandomValues = vi.fn(<T extends ArrayBufferView | null>(array: T): T => {
+    if (array instanceof Uint8Array) array.fill(0xff)
+    return array
+  })
+  vi.stubGlobal('crypto', { getRandomValues })
+  const { getDeviceId } = await loadDevice()
+
+  const id = getDeviceId()
+
+  // The version nibble is 4 and the variant bits are 10, whatever the random bytes.
+  expect(id).toBe('ffffffff-ffff-4fff-bfff-ffffffffffff')
+  expect(getRandomValues).toHaveBeenCalledOnce()
+  expect(getDeviceId()).toBe(id)
+  expect(localStorage.getItem('lusot.device')).toBe(id)
+})
+
+it('getDeviceId builds a different id each time from real random bytes', async () => {
+  const real = globalThis.crypto
+  vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) })
+
+  const first = (await loadDevice()).getDeviceId()
+  localStorage.clear()
+  const second = (await loadDevice()).getDeviceId()
+
+  const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  expect(first).toMatch(V4)
+  expect(second).toMatch(V4)
+  expect(second).not.toBe(first)
 })
 
 it('getDeviceId keeps the id across launches', async () => {

@@ -1,6 +1,6 @@
 // The app's only route to the backend: MS4's HTTP API, the presigned S3 upload, and the layers file a
 // report links to. Field names and error codes are MS4's committed ones (plan "Notes").
-import type { Level, Passability } from '../copy/levels'
+import { type Level, LEVELS, PASSABILITY, type Passability } from '../copy/levels'
 
 const REQUEST_TIMEOUT_MS = 15_000 // one API call
 const UPLOAD_TIMEOUT_MS = 60_000 // the photo: a few hundred KB, maybe over a slow mobile connection
@@ -11,6 +11,9 @@ const LIMIT_CODES = new Set(['device_limit', 'global_cap', 'question_limit', 'qu
 // A sample's licence (C617, MS4's C512): CC0 or CC BY of any version, or MS4's exact value for a consented photo.
 const SAMPLE_LICENCE = /^(CC0( 1\.0)?|CC BY \d(\.\d)?)$/
 const CONSENTED_LICENCE = 'used with permission'
+// Task 4's 9 levels and 3 classes. A pin outside them would break the wording of every viewer's map list.
+const KNOWN_LEVELS: ReadonlySet<unknown> = new Set(LEVELS)
+const KNOWN_CLASSES: ReadonlySet<unknown> = new Set(Object.values(PASSABILITY))
 
 export interface UploadRequest {
   lat: number
@@ -220,6 +223,15 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+// An answer that isn't in the shape the API promises. A named error, so retryOnce never takes it for a network
+// error: the server has already acted on the request. Its message names the route, never the body or an id.
+export class MalformedAnswerError extends Error {
+  constructor(route: string) {
+    super(`${route} gave an answer in an unexpected shape`)
+    this.name = 'MalformedAnswerError'
+  }
+}
+
 // The API's base URL from VITE_API_URL without trailing slashes, or '' when it isn't set.
 export function apiBaseUrl(raw: string | undefined): string {
   return (raw ?? '').replace(/\/+$/, '')
@@ -241,7 +253,8 @@ export async function requestUpload(
       signal,
     })
     if (!res.ok) throw await httpError(res)
-    const { reportId, upload } = await res.json()
+    const { reportId, upload } = ((await res.json()) ?? {}) as { reportId?: unknown; upload?: unknown }
+    if (typeof reportId !== 'string' || !isPresignedPost(upload)) throw new MalformedAnswerError('POST /uploads')
     return { reportId, upload }
   })
 }
@@ -259,18 +272,24 @@ export async function postToS3(upload: PresignedPost, jpeg: Blob, fetchFn: typeo
 
 // GET /reports/{id}, or undefined on a 404: a fresh report the index hasn't caught up with (R30), or one past
 // expiresAt (MS4's C526). For a published pin it carries the photo links while the pin is visible (C503).
+// `stop` (the poll's signal) cancels the request in flight.
 export async function getReport(
   apiUrl: string,
   id: string,
   fetchFn: typeof fetch = fetch,
+  stop?: AbortSignal,
 ): Promise<ReportResult | undefined> {
-  return withTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
-    const res = await fetchFn(`${apiUrl}/reports/${encodeURIComponent(id)}`, { signal })
-    if (res.status === 404) return undefined
-    if (!res.ok) throw await httpError(res)
-    const body = await res.json()
-    return { ...pick(body, REPORT_FIELDS), published: body.published === true } as unknown as ReportResult
-  })
+  return withTimeout(
+    REQUEST_TIMEOUT_MS,
+    async (signal) => {
+      const res = await fetchFn(`${apiUrl}/reports/${encodeURIComponent(id)}`, { signal })
+      if (res.status === 404) return undefined
+      if (!res.ok) throw await httpError(res)
+      const body = await res.json()
+      return { ...pick(body, REPORT_FIELDS), published: body.published === true } as unknown as ReportResult
+    },
+    stop,
+  )
 }
 
 // The layers file a level result links to (layersUrl), or undefined on any failure: an expired link, a bucket
@@ -290,17 +309,18 @@ export async function getLayers(layersUrl: string, fetchFn: typeof fetch = fetch
 }
 
 // GET /map/pins (MS4's C519): every visible published pin, live and demo. A pin without an id or a position
-// can't be placed, and a demo pin without its credit is never shown (N2).
+// can't be placed, one outside the 9 levels or 3 classes can't be worded, and a demo pin without its credit is
+// never shown (N2).
 export async function getPins(apiUrl: string, fetchFn: typeof fetch = fetch): Promise<Pin[]> {
   const { pins } = await getJson(`${apiUrl}/map/pins`, fetchFn)
-  if (!Array.isArray(pins)) throw new Error('GET /map/pins gave no pins list')
+  if (!Array.isArray(pins)) throw new MalformedAnswerError('GET /map/pins')
   return pins.filter(isUsablePin).map((pin) => pick(pin, PIN_FIELDS) as unknown as Pin)
 }
 
 // GET /samples (MS4's C512). A sample is kept only with a credit and a licence on the allow-list (C617).
 export async function getSamples(apiUrl: string, fetchFn: typeof fetch = fetch): Promise<Sample[]> {
   const { samples } = await getJson(`${apiUrl}/samples`, fetchFn)
-  if (!Array.isArray(samples)) throw new Error('GET /samples gave no samples list')
+  if (!Array.isArray(samples)) throw new MalformedAnswerError('GET /samples')
   return samples.filter(isUsableSample).map((sample) => pick(sample, SAMPLE_FIELDS) as unknown as Sample)
 }
 
@@ -324,7 +344,7 @@ export async function runSample(
     if (body?.saved === true) {
       return { saved: true, savedAt: body.savedAt, result: pick(body.result, SAVED_RESULT_FIELDS) } as SavedSample
     }
-    if (typeof body?.reportId !== 'string') throw new Error('The sample run gave no report id')
+    if (typeof body?.reportId !== 'string') throw new MalformedAnswerError('POST /samples/{sampleId}')
     return { reportId: body.reportId }
   })
 }
@@ -345,26 +365,39 @@ export async function flagPin(
     })
     if (!res.ok) throw await httpError(res)
     const { flags } = await res.json()
-    if (typeof flags !== 'number') throw new Error('The flag answer gave no count')
+    if (typeof flags !== 'number') throw new MalformedAnswerError('POST /reports/{id}/flag')
     return { flags }
   })
 }
 
 // Runs one request, body included, with a time limit, so a stalled connection fails instead of
-// leaving the screen waiting. The race settles on time even if a fetch ignores the abort.
-async function withTimeout<T>(timeoutMs: number, request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+// leaving the screen waiting. A caller's `stop` signal cancels it too, with an AbortError. The race
+// settles on time even if a fetch ignores the abort.
+async function withTimeout<T>(
+  timeoutMs: number,
+  request: (signal: AbortSignal) => Promise<T>,
+  stop?: AbortSignal,
+): Promise<T> {
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timedOut = new Promise<never>((_, reject) => {
+  let onStop: (() => void) | undefined
+  const cut = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort()
       reject(new RequestTimeoutError(timeoutMs))
     }, timeoutMs)
+    onStop = () => {
+      controller.abort()
+      reject(new DOMException('The request was stopped', 'AbortError'))
+    }
+    if (stop?.aborted) onStop()
+    else stop?.addEventListener('abort', onStop, { once: true })
   })
   try {
-    return await Promise.race([request(controller.signal), timedOut])
+    return await Promise.race([request(controller.signal), cut])
   } finally {
     clearTimeout(timer)
+    if (onStop !== undefined) stop?.removeEventListener('abort', onStop)
   }
 }
 
@@ -413,7 +446,21 @@ function isUsablePin(value: unknown): boolean {
     isText(pin.id) &&
     Number.isFinite(pin.lat) &&
     Number.isFinite(pin.lng) &&
+    KNOWN_LEVELS.has(pin.level) &&
+    KNOWN_CLASSES.has(pin.passability) &&
     (pin.mode !== 'demo' || isText(pin.credit))
+  )
+}
+
+// The link POST /uploads gives: a URL and its policy's fields, each a string.
+function isPresignedPost(value: unknown): value is PresignedPost {
+  const { url, fields } = (value ?? {}) as { url?: unknown; fields?: unknown }
+  return (
+    typeof url === 'string' &&
+    typeof fields === 'object' &&
+    fields !== null &&
+    !Array.isArray(fields) &&
+    Object.values(fields).every((field) => typeof field === 'string')
   )
 }
 

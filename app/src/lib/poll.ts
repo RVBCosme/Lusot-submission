@@ -40,14 +40,19 @@ export interface PollOptions {
   signal?: AbortSignal
   // Where the schedule starts: 0 right after the upload, 240_000 for "Check again" (every 15 s).
   startElapsedMs?: number
+  // The deadline as a time on the `now` clock. Left out, it is 600 s after this call. A poll restarted mid-wait
+  // (after the app comes back to the front) passes the upload's time plus POLL.windowMs, so the total stays
+  // 600 s. "Check again" leaves it out, for a new 600 s window.
+  deadlineAt?: number
 }
 
-// Polls GET /reports/{id} until the report has a final status (R32). The deadline is startElapsedMs plus
-// 600 s, on the clock, so the time requests take counts too; the last poll comes at the deadline.
+// Polls GET /reports/{id} until the report has a final status (R32). The deadline is on the clock, so the time
+// requests take counts too; the last poll comes at the deadline. A poll started past it makes one last check.
 // - A 404, a 5xx, a network error, a request timeout or an answer that isn't JSON keeps polling.
 // - A 429 waits for its Retry-After when the browser can read it (N15), never less than the interval and
 //   never past the deadline, or else for the interval plus up to 1 s of jitter.
-// - Any other 4xx throws its HttpError. An aborted signal throws an AbortError before the next fetch.
+// - Any other 4xx throws its HttpError. An aborted signal cancels the request in flight and throws an
+//   AbortError before the next fetch.
 export async function pollReport(
   apiUrl: string,
   reportId: string,
@@ -58,16 +63,17 @@ export async function pollReport(
     random = Math.random,
     signal,
     startElapsedMs = 0,
+    deadlineAt,
   }: PollOptions = {},
 ): Promise<ReportResult> {
   const startedAt = now()
-  const deadline = startElapsedMs + POLL.windowMs
+  const endAt = deadlineAt ?? startedAt + POLL.windowMs
   for (;;) {
     stopIfAborted(signal)
     let report: ReportResult | undefined
     let failure: unknown
     try {
-      report = await getReport(apiUrl, reportId, fetchFn)
+      report = await getReport(apiUrl, reportId, fetchFn, signal)
     } catch (err) {
       failure = err
     }
@@ -75,14 +81,14 @@ export async function pollReport(
     if (failure !== undefined && !keepsPolling(failure)) throw failure
     if (report !== undefined && FINAL_STATUSES.has(report.status)) return report
 
-    const elapsed = startElapsedMs + (now() - startedAt)
-    if (elapsed >= deadline) throw new PollTimeoutError(POLL.windowMs)
-    const interval = intervalAt(elapsed)
+    const at = now()
+    if (at >= endAt) throw new PollTimeoutError(POLL.windowMs)
+    const interval = intervalAt(startElapsedMs + (at - startedAt))
     let wait = interval
     if (failure instanceof HttpError && failure.status === 429) {
       wait = failure.retryAfterMs === undefined ? interval + random() * JITTER_MS : Math.max(failure.retryAfterMs, interval)
     }
-    await sleep(Math.min(wait, deadline - elapsed), signal)
+    await sleep(Math.min(wait, endAt - at), signal)
   }
 }
 

@@ -7,6 +7,7 @@ import {
   getReport,
   getSamples,
   HttpError,
+  MalformedAnswerError,
   postToS3,
   RequestTimeoutError,
   requestUpload,
@@ -203,6 +204,21 @@ it('requestUpload sends only the request fields', async () => {
   expect(Object.keys(JSON.parse(String(fetchFn.mock.calls[0][1]?.body))).sort()).toEqual(Object.keys(REQ).sort())
 })
 
+it.each([
+  ['a null body', null],
+  ['no upload', { reportId: ID, expiresInS: 300 }],
+  ['a report id that is not text', { reportId: 42, upload: UPLOAD }],
+  ['an upload without a url', { reportId: ID, upload: { fields: UPLOAD.fields } }],
+  ['upload fields that are not text', { reportId: ID, upload: { url: UPLOAD.url, fields: { key: 7 } } }],
+  ['upload fields as a list', { reportId: ID, upload: { url: UPLOAD.url, fields: ['key'] } }],
+])('requestUpload throws MalformedAnswerError on a 201 with %s', async (_, body) => {
+  // A named error, not a TypeError, so retryOnce never reads it as a network error and posts again.
+  const upload = requestUpload(API, REQ, DEVICE, fetchReplying(json(201, body)))
+
+  await expect(upload).rejects.toBeInstanceOf(MalformedAnswerError)
+  await expect(upload).rejects.toMatchObject({ name: 'MalformedAnswerError' })
+})
+
 it('postToS3 appends every field before the file', async () => {
   const fetchFn = fetchReplying(new Response(null, { status: 204 }))
   const jpeg = new Blob(['jpeg bytes'], { type: 'image/jpeg' })
@@ -350,6 +366,17 @@ it('getPins skips a pin with no usable position', async () => {
   const textLng = { ...LIVE_PIN, id: `r_${'e'.repeat(32)}`, lng: '120.9894' }
 
   expect(await getPins(API, fetchReplying(json(200, { pins: [noLat, textLng, LIVE_PIN] })))).toEqual([LIVE_PIN])
+})
+
+it('getPins skips a pin whose level or class is not one of the known ones', async () => {
+  // One such pin would otherwise break the wording of every viewer's map list.
+  const unknownLevel = { ...LIVE_PIN, id: `r_${'f'.repeat(32)}`, level: 'ankle_deep' }
+  const unknownClass = { ...LIVE_PIN, id: `r_${'a'.repeat(32)}`, passability: 'PASSABLE' }
+  const noLevel = { ...DEMO_PIN, level: undefined }
+
+  expect(await getPins(API, fetchReplying(json(200, { pins: [unknownLevel, unknownClass, noLevel, LIVE_PIN] })))).toEqual([
+    LIVE_PIN,
+  ])
 })
 
 it('getPins throws on an error or an answer without a pins list', async () => {

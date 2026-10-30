@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { HttpError, RequestTimeoutError, requestUpload } from './api'
+import { HttpError, MalformedAnswerError, RequestTimeoutError, requestUpload } from './api'
 import { retryOnce } from './retry'
 
 const API = 'https://api.example.test'
@@ -104,6 +104,8 @@ it.each([
   ['a 429 global_cap', 429, { error: 'global_cap' }, true],
   ['a 429 question_limit', 429, { error: 'question_limit' }, true],
   ['a 429 question_cap', 429, { error: 'question_cap' }, true],
+  // Only API Gateway's throttle comes without a code (MS4's C522), so any coded 429 is a limit of some kind.
+  ['a 429 with an unknown code', 429, { error: 'hourly_limit_v2' }, false],
 ])('retryOnce calls once on %s', async (_, status, body, isDeviceLimit) => {
   const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(json(status, body)).mockResolvedValueOnce(created())
 
@@ -114,6 +116,17 @@ it.each([
   expect(fetchFn).toHaveBeenCalledOnce()
   expect(error).toBeInstanceOf(HttpError)
   expect(error).toMatchObject({ status, code: body.error, isDeviceLimit })
+})
+
+it('retryOnce never retries a malformed upload answer', async () => {
+  // The server accepted the first request, so posting again would only make an orphan report and use a count.
+  const fetchFn = vi.fn<typeof fetch>().mockResolvedValueOnce(json(201, null)).mockResolvedValueOnce(created())
+
+  const upload = settle(retryOnce(() => requestUpload(API, REQ, DEVICE, fetchFn)))
+  await vi.advanceTimersByTimeAsync(60_000)
+
+  expect(fetchFn).toHaveBeenCalledOnce()
+  expect((await upload).error).toBeInstanceOf(MalformedAnswerError)
 })
 
 it('retryOnce never retries an error it does not know', async () => {

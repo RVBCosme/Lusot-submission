@@ -111,6 +111,49 @@ it('"Check again" polls every 15 s for another 600 s', async () => {
   expect((await poll).error).toBeInstanceOf(PollTimeoutError)
 })
 
+it('a restart keeps the original deadline', async () => {
+  // The upload finished at NOW. The first poll was stopped (the app went to the background, say). At 300 s a new
+  // one picks up the schedule and ends where the first would have, 600 s after the upload, not 600 s after the restart.
+  await vi.advanceTimersByTimeAsync(300_000)
+  const { fetchFn, times } = fetchAnswering(report('pending'))
+
+  const poll = settle(pollReport(API, ID, { fetchFn, startElapsedMs: 300_000, deadlineAt: NOW + POLL.windowMs }))
+  await vi.advanceTimersByTimeAsync(600_000)
+
+  expect(times).toEqual(range(300_000, 600_000, 15_000))
+  expect((await poll).error).toBeInstanceOf(PollTimeoutError)
+})
+
+it('a restart in the 2 s phase keeps its intervals and the deadline', async () => {
+  await vi.advanceTimersByTimeAsync(50_000)
+  const { fetchFn, times } = fetchAnswering(report('pending'))
+
+  const poll = settle(pollReport(API, ID, { fetchFn, startElapsedMs: 50_000, deadlineAt: NOW + POLL.windowMs }))
+  await vi.advanceTimersByTimeAsync(600_000)
+
+  expect(times).toEqual([...range(50_000, 58_000, 2000), ...range(60_000, 240_000, 5000), ...range(255_000, 600_000, 15_000)])
+  expect((await poll).error).toBeInstanceOf(PollTimeoutError)
+})
+
+it('an aborted poll cancels its request in flight', async () => {
+  const { fetchFn } = fetchAnswering('stall')
+  const controller = new AbortController()
+
+  let settled = false
+  const outcome = settle(pollReport(API, ID, { fetchFn, signal: controller.signal })).finally(() => {
+    settled = true
+  })
+  await vi.advanceTimersByTimeAsync(1000)
+  controller.abort()
+
+  // The request's own signal aborts at once, which frees the connection, and the poll ends without waiting 15 s.
+  expect(fetchFn.mock.calls[0][1]?.signal?.aborted).toBe(true)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(settled).toBe(true)
+  expect((await outcome).error).toMatchObject({ name: 'AbortError' })
+  expect(fetchFn).toHaveBeenCalledOnce()
+})
+
 it('pollReport resolves on a final status with the report fields', async () => {
   const done = {
     reportId: ID,
