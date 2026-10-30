@@ -10,13 +10,8 @@ import pytest
 from fakes import around, sam_results
 
 from lusot_analysis.meta_client import SAM_PHRASES
-from lusot_analysis.pipeline.references import (
-    MAX_PEOPLE,
-    MAX_VEHICLES,
-    MIN_WHEEL_SIDE_PX,
-    Prepared,
-    prepare_boxes,
-)
+from lusot_analysis.pipeline.references import Prepared, prepare_boxes
+from lusot_analysis.tuning import START
 
 
 def ids(prepared: Prepared, phrase: str) -> list[int]:
@@ -25,7 +20,7 @@ def ids(prepared: Prepared, phrase: str) -> list[int]:
 
 
 def test_limits_are_the_spec_values():
-    assert (MIN_WHEEL_SIDE_PX, MAX_VEHICLES, MAX_PEOPLE) == (40, 6, 6)
+    assert (START.min_wheel_side_px, START.max_vehicles, START.max_people) == (40, 6, 6)
 
 
 def test_small_and_unlinked_wheels_are_dropped_before_numbering():

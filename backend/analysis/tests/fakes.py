@@ -146,13 +146,15 @@ def instance(
     size: tuple[int, int] = SIZE,
     mask_xyxy: tuple[float, float, float, float] | None = None,
     score: float | None = 0.9,
+    mask: np.ndarray | None = None,
 ) -> SamInstance:
     """SAM's match `i`, its box `xyxy` kept as MS1's client keeps it.
 
     The box is (x0, y0, x1, y1), half-open, in pixels of an image of `size`, so
     box_xyxy reads it back unchanged. The mask is True inside `mask_xyxy`, rounded
     outward (floor the start, ceil the end), which defaults to the box. Both boxes
-    must lie inside the image, as the client requires of SAM's.
+    must lie inside the image, as the client requires of SAM's. A `mask` given is the
+    match's mask itself, and overrides `mask_xyxy`.
     """
     width, height = size
     mask_box = xyxy if mask_xyxy is None else mask_xyxy
@@ -160,10 +162,60 @@ def instance(
         x0, y0, x1, y1 = box
         if not (0 <= x0 <= x1 <= width and 0 <= y0 <= y1 <= height):
             raise ValueError(f"{box} isn't inside a {width} x {height} image")
-    x0, y0, x1, y1 = mask_box
-    mask = np.zeros((height, width), bool)
-    mask[math.floor(y0) : math.ceil(y1), math.floor(x0) : math.ceil(x1)] = True
+    if mask is None:
+        x0, y0, x1, y1 = mask_box
+        mask = np.zeros((height, width), bool)
+        mask[math.floor(y0) : math.ceil(y1), math.floor(x0) : math.ceil(x1)] = True
     return SamInstance(i, tuple(float(v) for v in xyxy), mask, score)
+
+
+def wheel_scene(
+    *,
+    centre: tuple[int, int] = (320, 240),
+    tire_r: int = 57,
+    rim_r: int = 35,
+    y_true: int = 257,
+    seam: int = 0,
+    reflection: str = "none",
+    ripple: float = 0,
+    squash: float = 1.0,
+    size: tuple[int, int] = SIZE,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The (wheel, rim, water) bool masks of a wheel standing in water at `y_true`.
+
+    The wheel and the rim are filled ellipses with vertical semi-axis r and
+    horizontal semi-axis `squash` x r, centred on pixel `centre`. A pixel is in one
+    when its centre lies on or within the ellipse: pixel (x, y) when
+    ((x - cx) / (squash x r))^2 + ((y - cy) / r)^2 <= 1. `squash` below 1 is a wheel
+    seen at an angle. The masks hold the wheel's face only, so a test that needs the
+    tread in the box sets the box itself. Both are kept on rows < `y_true`.
+
+    `reflection` is "none", "overlap" or "hole". With "overlap" or "hole", both masks
+    also hold their mirror image in the water: row y maps to 2 x y_true - 1 - y. In
+    column x, the water starts at row y_true + seam + round(ripple x sin(x / 7)) and
+    runs to the image's bottom. For "none" and "hole", the wheel's pixels are removed
+    from it; for "overlap", it keeps them.
+    """
+    if reflection not in ("none", "overlap", "hole"):
+        raise ValueError(f"not a reflection: {reflection!r}")
+    width, height = size
+    ys, xs = np.mgrid[0:height, 0:width]
+    cx, cy = centre
+
+    def face(r: int) -> np.ndarray:
+        inside = ((xs - cx) / (squash * r)) ** 2 + ((ys - cy) / r) ** 2 <= 1
+        inside &= ys < y_true
+        if reflection != "none":
+            rows = np.arange(y_true, min(height, 2 * y_true))
+            inside[rows] |= inside[2 * y_true - 1 - rows]
+        return inside
+
+    wheel, rim = face(tire_r), face(rim_r)
+    tops = y_true + seam + np.round(ripple * np.sin(np.arange(width) / 7)).astype(int)
+    water = ys >= tops
+    if reflection != "overlap":
+        water &= ~wheel
+    return wheel, rim, water
 
 
 def sam_results(
@@ -277,11 +329,37 @@ def level_case() -> tuple[bytes, dict[str, SamResult], dict]:
     return noise_jpeg(), sam, given
 
 
+def geometry_case(
+    vehicle_type: str = "sedan_hatch", waterline: str = "rim_quarter"
+) -> tuple[bytes, dict[str, SamResult], dict]:
+    """The geometry case: a photo, SAM's results and Muse Spark's answer.
+
+    The photo is 640 x 480 noise. SAM's wheel, rim and water are wheel_scene's masks at
+    y_true 257, with the boxes (263, 183, 378, 257), (285, 205, 356, 257) and (0, 257,
+    640, 480). Its vehicle is (150, 100, 500, 300), and the other phrases find nothing.
+    Muse Spark answers vehicle 1, a parked `vehicle_type` with its body not_visible,
+    and wheel 2 at `waterline`. With geometry on, run_pipeline measures a sedan_hatch's
+    wheel at 7.720 to 8.184 in, which is half_knee. Tasks 7 to 10 and 12 reuse it.
+    """
+    wheel_mask, rim_mask, water = wheel_scene(y_true=257)
+    sam = sam_results({"vehicle": [(150, 100, 500, 300)]})
+    for phrase, xyxy, mask in (
+        ("wheel", (263, 183, 378, 257), wheel_mask),
+        ("wheel rim", (285, 205, 356, 257), rim_mask),
+        ("floodwater", (0, 257, 640, 480), water),
+    ):
+        found = [instance(0, xyxy, mask=mask)]
+        sam[phrase] = SamResult(phrase, found, elapsed_s=0.5, raw="")
+    given = answer(vehicles=[vehicle(1, vehicle_type)], wheels=[wheel(2, waterline)])
+    return noise_jpeg(), sam, given
+
+
 class FakeClient:
     """A ModelClient that answers from fixed results and records each call.
 
     `segment` returns `sam[phrase]`. `judge` returns `answer` as Muse Spark's answer,
-    or raises it when it is an exception. Each runs its hook first, if set, as
+    or raises it when it is an exception. The answer's reasoning token count is
+    `reasoning_tokens` (C312). Each runs its hook first, if set, as
     `on_segment(phrase)` or `on_judge()`: a hook can wait, or raise to fail the call
     before it is recorded. `calls` holds (method, phrase or schema_name, image type)
     for each call, added behind a lock, because the phrases run in parallel.
@@ -296,11 +374,13 @@ class FakeClient:
         *,
         on_segment: Callable[[str], object] | None = None,
         on_judge: Callable[[], object] | None = None,
+        reasoning_tokens: int | None = None,
     ) -> None:
         self.sam = sam
         self.answer = answer
         self.on_segment = on_segment
         self.on_judge = on_judge
+        self.reasoning_tokens = reasoning_tokens
         self.calls: list[tuple[str, str, type]] = []
         self.keywords: list[dict[str, object]] = []
         self._lock = threading.Lock()
@@ -340,6 +420,7 @@ class FakeClient:
             output_tokens=200,
             elapsed_s=1.5,
             raw=json.dumps(self.answer),
+            reasoning_tokens=self.reasoning_tokens,
         )
 
     def count_input_tokens(self, *args: object, **kwargs: object) -> NoReturn:

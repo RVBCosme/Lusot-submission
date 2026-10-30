@@ -235,6 +235,10 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   3. From `app/android/`: `$env:JAVA_HOME = "$env:LOCALAPPDATA\Programs\jdk-21"; .\gradlew.bat assembleDebug`. Gradle needs JDK 21, and the user `JAVA_HOME` stays JDK 17, so set it in the command, never in the user environment.
   4. `.\gradlew.bat --stop` frees the memory.
   5. Copy `app/android/app/build/outputs/apk/debug/app-debug.apk` to `$env:LUSOT_DATA_DIR\builds\`, and record its SHA-256.
+- **MS2's data tools** (spec §5.10; exact lines in the MS2 plan's "Rene runs" steps). Each runs as `uv run --locked --script <file>` from the repo root, except `set_b_masks.py`, which runs as `uv run --locked --directory backend/analysis python probes/set_b_masks.py`. All take absolute data paths; a record path may be relative. No tool has a default path.
+  - **Tests:** `uv run --locked --script eval/data/tests/run_tests.py` (also part of `check:py`).
+  - **Claude runs:** `eval/data/intake.py`, `eval/data/m8_sheet.py`, `eval/data/audit.py --dev`, `eval/set_b/generate.py` without `--final`, `eval/set_b/water_check.py` and `eval/data/freeze_record.py`. `backend/analysis/probes/set_b_masks.py` on development cars (it spends Meta credits; log each run's cost).
+  - **Rene runs, never an agent:** `eval/data/split.py`, `eval/data/audit.py --sealed`, `set_b_masks.py --final` and `generate.py --final` (Set D's `seal_set_d.py` comes with MS2's Task 18, after MS5's core screens). They refuse to run without his own console. The archive writers ask for the password twice; `audit --sealed` asks for `yes`.
 
 Notes:
 - **AWS:**

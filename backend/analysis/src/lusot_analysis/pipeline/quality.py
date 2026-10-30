@@ -13,11 +13,12 @@ from dataclasses import dataclass
 import cv2
 
 from lusot_analysis.face_blur import decode_image, shrink_to_max_side
+from lusot_analysis.tuning import TUNING, Tuning
 
-# Provisional and untuned (C44): they refuse only the extremes until MS3b tunes them
-# on development photos.
-BRIGHTNESS_MIN = 40.0
-SHARPNESS_MIN = 25.0
+# The live cutoffs (C44), from the tuning module, which tunes them on development
+# photos (C310). They refuse only the extremes while untuned.
+BRIGHTNESS_MIN = TUNING.brightness_min
+SHARPNESS_MIN = TUNING.sharpness_min
 MAX_SIDE = 1600  # the scores read the photo at this longer side, at most (C58)
 
 
@@ -42,13 +43,14 @@ def quality_scores(data: bytes) -> QualityScores:
     )
 
 
-def quality_refusal(scores: QualityScores) -> str | None:
+def quality_refusal(scores: QualityScores, tuning: Tuning = TUNING) -> str | None:
     """The refusal reason when a score is under its cutoff, or None to go on.
 
-    Dark is checked first, so a dark, flat photo reads too_dark.
+    The cutoffs are `tuning`'s, so a replay can raise them. Dark is checked first, so
+    a dark, flat photo reads too_dark.
     """
-    if scores.brightness < BRIGHTNESS_MIN:
+    if scores.brightness < tuning.brightness_min:
         return "too_dark"
-    if scores.sharpness < SHARPNESS_MIN:
+    if scores.sharpness < tuning.sharpness_min:
         return "too_blurry"
     return None

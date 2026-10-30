@@ -266,6 +266,22 @@ def _prompt() -> PromptSpec:
     return load_prompt(Path(os.environ["PROMPTS_DIR"]))
 
 
+@functools.cache
+def _geometry_in_level() -> bool:
+    """GEOMETRY_IN_LEVEL, the template's literal, read once per process (C309).
+
+    "on" puts rim geometry in the level path, and "off" keeps MS3a's rules plus step
+    3. Any other value, or none, raises ValueError. It is a deploy fault, like a
+    missing prompt: it loads before the claim, so the message retries and the report
+    stays pending (C60, C79). A failed read isn't cached, so the next delivery tries
+    again.
+    """
+    value = os.environ.get("GEOMETRY_IN_LEVEL")
+    if value not in ("on", "off"):
+        raise ValueError("GEOMETRY_IN_LEVEL must be on or off")
+    return value == "on"
+
+
 def _model_calls_switch() -> str:
     """The model-calls stop switch's value, read on every delivery.
 
@@ -368,16 +384,23 @@ def _pause_model_calls(fields: dict) -> None:
 def analyse(
     data: bytes, client: ModelClient, *, deadline: float | None = None
 ) -> PipelineRun:
-    """The handler's pipeline call, with every SAM phrase (B3).
+    """The handler's pipeline call, with every SAM phrase and the geometry setting (B3).
 
     The face and plate phrases are what the publish blur reads, so a level result gets
     its photo to store (C61). `deadline` is the run's deadline as a time.monotonic()
-    value (C84).
+    value (C84). GEOMETRY_IN_LEVEL sets geometry_in_level (C309).
     """
     from lusot_analysis.meta_client import SAM_PHRASES
     from lusot_analysis.pipeline import run_pipeline
 
-    return run_pipeline(data, client, _prompt(), phrases=SAM_PHRASES, deadline=deadline)
+    return run_pipeline(
+        data,
+        client,
+        _prompt(),
+        phrases=SAM_PHRASES,
+        deadline=deadline,
+        geometry_in_level=_geometry_in_level(),
+    )
 
 
 def handler(event: dict, context: object) -> dict:
@@ -442,6 +465,7 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     # stays untouched (C60, C79).
     client = _meta_client()
     _prompt()
+    _geometry_in_level()
     switch = _model_calls_switch()
 
     # Step 4: the claim, before any Meta call (G2, C46). Neither a finished report nor
@@ -507,6 +531,8 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         # However the run ends, before its final write or its error return, so a
         # retried message's paid attempt is counted too.
         _record_spend(counted, stop, line)
+    # The log line takes run.log only, and _finish stores item_fields() only, so the
+    # evidence record reaches neither CloudWatch nor the table (C328).
     line.update(run.log)
 
     # Step 8: publish.

@@ -130,15 +130,18 @@ def test_api_environment():
 
 
 def test_analysis_environment():
-    """MS3a's four, plus the limits table that holds the spend counter (C527)."""
+    """MS3a's four, MS3b's geometry setting (C309) and the limits table that holds the
+    spend counter (C527)."""
     env = props("AnalysisFunction")["Environment"]["Variables"]
     assert set(env) == {
         "TABLE_NAME",
         "BUCKET_NAME",
         "STOP_PARAM_PREFIX",
         "MODEL_KEY_PARAM",
+        "GEOMETRY_IN_LEVEL",
         "LIMITS_TABLE_NAME",
     }
+    assert env["GEOMETRY_IN_LEVEL"] == "on"  # a quoted literal, never YAML's bare on
     assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
 
 

@@ -242,7 +242,7 @@ All five were rechecked against the Oct 27 plan; G1 to G4 are still needed.
   - **Mirage G4:** confirmed on Mitsubishi PH's own page. 185/55R15 on every variant, 23.0 in, so it fits `sedan_hatch` (C13). The Oct 27 check confirmed its sales rank (8).
   - **Tamaraw:** 195R14C or 215/65R16 (26.3 to 27.0 in), from one secondary source.
   - **Hilux:** only the new generation's 265/60R18 (30.5 in) was found, from Thai data. The Hilux models already on Manila streets weren't verified.
-- **So M11 still photographs the jeepney, tricycle and bus, and adds a Hilux and a Tamaraw.**
+- **So M11 covers the jeepney, tricycle and bus, and adds a Hilux and a Tamaraw.** Amended Oct 29: Rene chose to source these sizes from public tire specs instead of sidewall photos. A draft is compiled for his review, and the codes land in MS3b's tire-code file (C304, R124).
 - Pickups get wheel measurement only after the Hilux sizes are verified; that is the plan's existing rule. A 30.5 in Hilux tire read as an SUV would come out one level too shallow, so W14's confusion matrix must check pickups.
 
 ## 10. Working process

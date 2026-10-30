@@ -1,9 +1,9 @@
 """Tests for the analysis Lambda's handler (spec §3.1, §3.6), against moto's AWS.
 
-The handler's Meta client is a FakeClient on the level case, so no Meta call is made.
-The key tests load the key from SSM through the handler's own loader, with MetaClient
-replaced by a recorder. A guard fails any test that builds a real MetaClient by
-accident.
+The handler's Meta client is a FakeClient on the level case, or on the geometry case,
+so no Meta call is made. The key tests load the key from SSM through the handler's own
+loader, with MetaClient replaced by a recorder. A guard fails any test that builds a
+real MetaClient by accident.
 """
 
 import dataclasses
@@ -32,6 +32,7 @@ from fakes import (
     create_reports_table,
     fail_attempts,
     flat_jpeg,
+    geometry_case,
     level_case,
     meta_error,
     no_backoff,
@@ -46,8 +47,9 @@ from lusot_analysis.meta_client import (
     MetaClient,
     ModelRefused,
 )
+from lusot_analysis.pipeline import run_pipeline
 from lusot_analysis.pipeline.publish import publish_jpeg
-from lusot_analysis.pipeline.saved import SavedOutputsClient
+from lusot_analysis.pipeline.saved import SavedOutputsClient, rebuild_outcome
 
 BUCKET = "lusot-test-uploads"
 TABLE = "lusot-test-reports"
@@ -95,6 +97,7 @@ KNEE = {
     "passability": {"S": "NPLV"},
     "levelIsFloor": {"BOOL": False},
     "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
+    "levelFrom": {"S": "landmark"},
     "photoKey": {"S": PHOTO_KEY},
     "published": {"BOOL": True},
     "feedPart": {"S": "live"},
@@ -113,6 +116,7 @@ RECEIPT = "receipt-handle-marker"
 QUEUE_ARN = "arn:aws:sqs:ap-southeast-1:account-id:lusot-queue"
 QUEUE_URL = "https://sqs.ap-southeast-1.amazonaws.com/account-id/lusot-queue"
 RUNNER = Path(__file__).parents[1] / "probes" / "run_pipeline.py"
+TEMPLATE = Path(__file__).parents[2] / "template.yaml"  # backend/template.yaml
 
 
 def load_runner():
@@ -132,11 +136,18 @@ def no_meta_client(**kwargs):
 
 @pytest.fixture
 def prompts(monkeypatch):
-    """The repo's prompts as PROMPTS_DIR, read fresh by the test."""
+    """The repo's prompts as PROMPTS_DIR, and GEOMETRY_IN_LEVEL on, both read fresh.
+
+    The `aws` fixture builds on it, so every handler test runs with geometry on, as
+    the template sets it (C309, P12).
+    """
     monkeypatch.setenv("PROMPTS_DIR", str(REPO_PROMPTS))
+    monkeypatch.setenv("GEOMETRY_IN_LEVEL", "on")
     handler._prompt.cache_clear()
+    handler._geometry_in_level.cache_clear()
     yield
     handler._prompt.cache_clear()
+    handler._geometry_in_level.cache_clear()
 
 
 @pytest.fixture
@@ -193,6 +204,15 @@ def fake(aws, monkeypatch) -> FakeClient:
     A test may change its answer or hooks before the delivery.
     """
     _, sam, given = level_case()
+    client = FakeClient(sam, given)
+    monkeypatch.setattr(handler, "_meta_client", lambda: client)
+    return client
+
+
+@pytest.fixture
+def geometry_fake(aws, monkeypatch) -> FakeClient:
+    """The geometry case's FakeClient as the handler's Meta client."""
+    _, sam, given = geometry_case()
     client = FakeClient(sam, given)
     monkeypatch.setattr(handler, "_meta_client", lambda: client)
     return client
@@ -510,6 +530,46 @@ def test_level_result_is_published(aws, fake):
     # Every SAM phrase and one Muse Spark answer: 7 + 1 calls.
     assert sorted(calls(fake, "segment")) == sorted(SAM_PHRASES)
     assert len(calls(fake, "judge")) == 1
+
+
+def test_geometry_result_is_stored_with_its_source_and_inches(aws, geometry_fake):
+    # C308, C320: the level, its source and its inches, stored as numbers, with
+    # Muse Spark's landmark kept. The handler reads the live tuning, so the item is
+    # compared with run_pipeline's own fields for the same case rather than pinned
+    # (half_knee, 7.7 and 8.2 in at the start values).
+    data, sam, given = geometry_case()
+    seed(aws, photo=data)
+    assert handler.handler(message(), None) == NO_FAILURES
+    expected = run_pipeline(
+        data, FakeClient(sam, given), handler._prompt(), geometry_in_level=True
+    ).outcome.item_fields()
+    assert expected["levelFrom"] == "geometry"
+    item = report(aws)
+    assert item == ITEM | claimed(item["claimToken"]["S"], NOW_S, "done") | {
+        "noFloodSeen": {"BOOL": False},
+        "level": {"S": expected["level"]},
+        "landmark": {"S": "rim_quarter"},
+        "passability": {"S": expected["passability"]},
+        "levelIsFloor": {"BOOL": False},
+        "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
+        "levelFrom": {"S": "geometry"},
+        "depthInMin": {"N": str(expected["depthInMin"])},
+        "depthInMax": {"N": str(expected["depthInMax"])},
+        "photoKey": {"S": PHOTO_KEY},
+        # Task 7's publish fields: a live level result while the switch reads off.
+        "published": {"BOOL": True},
+        "feedPart": {"S": "live"},
+    }
+    assert len(geometry_fake.calls) == 8  # no new Meta call for geometry
+
+
+def test_landmark_result_stores_level_from_only(aws, fake):
+    # C320, C307: a level its landmark set records that, and carries no inches.
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    assert item["levelFrom"] == {"S": "landmark"}
+    assert not {"depthInMin", "depthInMax"} & set(item)
 
 
 @pytest.mark.parametrize(
@@ -1001,6 +1061,71 @@ def test_missing_prompt_is_retried(aws, fake, monkeypatch, tmp_path, caplog):
     assert fake.calls == []
     (line,) = report_lines(caplog)
     assert (line["outcome"], line["error"]) == ("error", "FileNotFoundError")
+
+
+@pytest.mark.parametrize("value", [None, "maybe"], ids=["unset", "maybe"])
+def test_geometry_setting_is_read_before_the_claim(
+    aws, fake, monkeypatch, caplog, value
+):
+    # C309: a bad setting is a deploy fault, as a missing prompt is (C79). It loads
+    # before the claim, so the message retries and the report stays pending (C60).
+    if value is None:
+        monkeypatch.delenv("GEOMETRY_IN_LEVEL")
+    else:
+        monkeypatch.setenv("GEOMETRY_IN_LEVEL", value)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == RETRY
+    assert report(aws) == ITEM
+    assert keys(aws) == [RAW_KEY]
+    assert fake.calls == []
+    (line,) = report_lines(caplog)
+    assert (line["outcome"], line["error"]) == ("error", "ValueError")
+
+
+@pytest.mark.parametrize("value", ["ON", "Off", "true", "1", "", " on"])
+def test_geometry_setting_is_on_or_off_exactly(monkeypatch, value):
+    # Only the two literals the template may hold. A bad value isn't cached, so a
+    # fixed one is read on the next delivery, as a failed prompt read is (C79).
+    handler._geometry_in_level.cache_clear()
+    monkeypatch.setenv("GEOMETRY_IN_LEVEL", value)
+    with pytest.raises(ValueError, match="GEOMETRY_IN_LEVEL"):
+        handler._geometry_in_level()
+    for literal, expected in (("on", True), ("off", False)):
+        handler._geometry_in_level.cache_clear()
+        monkeypatch.setenv("GEOMETRY_IN_LEVEL", literal)
+        assert handler._geometry_in_level() is expected
+    monkeypatch.setenv("GEOMETRY_IN_LEVEL", value)
+    assert handler._geometry_in_level() is False  # cached once read
+    handler._geometry_in_level.cache_clear()
+
+
+def test_template_quotes_the_geometry_setting():
+    # R135, M7: an unquoted on or off is a YAML 1.1 boolean, which would reach the
+    # Lambda as "true" or "false", and _geometry_in_level would raise on every
+    # delivery. It is a literal on the analysis function, not a parameter (C309).
+    lines = TEMPLATE.read_text(encoding="utf-8").splitlines()
+    (at,) = [i for i, line in enumerate(lines) if "GEOMETRY_IN_LEVEL" in line]
+    assert re.fullmatch(r' +GEOMETRY_IN_LEVEL: "(on|off)"', lines[at])
+    assert lines.index("  AnalysisFunction:") < at < lines.index("  AnalysisRole:")
+    assert "GeometryInLevel" not in "\n".join(lines)
+
+
+def test_geometry_off_reaches_the_pipeline(aws, geometry_fake, monkeypatch, caplog):
+    # C309: "off" is MS3a's rules plus step 3, so the wheel reads by its landmark and
+    # the item stores no inches. It is compared with run_pipeline's own result.
+    monkeypatch.setenv("GEOMETRY_IN_LEVEL", "off")
+    data, sam, given = geometry_case()
+    seed(aws, photo=data)
+    assert handler.handler(message(), None) == NO_FAILURES
+    expected = run_pipeline(data, FakeClient(sam, given), handler._prompt()).outcome
+    assert expected.level_from == "landmark"
+    item = report(aws)
+    assert item["level"] == {"S": expected.level}
+    assert item["levelFrom"] == {"S": "landmark"}
+    assert not {"depthInMin", "depthInMax"} & set(item)
+    (line,) = report_lines(caplog)
+    assert line["geometry_in_level"] == "off"
+    assert "wheels_measured" not in line
 
 
 # The claim and the lease (G2, B5)
@@ -1872,6 +1997,75 @@ def test_one_log_line_per_report_with_its_fields(aws, fake, caplog):
     } <= set(line)
 
 
+# C316's fields, which the handler's line takes from run.log
+GEOMETRY_LOG_KEYS = {
+    "geometry_in_level",
+    "tuning_version",
+    "rim_edge_k",
+    "reasoning_effort",
+    "drawing_version",
+    "reasoning_tokens",
+    "wheels_measured",
+    "geometry_checks",
+    "level_from",
+    "depth_in",
+}
+# Names only the evidence record uses (C328)
+EVIDENCE_KEYS = {
+    "evidence",
+    "outline",
+    "water_outline",
+    "rim_outline",
+    "inches",
+    "rechecked",
+}
+
+
+def all_keys(value: object) -> set[str]:
+    """Every mapping key in `value`, at any depth, through lists too."""
+    if isinstance(value, dict):
+        return set(value).union(*map(all_keys, value.values()))
+    if isinstance(value, list):
+        return set().union(*map(all_keys, value))
+    return set()
+
+
+def test_log_line_carries_the_geometry_fields(aws, geometry_fake, caplog):
+    # C316: the setting, the tuning, k, the effort with its tokens, the drawing, the
+    # wheels measured, the failed checks, and the result's source and inches.
+    seed(aws, photo=geometry_case()[0])
+    assert handler.handler(message(), None) == NO_FAILURES
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert GEOMETRY_LOG_KEYS <= set(line)
+    assert (line["geometry_in_level"], line["level_from"]) == ("on", "geometry")
+    # The logged inches are the stored ones (C308).
+    item = report(aws)
+    stored = [float(item[name]["N"]) for name in ("depthInMin", "depthInMax")]
+    assert line["depth_in"] == stored
+
+
+def test_log_line_holds_no_evidence(aws, geometry_fake, monkeypatch, caplog):
+    # Review Focus 6, C328: the run carries the evidence record, but the handler logs
+    # run.log only and stores item_fields() only, so neither holds any of it.
+    runs = []
+    analyse = handler.analyse
+
+    def keep_run(*args, **kwargs):
+        runs.append(analyse(*args, **kwargs))
+        return runs[-1]
+
+    monkeypatch.setattr(handler, "analyse", keep_run)
+    seed(aws, photo=geometry_case()[0])
+    assert handler.handler(message(), None) == NO_FAILURES
+    (run,) = runs
+    assert any(entry.rim is not None for entry in run.evidence.references)
+    lines = logged(caplog)
+    assert lines
+    assert not EVIDENCE_KEYS & all_keys(lines)
+    assert not EVIDENCE_KEYS & all_keys(report(aws))
+
+
 def test_logs_never_carry_private_data(aws, monkeypatch, caplog):
     # The key goes through the handler's own loader here, so the check covers it.
     _, sam, given = level_case()
@@ -1917,11 +2111,35 @@ def test_b3_replay_through_runner_and_handler_match(tmp_path, monkeypatch, promp
     assert handled.publish_jpeg is not None
 
 
+def test_b3_geometry_replay_matches(tmp_path, monkeypatch, prompts):
+    # D1, B3: a run the runner recorded with geometry on replays to the same outcome
+    # on the laptop and through the handler's call, inches included, with the same
+    # evidence record (C328).
+    data, sam, given = geometry_case()
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    photo = tmp_path / "street.jpg"
+    photo.write_bytes(data)
+    run_dir, live = runner.live(photo, tmp_path / "data", geometry_in_level=True)
+    replayed = runner.replay(photo, run_dir)
+    handled = handler.analyse(data, SavedOutputsClient(run_dir, data))
+    assert live.outcome.level_from == "geometry"
+    assert replayed.outcome == handled.outcome == live.outcome
+    for run in (replayed, handled):
+        assert None not in (run.outcome.depth_in_min, run.outcome.depth_in_max)
+    assert handled.evidence is not None
+    assert replayed.evidence == handled.evidence == live.evidence
+
+
 @pytest.mark.skipif(
     not (os.environ.get("LUSOT_B3_RUN_DIR") and os.environ.get("LUSOT_B3_PHOTO")),
     reason="needs LUSOT_B3_RUN_DIR and LUSOT_B3_PHOTO: a real saved run (Task 16)",
 )
 def test_b3_on_a_real_saved_run(prompts):
+    # Meant for a folder MS3b's runner saved (Task 11). The saved outcome is rebuilt,
+    # so a folder isn't failed by the keys it lacks (R141). An MS3a folder can still
+    # fail on a real change: the handler now runs step 3, and geometry as
+    # GEOMETRY_IN_LEVEL sets it (P12).
     run_dir = Path(os.environ["LUSOT_B3_RUN_DIR"])
     photo = Path(os.environ["LUSOT_B3_PHOTO"])
     replayed = runner.replay(photo, run_dir)  # refuses a sealed path before reading
@@ -1929,7 +2147,7 @@ def test_b3_on_a_real_saved_run(prompts):
     handled = handler.analyse(data, SavedOutputsClient(run_dir, data))
     saved = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert replayed.outcome == handled.outcome
-    assert dataclasses.asdict(handled.outcome) == saved["outcome"]
+    assert handled.outcome == rebuild_outcome(saved["outcome"])
 
 
 # The cold start (Oct 29)

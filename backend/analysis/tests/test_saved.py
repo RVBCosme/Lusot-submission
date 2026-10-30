@@ -31,7 +31,13 @@ from lusot_analysis.meta_client import (
     SparkResult,
 )
 from lusot_analysis.pipeline import READING_PHRASES, run_pipeline
-from lusot_analysis.pipeline.saved import RecordingClient, SavedOutputsClient
+from lusot_analysis.pipeline.saved import (
+    RecordingClient,
+    SavedOutputsClient,
+    load_sam_results,
+    rebuild_outcome,
+    save_sam_results,
+)
 from lusot_analysis.pipeline.types import ModelAnswerError, Outcome
 from lusot_analysis.prompts import PROMPT_VERSION, load_prompt
 
@@ -241,6 +247,65 @@ def test_saved_masks_round_trip(tmp_path, prompt):
         for mine, theirs in zip(got.instances, want.instances, strict=True):
             assert mine.mask.dtype == bool
             assert np.array_equal(mine.mask, theirs.mask)
+
+
+def test_sam_results_round_trip(tmp_path):
+    # The sam/ layout on its own, for tools that keep SAM's outputs without a run:
+    # every phrase, one with a space and empty ones included, comes back exactly, as
+    # from a run folder.
+    _, sam, _ = level_case()
+    vehicles = [
+        instance(0, (100, 100, 400, 300), mask_xyxy=(120, 110, 380, 290)),
+        instance(1, (420, 100, 620, 300), score=None),
+    ]
+    sam["vehicle"] = SamResult("vehicle", vehicles, 0.25, "data: SAM-RAW\r\n\r\n")
+    run_dir = tmp_path / "saved"
+    save_sam_results(run_dir, sam)
+    loaded = load_sam_results(run_dir)
+    assert set(loaded) == set(sam)
+    for phrase, want in sam.items():
+        assert fields(loaded[phrase]) == fields(want)
+        for mine, theirs in zip(loaded[phrase].instances, want.instances, strict=True):
+            assert mine.mask.dtype == bool
+            assert np.array_equal(mine.mask, theirs.mask)
+    # The files RecordingClient.save writes: masks only where SAM found something.
+    found = ("floodwater", "wheel", "vehicle", "face", "license_plate")
+    stems = (*found, "wheel_rim", "person")
+    assert sorted(path.name for path in (run_dir / "sam").iterdir()) == sorted(
+        [
+            *(f"{stem}.{ext}" for stem in stems for ext in ("json", "raw")),
+            *(f"{stem}.npz" for stem in found),
+        ]
+    )
+    # A second save would mix two sets of results.
+    with pytest.raises(FileExistsError):
+        save_sam_results(run_dir, sam)
+
+
+def test_rebuild_outcome_round_trips():
+    # R141: a saved outcome, through JSON as run.json keeps it, rebuilds to the one
+    # it was saved from.
+    geometry = Outcome.level_result(
+        "half_knee",
+        "rim_quarter",
+        False,
+        {"vehicles": 1, "people": 0},
+        level_from="geometry",
+        depth_in=(7.72, 8.184),
+    )
+    outcomes = (KNEE, geometry, Outcome.no_flood(), Outcome.refused("too_dark"))
+    for outcome in outcomes:
+        assert rebuild_outcome(dataclasses.asdict(outcome)) == outcome
+        saved = json.loads(json.dumps(dataclasses.asdict(outcome)))
+        assert rebuild_outcome(saved) == outcome
+    # MS3a saved its outcomes before Task 4's three fields existed. Such a level
+    # rebuilds with their defaults, so it counts as a landmark's, as it was.
+    ms3a = dataclasses.asdict(KNEE)
+    for key in ("level_from", "depth_in_min", "depth_in_max"):
+        del ms3a[key]
+    rebuilt = rebuild_outcome(ms3a)
+    assert (rebuilt.level, rebuilt.level_from) == ("knee", "landmark")
+    assert rebuilt == KNEE
 
 
 def test_a_run_folder_is_written_once(tmp_path, prompt):

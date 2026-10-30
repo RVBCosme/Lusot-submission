@@ -408,6 +408,9 @@ Resources:
           MODEL_KEY_PARAM: /lusot/meta/model-api-key
           # The Meta spend counter's table (C527).
           LIMITS_TABLE_NAME: !Ref LimitsTable
+          # Geometry in the level path, "on" or "off" (C309). Quoted, since YAML 1.1 reads a bare on as true.
+          # A literal, not a parameter: a deploy that doesn't name a parameter keeps its old value (MS4's C515).
+          GEOMETRY_IN_LEVEL: "on"
       Events:
         Upload:
           Type: SQS
