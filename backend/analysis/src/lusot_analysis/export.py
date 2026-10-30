@@ -60,7 +60,7 @@ from lusot_analysis.pipeline.types import ModelAnswerError
 from lusot_analysis.pipeline.waterline import Waterline, find_waterline, water_mask
 from lusot_analysis.prompts import PromptSpec
 from lusot_analysis.rules import TireCode
-from lusot_analysis.tuning import TUNING, Tuning
+from lusot_analysis.tuning import START, TUNING, Tuning
 
 # Each outcome key and its geometry_in_level (C309, C315).
 CONFIGURATIONS = {"landmark": False, "geometry": True}
@@ -528,7 +528,9 @@ def results_manifest(
       blur, `store`, `max_side`, the SAM phrases sent, the tuning version, every
       numeric Tuning field under its own name (k among them, so a `--set`
       candidate's run.json states its cutoffs, R153), the tire codes and the
-      reasoning effort ("default" when none is sent, as C316's log writes it). What
+      reasoning effort ("default" when none is sent, as C316's log writes it), and,
+      for a sealed run only, `untuned` (rules 4.3): "yes" when the tuning in force
+      is START and "no" otherwise; a development run makes no claim (R171). What
       the models were sent comes from `saved_run`, one saved run's run.json; the
       rest from `tuning` and the rules the replays ran. Each name must be an MS6
       token and each value a short string, or ValueError.
@@ -588,6 +590,8 @@ def results_manifest(
             frozen[field.name] = str(value)
     frozen["tire_codes"] = rules.TIRE_CODES_VERSION
     frozen["reasoning_effort"] = tuning.reasoning_effort or "default"
+    if sealed:
+        frozen["untuned"] = "yes" if tuning == START else "no"
     for name, value in frozen.items():
         if not _TOKEN.fullmatch(name) or not _short(value):
             raise ValueError(f"frozen's {name} isn't an MS6 token with a short value")

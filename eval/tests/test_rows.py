@@ -423,7 +423,7 @@ SEALED_SETS = {"set_a": [set_a_row("A001")], "a_neg": [a_neg_row("N001")]}
 @pytest.mark.parametrize("count", [0, 3])
 @pytest.mark.parametrize("kind", ["sealed", "development"])
 def test_service_retries_takes_a_count(tmp_path, kind, count):
-    # MS6E-Q6: the photos retried once after a Meta service failure.
+    # MS6E-Q6: the photos and crops retried once after a Meta service failure.
     sets = SEALED_SETS if kind == "sealed" else {}
     run = load(tmp_path, run_json(kind=kind, service_retries=count), **sets)
     assert run.service_retries == count
@@ -455,6 +455,49 @@ def test_service_retries_is_required_only_in_a_sealed_run(tmp_path):
     # A development run reads an absent count as 0.
     run = load(tmp_path / "development", without(run_json(), "service_retries"))
     assert run.service_retries == 0
+
+
+def frozen_with(**changes: object) -> dict:
+    """run_json's frozen versions, with the changes made."""
+    return {**run_json()["frozen"], **changes}
+
+
+def frozen_without_untuned() -> dict:
+    return {k: v for k, v in run_json()["frozen"].items() if k != "untuned"}
+
+
+@pytest.mark.parametrize("value", ["yes", "no"])
+@pytest.mark.parametrize("kind", ["sealed", "development"])
+def test_frozen_untuned_takes_yes_or_no(tmp_path, kind, value):
+    # Rules 4.3: yes when the cutoffs in force are their start values, no
+    # when they were tuned on development data and validated by event replay.
+    sets = SEALED_SETS if kind == "sealed" else {}
+    run = load(tmp_path, run_json(kind=kind, frozen=frozen_with(untuned=value)), **sets)
+    assert run.meta["frozen"]["untuned"] == value
+
+
+@pytest.mark.parametrize("value", ["maybe", "Yes", "", "true", "yes "], ids=repr)
+@pytest.mark.parametrize("kind", ["sealed", "development"])
+def test_frozen_untuned_refuses_other_values(tmp_path, kind, value):
+    sets = SEALED_SETS if kind == "sealed" else {}
+    run = run_json(kind=kind, frozen=frozen_with(untuned=value))
+    message = refusal(tmp_path, "run.json", 0, run, **sets)
+    assert message.startswith("run.json:0: frozen holds untuned as yes or no only")
+    assert "rules 4.3" in message and repr(value) not in message
+
+
+def test_frozen_untuned_refuses_a_value_that_is_not_text(tmp_path):
+    for value in (True, 1, None):
+        run = sealed(frozen=frozen_with(untuned=value))
+        assert "frozen" in refusal(tmp_path / repr(value), "run.json", 0, run)
+
+
+def test_frozen_untuned_is_required_only_in_a_sealed_run(tmp_path):
+    no_untuned = sealed(frozen=frozen_without_untuned())
+    message = refusal(tmp_path / "final", "run.json", 0, no_untuned, **SEALED_SETS)
+    assert message.startswith("run.json:0: frozen lacks untuned")
+    development = run_json(frozen=frozen_without_untuned())
+    assert "untuned" not in load(tmp_path / "development", development).meta["frozen"]
 
 
 def test_replay_and_baseline_fields(tmp_path):

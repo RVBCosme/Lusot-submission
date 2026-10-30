@@ -1003,7 +1003,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 
 ### Task 14: The Manila check, the water phrases, the effort comparison and the type check (C313, C326, C312, C325, C323)
 
-**Status (Oct 30):** not started. Tier Should. Waits for the split and `eval/rules.md` v0.7, because C313's check needs labelled development photos; the usage plan runs it after the merge if there is room.
+**Status (Oct 30):** **dropped** at 7:28 AM, Oct 30, under the usage plan's Must-only rule (the tracker's `queue.md`, "Usage over the line"; usage at 34%). Its steps stay below for the record and aren't run. Before that it waited for the split and v0.7, since C313's check needs labelled development photos.
 
 **Files:**
 - Modify: `backend/analysis/probes/dev_eval.py`
@@ -1125,7 +1125,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 
 ### Task 16: The Set C checks and the Oct 31 decision (C312, C325, C323, C311; Claude)
 
-**Status (Oct 30):** not started. Tier Should. Waits for Rene's usage reading: its paid checks (about $1.47) run only after his morning reading. Until then the Oct 31 defaults stand: effort default, drawing `boxes-v1`, self-check off and not built.
+**Status (Oct 30):** **dropped** at 7:28 AM, Oct 30, under the usage plan's Must-only rule (the tracker's `queue.md`, "Usage over the line"; usage at 34%). Its steps stay below for the record and aren't run. Its held $1.47 isn't spent, and the Oct 31 defaults stand as the frozen values: effort default, drawing `boxes-v1`, self-check off and not built.
 
 **Files:** possibly `backend/analysis/src/lusot_analysis/tuning.py` and `tests/test_tuning.py`; `docs/log/<date>.md`
 
@@ -1167,7 +1167,7 @@ This task runs on Set C, before the split and before v0.7 (C322, C323), and open
 
 ### Task 17: Development data through the harness (C325, C313, C326, C314, C319, C310, C324, C315, C309; Claude)
 
-**Status (Oct 30):** not started. Tier Should. Waits for the split, v0.7 and Set B (MS3b-Q1's fallback applies). Step 11's deploy folds into the integrated deploy after MS3b merges and MS4 Phase B rebases (R155).
+**Status (Oct 30):** **dropped** at 7:28 AM, Oct 30, under the usage plan's Must-only rule (the tracker's `queue.md`, "Usage over the line"; usage at 34%). Its steps stay below for the record and aren't run. So the cutoffs stay at their start values: a sealed run.json records `frozen.untuned: "yes"` (R173). MS4's integrated deploy carries MS3b's code (R155).
 
 **Files:** possibly `tuning.py`, the tests that pin start values, and `backend/template.yaml` (`GEOMETRY_IN_LEVEL`'s literal); results only under `LUSOT_DATA_DIR`
 
@@ -1338,8 +1338,11 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
 - [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`, then `node scripts/check_account_ids.mjs` from the repo root. Expected: PASS, clean, clean and clean. Evidence: on `e1b1e65`, 1008 passed and 1 skipped; ruff, format and both scans clean.
 - [x] **Step 5:** Commit `feat(analysis): add the sealed-run entry point (MS6 C412)`. Evidence: `ea45ede`.
 - [x] **Step 6:** Run `security-review`, since the entry point reads sealed paths and builds a Meta client from the key, then `superpowers:requesting-code-review`. Fix anything confirmed, and re-run Step 4. Evidence (R162: one review per task, so one Opus 5.5 `xhigh` review covered code and security): `task-19-review.md` found 2 Important and 7 Minor issues, and nothing at confidence 7 or above. All of them were fixed, apart from the `rules_version` half, which landed in `e1b1e65`. The combined review of the fixes and Task 20 marked every finding addressed. Ubuntu CI passed on `871f6d3`.
-- [ ] **Step 7:** Tick D11 in the spec's §6 with its evidence. Then use `superpowers:finishing-a-development-branch` to merge into `main`, and push to the private repo (D16).
-- [ ] **Step 8:** Tell the tracker that the entry point is built and tested on synthetic data only, for Window 4's freeze checklist (MS6's §4.5 step 4). Never run it on the real `sealed` folder.
+- [x] **Step 7:** Tick D11 in the spec's §6 with its evidence. Then use `superpowers:finishing-a-development-branch` to merge into `main`, and push to the private repo (D16). Evidence:
+  - The branch's CI 40989932084 on `a67de3a` passed, and the tracker gave the merge OK at 10:14 AM.
+  - Merged into `main` as `d51676f` (`--no-ff`). `npm run check` exited 0 in 385 s.
+  - Pushed at 10:20 AM, and `main`'s CI 40991092712 passed at 10:24 AM. D11 is ticked.
+- [x] **Step 8:** Tell the tracker that the entry point is built and tested on synthetic data only, for Window 4's freeze checklist (MS6's §4.5 step 4). Never run it on the real `sealed` folder. Evidence: the tracker was told at 10:13 and 10:21 AM, Oct 30: built and tested on synthetic data only, never run on real data. Its freeze notes (rerun the development report under v0.7; escape the `--datasets` JSON in Windows PowerShell 5.1) are on the freeze checklist.
 
 ### Task 20: M5's floors and M11's tire codes (added Oct 30)
 
@@ -1348,4 +1351,16 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
 - [x] **M5:** each answered wheel of a geometry-only type holds its sedan Table 8 row as a floor that never decides. Evidence: `c42c6e7`, with tests for van, unknown and pickup, and sedans unchanged.
 - [x] **M11 (`tire-codes-v2`):** the four Hilux codes and the Tamaraw AT's. Evidence: `eaae0f4` added six codes. Then `d9914dd` took the jeepney code out (R170, after the combined review's Important: one Fuso code can't stand for every jeepney), leaving 17 codes for `unknown`. Spec §4 is amended.
 - [x] **Checks:** pytest 1002 passed and 1 skipped on `d9914dd`. The combined review (Opus 5.5 `xhigh`) found M5 ready and the codes checked.
+
+### Task 12b: laptop Meta spend reaches MS4's counter (R126, R154, C527; added Oct 30)
+
+*The tracker turned it on at 10:31 AM, Oct 30: MS4's counter has been live since Task 10a at 8:40 AM. Its brief came from the ledger's R126, R154 and C527.*
+
+- [x] **The helper:** `lusot_analysis/laptop_spend.py` wraps the Meta client and counts each call by MS4's rule.
+  - **Before paying:** it reads the counter, and refuses with exit 2 before any client is built when the counter is unseeded, unreadable or at `/lusot/spend/stop-usd`.
+  - **After paying:** it records the cost. A failed record prints `spend_error` and exits nonzero.
+  - **Where it records:** `run_pipeline live`, `dev_eval run`, `set_b segment` and `rims`, `set_b_masks`, `run_probe` and `run_sealed`. Never `smoke_upload`.
+  - Evidence: `6ee55a9`. `spend.py` is unchanged.
+- [x] **Review:** one Opus 5.5 `xhigh` review approved it, with 0 Critical, 0 Important and 7 Minor, and nothing on security. Minor 1, the test guard, was fixed in `7e852e2`; the rest are bounded and deferred (R175). pytest: 1066 passed and 1 skipped.
+- [ ] **Live check,** after Rene's AWS sign-in: one paid tool under `--with "botocore[crt]==1.43.120"` against the seeded counter.
 

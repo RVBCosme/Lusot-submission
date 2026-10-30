@@ -17,9 +17,10 @@ scaled to the image SAM sees, as blur_for_meta shrinks the crop (scale_row).
   <data>/set_b_runs/<crop_id>/: sam/ (save_sam_results), then run.json, written last,
   with the crop's SHA-256, the phrases, the SAM model, the blur version and the size
   SAM saw. It spends Meta credits, so it prints the calls and the estimated cost
-  first, at $0.0025 a call, and stops there unless given --yes. Its floodwater call
-  repeats the one MS2's set_b_masks --water made: the duplicate is accepted (R135,
-  M16).
+  first, at $0.0025 a call, and stops there unless given --yes. Then MS4's spend
+  counter is read, as the runner reads it, and each crop's calls are recorded once
+  its run.json is saved (C527). Its floodwater call repeats the one MS2's
+  set_b_masks --water made: the duplicate is accepted (R135, M16).
 - export: run.json and set_b.jsonl in --out, one set_b_row per wheel, from the saved
   results, with no Meta call. --geometry-default and --dropped-reason are recorded
   in run.json as dev_eval.py's export records them (MS6's C418). It prints the
@@ -35,11 +36,12 @@ scaled to the image SAM sees, as blur_for_meta shrinks the crop (scale_row).
   file_name names the photo in DIR\images\ (P2). cars_meta.csv's sha1 is the Commons
   original's, so it only names the saved folder. Each photo with tire_code_candidates
   and a credit line goes through the face blur, then SAM for wheel and wheel rim,
-  saved under <data>/set_c_rims/<sha1>/ as segment saves a crop, and paid for as
-  segment is. For each wheel it prints the linked rims, the whole rim's fit (no
-  waterline: y_w lies below the image), check 9 at the candidates' bounds with SAM's
-  box, and the rim-edge ratio 2 r ÷ (box height ÷ D) ÷ rim over the candidates. It is
-  diagnostic only: nothing is tuned on it (C310), and dry cars give no depth.
+  saved under <data>/set_c_rims/<sha1>/ as segment saves a crop, and paid for and
+  recorded as segment is. For each wheel it prints the linked rims, the whole rim's
+  fit (no waterline: y_w lies below the image), check 9 at the candidates' bounds
+  with SAM's box, and the rim-edge ratio 2 r ÷ (box height ÷ D) ÷ rim over the
+  candidates. It is diagnostic only: nothing is tuned on it (C310), and dry cars
+  give no depth.
 
 <data> is LUSOT_DATA_DIR, or the runner's default. Every path given, and every crop,
 photo and saved folder, is refused when it lies inside a folder named sealed, before
@@ -48,9 +50,11 @@ outside the repo (R131), and export's --out under the data folder, outside
 set_b_runs and the repo. Nothing printed holds a photo's name, a path or a key, and
 every line masks runs of 12 digits.
 
-Exit codes: 0 done; 2 refused, invalid input, a rejected key, or a paid run without
---yes; 3 the run couldn't read or write what it needed, or a Meta call failed, with
-the error's class only (R110). argparse's own usage errors exit 2 too.
+Exit codes: 0 done; 2 refused, invalid input, a rejected key, a paid run without
+--yes, or a spend counter that can't take the run; 3 the run couldn't read or write
+what it needed, or a Meta call failed, with the error's class only (R110), or a cost
+the spend counter couldn't record, as one spend_error line (R126). argparse's own
+usage errors exit 2 too.
 """
 
 from __future__ import annotations
@@ -78,6 +82,7 @@ import numpy as np
 
 from lusot_analysis import export
 from lusot_analysis.face_blur import blur_for_meta, decode_image, shrink_to_max_side
+from lusot_analysis.laptop_spend import CountedClient
 from lusot_analysis.meta_client import (
     SAM_MODEL,
     SPARK_MODEL,
@@ -115,6 +120,7 @@ say = runner.say
 SET_B_PHRASES = ("floodwater", "wheel", "wheel rim")
 RIM_PHRASES = ("wheel", "wheel rim")  # a dry car has no water to find (C323)
 SAM_CALL_USD = Decimal("0.0025")  # the estimated cost of one SAM call
+SPEND_SOURCE = "set_b"  # its name on MS4's spend counter (C527)
 CROPS = "crops"  # beside truth.csv (MS2's §5.9)
 RUNS = "set_b_runs"  # under the data folder: each crop's saved results
 OVERLAYS = "set_b_overlays"
@@ -452,12 +458,22 @@ def _cost(pending: Sequence[tuple[Path, Path]], phrases: Sequence[str]) -> None:
 
 
 def _send_all(pending: Sequence[tuple[Path, Path]], phrases: Sequence[str]) -> None:
-    """Send each pending photo, with one client built only when there is one."""
+    """Send each pending photo, with one client built only when there is one.
+
+    MS4's spend counter is read first, as the runner reads it, and each photo's SAM
+    calls are recorded once its run.json is saved; calls paid for before a failure
+    are recorded as it stops (C527, R126).
+    """
     if not pending:
         return
-    client = runner.make_client()
-    for path, run_dir in pending:
-        _send(client, path.read_bytes(), phrases, run_dir)
+    spend = runner.check_before_paying()
+    client = CountedClient(runner.make_client())
+    try:
+        for path, run_dir in pending:
+            _send(client, path.read_bytes(), phrases, run_dir)
+            spend.record_after(client.take(), SPEND_SOURCE)
+    finally:
+        spend.record_after(client.take(), SPEND_SOURCE)
 
 
 def _send(

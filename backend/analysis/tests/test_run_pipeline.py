@@ -12,21 +12,25 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from botocore.exceptions import ClientError, NoCredentialsError
 from fakes import (
     REPO_PROMPTS,
     FakeClient,
+    FakeSpend,
     geometry_case,
     level_case,
     meta_error,
     noise_jpeg,
 )
 
-from lusot_analysis import handler
+from lusot_analysis import handler, laptop_spend
 from lusot_analysis.meta_client import ModelRefused
 from lusot_analysis.pipeline import READING_PHRASES
 from lusot_analysis.pipeline.types import Outcome
+from lusot_analysis.spend import cost_of
 from lusot_analysis.tuning import START, TUNING
 
 RUNNER = Path(__file__).parents[1] / "probes" / "run_pipeline.py"
@@ -56,6 +60,7 @@ runner = load_runner()
 def offline(tmp_path, monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(runner, "check_before_paying", FakeSpend)  # no AWS (C527)
 
 
 def no_client():
@@ -761,3 +766,145 @@ def test_every_line_masks_twelve_digit_runs(capsys):
     twelve = "1234567890" + "12"
     runner.say(f"id {twelve}, time 123456")
     assert capsys.readouterr().out == "id <account>, time 123456\n"
+
+
+# Task 12b: a live run's Meta spend reaches MS4's counter (C527, R126).
+
+# The level case's live run: SAM for the 5 reading phrases, and one answer of
+# FakeClient's 1000 tokens in and 200 out.
+LEVEL_RUN_USD = cost_of(
+    sam_images=len(READING_PHRASES), spark_input_tokens=1000, spark_output_tokens=200
+)
+UNREADABLE = (
+    "refused: the spend counter can't be read; sign in with"
+    " `aws login --profile lusot` first (AWS error: NoCredentialsError)\n"
+)
+UNSEEDED = "refused: the spend counter isn't seeded, so this run can't be counted\n"
+
+
+def no_counter():
+    raise AssertionError("the spend counter was read")
+
+
+def test_live_records_its_cost_after_checking_the_counter(
+    tmp_path, monkeypatch, capsys
+):
+    # Each check and record, the record with the run.json files saved by then.
+    events = []
+
+    def recorded():
+        events.append(f"record, {len(list(tmp_path.rglob('run.json')))} saved")
+
+    spend = FakeSpend(on_record=recorded)
+    monkeypatch.setattr(
+        runner, "check_before_paying", lambda: events.append("check") or spend
+    )
+    _, sam, given = level_case()
+    fake = FakeClient(sam, given)
+    monkeypatch.setattr(runner, "make_client", lambda: events.append("client") or fake)
+    photo = write_photo(tmp_path / "street.jpg")
+    argv = ["live", str(photo), "--data-dir", str(tmp_path)]
+    assert runner.main(argv, tuning=START) == 0
+    # The counter is read before any client is built, and the run's cost is recorded
+    # once, after its folder is saved.
+    assert events == ["check", "client", "record, 1 saved"]
+    assert spend.records == [(LEVEL_RUN_USD, "run_pipeline")]
+    assert "spend" not in capsys.readouterr().out
+    # --sam-from pays for Muse Spark alone, and only its answer is recorded.
+    (first,) = (tmp_path / "runs").glob("*/*")
+    events.clear()
+    spend.records.clear()
+    judged = tmp_path / "judged"
+    argv = ["live", str(photo), "--run-dir", str(judged), "--sam-from", str(first)]
+    assert runner.main(argv, tuning=START) == 0
+    assert events == ["check", "client", "record, 2 saved"]
+    judge_usd = cost_of(spark_input_tokens=1000, spark_output_tokens=200)
+    assert spend.records == [(judge_usd, "run_pipeline")]
+
+
+def test_replays_and_refusals_read_no_counter(tmp_path, monkeypatch, capsys):
+    photo, run_dir, _, _ = live_run(tmp_path, monkeypatch, capsys)
+    monkeypatch.setattr(runner, "check_before_paying", no_counter)
+    monkeypatch.setattr(runner, "make_client", no_client)
+    # A replay makes no Meta call, so it needs no AWS.
+    assert runner.main(["replay", str(photo), str(run_dir)]) == 0
+    # A refusal comes before the counter is read.
+    assert runner.main(["live", str(photo), "--run-dir", str(run_dir)]) == 2
+    sealed = tmp_path / "sealed" / "street.jpg"
+    assert runner.main(["live", str(sealed), "--data-dir", str(tmp_path)]) == 2
+    out = capsys.readouterr().out.splitlines()
+    assert out[-2:] == [
+        "refused: the run folder already exists",
+        "refused: path inside a folder named sealed",
+    ]
+
+
+class CounterSession:
+    """The lusot profile's session, as check_before_paying reads it: its counter's
+    GetItem answers `item`, or raises `error`."""
+
+    def __init__(self, *, item=None, error=None) -> None:
+        self.item = item
+        self.error = error
+
+    def client(self, name, **_):
+        return SimpleNamespace(get_item=self._get_item)
+
+    def _get_item(self, **_):
+        if self.error is not None:
+            raise self.error
+        return {} if self.item is None else {"Item": self.item}
+
+
+@pytest.mark.parametrize(
+    ("session", "printed"),
+    [
+        (CounterSession(error=NoCredentialsError()), UNREADABLE),
+        (CounterSession(), UNSEEDED),
+    ],
+)
+def test_a_counter_that_cant_take_the_run_stops_it_before_any_client(
+    tmp_path, monkeypatch, capsys, session, printed
+):
+    monkeypatch.setenv("LIMITS_TABLE_NAME", "lusot-test-limits")
+    monkeypatch.setattr(laptop_spend, "operator_session", lambda: session)
+    monkeypatch.setattr(runner, "check_before_paying", laptop_spend.check_before_paying)
+    monkeypatch.setattr(runner, "make_client", no_client)
+    photo = write_photo(tmp_path / "street.jpg")
+    assert runner.main(["live", str(photo), "--data-dir", str(tmp_path)]) == 2
+    assert capsys.readouterr().out == printed
+    assert not (tmp_path / "runs").exists()
+
+
+def test_a_failed_record_exits_3_with_the_run_saved(tmp_path, monkeypatch, capsys):
+    def expired(**_):
+        error = {"Code": "ExpiredTokenException", "Message": "ARN-MARKER"}
+        meta = {"HTTPStatusCode": 400}
+        raise ClientError({"Error": error, "ResponseMetadata": meta}, "UpdateItem")
+
+    counter = laptop_spend.SpendCounter(SimpleNamespace(update_item=expired), "t")
+    monkeypatch.setattr(runner, "check_before_paying", lambda: counter)
+    _, sam, given = level_case()
+    monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    photo = write_photo(tmp_path / "street.jpg")
+    argv = ["live", str(photo), "--data-dir", str(tmp_path)]
+    assert runner.main(argv, tuning=START) == 3
+    assert capsys.readouterr().out == (
+        "spend_error: $0.0146 from run_pipeline isn't on the spend counter (AWS error"
+        " in UpdateItem: ExpiredTokenException (HTTP 400)); add it by hand with"
+        " spend.py add --usd 0.0146 --source manual-<who>\n"
+    )
+    (run_dir,) = (tmp_path / "runs").glob("*/*")
+    assert (run_dir / "run.json").is_file()  # the run's outputs stay saved
+
+
+def test_a_key_rejected_after_sam_still_records_sam(tmp_path, monkeypatch, capsys):
+    # SAM's calls returned, so they were billed; Meta's 402 for the answer wasn't.
+    spend = FakeSpend()
+    monkeypatch.setattr(runner, "check_before_paying", lambda: spend)
+    _, sam, _ = level_case()
+    monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, meta_error(402)))
+    photo = write_photo(tmp_path / "street.jpg")
+    assert runner.main(["live", str(photo), "--data-dir", str(tmp_path)]) == 2
+    assert "HTTP 402" in capsys.readouterr().out
+    assert spend.records == [(cost_of(sam_images=5), "run_pipeline")]

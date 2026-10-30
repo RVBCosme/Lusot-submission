@@ -73,7 +73,8 @@ class EvidenceEntry:
       `waterline`, a vehicle's `body_waterline`), or None when it is unanswered.
     - `level`, `level_from`: the box's own reading, or None when it gives none. A box
       with two readings shows the one that can decide (R147). A reading step 3
-      dropped keeps its level here (C317).
+      dropped keeps its level here (C317). `level_is_floor`: that reading is a floor,
+      "this level or deeper" (C54), which its landmark alone can't tell (M5).
     - `inches`: geometry's unrounded min and max whenever geometry measured the
       wheel, G4's drop included. `rim`: the fit, with a geometry reading only.
     - `rim_outline`: on a wheel, the outline of the one `wheel rim` mask step 2
@@ -93,6 +94,7 @@ class EvidenceEntry:
     landmark: str | None
     level: str | None
     level_from: Literal["landmark", "geometry"] | None
+    level_is_floor: bool = False
     inches: tuple[float, float] | None
     rim: RimDrawing | None
     rim_outline: tuple[Polygon, ...] = ()
@@ -160,6 +162,7 @@ def build_evidence(
                 landmark=landmarks[box.kind].get(box.id),
                 level=None if reading is None else reading.reading.level,
                 level_from=None if reading is None else reading.level_from,
+                level_is_floor=False if reading is None else reading.reading.floor,
                 inches=inches,
                 rim=drawing,
                 rim_outline=() if rim is None else outline(rim.mask),

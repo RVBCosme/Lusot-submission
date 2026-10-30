@@ -28,10 +28,19 @@ import threading
 from pathlib import Path
 
 import pytest
-from fakes import FakeClient, geometry_case, instance, meta_error, noise_jpeg
+from botocore.exceptions import ClientError
+from fakes import (
+    FakeClient,
+    FakeSpend,
+    geometry_case,
+    instance,
+    meta_error,
+    noise_jpeg,
+)
 
-from lusot_analysis import export
+from lusot_analysis import export, laptop_spend
 from lusot_analysis.meta_client import SamResult
+from lusot_analysis.spend import cost_of
 from lusot_analysis.tuning import START
 
 TOOL = Path(__file__).parents[1] / "probes" / "run_sealed.py"
@@ -297,9 +306,10 @@ def stand_in(script: Path, version: str | None = RULES) -> None:
 
 @pytest.fixture(autouse=True)
 def offline(tmp_path, monkeypatch):
-    """No key, no real client, and the stand-in harness."""
+    """No key, no real client, no AWS, and the stand-in harness."""
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setattr(tool.runner, "make_client", fail)
+    monkeypatch.setattr(tool.runner, "check_before_paying", FakeSpend)  # C527
     script = tmp_path / "harness" / "eval" / "run_eval.py"
     stand_in(script)
     monkeypatch.setattr(tool, "RUN_EVAL", script)
@@ -1652,3 +1662,118 @@ def test_the_harness_loads_a_sealed_export(tmp_path, monkeypatch):
     assert (summary["kind"], summary["service_retries"]) == ("sealed", 1)
     assert summary["set_b"]["sam_water_found"] == {"k": 0, "n": 0}
     assert summary["set_b"]["no_answer"] == 2
+
+
+# Task 12b (C527): the sealed run's laptop spend reaches MS4's counter.
+
+# A photo's run through the frozen pipeline, as geometry_case answers it: the 5
+# reading phrases and one answer of 1000 tokens in and 200 out. An item's: 3 phrases.
+PHOTO_USD = cost_of(sam_images=5, spark_input_tokens=1000, spark_output_tokens=200)
+ITEM_USD = cost_of(sam_images=3)
+
+
+def no_counter():
+    raise AssertionError("the spend counter was read")
+
+
+def paid_run(sealed: Sealed, results: Path, events: list[str], fake, *flags: str):
+    """main on `sealed` from a console, with Rene's yes, its client built through a
+    make_client that notes "client" in `events`."""
+    return tool.main(
+        sealed.argv(results, *flags),
+        make_client=lambda: events.append("client") or fake,
+        git=FakeGit(),
+        is_console=lambda fd: True,
+        ask=ask_with("yes"),
+        tuning=START,
+    )
+
+
+def test_each_photo_and_item_is_recorded_once_saved(tmp_path, monkeypatch, capsys):
+    sealed = write_sealed(tmp_path, set_b=[truth_row()], set_d=[set_d_row()])
+    results = tmp_path / "results"
+    # A rules version that isn't the harness's is refused before the counter is read.
+    write_summary(tmp_path, rules_version="0.5")
+    monkeypatch.setattr(tool.runner, "check_before_paying", no_counter)
+    assert run(sealed, results, made=[]) == (2, [])
+    write_summary(tmp_path, rules_version=RULES)
+    # The counter is read beside the other checks, before Rene's yes and the client,
+    # and each photo and item is recorded once its record is saved.
+    events = []
+
+    def recorded():
+        saved = len(list(sealed.outputs().rglob("run.json")))
+        events.append(f"record, {saved} saved")
+
+    spend = FakeSpend(on_record=recorded)
+    monkeypatch.setattr(
+        tool.runner, "check_before_paying", lambda: events.append("check") or spend
+    )
+    assert paid_run(sealed, results, events, photo_client()) == 0
+    assert events == ["check", "client"] + [f"record, {n} saved" for n in range(1, 6)]
+    assert (
+        spend.records
+        == [(PHOTO_USD, "run_sealed")] * 3 + [(ITEM_USD, "run_sealed")] * 2
+    )
+    assert "spend" not in capsys.readouterr().out
+    # A resume with nothing left to send still checks the counter, but pays nothing.
+    events.clear()
+    spend.records.clear()
+    assert paid_run(sealed, results, events, None, "--resume", "freeze-1") == 0
+    assert (events, spend.records) == (["check"], [])
+
+
+class Counter:
+    """The limits table, as SpendCounter writes to it: each ADD lands, but the one at
+    `fail_at`, which fails as an expired login does."""
+
+    def __init__(self, fail_at: int) -> None:
+        self.fail_at = fail_at
+        self.adds = 0
+
+    def update_item(self, **_):
+        self.adds += 1
+        if self.adds == self.fail_at:
+            error = {"Code": "ExpiredTokenException", "Message": "ARN-MARKER"}
+            meta = {"HTTPStatusCode": 400}
+            raise ClientError({"Error": error, "ResponseMetadata": meta}, "UpdateItem")
+        return {"Attributes": {"micro_usd": {"N": str(self.adds)}}}
+
+
+def test_a_failed_record_stops_the_run_and_it_resumes(tmp_path, monkeypatch, capsys):
+    # The second photo's record fails after the photo is saved: a stop kept as
+    # spend_error, exit 3, and the resume sends only the third photo.
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    counter = laptop_spend.SpendCounter(Counter(fail_at=2), "lusot-test-limits")
+    monkeypatch.setattr(tool.runner, "check_before_paying", lambda: counter)
+    first = photo_client()
+    assert run(sealed, results, made=[first])[0] == 3
+    out = capsys.readouterr().out
+    assert (
+        "spend_error: $0.0146 from run_sealed isn't on the spend counter (AWS error in"
+        " UpdateItem: ExpiredTokenException (HTTP 400)); add it by hand with spend.py"
+        " add --usd 0.0146 --source manual-<who>"
+    ) in out.splitlines()
+    assert "resume with --resume freeze-1" in out
+    assert "ARN-MARKER" not in out
+    state = read_json(sealed.outputs() / "state.json")
+    assert [stop["cause"] for stop in state["stops"]] == ["spend_error"]
+    assert state["running"] is False
+    assert len(list(sealed.outputs().rglob("run.json"))) == 2  # both stay saved
+    assert calls(first, "judge") == 2
+    monkeypatch.setattr(tool.runner, "check_before_paying", FakeSpend)
+    second = photo_client()
+    assert run(sealed, results, "--resume", "freeze-1", made=[second])[0] == 0
+    assert calls(second, "judge") == 1
+
+
+def test_a_key_rejected_after_sam_still_records_sam(tmp_path, monkeypatch, capsys):
+    # SAM's five calls returned, so they were billed; Meta's 401 for the answer wasn't.
+    sealed = write_sealed(tmp_path)
+    spend = FakeSpend()
+    monkeypatch.setattr(tool.runner, "check_before_paying", lambda: spend)
+    fake = judged(meta_error(401))
+    assert run(sealed, tmp_path / "results", made=[fake])[0] == 2
+    assert "HTTP 401" in capsys.readouterr().out
+    assert spend.records == [(cost_of(sam_images=5), "run_sealed")]

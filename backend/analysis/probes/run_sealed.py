@@ -4,7 +4,8 @@ Rene alone runs it, once, on Nov 3, in his own PowerShell window, after MS2's au
 (MS6's §4.5). Claude builds and tests it on synthetic data only, and never runs it.
 From the repo root, with MODEL_API_KEY set for that one command:
 
-    uv run --locked --directory backend/analysis python probes/run_sealed.py
+    uv run --locked --with "botocore[crt]==1.43.120" --directory backend/analysis
+        python probes/run_sealed.py
         <data>\sealed\run-1 --baseline <summary.json> --self-check-decided DATE
         --datasets JSON [--geometry-default on|off|dropped] [--dropped-reason TOKEN]
         [--resume RUN] [--rerun REASON] [--results DIR]
@@ -32,6 +33,9 @@ In order (MS6's C412):
    rules version, from its --rules-version, which must be --baseline's (MS6's C424),
    so the baseline was scored by the frozen harness's rules: without the harness,
    when it fails, or when the two versions differ, nothing in the folder is read.
+   Then MS4's spend counter, read with the lusot profile, which needs
+   `--with "botocore[crt]==1.43.120"` after `uv run`: unseeded, unreadable or at its
+   stop, it refuses the run, and nothing in the folder is read either (C527).
 5. The inputs, through export's path-free parsers (C315, C327). A file that breaks its
    format is named by its kind, and by its row where the parser names one, never by a
    cell's text. Every photo and crop must be there before anything is paid for. Then
@@ -52,7 +56,10 @@ In order (MS6's C412):
    into outputs\<RUN>\retry\, and counted; an invalid answer is never sent again
    (MS6E-Q6, default (a)). Three such sends in a row stop the run, as a lost
    connection would. A crop or Set D photo failed twice is exported with every
-   variant of its wheels unmeasured as model_error, and sam_water_found null.
+   variant of its wheels unmeasured as model_error, and sam_water_found null. Each
+   send's Meta cost goes to the spend counter once its record is saved, and calls
+   paid for before a stop as it stops; a cost the counter couldn't take is a stop,
+   spend_error, kept with its amount in one spend_error line (C527, R126).
 8. The export, once the run is complete: run.json, set_a.jsonl, a_neg.jsonl and, when
    they exist, set_b.jsonl and set_d.jsonl, through export's rows (MS6's §4.3), each
    configuration from replays of the saved outputs (C309, C315). run.json's
@@ -73,9 +80,9 @@ It prints counts and timings only: never a photo's name, a path, a label, an ans
 a reason or a key, and every line masks runs of 12 digits.
 
 Exit codes: 0 exported; 2 refused (a path, the console, the freeze, the harness or its
-rules version, an input, another window's run, a no, a missing or rejected key); 3 a
-stop or a failure, printed as its cause or its error's class only (R110). argparse's
-own usage errors exit 2 too.
+rules version, the spend counter, an input, another window's run, a no, a missing or
+rejected key); 3 a stop or a failure, printed as its cause or its error's class only
+(R110). argparse's own usage errors exit 2 too.
 """
 
 from __future__ import annotations
@@ -104,6 +111,7 @@ from lusot_analysis.face_blur import (
     decode_image,
     shrink_to_max_side,
 )
+from lusot_analysis.laptop_spend import CountedClient, SpendCounter, SpendNotRecorded
 from lusot_analysis.meta_client import SAM_MODEL, MetaApiError, MissingApiKey
 from lusot_analysis.pipeline import READING_PHRASES, run_pipeline
 from lusot_analysis.pipeline.quality import quality_scores
@@ -150,6 +158,7 @@ SIDES = {"set_a": "A", "a_neg": "A-neg"}
 NAMES = {"set_a": "the Set A manifest", "a_neg": "the A-neg manifest"}
 RUNS = {"freeze-1": False, "freeze-2": True}  # each run, by its tag: a rerun's?
 SERVICE_STREAK = 3  # sends in a row that Meta's service fails: a stop
+SPEND_SOURCE = "run_sealed"  # its name on MS4's spend counter (C527)
 CONSOLE_REFUSAL = "refused: run this yourself, in a Windows PowerShell window"
 RECORD = "run.json"  # a saved folder's record, written last
 STATE = "state.json"
@@ -354,6 +363,7 @@ def _run(
     settings = _settings(args)
     if rules_version() != settings["rules_version"]:
         _refuse(RULES_REFUSAL)
+    spend = runner.check_before_paying()  # MS4's spend counter (C527)
     # 5. The inputs, and the run's state.
     if not folder.is_dir():
         _refuse("the folder given isn't there")
@@ -375,6 +385,7 @@ def _run(
             make_client,
             ask,
             tuning,
+            spend,
         )
 
 
@@ -389,8 +400,11 @@ def _locked_run(
     make_client: Callable[[], ModelClient],
     ask: Callable[[str], str] | None,
     tuning: Tuning,
+    spend: SpendCounter,
 ) -> int:
-    """Steps 6 to 8, while this window holds the run's lock."""
+    """Steps 6 to 8, while this window holds the run's lock. Each photo's and item's
+    cost goes to `spend` once its record is saved, and calls paid for before a stop
+    as it stops (C527, R126)."""
     state = _state(outputs, args, run_name, freeze, settings)
     first = [p for p in inputs.photos if not _saved(_first_dir(outputs, p))]
     items = [i for i in inputs.items if not _saved(_item_dir(outputs, i))]
@@ -430,7 +444,7 @@ def _locked_run(
     client = None
     if sending + sam_alone:
         try:
-            client = make_client()
+            client = CountedClient(make_client())
         except MissingApiKey:
             _refuse("MODEL_API_KEY is missing or too short")
 
@@ -439,17 +453,27 @@ def _locked_run(
     geometry = settings["geometry_default"] == "on"
     tally: Counter[str] = Counter()
     started = time.monotonic()
-    send = {"prompt": prompt, "tuning": tuning, "geometry": geometry, "tally": tally}
+    send = {
+        "prompt": prompt,
+        "tuning": tuning,
+        "geometry": geometry,
+        "tally": tally,
+        "spend": spend,
+    }
     try:
         stop = _send_photos(first, client, outputs, state, retry=False, **send)
         if stop is None:
-            stop = _send_items(items, client, outputs, state, tally, retry=False)
+            stop = _send_items(
+                items, client, outputs, state, tally, retry=False, spend=spend
+            )
         if stop is None:
             retries = [p for p in inputs.photos if _to_retry(outputs, p)]
             stop = _send_photos(retries, client, outputs, state, retry=True, **send)
         if stop is None:
             item_retries = [i for i in inputs.items if _item_to_retry(outputs, i)]
-            stop = _send_items(item_retries, client, outputs, state, tally, retry=True)
+            stop = _send_items(
+                item_retries, client, outputs, state, tally, retry=True, spend=spend
+            )
         if stop is not None:
             _stop(outputs, state, stop)
             say(
@@ -469,12 +493,19 @@ def _locked_run(
         http = "" if status is None else f" (HTTP {status})"
         say(f"stopped: {type(exc).__name__}{http}; resume with --resume {run_name}")
         return 3
+    except SpendNotRecorded:  # a SystemExit, 3, once its spend_error line is printed
+        _stop(outputs, state, "spend_error")
+        say(f"stopped: spend_error; resume with --resume {run_name}")
+        raise
     except KeyboardInterrupt:
         _stop(outputs, state, "interrupted")
         raise
     except Exception as exc:
         _stop(outputs, state, f"crash {type(exc).__name__}")
         raise
+    finally:  # calls paid for before a stop (R126)
+        if client is not None:
+            spend.record_after(client.take(), SPEND_SOURCE)
     state["running"] = False
     _write_json(outputs / STATE, state)
 
@@ -948,10 +979,12 @@ def _send_photos(
     geometry: bool,
     tally: Counter[str],
     retry: bool,
+    spend: SpendCounter,
 ) -> str | None:
     """Each photo once through the frozen pipeline, saved as the offline runner
-    saves a run (R108, R109). It returns "service_failed" once SERVICE_STREAK photos
-    in a row end on a failure at Meta's service, else None."""
+    saves a run (R108, R109), its cost recorded once it is (C527). It returns
+    "service_failed" once SERVICE_STREAK photos in a row end on a failure at Meta's
+    service, else None."""
     streak = 0
     label = "retry" if retry else "photo"
     config = run_config(geometry_in_level=geometry, tuning=tuning, sam_from=False)
@@ -970,6 +1003,7 @@ def _send_photos(
         )
         recording.save(folder, photo=photo.path, prompt=prompt, run=run, config=config)
         _saved_item(outputs, state)
+        spend.record_after(client.take(), SPEND_SOURCE)
         tally["photos"] += 1
         tally["calls"] += run.log["meta_calls"]
         say(f"{label} {number} of {len(photos)}: {time.monotonic() - began:.1f} s")
@@ -988,12 +1022,14 @@ def _send_items(
     tally: Counter[str],
     *,
     retry: bool,
+    spend: SpendCounter,
 ) -> str | None:
     """Each crop and Set D photo once: the face blur, then SAM's phrases, saved as
     set_b.py saves a crop: sam/ first, then its record. A send that Meta's service
     fails (any MetaApiError but a rejected key's) is saved as a record of its status
-    alone (MS6E-Q6). It returns "service_failed" once SERVICE_STREAK sends in a row
-    fail so (R164), else None."""
+    alone (MS6E-Q6). Each send's cost is recorded once its record is saved (C527). It
+    returns "service_failed" once SERVICE_STREAK sends in a row fail so (R164), else
+    None."""
     streak = 0
     label = "retry SAM alone" if retry else "SAM alone"
     for number, item in enumerate(items, start=1):
@@ -1020,6 +1056,7 @@ def _send_items(
             }
         _write_json(folder / RECORD, record)
         _saved_item(outputs, state)
+        spend.record_after(client.take(), SPEND_SOURCE)
         tally["items"] += 1
         tally["calls"] += len(SAM_ONLY_PHRASES)
         seconds = time.monotonic() - began

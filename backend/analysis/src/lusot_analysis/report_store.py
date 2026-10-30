@@ -15,6 +15,7 @@ Tokens are new for every delivery, so a match can't be another worker's (C82).
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Literal
 
@@ -81,14 +82,16 @@ def write_result(
     table: str,
     key: Mapping[str, dict],
     token: str,
-    fields: Mapping[str, str | bool | int | float | Mapping[str, int]],
+    fields: Mapping[str, object],
 ) -> bool:
     """Set every field in one conditional write, under this worker's claim.
 
     The write needs the report `processing` under `token`. If that check fails but
     the item holds this token and the status being written, the SDK repeated a write
     whose first try succeeded, so it returns True (C82). Otherwise the lease was
-    lost: nothing is written, and it returns False. Other AWS errors propagate.
+    lost: nothing is written, and it returns False. Other AWS errors propagate. A field
+    that is not finite, such as a NaN inch, raises ValueError while the update is built,
+    before any call is made.
     """
     # Every name goes through a placeholder: `status` and `level` are reserved words.
     names = {"#status": "status"}
@@ -118,11 +121,15 @@ def write_result(
     return True
 
 
-def _attribute_value(value: str | bool | float | Mapping[str, int]) -> dict:
-    """The field's typed DynamoDB value. A mapping's counts are typed the same way.
+def _attribute_value(value: object) -> dict:
+    """The field's typed DynamoDB value, which a list or a mapping types item by item.
 
-    A float, such as a geometry level's inches, is a number too (C308).
+    - None is NULL, a list or a tuple is L, and a mapping is M, of any of these.
+    - A float, such as a geometry level's inches, is a number too (C308). Its text is
+      its repr. A NaN or an infinity has no DynamoDB number, so it raises ValueError.
     """
+    if value is None:
+        return {"NULL": True}
     if isinstance(value, str):
         return {"S": value}
     if isinstance(value, bool):  # before int, because a bool is an int
@@ -130,5 +137,9 @@ def _attribute_value(value: str | bool | float | Mapping[str, int]) -> dict:
     if isinstance(value, int):
         return {"N": str(value)}
     if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("a DynamoDB number must be finite")
         return {"N": str(value)}
-    return {"M": {name: _attribute_value(count) for name, count in value.items()}}
+    if isinstance(value, (list, tuple)):
+        return {"L": [_attribute_value(item) for item in value]}
+    return {"M": {name: _attribute_value(item) for name, item in value.items()}}

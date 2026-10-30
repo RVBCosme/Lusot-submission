@@ -155,6 +155,7 @@ def run_json(**overrides: object) -> dict:
             "model": "muse-spark-1.3",
             "prompt": "muse_spark_photo_v1",
             "k": "1.0",
+            "untuned": "yes",
         },
         "datasets": {
             name: {"version": "v1", "split_seed": "7"}

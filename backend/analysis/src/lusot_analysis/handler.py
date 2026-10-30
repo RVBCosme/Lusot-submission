@@ -2,8 +2,9 @@
 
 For each uploaded photo it finds the report, loads what the run needs, and claims the
 report before any paid Meta call (G2, C46). It then runs the pipeline, stores a photo
-for a level result only (C61), writes the result under the claim, and deletes the raw
-photo, so no raw photo outlives its report's result (W25).
+for a level result (C61) or a sample seed's no flood seen (C512), writes the result
+under the claim, and deletes the raw photo, so no raw photo outlives its report's
+result (W25).
 
 An AWS error returns the message for an SQS retry, which comes after the claim's
 lease has expired (C46). A fault in what the run loads, and a key or account that
@@ -12,6 +13,26 @@ in failed reports (C60, C73, C79). A delivery that meets another worker's live l
 also returns its message, but its copy normally finishes on redelivery: a message is
 finished only once its report is final or its own work has ended, so a copy is left
 to claim the report again if that worker crashes (C89).
+
+A report's mode, read from its item, sets where its photo is stored (C510), and a
+live or demo level is published only while the publish switch reads "off" (C516).
+
+The Meta spend stop (C527): before any Meta call, a spend counter at or over the stop
+in /lusot/spend/stop-usd, or either one unreadable or the counter not yet seeded, sets
+the model-calls switch "on" and ends the report paused. After the run, its cost goes
+to the counter, and a total that reaches the stop, or a write that is lost, sets the
+switch too. Each flip logs spend_stop or spend_error, which the SpendPauseAlarm counts.
+
+A level result also gets its overlay and its layers beside the photo, and its readings
+on the item (C505, C507), all from the pipeline's evidence record. The result is paid
+for, so neither the readings nor the drawing is ever retried: a fault in either is
+logged by its class name as `readings_error` or `overlay_error`, and the result is
+written without what failed.
+
+The Meta client, the pipeline and the overlay are imported where they are first used,
+not at import: with OpenCV beside them, the Lambda's init reached its 10 s limit (the
+cold start, Oct 29). The first delivery in each container pays for them inside its
+invoke.
 """
 
 from __future__ import annotations
@@ -21,19 +42,36 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
+from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import unquote_plus
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from lusot_analysis.meta_client import SAM_PHRASES, MetaClient, MissingApiKey
-from lusot_analysis.pipeline import PipelineRun, run_pipeline
-from lusot_analysis.pipeline.types import ModelClient, ModelKeyRejected, Outcome
 from lusot_analysis.prompts import PromptSpec, load_prompt
-from lusot_analysis.report_store import claim, write_result
+from lusot_analysis.report_store import _attribute_value, claim, write_result
+from lusot_analysis.spend import (
+    SPARK_TOKENS_IF_UNREPORTED,
+    SPEND_CONFIG,
+    SPEND_STOP_PARAM,
+    SpendUnseeded,
+    cost_of,
+    record_spend,
+    rounded_up,
+    spend_total,
+)
+
+if TYPE_CHECKING:  # annotations only: each loads where it is used
+    from lusot_analysis import meta_client
+    from lusot_analysis.pipeline import PipelineRun
+    from lusot_analysis.pipeline.evidence import Evidence
+    from lusot_analysis.pipeline.types import ModelClient, Outcome
 
 DEADLINE_MARGIN_S = 30  # the run stops this long before Lambda's timeout (C84, C88)
 
@@ -49,11 +87,21 @@ _NOT_FOUND_VISIBILITY_S = 10  # a report not yet in the index retries this soon 
 # The outcomes that return the message: an error, a rejected key (C73), and another
 # worker's live lease (C89).
 _RETRY_OUTCOMES = frozenset({"error", "model_key_rejected", "lease_held"})
+_PUBLISHED_MODES = frozenset({"live", "demo"})  # the modes that pin (C516)
+# SSM after the paid run: 2 s timeouts and 2 retries (3 tries), so a hung call ends
+# well inside DEADLINE_MARGIN_S and can't make a redelivery pay again.
+_POST_RUN_SSM_CONFIG = Config(
+    connect_timeout=2, read_timeout=2, retries={"max_attempts": 2}
+)
+# S3 after the paid run, for a level's photo, overlay and layers: the same bounds.
+_POST_RUN_S3_CONFIG = Config(
+    connect_timeout=2, read_timeout=2, retries={"max_attempts": 2}
+)
 
 logger = logging.getLogger("lusot.analysis")
 logger.setLevel(logging.INFO)  # Lambda's text log format otherwise drops INFO
 
-_META_CLIENT: MetaClient | None = None  # set by _meta_client once the key loads
+_META_CLIENT: meta_client.MetaClient | None = None  # set by _meta_client once loaded
 
 
 class ReportNotFound(LookupError):
@@ -84,7 +132,130 @@ def _client(service: str):
     return boto3.client(service)
 
 
-def _meta_client() -> MetaClient:
+@functools.cache
+def _post_run_ssm():
+    """The SSM client for every call after the paid run, made on first use.
+
+    Its short timeouts bound the call inside the run's margin. Every flip of the
+    model-calls switch uses it too, before the run or after it (C527). The reads
+    before the run keep `_client("ssm")`.
+    """
+    return boto3.client("ssm", config=_POST_RUN_SSM_CONFIG)
+
+
+@functools.cache
+def _post_run_s3():
+    """The S3 client for every put after the paid run, made on first use.
+
+    It stores a level's photo, overlay and layers, and its short timeouts bound each
+    put inside the run's margin, as `_post_run_ssm` does. The raw photo's read and the
+    deletes keep `_client("s3")`.
+    """
+    return boto3.client("s3", config=_POST_RUN_S3_CONFIG)
+
+
+@functools.cache
+def _spend_ddb():
+    """The spend counter's DynamoDB client, made on first use, with SPEND_CONFIG.
+
+    Its 1 s timeouts and 5 attempts bound the write after the paid run inside the
+    run's margin, and ride out a throttle on the shared 2-unit limits table (C527).
+    """
+    return boto3.client("dynamodb", config=SPEND_CONFIG)
+
+
+class _CountedClient:
+    """The Meta client, with a tally of what its calls may have cost (C527).
+
+    A thin wrapper in the handler, so no module on the measuring path changes. Each
+    SAM call that returns counts as one image, and each judge answer adds its tokens,
+    or SPARK_TOKENS_IF_UNREPORTED for a count Meta didn't report. A call that raised
+    is charged the same, unless Meta answered it with an HTTP error, which isn't
+    billed: a timeout, an unfinished or unreadable answer, or a refusal may have
+    been. Either guess sets `estimated`, so the count runs over, never under. SAM's
+    phrases run in parallel threads, so the tally takes a lock.
+    """
+
+    def __init__(self, client: ModelClient) -> None:
+        self._client = client
+        self._lock = threading.Lock()
+        self._sam_images = 0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self.estimated = False
+
+    def segment(self, image: object, phrase: str, **kwargs: object):
+        try:
+            result = self._client.segment(image, phrase, **kwargs)
+        except Exception as exc:
+            if _maybe_billed(exc):
+                self._add(images=1, estimated=True)
+            raise
+        self._add(images=1)
+        return result
+
+    def judge(self, image: object, **kwargs: object):
+        try:
+            answer = self._client.judge(image, **kwargs)
+        except Exception as exc:
+            if _maybe_billed(exc):
+                self._add(tokens=SPARK_TOKENS_IF_UNREPORTED, estimated=True)
+            raise
+        reported = (answer.input_tokens, answer.output_tokens)
+        tokens = tuple(
+            fallback if count is None else count
+            for count, fallback in zip(
+                reported, SPARK_TOKENS_IF_UNREPORTED, strict=True
+            )
+        )
+        self._add(tokens=tokens, estimated=None in reported)
+        return answer
+
+    def cost(self) -> Decimal:
+        """What the calls so far cost, in USD, at spend.PRICES."""
+        with self._lock:
+            return cost_of(
+                sam_images=self._sam_images,
+                spark_input_tokens=self._input_tokens,
+                spark_output_tokens=self._output_tokens,
+            )
+
+    def _add(
+        self,
+        *,
+        images: int = 0,
+        tokens: tuple[int, int] = (0, 0),
+        estimated: bool = False,
+    ) -> None:
+        with self._lock:
+            self._sam_images += images
+            self._input_tokens += tokens[0]
+            self._output_tokens += tokens[1]
+            self.estimated = self.estimated or estimated
+
+
+def _maybe_billed(exc: Exception) -> bool:
+    """Whether a Meta call that raised `exc` may still have been billed.
+
+    Only Meta's own HTTP error answer, a MetaApiError with a status, wasn't. The
+    client's module is loaded by now: its client made the call.
+    """
+    from lusot_analysis.meta_client import MetaApiError
+
+    return not (isinstance(exc, MetaApiError) and exc.status is not None)
+
+
+def MetaClient(*, api_key: str) -> meta_client.MetaClient:
+    """A new Meta client, its module imported on first use (the cold start).
+
+    It keeps the class's name, so a test can put a recorder in its place.
+    """
+    from lusot_analysis.meta_client import MetaClient as meta_client_class
+
+    return meta_client_class(api_key=api_key)
+
+
+def _meta_client() -> meta_client.MetaClient:
     """The Meta client, made from the key in SSM once per process (spec §3.6).
 
     It is kept only once it is made, so a failed load is tried again by the next
@@ -94,6 +265,8 @@ def _meta_client() -> MetaClient:
     """
     global _META_CLIENT
     if _META_CLIENT is None:
+        from lusot_analysis.meta_client import MissingApiKey
+
         try:
             value = _client("ssm").get_parameter(
                 Name=os.environ["MODEL_KEY_PARAM"], WithDecryption=True
@@ -142,21 +315,121 @@ def _model_calls_switch() -> str:
     return _client("ssm").get_parameter(Name=name)["Parameter"]["Value"]
 
 
+def _publish_switch() -> str:
+    """The publish stop switch's value, read for each result that could be pinned.
+
+    Uncached, as the model-calls switch is, so a change acts on the next result. It
+    comes after the paid run, so it goes through the bounded `_post_run_ssm`.
+    """
+    name = os.environ["STOP_PARAM_PREFIX"] + "publish"
+    return _post_run_ssm().get_parameter(Name=name)["Parameter"]["Value"]
+
+
+def _spend_stop_usd() -> Decimal:
+    """The spend stop in USD, read before each run. Anything but a number raises."""
+    value = _client("ssm").get_parameter(Name=SPEND_STOP_PARAM)["Parameter"]["Value"]
+    stop = Decimal(value)  # InvalidOperation for text that isn't a number
+    if not stop.is_finite():
+        raise ValueError("the spend stop isn't a finite number")
+    return stop
+
+
+def _spend_check(line: dict) -> Decimal | None:
+    """The stop to hold the run's cost to, or None once model calls are paused.
+
+    Read after the claim and before any Meta call (C527). A total at or over the
+    stop, or either of them unreadable (fail closed, as for the switch), sets the
+    model-calls switch "on" and adds `spend_stop` to `line`. A counter not yet
+    seeded, as in a new or re-created table, is unreadable too, logged as `unseeded`.
+    """
+    try:
+        stop = _spend_stop_usd()
+        total = spend_total(ddb=_spend_ddb())
+    except SpendUnseeded:
+        line["spend_stop"] = {"unseeded": True}
+        _pause_model_calls(line["spend_stop"])
+        return None
+    except Exception as exc:  # noqa: BLE001
+        line["spend_stop"] = {"unreadable": _error_fields(exc)}
+        _pause_model_calls(line["spend_stop"])
+        return None
+    if total >= stop:
+        line["spend_stop"] = {"total_usd": str(total), "stop_usd": str(stop)}
+        _pause_model_calls(line["spend_stop"])
+        return None
+    return stop
+
+
+def _record_spend(counted: _CountedClient, stop: Decimal, line: dict) -> None:
+    """Add the run's Meta cost to the counter, after the run and before its write.
+
+    The one guard after the paid run: nothing here raises, so no fault in it can
+    return the message to claim and pay again (Review Focus 3). A run with nothing
+    billed records nothing. A total at or over the stop pauses model calls at once
+    (`spend_stop`). A write that still fails after SPEND_CONFIG's retries logs
+    `spend_error` with the amount, for docs/operations.md, and fails closed: it
+    pauses model calls too, so an unseen gap can't let the stop trip late. The
+    handler adds no retries of its own.
+    """
+    cost = counted.cost()
+    if cost == 0:
+        return
+    if counted.estimated:
+        line["spend_estimated"] = True
+    try:
+        total = record_spend(cost, "analysis", ddb=_spend_ddb())
+    except Exception as exc:  # noqa: BLE001
+        line["spend_error"] = {"usd": str(rounded_up(cost)), **_error_fields(exc)}
+        _pause_model_calls(line["spend_error"])
+        return
+    if total >= stop:
+        line["spend_stop"] = {"total_usd": str(total), "stop_usd": str(stop)}
+        _pause_model_calls(line["spend_stop"])
+
+
+def _pause_model_calls(fields: dict) -> None:
+    """Set the model-calls switch "on", so no later run pays (C527).
+
+    Every flip goes through the bounded `_post_run_ssm`, so one after the paid run
+    ends inside the run's margin. A failed put adds its error to `fields` as
+    `switch`: the line's spend_stop or spend_error still reaches the alarm.
+    """
+    try:
+        _post_run_ssm().put_parameter(
+            Name=os.environ["STOP_PARAM_PREFIX"] + "model-calls",
+            Value="on",
+            Type="String",
+            Overwrite=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        fields["switch"] = _error_fields(exc)
+
+
 def analyse(
-    data: bytes, client: ModelClient, *, deadline: float | None = None
+    data: bytes,
+    client: ModelClient,
+    *,
+    deadline: float | None = None,
+    keep_photo: bool = False,
 ) -> PipelineRun:
     """The handler's pipeline call, with every SAM phrase and the geometry setting (B3).
 
     The face and plate phrases are what the publish blur reads, so a level result gets
     its photo to store (C61). `deadline` is the run's deadline as a time.monotonic()
-    value (C84). GEOMETRY_IN_LEVEL sets geometry_in_level (C309).
+    value (C84). `keep_photo`, set for a sample seed only, gives any run past SAM its
+    copy (C512); _finish decides what is stored. GEOMETRY_IN_LEVEL sets
+    geometry_in_level (C309).
     """
+    from lusot_analysis.meta_client import SAM_PHRASES
+    from lusot_analysis.pipeline import run_pipeline
+
     return run_pipeline(
         data,
         client,
         _prompt(),
         phrases=SAM_PHRASES,
         deadline=deadline,
+        keep_photo=keep_photo,
         geometry_in_level=_geometry_in_level(),
     )
 
@@ -216,6 +489,8 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
     the pipeline still logs the pipeline's fields, the paid calls among them.
     """
     global _META_CLIENT
+    from lusot_analysis.pipeline.types import ModelKeyRejected, Outcome
+
     report = _find_report(report_id)
     # Step 3, before the claim: if any load fails, the message retries and the report
     # stays untouched (C60, C79).
@@ -242,13 +517,21 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         # message returns with the queue's own visibility timeout, not R92's 10 s:
         # its copy comes back once the report is final or the lease has expired (C89).
         return "lease_held"
-    # An earlier attempt may have saved its level's photo and then failed its write.
-    # Every attempt starts with none, so only a written level keeps one (C72).
-    _delete(_photo_key(report_id))
+    # An earlier attempt may have saved its level's photo and overlay, or a seed's
+    # copy, and then failed its write. Every attempt starts with none, so only a
+    # written result keeps them (C72).
+    for stored in _photo_keys(report):
+        _delete(stored)
 
-    # Step 5: only an explicit "off" lets model calls through (C60).
+    # Step 5: only an explicit "off" lets model calls through (C60), and only below the
+    # spend stop (C527).
     if switch != "off":
-        return _finish(report, key, token, Outcome.failed("model_calls_paused"))
+        paused = Outcome.failed("model_calls_paused")
+        return _finish(report, key, token, paused, line=line)
+    stop = _spend_check(line)
+    if stop is None:
+        paused = Outcome.failed("model_calls_paused")
+        return _finish(report, key, token, paused, line=line)
 
     # Step 6: the raw photo.
     try:
@@ -261,25 +544,35 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         if exc.response["Error"]["Code"] not in _MISSING_PHOTO_CODES:
             raise
         line.update(_error_fields(exc))  # a retry can't bring the photo back
-        return _finish(report, key, token, Outcome.failed("photo_missing"))
+        return _finish(report, key, token, Outcome.failed("photo_missing"), line=line)
     if not data.startswith(_JPEG_MAGIC):  # before any decoder sees it (C83)
-        return _finish(report, key, token, Outcome.failed("bad_file"))
+        return _finish(report, key, token, Outcome.failed("bad_file"), line=line)
 
-    # Step 7: the pipeline.
+    # Step 7: the pipeline, its Meta calls counted (C527).
+    counted = _CountedClient(client)
     try:
-        run = analyse(data, client, deadline=_deadline(context))
+        run = analyse(
+            data, counted, deadline=_deadline(context), keep_photo=_keep_photo(report)
+        )
     except ModelKeyRejected as exc:
         # The key or the account, not the photo (C73). The report stays processing
         # until a redelivery claims it again, and that delivery reads the key again.
         _META_CLIENT = None
         line["meta_status"] = exc.status
         return "model_key_rejected"
-    # The log line takes run.log only, and _finish stores item_fields() only, so the
-    # evidence record reaches neither CloudWatch nor the table (C328).
+    finally:
+        # However the run ends, before its final write or its error return, so a
+        # retried message's paid attempt is counted too.
+        _record_spend(counted, stop, line)
+    # The log line takes run.log only. The evidence record reaches the table only as
+    # the overlay's readings and never CloudWatch, and the overlay and its layers
+    # never carry inches (C328, C505).
     line.update(run.log)
 
     # Step 8: publish.
-    return _finish(report, key, token, run.outcome, run.publish_jpeg)
+    return _finish(
+        report, key, token, run.outcome, run.publish_jpeg, line, evidence=run.evidence
+    )
 
 
 def _find_report(report_id: str) -> dict:
@@ -295,26 +588,47 @@ def _find_report(report_id: str) -> dict:
 
 
 def _finish(
-    report: dict, key: str, token: str, outcome: Outcome, photo: bytes | None = None
+    report: dict,
+    key: str,
+    token: str,
+    outcome: Outcome,
+    photo: bytes | None = None,
+    line: dict | None = None,
+    evidence: Evidence | None = None,
 ) -> str:
     """Store the photo, if any, write the result, then delete the raw photo (spec §3.2).
 
-    It returns the outcome to log. `photo` comes with a level result only (C61), and
-    it is stored before the write, so a level is never written without its photo. The
+    It returns the outcome to log. A level stores its `photo` (C61). A sample seed's
+    run carries one for any outcome past SAM, and stores it for no flood seen too,
+    with no overlay (C505): the outcomes that ship as samples. A seed that ends
+    refused or failed stores none (C512; the tracker's ruling, Oct 30, 10:31 AM).
+    The photo is stored before the write, so a failed put writes nothing. A seed's
+    level or no flood seen without its copy adds `kept_copy: false` to `line`
+    (Window 3's review, Minor 3). A level with an evidence record also stores its
+    overlay and layers and writes its readings (_evidence_fields). The write carries
+    the publish fields, if any, and errors join `line`, the report's one log line. The
     write is under the claim: a lost lease writes nothing and leaves the raw photo to
     the worker that holds the report. If the delete fails, the message returns, and
     the retry finds the report finished and only deletes.
     """
     fields = outcome.item_fields()
-    if photo is not None:
-        photo_key = _photo_key(report["reportId"]["S"])
-        _client("s3").put_object(
-            Bucket=os.environ["BUCKET_NAME"],
-            Key=photo_key,
-            Body=photo,
-            ContentType="image/jpeg",
-        )
-        fields["photoKey"] = photo_key
+    line = {} if line is None else line
+    seed = _keep_photo(report)
+    if outcome.level is not None or (seed and outcome.no_flood_seen):
+        if photo is not None:
+            photo_key = _photo_keys(report)[0]
+            _post_run_s3().put_object(
+                Bucket=os.environ["BUCKET_NAME"],
+                Key=photo_key,
+                Body=photo,
+                ContentType="image/jpeg",
+            )
+            fields["photoKey"] = photo_key
+        elif seed:
+            line["kept_copy"] = False
+    if outcome.level is not None and evidence is not None:
+        fields |= _evidence_fields(report, photo, evidence, line)
+    fields |= _publish_fields(report, outcome, line)
     written = write_result(
         _client("dynamodb"), os.environ["TABLE_NAME"], _item_key(report), token, fields
     )
@@ -322,6 +636,77 @@ def _finish(
         return "lease_lost"
     _delete(key)
     return outcome.log_name
+
+
+def _evidence_fields(
+    report: dict, photo: bytes | None, evidence: Evidence, line: dict
+) -> dict:
+    """A level's readings, and its overlay and layers stored beside its photo (C505).
+
+    The overlay is drawn on `photo`, the stored one. Each of the two runs inside its
+    own guard and is never retried: the result is paid for, and a message returned for
+    a fault here would claim the report again and pay again (Review Focus 3). A fault
+    in `readings`, or a value in them the final write couldn't encode, adds
+    `readings_error` to `line`, with its class name only, and the result goes without
+    them. One in the drawing, or in storing it, adds `overlay_error` the same way, and
+    the result goes without `overlayKey` and `layersKey`. The two keys come only after
+    both objects are stored. A level with no
+    photo gets readings but no overlay. The overlay module loads inside each guard, so
+    a failed import is a fault in both.
+    """
+    fields: dict[str, object] = {}
+    try:
+        from lusot_analysis import overlay  # OpenCV: loaded here, not at import
+
+        found = overlay.readings(evidence)
+        _attribute_value(found)  # as write_result encodes them, so it can't raise there
+        fields["readings"] = found
+    except Exception as exc:  # noqa: BLE001
+        line["readings_error"] = type(exc).__name__
+    if photo is None:
+        return fields
+    try:
+        from lusot_analysis import overlay  # already loaded, unless it failed above
+
+        image, layers = overlay.draw_overlay(photo, evidence)
+        document = json.dumps(layers, allow_nan=False).encode()
+        _, overlay_key, layers_key = _photo_keys(report)
+        for stored, body, content_type in (
+            (overlay_key, image, "image/jpeg"),
+            (layers_key, document, "application/json"),
+        ):
+            _post_run_s3().put_object(
+                Bucket=os.environ["BUCKET_NAME"],
+                Key=stored,
+                Body=body,
+                ContentType=content_type,
+            )
+    except Exception as exc:  # noqa: BLE001
+        line["overlay_error"] = type(exc).__name__
+        return fields
+    return fields | {"overlayKey": overlay_key, "layersKey": layers_key}
+
+
+def _publish_fields(report: dict, outcome: Outcome, line: dict) -> dict:
+    """The fields that pin a live or demo level, or none (C516).
+
+    The mode is the item's, never the event's. Only a level in a mode that pins
+    reads the publish switch: once, after the pipeline and before the write. Only an
+    explicit "off" lets it publish, as with the model-calls switch. The result is
+    already paid for, so a failed read writes it unpublished, never retried, and adds
+    the error's code and status to `line` as `publish_switch` (Review Focus 3).
+    """
+    mode = report["mode"]["S"]
+    if outcome.level is None or mode not in _PUBLISHED_MODES:
+        return {}
+    try:
+        switch = _publish_switch()
+    except Exception as exc:  # noqa: BLE001
+        line["publish_switch"] = _error_fields(exc)
+        return {}
+    if switch != "off":
+        return {}
+    return {"published": True, "feedPart": mode}
 
 
 def _retry_soon(record: dict) -> dict:
@@ -370,8 +755,28 @@ def _item_key(report: dict) -> dict:
     return {"pk": report["pk"], "sk": report["sk"]}
 
 
-def _photo_key(report_id: str) -> str:
-    return f"blurred/{report_id}.jpg"
+def _keep_photo(report: dict) -> bool:
+    """Whether the report is a sample's seeding run (C512, MS4-Q14).
+
+    Only an `eval` report that samples.py seed marked `seed`, as
+    eval_runs.eval_item(seed=True) writes it (T11). Its run carries its blurred copy
+    for any outcome past SAM, and _finish stores it for a level or no flood seen only.
+    """
+    return report["mode"]["S"] == "eval" and report.get("seed") == {"BOOL": True}
+
+
+def _photo_keys(report: dict) -> tuple[str, str, str]:
+    """The report's stored photo and its overlay's image and JSON (C510).
+
+    A demo report's go under demo/, which has its own 60-day backstop.
+    """
+    report_id = report["reportId"]["S"]
+    prefix = "demo/" if report["mode"]["S"] == "demo" else ""
+    return (
+        f"{prefix}blurred/{report_id}.jpg",
+        f"{prefix}overlay/{report_id}.jpg",
+        f"{prefix}overlay/{report_id}.json",
+    )
 
 
 def _delete(key: str) -> None:

@@ -20,7 +20,7 @@ STATUS_WORDS = frozenset({"subsided"})
 # What the export writes instead of a label that holds any other word (C420).
 OTHER_WORDS = "(other words)"
 
-# Rules §2's level phrases, and "head" as "lagpas tao" (MS6E-Q1, item 16). Each may
+# Rules §2's level phrases, "head" among them (MS6E-Q1, item 16). Each may
 # end with "deep" or "level", or neither, since §2 treats the two words alike (C404;
 # MS6E-Q1, item 12).
 _PHRASE_LEVELS = {
