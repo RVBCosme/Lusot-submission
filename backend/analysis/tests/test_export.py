@@ -274,13 +274,14 @@ def test_photo_row_has_both_configurations(tmp_path, monkeypatch, prompt):
     assert outcomes["landmark"] == Outcome.refused("no_usable_reference").item_fields()
     geometry = outcomes["geometry"]
     assert (geometry["level"], geometry["levelFrom"]) == ("half_knee", "geometry")
-    # As the item stores them, rounded outward (C308).
-    assert (geometry["depthInMin"], geometry["depthInMax"]) == (9.8, 9.9)
+    # As the item stores them, rounded outward (C308). The van's two codes give the
+    # Tamaraw's depth as the min and the Hiace's as the max (M11).
+    assert (geometry["depthInMin"], geometry["depthInMax"]) == (9.4, 9.9)
     # Unrounded, to 4 decimal places (C327; finding 2), as MS6's list by box id.
     (inches,) = row["wheel_inches"]
     assert inches["box_id"] == 2
-    assert inches["depthInMin"] == inches["depthInMax"]
-    assert inches["depthInMin"] == pytest.approx(9.887, abs=0.02)
+    assert inches["depthInMin"] == pytest.approx(9.464, abs=0.02)
+    assert inches["depthInMax"] == pytest.approx(9.887, abs=0.02)
     assert places(inches["depthInMin"]) <= 4
     assert places(inches["depthInMax"]) <= 4
 

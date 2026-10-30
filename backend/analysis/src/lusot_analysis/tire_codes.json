@@ -1,5 +1,5 @@
 {
-  "version": "tire-codes-v1",
+  "version": "tire-codes-v2",
   "types": {
     "sedan_hatch": [
       {"code": "175/65R14", "vehicle": "Wigo", "source": "plan Table 7"},
@@ -17,7 +17,17 @@
       {"code": "215/55R17", "vehicle": "Innova", "source": "plan Table 7"}
     ],
     "van": [
-      {"code": "215/70R16C", "vehicle": "Hiace", "source": "plan Table 7"}
+      {"code": "215/70R16C", "vehicle": "Hiace", "source": "plan Table 7"},
+      {"code": "215/65R16", "vehicle": "Tamaraw 2024+ GL 2.4 diesel AT", "source": "M11 Table 1 row 5 (S1, S3, S6); Rene approved Oct 30"}
+    ],
+    "pickup": [
+      {"code": "205/70R15", "vehicle": "Hilux 8th gen 2.4 J 4x2 MT", "source": "M11 Table 1 row 1 (S7, S8); Rene approved Oct 30"},
+      {"code": "225/70R17", "vehicle": "Hilux 8th gen 2.4 J 4x4 MT", "source": "M11 Table 1 row 2 (S7, S8); Rene approved Oct 30"},
+      {"code": "265/65R17", "vehicle": "Hilux 8th gen 2.4 E 4x2, 9th gen E, G and BEV", "source": "M11 Table 1 row 3 (S7, S8, S9, S10); Rene approved Oct 30"},
+      {"code": "265/60R18", "vehicle": "Hilux 8th gen G and Conquest, 9th gen V and Conquest", "source": "M11 Table 1 row 4 (S8, S9, S10); Rene approved Oct 30"}
+    ],
+    "jeepney": [
+      {"code": "205/75R16", "vehicle": "Modern jeepney, Mitsubishi Fuso Canter", "source": "M11 Table 1 row 6 (S13, S14); Rene approved Oct 30"}
     ]
   }
 }

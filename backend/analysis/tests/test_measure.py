@@ -1,8 +1,8 @@
 """Tests for step 5: each kept vehicle and adult gives at most one deciding reading.
 
 Spec §3.3, and MS3b's C317 and G4. measure takes Kept after the drops, so every
-vehicle stands still and is a sedan_hatch or suv_mpv, or with geometry on a van or
-unknown (C318), and every person is an adult. Box ids follow number_boxes: vehicles
+vehicle stands still and is a sedan_hatch or suv_mpv, or with geometry on a type kept
+for geometry (C318), and every person is an adult. Box ids follow number_boxes: vehicles
 first, then wheels, then people.
 """
 
@@ -36,8 +36,8 @@ from lusot_analysis.rules import (
 TIRE_FLOOR = Reading("tire", floor=True)  # tire or deeper (C54)
 HUB_FLOOR = Reading("half_tire", floor=True)  # a hub's sedan row, as a floor (M5)
 
-# The types kept for geometry: van and unknown, and pickup and jeepney once they have
-# tire codes (C318, M11).
+# The types kept for geometry: van and unknown, and pickup and jeepney since M11's
+# tire codes (C318).
 GEOMETRY_TYPES = sorted(GEOMETRY_ONLY_TYPES)
 
 # The marks that give a reading, shallowest first. not_visible gives none.
