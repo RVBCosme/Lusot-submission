@@ -163,6 +163,7 @@ def run_json(**overrides: object) -> dict:
         "self_check": "off",
         "self_check_decided": "2026-10-29",
         "geometry_default": "on",
+        "service_retries": 0,
         "baseline_level": "knee",
         "baseline_class": "NPLV",
     }

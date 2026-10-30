@@ -147,6 +147,22 @@ def test_face_blur_settings_are_pinned_to_their_version():
     )
 
 
+def test_blur_area_is_the_one_copy():
+    # 25% of 40 px is 10 px; 25% of 30 px is 7.5 px, rounded up to 8. The area is
+    # half-open and unclipped: blur_faces clips it to the image.
+    assert face_blur.blur_area(FaceBox(10, 20, 40, 30, 0.9)) == (0, 12, 60, 58)
+    assert face_blur.blur_area(FaceBox(-20, -30, 50, 50, 0.9)) == (-33, -43, 43, 33)
+    # annotate and the probe call it, and keep no copy of the margin or the sum.
+    analysis = Path(__file__).parents[1]
+    for path in (
+        analysis / "src" / "lusot_analysis" / "annotate.py",
+        analysis / "probes" / "run_probe.py",
+    ):
+        source = path.read_text(encoding="utf-8")
+        assert "FACE_MARGIN" not in source, path.name
+        assert "math.ceil(face." not in source, path.name
+
+
 def test_no_faces_leaves_image_unchanged():
     img = noise(400, 300)
     out = blur_faces(img, [])

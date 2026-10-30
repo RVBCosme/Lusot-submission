@@ -259,8 +259,9 @@ def test_rim_size_bounds_from_the_codes():
 
     others = {
         "suv_mpv": (0.5134, 0.7555),
-        "van": (0.4883, 0.6607),
-        "unknown": (0.4883, 0.7555),
+        "van": (0.4883, 0.6814),
+        "pickup": (0.4728, 0.6783),
+        "unknown": (0.4728, 0.7555),
     }
     for vehicle_type, bounds in others.items():
         assert rim_size_bounds(tire_codes(vehicle_type), 1.0, START) == pytest.approx(

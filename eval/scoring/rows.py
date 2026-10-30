@@ -157,7 +157,7 @@ class WheelRow:
     vehicle_type: str
     tire_code: str
     true_depth_in: Decimal
-    sam_water_found: bool
+    sam_water_found: bool | None
     bins: Mapping[str, str]
     estimates: Mapping[str, Estimate]
 
@@ -172,6 +172,7 @@ class Run:
     self_check: bool
     geometry_dropped: bool
     rerun_reason: str | None
+    service_retries: int
     baseline_level: str | None
     baseline_class: str | None
     set_a: tuple[PhotoRow, ...] | None
@@ -213,6 +214,7 @@ def load_run(folder: Path) -> Run:
         self_check=self_check,
         geometry_dropped=dropped,
         rerun_reason=meta.get("rerun_reason"),
+        service_retries=meta.get("service_retries", 0),
         baseline_level=meta.get("baseline_level"),
         baseline_class=meta.get("baseline_class"),
         set_a=_photos(
@@ -476,14 +478,17 @@ _RUN_FIELDS: dict[str, _Check] = {
     "stops": _list_of(_object_of({"at": _short, "cause": _short, "resumed": _short})),
     "rerun_reason": _reason,
     "synthetic": _bool,
+    "service_retries": _count,
     "baseline_level": _among(LEVELS, "one of the 9 levels"),
     "baseline_class": _among(CLASS_NAMES, "PATV, NPLV or NPATV"),
 }
 # A sealed run needs every field but these; a development run may also leave out the
-# rest, and then computes its baseline from its own rows (C424).
+# rest, and then computes its baseline from its own rows (C424) and reads
+# service_retries as 0 (MS6E-Q6).
 _SEALED_OPTIONAL = ("geometry_dropped_reason", "stops", "rerun_reason", "synthetic")
 _DEVELOPMENT_OPTIONAL = (
     *_SEALED_OPTIONAL,
+    "service_retries",
     "rules_version",
     "freeze_commit",
     "self_check_decided",
@@ -827,6 +832,9 @@ def _estimate(value: object, where: str) -> Estimate:
     return Estimate(False, None, None, None, found["fail"])
 
 
+# What MS3b's export gives every variant of a wheel whose Meta call failed twice. Such
+# a wheel never got an answer, so whether SAM found water is null (MS6E-Q6).
+_NO_ANSWER = Estimate(False, None, None, None, "model_error")
 _VARIANT_FIELDS = dict.fromkeys(SET_B_VARIANTS, _estimate)
 _VARIANTS_OPTIONAL = tuple(name for name in SET_B_VARIANTS if name != "geometry")
 
@@ -847,7 +855,7 @@ def _wheel_fields(self_check: bool) -> dict[str, _Check]:
         "vehicle_type": _VEHICLE_TYPE,
         "tire_code": _tire_code,
         "true_depth_in": _depth,
-        "sam_water_found": _bool,
+        "sam_water_found": _nullable(_bool),
         "bins": _map_of(_token, _token),
         "estimates": lambda value, where: _estimates(value, where, self_check),
     }
@@ -855,6 +863,13 @@ def _wheel_fields(self_check: bool) -> dict[str, _Check]:
 
 def _wheel_row(value: object, fields: Mapping[str, _Check]) -> WheelRow:
     row = _object(value, "", fields, optional=("bins",))
+    if row["sam_water_found"] is None and any(
+        estimate != _NO_ANSWER for estimate in row["estimates"].values()
+    ):
+        raise _Bad(
+            "sam_water_found may be null only when every variant failed with"
+            " model_error"
+        )
     return WheelRow(
         crop_id=row["crop_id"],
         wheel=row["wheel"],
