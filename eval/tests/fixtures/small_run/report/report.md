@@ -15,7 +15,7 @@ Rules §7's three headline figures, for the configuration that ships and then fo
 
 Rules §8's targets and guards, each with the value found. Geometry stays only if Set A underestimation doesn't rise and both guards hold, and inches show only if geometry stays and Set B meets its three targets.
 
-Self-check: off (decided 2026-10-29, MS3).
+Self-check: off (decided 2026-10-29, MS3). It is off in this evaluation: MS3b's ablation was dropped, so no development ablation exists to turn it on (eval/rules.md §8).
 
 | Check | Found | Target | Passed |
 |---|---|---|---|
@@ -135,7 +135,7 @@ Boxes that Muse Spark's answer skipped, which count as disagreements: 1 of 7 (14
 
 ## A-neg: flood-free photos
 
-Flood-free photos that got a level instead of "no flood seen" or a refusal, over the A-neg photos kept. A processing failure counts in the n, never as a false flood.
+The A-neg photos are openly licensed Wikimedia Commons photos (CC0, public domain or CC BY). Flood-free photos that got a level instead of "no flood seen" or a refusal, over the A-neg photos kept. A processing failure counts in the n, never as a false flood.
 
 | Metric | Landmark alone | Landmark plus geometry |
 |---|---|---|
@@ -214,9 +214,9 @@ Not run in this results folder.
 
 ## Latency
 
-Live tests' seconds from upload to pin (C416).
+Live tests' seconds from upload, or a sample's start, to the final result (C416).
 
-| Measure | Upload to pin |
+| Measure | Upload, or a sample's start, to the final result |
 |---|---|
 | Median | 6.8 s (n = 5) |
 | 95th percentile, nearest rank | 12.5 s (n = 5) |
@@ -249,7 +249,7 @@ Left out of passability agreement only, because the passability label didn't map
 
 ## Frozen versions and data
 
-Scored by eval/rules.md v0.6.
+Scored by eval/rules.md v0.7.
 
 Freeze commit: `abcdef0123456789abcdef0123456789abcdef01`.
 
@@ -261,6 +261,9 @@ Geometry's live default before the run (C309): on.
 | model | muse-spark-1.3 |
 | prompt | muse_spark_photo_v1 |
 | sam | sam-3.1 |
+| untuned | yes |
+
+The cutoffs in force are their start values, untuned (rules 4.3).
 
 | Dataset | Version | Split seed | In this results folder |
 |---|---|---|---|
@@ -273,7 +276,7 @@ Geometry's live default before the run (C309): on.
 |---|---|---|
 | 21:10 | lost connection | 21:40 |
 
-Photos retried once after a Meta service failure in this run (MS6E-Q6): 0.
+Photos and crops retried once after a Meta service failure in this run (MS6E-Q6): 0.
 
 The face blur runs before Meta receives a photo. It can miss faces that are very small, side-on, partly covered or in the dark.
 

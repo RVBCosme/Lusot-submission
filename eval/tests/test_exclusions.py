@@ -55,8 +55,9 @@ def triggered(*indexes: int) -> str | None:
 def test_reasons_match_rules_md():
     section = rules_md.section(9).splitlines()
     bullets = [line[2:] for line in section if line.startswith("- ")]
-    # Without the backticked parenthetical, (`label_in_image` = `yes`).
-    assert tuple(bullet.split(" (`")[0] for bullet in bullets) == REASONS
+    # Without a bullet's parenthetical: (`label_in_image` = `yes`), or the note on
+    # duplicates and on files that can't be decoded (v0.7's items 9.1 and 9.2).
+    assert tuple(bullet.split(" (")[0] for bullet in bullets) == REASONS
 
 
 def test_each_reason():

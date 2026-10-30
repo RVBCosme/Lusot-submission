@@ -13,6 +13,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import rules_md
+import scoring
 from builders import (
     a_neg_row,
     level,
@@ -533,9 +535,52 @@ def test_opening_paragraph(tmp_path):
     assert lines[2] == (
         "The frozen pipeline ran once on the sealed sets, on 2026-10-30. Its figures"
         " are agreement with the labels MMDA and the cities posted, mapped by"
-        " eval/rules.md §2 (v0.6) before any result was seen. With samples this small,"
+        " eval/rules.md §2 (v0.7) before any result was seen. With samples this small,"
         " every figure is indicative and carries its n."
     )
+
+
+A_NEG_LEAD = (
+    "The A-neg photos are openly licensed Wikimedia Commons photos"
+    " (CC0, public domain or CC BY)."
+    ' Flood-free photos that got a level instead of "no flood seen" or a refusal,'
+    " over the A-neg photos kept. A processing failure counts in the n, never as a"
+    " false flood."
+)
+
+
+def test_a_neg_lead_names_its_source(tmp_path):
+    # Rules §4 (v0.7's item 4.5): A-neg comes from Wikimedia Commons, and the report's
+    # A-neg section says so, in a sealed and in a development report alike.
+    for kind in ("sealed", "development"):
+        run = full_run(tmp_path / f"{kind}-run", kind=kind)
+        lead = section(report_of(run), "A-neg: flood-free photos")[0]
+        assert lead == A_NEG_LEAD, kind
+        # The copy rules: the source and its licences, and nothing of any photo's
+        # credit (it stays in the private manifest), file or link; never ShareAlike;
+        # and no "accuracy". The report's banned-word guard covers the rest.
+        for word in ("credit", "http", "by-sa", "sharealike", "accuracy"):
+            assert word not in lead.lower(), (kind, word)
+    # With no A-neg rows the section still says only that it wasn't run.
+    empty = load(tmp_path / "empty", run_json(), set_a=HAND_SET)
+    assert section(report_of(empty), "A-neg: flood-free photos") == [NOT_RUN]
+
+
+def test_latency_says_upload_to_the_final_result(tmp_path):
+    # Rules §7 (v0.7's item 7.8, C416): the live tests use samples, and uploads placed
+    # outside Metro Manila never pin, so the report can't call the figure "upload to
+    # pin". The docstrings say so too.
+    lines = section(report_of(full_run(tmp_path)), "Latency")
+    assert lines[:2] == [
+        (
+            "Live tests' seconds from upload, or a sample's start, to the final result"
+            " (C416)."
+        ),
+        "| Measure | Upload, or a sample's start, to the final result |",
+    ]
+    assert "pin" not in " ".join(lines).lower()
+    for path in Path(scoring.__file__).parent.glob("*.py"):
+        assert "upload to pin" not in path.read_text(encoding="utf-8").lower(), path
 
 
 def test_baseline_section(tmp_path):
@@ -815,10 +860,38 @@ def test_report_refuses_its_banned_words(tmp_path):
         assert str(refused.value) == banned(word), word
 
 
+def self_check_off(when: str = "decided 2026-10-29") -> str:
+    """The line for a run with the self-check off: a fact, as rules §8 states it."""
+    return (
+        f"Self-check: off ({when}, MS3). It is off in this evaluation: MS3b's"
+        " ablation was dropped, so no development ablation exists to turn it on"
+        " (eval/rules.md §8)."
+    )
+
+
+def section_of_gate(kind: str) -> str:
+    return "Release gate" if kind == "sealed" else "Outcome rule on development data"
+
+
+def test_self_check_off_is_stated_as_a_fact(tmp_path):
+    # Rules §8 (v0.7): the self-check is off in this evaluation, because MS3b's
+    # ablation was dropped (Oct 30), so no development ablation exists to turn it on.
+    # The report says the same, in a sealed and in a development report.
+    text = " ".join(rules_md.section(8).split())
+    assert "It is off in this evaluation:" in text
+    assert "no development ablation exists to turn it on" in text
+    for kind in ("sealed", "development"):
+        report = report_of(full_run(tmp_path / f"{kind}-run", kind=kind))
+        assert self_check_off() in section(report, section_of_gate(kind)), kind
+    # With the self-check on, the line says nothing of the sort.
+    on, _ = RUNS["self-check on"](tmp_path / "on")
+    assert "off in this evaluation" not in report_of(on)
+
+
 def test_both_configurations_and_the_self_check_line(tmp_path):
     off = report_of(full_run(tmp_path / "off"))
     assert metric_header(off) == "| Metric | Landmark alone | Landmark plus geometry |"
-    assert "Self-check: off (decided 2026-10-29, MS3)." in section(off, "Release gate")
+    assert self_check_off() in section(off, "Release gate")
     on, _ = RUNS["self-check on"](tmp_path / "on")
     report = report_of(on)
     assert metric_header(report) == (
@@ -841,7 +914,7 @@ def test_both_configurations_and_the_self_check_line(tmp_path):
         report_of(load(tmp_path / "undecided", undecided, set_a=HAND_SET)),
         "Outcome rule on development data",
     )
-    assert "Self-check: off (decided: not recorded, MS3)." in lines
+    assert self_check_off("decided: not recorded") in lines
 
 
 def test_shipped_configuration_comes_first(tmp_path):
@@ -984,7 +1057,7 @@ def test_geometry_dropped_report(tmp_path):
     assert metric_header(report) == "| Metric | Landmark alone |"
     # decide() isn't called, so the section shows no checks and no targets.
     assert section(report, "Release gate") == [
-        "Self-check: off (decided 2026-10-29, MS3).",
+        self_check_off(),
         (
             "Geometry was dropped before the freeze. The reason run.json records:"
             ' "median error over 3 in". With landmark alone left, the outcome rule'
@@ -1086,7 +1159,7 @@ def test_summary_json(tmp_path):
     assert [summary[key] for key in ("kind", "date", "rules_version")] == [
         "sealed",
         "2026-10-30",
-        "0.6",
+        "0.7",
     ]
     assert (summary["synthetic"], summary["rerun"]) == (False, False)
     assert (summary["shipped"], summary["geometry_stays"], summary["inches_shown"]) == (
@@ -1180,8 +1253,8 @@ FROZEN = "Frozen versions and data"
 
 def retries_line(count: int) -> str:
     return (
-        "Photos retried once after a Meta service failure in this run (MS6E-Q6):"
-        f" {count}."
+        "Photos and crops retried once after a Meta service failure in this run"
+        f" (MS6E-Q6): {count}."
     )
 
 
@@ -1200,10 +1273,10 @@ def run_without_retries(folder: Path, **overrides: object) -> Run:
 
 
 def test_service_retries_line(tmp_path):
-    # MS6E-Q6 (a): a sealed report always discloses how many photos were retried, and
-    # a development report only when there were some. The count covers the whole run
-    # (Set A, Set B and Set D), so the line sits with the run's other events, beside
-    # the stops table, and not in a set's section.
+    # MS6E-Q6 (a): a sealed report always discloses how many photos and crops were
+    # retried, and a development report only when there were some. The count covers
+    # the whole run (Set A's photos, and Set B's and Set D's items), so the line sits
+    # with the run's other events, beside the stops table, and not in a set's section.
     for number, (kind, count) in enumerate((("sealed", 0), ("sealed", 3))):
         run = full_run(tmp_path / f"run{number}", kind=kind, service_retries=count)
         report = report_of(run)
@@ -1376,11 +1449,49 @@ def test_sections_show_their_scores(tmp_path):
             assert line in found, (heading, line)
 
 
+UNTUNED_YES = "The cutoffs in force are their start values, untuned (rules 4.3)."
+UNTUNED_NO = (
+    "The cutoffs were tuned on development data and validated by event replay"
+    " (rules 4.3)."
+)
+
+
+def frozen_untuned(value: str | None) -> dict:
+    frozen = {"model": "muse-spark-1.3", "prompt": "muse_spark_photo_v1", "k": "1.0"}
+    return frozen if value is None else {**frozen, "untuned": value}
+
+
+def test_untuned_line(tmp_path):
+    # Rules 4.3: the report says whether the cutoffs kept their start values, from the
+    # run.json's frozen.untuned. A sealed run always says; a development run may not.
+    cases = {
+        "sealed yes": ("sealed", "yes", UNTUNED_YES, UNTUNED_NO),
+        "sealed no": ("sealed", "no", UNTUNED_NO, UNTUNED_YES),
+        "development yes": ("development", "yes", UNTUNED_YES, UNTUNED_NO),
+        "development no": ("development", "no", UNTUNED_NO, UNTUNED_YES),
+    }
+    for name, (kind, value, said, unsaid) in cases.items():
+        folder = tmp_path / f"{name.replace(' ', '-')}-run"
+        run = full_run(folder, kind=kind, frozen=frozen_untuned(value))
+        lines = section(report_of(run), FROZEN)
+        assert lines.count(said) == 1, name
+        assert unsaid not in lines, name
+        # It follows the table of frozen versions, which lists the value too.
+        assert f"| untuned | {value} |" in lines, name
+        assert lines.index(said) > lines.index(f"| untuned | {value} |"), name
+    silent = full_run(
+        tmp_path / "silent", kind="development", frozen=frozen_untuned(None)
+    )
+    lines = section(report_of(silent), FROZEN)
+    assert UNTUNED_YES not in lines and UNTUNED_NO not in lines
+    assert not [line for line in lines if "untuned" in line]
+
+
 def test_frozen_versions_and_data(tmp_path):
     lines = section(report_of(full_run(tmp_path)), "Frozen versions and data")
     # The freeze commit and geometry's live default come before the lists.
     assert lines[:4] == [
-        "Scored by eval/rules.md v0.6.",
+        "Scored by eval/rules.md v0.7.",
         f"Freeze commit: `{'ab' * 20}`.",
         "Geometry's live default before the run (C309): on.",
         "| Frozen | Version |",
