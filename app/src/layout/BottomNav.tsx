@@ -25,9 +25,9 @@ const SECTION: Record<Route['name'], Section> = {
   licences: 'about',
 }
 
-// The current section is underlined, not bolded, so its label keeps its width and doesn't wrap.
+// The current section is underlined and in the action colour, not bolded, so its label keeps its width and doesn't wrap.
 const LINK =
-  'flex min-h-12 flex-col items-center justify-center gap-0.5 px-1 py-1 text-sm aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4'
+  'flex min-h-tap flex-col items-center justify-center gap-0.5 px-1 py-1 text-small active:opacity-70 aria-[current=page]:text-action aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4'
 
 export function BottomNav({ route, reportDisabled }: { route: Route; reportDisabled: boolean }) {
   const current = SECTION[route.name]

@@ -5,7 +5,7 @@ import { useT } from '../i18n'
 export function ScreenLine() {
   const line = useT()('layout.screenLine')
   return (
-    <p lang={line.lang} className="border-t border-neutral-300 py-2 text-sm leading-snug">
+    <p lang={line.lang} className="border-t border-outline py-2 text-small">
       {line.text}
     </p>
   )

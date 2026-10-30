@@ -19,6 +19,7 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Hindi naka-set ang VITE_API_URL. Ilagay ito sa app/.env.local, saka i-build ulit.',
     reviewed: false,
   },
+  'layout.errorFallback': { text: 'Hindi maipakita ang screen na ito. Pumili ng ibang screen sa bar sa ibaba.', reviewed: false },
   // A privacy key: it shows its English line until its Taglish is reviewed (C619).
   'privacy.title': { text: 'Privacy policy', reviewed: false },
   'licences.title': { text: 'Mga open-source na lisensya', reviewed: false },

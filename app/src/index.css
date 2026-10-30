@@ -1,14 +1,80 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+/*
+ * Tailwind's theme reads the tokens (tokens.css) and holds no value of its own, so a component names a role
+ * (bg-surface, text-ink, border-outline, min-h-tap) and never a colour or a size. `inline` makes each utility
+ * use the token's variable directly, so the dark theme and the person's choice reach it.
+ */
+@theme inline {
+  --color-surface: var(--lusot-surface);
+  --color-ink: var(--lusot-text);
+  --color-ink-2: var(--lusot-text-2);
+  --color-action: var(--lusot-action);
+  --color-on-action: var(--lusot-on-action);
+  --color-outline: var(--lusot-outline);
+  --color-focus: var(--lusot-focus);
+  --color-depth-1: var(--lusot-depth-1);
+  --color-depth-2: var(--lusot-depth-2);
+  --color-depth-3: var(--lusot-depth-3);
+  --color-depth-4: var(--lusot-depth-4);
+  --color-depth-5: var(--lusot-depth-5);
+  --color-depth-6: var(--lusot-depth-6);
+  --color-depth-7: var(--lusot-depth-7);
+  --color-depth-8: var(--lusot-depth-8);
+  --color-depth-9: var(--lusot-depth-9);
+
+  --font-sans: var(--lusot-font);
+  --text-small: var(--lusot-type-small);
+  --text-small--line-height: var(--lusot-leading-small);
+  --text-body: var(--lusot-type-body);
+  --text-body--line-height: var(--lusot-leading-body);
+  --text-heading: var(--lusot-type-heading);
+  --text-heading--line-height: var(--lusot-leading-heading);
+  --text-title: var(--lusot-type-title);
+  --text-title--line-height: var(--lusot-leading-heading);
+
+  --spacing-gutter: var(--lusot-gutter);
+  --spacing-tap: var(--lusot-tap);
+  --radius-control: var(--lusot-radius);
+}
+
+@layer base {
+  body {
+    background-color: var(--lusot-surface);
+    color: var(--lusot-text);
+    font-size: var(--lusot-type-body);
+    line-height: var(--lusot-leading-body);
+  }
+
+  /* A ring on every control that the keyboard reaches, in the focus colour, clear of the control's own edge. */
+  :focus-visible {
+    outline: 3px solid var(--lusot-focus);
+    outline-offset: 2px;
+  }
+}
 
 /*
  * Keeps the title and the footer line clear of Android's status and navigation bars. Capacitor 8
  * draws the WebView edge to edge when the page sets viewport-fit=cover; its SystemBars plugin then
  * injects --safe-area-inset-*, because env(safe-area-inset-*) is wrong in Android WebView before
- * 140. Browsers fall back to env(). The 1rem is the page's own margin.
+ * 140. Browsers fall back to env(). The gutter is the page's own margin.
  */
 .safe-area {
-  padding-top: calc(1rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
-  padding-right: calc(1rem + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
-  padding-bottom: calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
-  padding-left: calc(1rem + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+  padding-top: calc(var(--lusot-gutter) + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  padding-right: calc(var(--lusot-gutter) + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  padding-bottom: calc(var(--lusot-gutter) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding-left: calc(var(--lusot-gutter) + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+}
+
+/* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

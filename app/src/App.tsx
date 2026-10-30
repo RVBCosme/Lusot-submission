@@ -32,8 +32,8 @@ function Screen({ route }: { route: Route }) {
   }
 }
 
-// LanguageProvider is the root, above everything else, an error boundary included once there is one, so even an
-// error screen can show the screen line (S5-R4). Without an API address, the layout shows MS1's banner and
+// LanguageProvider is the root, above everything else, the layout's error boundary included, so even an error
+// screen can show the screen line (S5-R4). Without an API address, the layout shows MS1's banner and
 // disables Report.
 function App({ apiUrl = API_URL }: { apiUrl?: string }) {
   const route = useRoute()

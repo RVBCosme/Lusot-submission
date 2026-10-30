@@ -22,7 +22,7 @@ export function LanguageSwitch() {
             lang={name.lang}
             aria-pressed={lang === option.lang}
             onClick={() => setLang(option.lang)}
-            className="min-h-12 min-w-12 rounded border border-neutral-400 px-3 aria-pressed:bg-neutral-200 aria-pressed:underline aria-pressed:decoration-2"
+            className="min-h-tap min-w-tap rounded-control border border-outline px-3 active:opacity-70 aria-pressed:border-action aria-pressed:bg-action aria-pressed:text-on-action aria-pressed:underline aria-pressed:decoration-2"
           >
             {name.text}
           </button>
