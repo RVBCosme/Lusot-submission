@@ -38,6 +38,10 @@ const inFlight = (run: Run | undefined) => run?.phase === 'starting' || run?.pha
 // a plain refusal, or MS1's 503 uploads_paused, since MS4 checks that switch before any run and it can come back off
 // (C638, as an upload's "Try again" stays).
 const runnable = (run: Run | undefined) => run === undefined || run.phase === 'failed' || run.phase === 'paused'
+// It shows under the card too when the server reported the run failed, as the card's "Processing failed, try again."
+// asks: a new run is a new report, paid once (M4). A paused run reads as a pause, never a failure (C638), so not then.
+const failedRun = (run: Run | undefined) =>
+  run?.phase === 'result' && run.result.status === 'failed' && run.result.refusalReason !== 'model_calls_paused'
 
 // A card's stand-in result while there is none yet: the card shows "No result yet" for it (C601).
 const NO_RESULT: ReportResult = { reportId: '', status: 'pending', mode: 'sample', published: false }
@@ -272,7 +276,16 @@ function SampleItem({
 
   let body: ReactNode
   if (run?.phase === 'result') {
-    body = <ResultCard result={run.result} source="sample" sample={sample} onPhotoExpired={onPhotoExpired} />
+    body = (
+      <>
+        <ResultCard result={run.result} source="sample" sample={sample} onPhotoExpired={onPhotoExpired} />
+        {failedRun(run) && (
+          <button type="button" disabled={busy} onClick={onRun} className={BUTTON}>
+            <T k="sample.run" />
+          </button>
+        )}
+      </>
+    )
   } else if (run?.phase === 'saved') {
     // The card puts the paused line first, marks the reading "Saved result from" its date, and says it is a saved
     // reading, with no basis, overlay or inches (C617, MS9's N2).

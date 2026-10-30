@@ -589,6 +589,92 @@ describe('the samples', () => {
     expect(within(card).queryByRole('link', { name: text('nav.tested') })).toBeNull()
     expect(pageText()).not.toContain(text('result.failed'))
     expect(within(card).queryByRole('button', { name: text('result.tryAgain') })).toBeNull()
+    // A pause is not a failure, so it doesn't bring back the sample's button (M4 leaves this case as it was).
+    expect(within(card.closest('li') as HTMLElement).queryByRole('button', { name: text('sample.run') })).toBeNull()
+  })
+
+  // M4: the server reported the failure, so a new run is a new report that pays once. The card's own words ask for
+  // another try, so the sample offers its button again.
+  it('a sample run that ends failed offers "Run this sample" again, and a press starts exactly one new run', async () => {
+    adult()
+    await openWithSamples('failed_model_error')
+    await runFirst()
+    await advance(POLL.fastMs)
+    await advance(POLL.fastMs)
+    const card = page().querySelector('article[data-outcome="failed"]') as HTMLElement
+    expect(card).not.toBeNull()
+    expect(card.textContent).toContain(text('result.failed'))
+    expect(runSample).toHaveBeenCalledOnce()
+    const item = card.closest('li') as HTMLElement
+    const again = within(item).getByRole('button', { name: text('sample.run') }) as HTMLButtonElement
+    expect(again.disabled).toBe(false)
+    expect(card.compareDocumentPosition(again) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(runButtons()).toHaveLength(3)
+
+    // Two taps in one tick: the once-only guard holds, so one new run, with its own poll.
+    act(() => {
+      again.click()
+      again.click()
+    })
+    await settle()
+    expect(runSample).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(runSample).mock.calls[1].slice(0, 2)).toEqual([API, 'sample-01'])
+    expect(pollReport).toHaveBeenCalledTimes(2)
+    expect(shows('sample.reading')).toBe(true)
+    await advance(10_000)
+    expect(runSample).toHaveBeenCalledTimes(2)
+  })
+
+  it("a failed sample's button waits while another sample runs (one run at a time), and its press passes the 18+ check", async () => {
+    adult()
+    await openWithSamples('failed_model_error')
+    await runFirst()
+    await advance(POLL.fastMs)
+    await advance(POLL.fastMs)
+    const item = (page().querySelector('article[data-outcome="failed"]') as HTMLElement).closest('li') as HTMLElement
+    const again = () => within(item).getByRole('button', { name: text('sample.run') }) as HTMLButtonElement
+
+    // Another sample starts: the failed one's button is disabled until that run ends.
+    fireEvent.click(runButtons()[1])
+    await settle()
+    expect(runSample).toHaveBeenCalledTimes(2)
+    expect(again().disabled).toBe(true)
+    fireEvent.click(again())
+    await settle()
+    expect(runSample).toHaveBeenCalledTimes(2)
+    await advance(POLL.fastMs)
+    await advance(POLL.fastMs)
+    expect(again().disabled).toBe(false)
+
+    // With the 18+ answer gone, the press asks again before any run.
+    localStorage.removeItem('lusot.consent')
+    fireEvent.click(again())
+    await settle()
+    expect(screen.getByRole('heading', { name: text('consent.adultTitle') })).toBeTruthy()
+    expect(runSample).toHaveBeenCalledTimes(2)
+  })
+
+  it('a sample run that read a level, no flood or a refusal offers no second run of that sample', async () => {
+    adult()
+    const cases: [Scenario, string][] = [
+      ['level_knee', 'level'],
+      ['no_flood_seen', 'no-flood'],
+      ['refused_no_usable_reference', 'cant-tell'],
+    ]
+    for (const [scenario, outcome] of cases) {
+      vi.mocked(runSample).mockClear()
+      await openWithSamples(scenario)
+      await runFirst()
+      await advance(POLL.fastMs)
+      await advance(POLL.fastMs)
+      const card = page().querySelector(`article[data-outcome="${outcome}"]`) as HTMLElement
+      expect(card, scenario).not.toBeNull()
+      const item = card.closest('li') as HTMLElement
+      expect(within(item).queryByRole('button', { name: text('sample.run') }), scenario).toBeNull()
+      expect(runButtons(), scenario).toHaveLength(2)
+      expect(runSample, scenario).toHaveBeenCalledOnce()
+      cleanup()
+    }
   })
 
   it('no API address: the samples are off with a plain line, and the figures still show', async () => {
