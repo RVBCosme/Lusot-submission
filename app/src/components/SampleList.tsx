@@ -5,6 +5,7 @@ import type { StringKey } from '../i18n/en'
 import { LEVELS } from '../copy/levels'
 import { getSamples, HttpError, runSample, type ReportResult, type Sample, type SavedSample } from '../lib/api'
 import { useGate } from '../lib/consent'
+import { creditStatesChange } from '../lib/credit'
 import { getDeviceId } from '../lib/device'
 import { POLL, pollReport } from '../lib/poll'
 import { photoDateLine } from '../lib/time'
@@ -332,7 +333,8 @@ function SampleItem({
   )
 }
 
-// The sample's photo, blurred, with its date, place and event, its credit line and what Lusot changed (C617, C637).
+// The sample's photo, blurred, with its date, place and event, its credit line and what Lusot changed (C617, C637). A
+// credit that already says the photo was blurred states the change, so the line is left out then.
 function Preview({ sample, captionId, onPhotoError }: { sample: Sample; captionId: string; onPhotoError(): void }) {
   const t = useT()
   const { lang } = useLanguage()
@@ -359,9 +361,11 @@ function Preview({ sample, captionId, onPhotoError }: { sample: Sample; captionI
         <p className="mt-1">
           <Line value={{ text: sample.credit, lang: 'en' }} />
         </p>
-        <p className="mt-1">
-          <T k="sample.edited" />
-        </p>
+        {!creditStatesChange(sample.credit) && (
+          <p className="mt-1">
+            <T k="sample.edited" />
+          </p>
+        )}
       </figcaption>
     </figure>
   )

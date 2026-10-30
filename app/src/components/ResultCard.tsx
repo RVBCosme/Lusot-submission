@@ -11,6 +11,7 @@ import { basisLine, classLine, inchesLine, landmarkLine, levelFromLine, levelLin
 import { Line, T, useLanguage, useT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import type { OverlayData, Pin, ReportResult, Sample } from '../lib/api'
+import { creditStatesChange } from '../lib/credit'
 import { OFFICIAL_SITES } from '../lib/officialSites'
 import { routeHash } from '../router'
 import { ageText, formatDate, photoDateLine } from '../lib/time'
@@ -239,6 +240,7 @@ function ResultCardBody({
 
   // A sample or demo pin: the photo's own date, place and event.
   const credit = sample?.credit ?? result.credit
+  const changeStated = creditStatesChange(credit)
   const photoFrom = photoDateLine(t, lang, {
     date: sample === undefined ? (result.mode === 'demo' ? capturedAt : undefined) : sample.date,
     place: sample?.place ?? result.place,
@@ -302,7 +304,7 @@ function ResultCardBody({
           <figcaption className="mt-2 text-small text-ink-2">
             <Note value={photoFrom} />
             {credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
-            {!photoGone && <PhotoLine outlines={hasOutlines} className="mt-1" />}
+            {!photoGone && !changeStated && <PhotoLine outlines={hasOutlines} className="mt-1" />}
           </figcaption>
         </figure>
       )}
@@ -338,7 +340,9 @@ function ResultCardBody({
               <figcaption className="mt-2 text-small text-ink-2">
                 {isExample && <Note value={photoFrom} />}
                 {isExample && credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
-                {!photoGone && <PhotoLine outlines={hasOutlines} className={isExample ? 'mt-1' : undefined} />}
+                {!photoGone && !changeStated && (
+                  <PhotoLine outlines={hasOutlines} className={isExample ? 'mt-1' : undefined} />
+                )}
               </figcaption>
             </figure>
           )}

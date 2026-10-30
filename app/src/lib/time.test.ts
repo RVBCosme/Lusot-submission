@@ -68,6 +68,26 @@ describe('photoDateLine', () => {
     expect(photoDateLine(en, 'en', { place: '  ', event: '' })).toBeUndefined()
   })
 
+  it('treats a literal "unknown" place or event as absent, with no stray comma and no word "unknown"', () => {
+    expect(photoDateLine(en, 'en', { date: '2009-10-08', place: 'unknown', event: 'Typhoon Ondoy' })?.text).toBe(
+      'Photo from Oct 8, 2009, Typhoon Ondoy',
+    )
+    expect(photoDateLine(en, 'en', { date: '2009-10-08', place: 'Baliuag, Bulacan', event: 'UNKNOWN' })?.text).toBe(
+      'Photo from Oct 8, 2009, Baliuag, Bulacan',
+    )
+    expect(photoDateLine(en, 'en', { date: '2009-10-08', place: 'Unknown ', event: ' unknown' })?.text).toBe(
+      'Photo from Oct 8, 2009',
+    )
+    expect(photoDateLine(en, 'en', { place: 'Unknown ', event: 'unknown' })).toBeUndefined()
+  })
+
+  it('shows any other place or event as written, even one that holds the word', () => {
+    expect(photoDateLine(en, 'en', { date: '2009-10-08', place: 'Baliuag, Bulacan', event: 'Typhoon Ondoy' })?.text).toBe(
+      'Photo from Oct 8, 2009, Baliuag, Bulacan, Typhoon Ondoy',
+    )
+    expect(photoDateLine(en, 'en', { place: 'Unknown Street' })?.text).toBe('Photo from Unknown Street')
+  })
+
   it('words the line in Taglish on a Taglish screen', () => {
     const line = photoDateLine(fil, 'fil', { date: '2009-09-26', place: 'Manila' })
     expect(line?.lang).toBe('fil')

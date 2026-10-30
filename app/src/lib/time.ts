@@ -51,12 +51,14 @@ export function formatDateTime(lang: Lang, value: string): string | undefined {
 
 // "Photo from Sep 26, 2009, Manila, Typhoon Ondoy" for a sample or a demo pin, which show their photo's own date,
 // place and event and no accuracy (spec §4.2). Whatever is missing is left out, and with nothing left there is no line.
+// A place or event that is literally "unknown" (any case) is missing too: the API's own filler says nothing to show.
 export function photoDateLine(
   t: Translate,
   lang: Lang,
   { date, place, event }: { date?: string; place?: string; event?: string },
 ): Text | undefined {
-  const parts = [date === undefined ? undefined : formatDate(lang, date), place?.trim(), event?.trim()].filter(
+  const known = (value: string | undefined) => (value?.trim().toLowerCase() === 'unknown' ? undefined : value?.trim())
+  const parts = [date === undefined ? undefined : formatDate(lang, date), known(place), known(event)].filter(
     (part): part is string => part !== undefined && part !== '',
   )
   return parts.length === 0 ? undefined : t('sample.photoFrom', { parts: parts.join(', ') })

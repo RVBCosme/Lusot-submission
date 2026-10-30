@@ -360,6 +360,36 @@ describe('the samples', () => {
     expect(shows('tested.samples.more')).toBe(false)
   })
 
+  // The credit states how Lusot changed the photo, so the caption says it once, in the credit (the brief's step 15b).
+  it('says the photo was blurred once: the line stays for a credit that does not say so, and goes for one that does', async () => {
+    await openWithSamples()
+    const items = within(page()).getAllByRole('listitem').filter((item) => item.querySelector('img') !== null)
+    expect(items).toHaveLength(3)
+    expect(within(items[0]).getAllByText(text('sample.edited'))).toHaveLength(1)
+    for (const item of [items[1], items[2]]) {
+      expect(item.textContent).toMatch(/blurred by Lusot/)
+      expect(item.textContent).not.toContain(text('sample.edited'))
+    }
+  })
+
+  it('leaves out a place or event of "unknown", and shows a real one as written', async () => {
+    const listed = (await (await createMockFetch({ now: () => Date.now() })(`${API}/samples`)).json()) as {
+      samples: Record<string, unknown>[]
+    }
+    const samples = [
+      { ...listed.samples[0], place: 'unknown', event: 'Typhoon Ondoy' },
+      { ...listed.samples[1], place: 'Unknown ', event: 'UNKNOWN' },
+      { ...listed.samples[2], place: 'Baliuag, Bulacan', event: 'Typhoon Ondoy' },
+    ]
+    mockApi('level_knee', (method, path) => (method === 'GET' && path === '/samples' ? json(200, { samples }) : undefined))
+    renderPage()
+    await settle()
+    expect(pageText()).toContain('Photo from Sep 26, 2009, Typhoon Ondoy')
+    expect(pageText()).toContain('Photo from Aug 7, 2012')
+    expect(pageText()).toContain('Photo from Oct 5, 2026, Baliuag, Bulacan, Typhoon Ondoy')
+    expect(pageText()).not.toMatch(/unknown/i)
+  })
+
   it('"Run this sample" passes the 18+ gate and calls runSample once, then polls and shows the result card with the Sample badge', async () => {
     await openWithSamples()
     fireEvent.click(runButtons()[0])
