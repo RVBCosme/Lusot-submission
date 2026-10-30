@@ -71,6 +71,7 @@ READING = {
     "kind": "wheel",
     "landmark": "rim_three_quarters",
     "level": "knee",
+    "levelIsFloor": False,
     "used": True,
     "dropped": None,
 }

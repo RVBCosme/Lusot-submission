@@ -104,6 +104,27 @@ def floor_record(prompt) -> Evidence:
     return record(prompt, (photo, sam, given))
 
 
+def hub_record(prompt, vehicle_type: str, *, no_rim: bool, geometry: bool) -> Evidence:
+    """A `hub` wheel beside a parked vehicle, built as test_evidence's M5 case is."""
+    photo, sam, _ = geometry_case()
+    if no_rim:
+        sam = sam | {"wheel rim": SamResult("wheel rim", [], elapsed_s=0.5, raw="")}
+    given = answer(vehicles=[vehicle(1, vehicle_type)], wheels=[wheel(2, "hub")])
+    return record(prompt, (photo, sam, given), geometry=geometry)
+
+
+@pytest.fixture(scope="module")
+def van_hub_record(prompt) -> Evidence:
+    """M5: a van's hub with no rim to measure holds the sedan row as a floor."""
+    return hub_record(prompt, "van", no_rim=True, geometry=True)
+
+
+@pytest.fixture(scope="module")
+def sedan_hub_record(prompt) -> Evidence:
+    """The same landmark on a sedan, read exactly."""
+    return hub_record(prompt, "sedan_hatch", no_rim=False, geometry=False)
+
+
 def swapped(evidence: Evidence, id: int, **changes) -> Evidence:
     """`evidence` with entry `id` changed."""
     return dataclasses.replace(
@@ -386,6 +407,27 @@ def test_a_floor_reading_says_so(
         found = next(r for r in overlay.readings(evidence) if r["id"] == 3)
         assert (ref["level_is_floor"], found["levelIsFloor"]) == (None, None)
         assert overlay.label(entry_of(evidence, 3)) == "3 knee"
+
+
+def test_the_floor_flag_comes_from_the_record_not_the_landmark(
+    van_hub_record, sedan_hub_record
+):
+    # M5's floor is a landmark whose rules row is exact: the van's hub reads the sedan
+    # row as "half-tire or deeper". Only the record's flag tells the two wheels apart,
+    # so layers() and readings() must carry it as it is (C54), not look the landmark up.
+    van, sedan = entry_of(van_hub_record, 2), entry_of(sedan_hub_record, 2)
+    assert rules.WHEEL_ROWS["hub"].floor is False
+    same = ("landmark", "level", "level_from")
+    assert [getattr(van, k) for k in same] == ["hub", "half_tire", "landmark"]
+    assert [getattr(sedan, k) for k in same] == [getattr(van, k) for k in same]
+    assert (van.level_is_floor, sedan.level_is_floor) == (True, False)
+    for evidence, floor in ((van_hub_record, True), (sedan_hub_record, False)):
+        (ref,) = (r for r in overlay.layers(evidence, SIZE)["refs"] if r["id"] == 2)
+        (found,) = (r for r in overlay.readings(evidence) if r["id"] == 2)
+        assert (ref["level_is_floor"], found["levelIsFloor"]) == (floor, floor)
+    half_tire = overlay.LEVEL_WORDS["half_tire"]
+    assert overlay.label(van) == f"2 hub: {overlay.FLOOR_WORDS.format(level=half_tire)}"
+    assert overlay.label(sedan) == f"2 hub: {half_tire}"
 
 
 # The readings (C507)

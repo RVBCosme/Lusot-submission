@@ -77,8 +77,8 @@ export const PIN: Record<string, unknown> = {
   depthInMin: 17.3,
   depthInMax: 19.1,
   readings: [
-    { id: 1, kind: "wheel", landmark: "rim_three_quarters", level: "knee", inches: [17.3, 19.1], used: true, dropped: null },
-    { id: 2, kind: "body", landmark: "not_visible", level: null, inches: null, used: false, dropped: null },
+    { id: 1, kind: "wheel", landmark: "rim_three_quarters", level: "knee", levelIsFloor: false, inches: [17.3, 19.1], used: true, dropped: null },
+    { id: 2, kind: "body", landmark: "not_visible", level: null, levelIsFloor: null, inches: null, used: false, dropped: null },
   ],
   photoKey: `blurred/${ID}.jpg`,
   overlayKey: `overlay/${ID}.jpg`,
