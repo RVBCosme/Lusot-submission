@@ -474,7 +474,11 @@ def _self_check_line(run: Run) -> str:
     decided = run.meta.get("self_check_decided")
     when = "decided: not recorded" if decided is None else f"decided {decided}"
     if not run.self_check:
-        return f"Self-check: off ({when}, MS3)."
+        return (
+            f"Self-check: off ({when}, MS3). It is off in this evaluation: MS3b's"
+            " ablation was dropped, so no development ablation exists to turn it on"
+            " (eval/rules.md §8)."
+        )
     line = f"Self-check: on ({when}, MS3)."
     if run.geometry_dropped:
         return line
@@ -1170,6 +1174,16 @@ _DATASETS = (
 )
 
 
+# What frozen.untuned says, in the report (rules 4.3).
+_UNTUNED_LINES = {
+    "yes": "The cutoffs kept their start values: tuning didn't run (rules 4.3).",
+    "no": (
+        "The cutoffs were tuned on development data and validated by event replay"
+        " (rules 4.3)."
+    ),
+}
+
+
 def _frozen(run: Run) -> list[str]:
     """The freeze commit, geometry's live default before the run (C309), what
     run.json froze, the datasets with their counts, each stop, and the face blur's
@@ -1189,6 +1203,8 @@ def _frozen(run: Run) -> list[str]:
         )
     else:
         blocks.append("run.json records no frozen versions.")
+    if frozen.get("untuned") in _UNTUNED_LINES:
+        blocks.append(_UNTUNED_LINES[frozen["untuned"]])
     datasets = run.meta["datasets"]
     rows = []
     for key, name in _DATASETS:

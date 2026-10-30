@@ -15,7 +15,7 @@ Rules §7's three headline figures, for the configuration that ships and then fo
 
 Rules §8's targets and guards, each with the value found. Geometry stays only if Set A underestimation doesn't rise and both guards hold, and inches show only if geometry stays and Set B meets its three targets.
 
-Self-check: off (decided 2026-10-29, MS3).
+Self-check: off (decided 2026-10-29, MS3). It is off in this evaluation: MS3b's ablation was dropped, so no development ablation exists to turn it on (eval/rules.md §8).
 
 | Check | Found | Target | Passed |
 |---|---|---|---|
@@ -261,6 +261,9 @@ Geometry's live default before the run (C309): on.
 | model | muse-spark-1.3 |
 | prompt | muse_spark_photo_v1 |
 | sam | sam-3.1 |
+| untuned | yes |
+
+The cutoffs kept their start values: tuning didn't run (rules 4.3).
 
 | Dataset | Version | Split seed | In this results folder |
 |---|---|---|---|

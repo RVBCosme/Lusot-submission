@@ -482,6 +482,10 @@ _RUN_FIELDS: dict[str, _Check] = {
     "baseline_level": _among(LEVELS, "one of the 9 levels"),
     "baseline_class": _among(CLASS_NAMES, "PATV, NPLV or NPATV"),
 }
+# What frozen.untuned says (rules 4.3): yes when the cutoffs kept their start values
+# because tuning didn't run, and no when they were tuned on development data and
+# validated by event replay. A sealed run records it, and a development run may not.
+UNTUNED = ("yes", "no")
 # A sealed run needs every field but these; a development run may also leave out the
 # rest, and then computes its baseline from its own rows (C424) and reads
 # service_retries as 0 (MS6E-Q6).
@@ -519,6 +523,11 @@ def _manifest(value: object, in_rerun_folder: bool) -> dict[str, object]:
         )
     if in_rerun_folder != ("rerun_reason" in meta):
         raise _Bad("rerun_reason comes with a rerun folder, and only there (C421)")
+    untuned = meta["frozen"].get("untuned")
+    if untuned is None and kind == "sealed":
+        raise _Bad("frozen lacks untuned, which a sealed run records (rules 4.3)")
+    if untuned is not None and untuned not in UNTUNED:
+        raise _Bad("frozen holds untuned as yes or no only (rules 4.3)")
     return meta
 
 
