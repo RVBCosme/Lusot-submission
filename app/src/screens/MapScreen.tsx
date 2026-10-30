@@ -5,6 +5,7 @@ import { PinList } from '../components/PinList'
 import { ResultCard } from '../components/ResultCard'
 import { T, useT } from '../i18n'
 import { getPins, type Pin } from '../lib/api'
+import { useHeadingFocus } from '../lib/focus'
 import { flagCount, isOwn, mergeOwnPin, pinStrength } from '../map/pins'
 import { useOwnPin, useSeenOnMap } from '../report/ReportFlowProvider'
 import { navigate, routeHash } from '../router'
@@ -69,6 +70,9 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
     }
     const start = () => {
       stop()
+      // The page may have been hidden for a long while: the pins' ages and fades are read from the clock at once, not
+      // when the read answers, which on a weak signal can be 15 s.
+      setNow(new Date())
       readNow()
       timer = setInterval(readNow, REFRESH_MS)
     }
@@ -101,6 +105,10 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
       mapButton.current?.focus()
     }
   }, [panel])
+  // After that, if focus has still fallen to the page (the screen just opened, or the own result went with the focused
+  // heading when the own pin cleared), it goes to the screen's heading.
+  const heading = useRef<HTMLHeadingElement>(null)
+  useHeadingFocus(heading, panel)
 
   function openOwn() {
     if (own !== undefined) setOwnOpen(own.id)
@@ -114,7 +122,7 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
 
   return (
     <section className="flex min-h-full flex-col gap-3">
-      <h1 className="sr-only">
+      <h1 ref={heading} className="sr-only">
         <T k="nav.map" />
       </h1>
 
@@ -141,19 +149,20 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
               </a>
             )}
           </div>
-          {apiUrl === '' ? (
+          {apiUrl === '' && (
             <p>
               <T k="map.noApi" />
             </p>
-          ) : failed ? (
-            <p role="status">
+          )}
+          {/* In the page from the first draw and empty when there is nothing to say, so a change to it is announced.
+              Empty, it takes back the gap above it. */}
+          <p role="status" className="empty:-mt-3">
+            {apiUrl === '' ? null : failed ? (
               <T k="map.loadFailed" />
-            </p>
-          ) : read === undefined ? (
-            <p role="status">
+            ) : read === undefined ? (
               <T k="map.loading" />
-            </p>
-          ) : null}
+            ) : null}
+          </p>
         </>
       )}
 

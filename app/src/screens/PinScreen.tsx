@@ -4,6 +4,7 @@ import { ResultCard } from '../components/ResultCard'
 import { T, useT } from '../i18n'
 import { flagPin, getPins, getReport, HttpError, type Pin, type ReportResult } from '../lib/api'
 import { getDeviceId } from '../lib/device'
+import { useHeadingFocus } from '../lib/focus'
 import {
   flagCount,
   markFlagged,
@@ -69,6 +70,10 @@ export function PinScreen({ apiUrl, id }: { apiUrl: string; id: string }) {
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const alive = useRef(true)
+  // The screen takes the focus of the control that opened it (a marker, a list row, "Back to the map"), and again when
+  // its content is swapped under focus: "Try again", or a flag's 404 that turns the screen to "gone" (C612).
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useHeadingFocus(headingRef, state.kind)
 
   useEffect(() => {
     alive.current = true
@@ -173,10 +178,12 @@ export function PinScreen({ apiUrl, id }: { apiUrl: string; id: string }) {
     flagPin(apiUrl, state.pinId, getDeviceId())
       .then(
         (answer) => {
-          if (!alive.current) return
+          // The visit's memory is kept even if the person has gone: the flag counted on the server.
           markFlagged(pin.id)
+          const flags = flagCount(pin.id, answer.flags)
+          if (!alive.current) return
           focusNext.current = 'flagged'
-          setState((now) => (now.kind === 'ready' ? { ...now, flags: flagCount(pin.id, answer.flags) } : now))
+          setState((now) => (now.kind === 'ready' ? { ...now, flags } : now))
         },
         (err: unknown) => {
           if (!alive.current) return
@@ -190,6 +197,7 @@ export function PinScreen({ apiUrl, id }: { apiUrl: string; id: string }) {
       })
   }
 
+  const ready = state.kind === 'ready' ? state : undefined
   const back = (
     <p>
       <a href={routeHash({ name: 'map' })} className={LINK}>
@@ -197,121 +205,107 @@ export function PinScreen({ apiUrl, id }: { apiUrl: string; id: string }) {
       </a>
     </p>
   )
-  const heading = (
-    <h1 className="text-2xl font-bold">
-      <T k="pin.title" />
-    </h1>
-  )
 
-  if (apiUrl === '') {
+  // One status line, in the page from the first draw and empty when there is nothing to say, so each change to it is
+  // announced: loading, then the pin, or that it is gone or could not load, or that its photo could not load. Empty, it
+  // adds no gap, since vertical margins in block flow collapse through an empty box.
+  const status =
+    apiUrl === '' ? null : state.kind === 'loading' ? (
+      <T k="pin.loading" />
+    ) : state.kind === 'mapFailed' ? (
+      <T k="pin.loadFailed" />
+    ) : state.kind === 'gone' ? (
+      <T k="pin.gone" />
+    ) : state.report === undefined ? (
+      <T k="pin.photoFailed" />
+    ) : null
+
+  // The pin, once the map has held it and the report has answered.
+  function pinBody({ pin, report, nearby, flags, now }: Extract<State, { kind: 'ready' }>) {
+    const flaggable = pin.mode === 'live'
+    const flagged = wasFlagged(pin.id)
+    // The card is given the report as GET /reports/{id} answered, with its photo, overlay and layers links, so its
+    // captions and Task 14's overlay see them. The pin's own public fields fill what the report leaves out, and a demo
+    // pin's mode is the pin's.
+    const card: ReportResult | Pin =
+      report === undefined
+        ? pin
+        : {
+            ...report,
+            mode: pin.mode,
+            capturedAt: report.capturedAt ?? pin.capturedAt,
+            gpsAccuracyM: report.gpsAccuracyM ?? pin.gpsAccuracyM ?? undefined,
+            credit: pin.credit ?? report.credit,
+            place: pin.place ?? report.place,
+            event: pin.event ?? report.event,
+          }
     return (
-      <section className="space-y-3">
-        {heading}
-        <p>
-          <T k="map.noApi" />
-        </p>
-        {back}
-      </section>
-    )
-  }
+      <>
+        {flaggable && report?.photoUrl !== undefined && <PinPhoto url={report.photoUrl} onExpired={photoExpired} />}
+        <ResultCard result={card} source="pin" now={now} onPhotoExpired={photoExpired} />
 
-  if (state.kind !== 'ready') {
-    return (
-      <section className="space-y-3">
-        {heading}
-        {state.kind === 'loading' && (
-          <p role="status">
-            <T k="pin.loading" />
-          </p>
-        )}
-        {state.kind === 'mapFailed' && (
-          <>
-            <p role="status">
-              <T k="pin.loadFailed" />
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setState({ kind: 'loading' })
-                setAttempt((n) => n + 1)
-              }}
-              className={BUTTON}
-            >
-              <T k="result.tryAgain" />
-            </button>
-          </>
-        )}
-        {state.kind === 'gone' && (
-          <p role="status">
-            <T k="pin.gone" />
-          </p>
-        )}
-        {back}
-      </section>
-    )
-  }
-
-  const { pin, report, nearby, flags, now } = state
-  const flaggable = pin.mode === 'live'
-  const flagged = wasFlagged(pin.id)
-  // The card is given the report as GET /reports/{id} answered, with its photo, overlay and layers links, so its captions
-  // and Task 14's overlay see them. The pin's own public fields fill what the report leaves out, and a demo pin's mode
-  // is the pin's.
-  const card: ReportResult | Pin =
-    report === undefined
-      ? pin
-      : {
-          ...report,
-          mode: pin.mode,
-          capturedAt: report.capturedAt ?? pin.capturedAt,
-          gpsAccuracyM: report.gpsAccuracyM ?? pin.gpsAccuracyM ?? undefined,
-          credit: pin.credit ?? report.credit,
-          place: pin.place ?? report.place,
-          event: pin.event ?? report.event,
-        }
-
-  return (
-    <section className="space-y-4">
-      {heading}
-      {back}
-      {flaggable && report?.photoUrl !== undefined && <PinPhoto url={report.photoUrl} onExpired={photoExpired} />}
-      <ResultCard result={card} source="pin" now={now} onPhotoExpired={photoExpired} />
-      {report === undefined && (
-        <p role="status">
-          <T k="pin.photoFailed" />
-        </p>
-      )}
-
-      <div className="space-y-1">
-        <p>
-          <T k="pin.nearby" vars={{ count: nearby }} />
-        </p>
-        {flags > 0 && (
+        <div className="space-y-1">
           <p>
-            <T k={flags === 1 ? 'pin.flags.one' : 'pin.flags.other'} vars={{ count: flags }} />
+            <T k="pin.nearby" vars={{ count: nearby }} />
           </p>
-        )}
-      </div>
-
-      {flaggable && (
-        <div>
-          {flagged ? (
-            <p ref={flaggedLine} role="status" tabIndex={-1} className="min-h-tap py-3 font-bold outline-none">
-              <T k="pin.flagged" />
-            </p>
-          ) : (
-            <button ref={flagButton} type="button" onClick={() => setAsking(true)} className={BUTTON}>
-              <T k="pin.flag" />
-            </button>
-          )}
-          {flagProblem && !flagged && (
-            <p role="status" className="mt-2">
-              <T k="pin.flagFailed" />
+          {flags > 0 && (
+            <p>
+              <T k={flags === 1 ? 'pin.flags.one' : 'pin.flags.other'} vars={{ count: flags }} />
             </p>
           )}
         </div>
+
+        {flaggable && (
+          <div>
+            {!flagged && (
+              <button ref={flagButton} type="button" onClick={() => setAsking(true)} className={BUTTON}>
+                <T k="pin.flag" />
+              </button>
+            )}
+            {/* Both lines are in the page, empty, before they have anything to say. */}
+            <p
+              ref={flaggedLine}
+              role="status"
+              tabIndex={-1}
+              className="font-bold outline-none not-empty:min-h-tap not-empty:py-3"
+            >
+              {flagged ? <T k="pin.flagged" /> : null}
+            </p>
+            <p role="status" className="not-empty:mt-2">
+              {flagged ? null : flagProblem ? <T k="pin.flagFailed" /> : null}
+            </p>
+          </div>
+        )}
+        {asking && <FlagDialog onConfirm={confirmFlag} onCancel={cancelFlag} />}
+      </>
+    )
+  }
+
+  return (
+    <section className="space-y-4">
+      <h1 ref={headingRef} className="text-2xl font-bold outline-none">
+        <T k="pin.title" />
+      </h1>
+      <p role="status">{status}</p>
+      {apiUrl === '' && (
+        <p>
+          <T k="map.noApi" />
+        </p>
       )}
-      {asking && <FlagDialog onConfirm={confirmFlag} onCancel={cancelFlag} />}
+      {state.kind === 'mapFailed' && (
+        <button
+          type="button"
+          onClick={() => {
+            setState({ kind: 'loading' })
+            setAttempt((n) => n + 1)
+          }}
+          className={BUTTON}
+        >
+          <T k="result.tryAgain" />
+        </button>
+      )}
+      {back}
+      {ready !== undefined && pinBody(ready)}
     </section>
   )
 }

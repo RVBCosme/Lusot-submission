@@ -6,9 +6,10 @@ import { FIL } from '../i18n/fil'
 import { flagPin, getReport, getPins, type Pin } from '../lib/api'
 import { getDeviceId } from '../lib/device'
 import { writeItem } from '../lib/storage'
-import { resetPinMemory } from '../map/pins'
+import { flagCount, resetPinMemory, wasFlagged } from '../map/pins'
 import { createMockFetch } from '../mock/mockFetch'
 import type { Scenario } from '../mock/fixtures'
+import { deferred } from '../test/camera'
 import { polyfillDialog } from '../test/dialog'
 import { PinScreen } from './PinScreen'
 
@@ -324,6 +325,133 @@ describe('an expired photo link', () => {
   })
 })
 
+// ---- focus ----
+
+describe('focus', () => {
+  const heading = () => screen.getByRole('heading', { level: 1 })
+
+  it('goes to the heading when the screen opens, and is still there when the card shows', async () => {
+    renderPin(B)
+    expect(document.activeElement).toBe(heading())
+    expect(heading().getAttribute('tabindex')).toBe('-1')
+    await shown()
+    expect(document.activeElement).toBe(heading())
+  })
+
+  it('is on the heading when the pin turns out to be gone', async () => {
+    renderPin('r_00000000000000000000000000000000')
+    await screen.findByText(text('pin.gone'))
+    expect(document.activeElement).toBe(heading())
+  })
+
+  it('stays where it is when it is somewhere already', async () => {
+    const outside = document.createElement('button')
+    document.body.append(outside)
+    outside.focus()
+    renderPin(B)
+    await shown()
+    expect(document.activeElement).toBe(outside)
+    outside.remove()
+  })
+
+  it('comes back to the heading when "Try again" removes the button that was pressed', async () => {
+    let fail = true
+    api('level_knee', (url) => {
+      if (url.endsWith('/map/pins') && fail) throw new TypeError('network')
+      return undefined
+    })
+    renderPin(A)
+    await screen.findByText(text('pin.loadFailed'))
+    const retry = screen.getByRole('button', { name: text('result.tryAgain') })
+    retry.focus()
+
+    fail = false
+    fireEvent.click(retry)
+    await shown()
+    expect(document.activeElement).toBe(heading())
+  })
+
+  it("goes to the heading when a flag's 404 turns the screen to gone and takes the button that had focus", async () => {
+    api('level_knee', flagAnswers(404))
+    renderPin(B)
+    await shown()
+    fireEvent.click(flagButton())
+    fireEvent.click(screen.getByRole('button', { name: text('flag.confirm') }))
+    await screen.findByText(text('pin.gone'))
+    expect(document.activeElement).toBe(heading())
+  })
+})
+
+// ---- the status lines ----
+
+describe('the status line', () => {
+  // The one line is in the page from the first draw, so a change to its text is announced.
+  const statusWhileLoading = () => {
+    const status = screen.getByText(text('pin.loading'))
+    expect(status.getAttribute('role')).toBe('status')
+    return status
+  }
+
+  it('is one element from loading to gone', async () => {
+    renderPin('r_00000000000000000000000000000000')
+    const status = statusWhileLoading()
+    expect(await screen.findByText(text('pin.gone'))).toBe(status)
+  })
+
+  it('is one element from loading to could-not-load', async () => {
+    api('level_knee', (url) => {
+      if (url.endsWith('/map/pins')) throw new TypeError('network')
+      return undefined
+    })
+    renderPin(A)
+    const status = statusWhileLoading()
+    expect(await screen.findByText(text('pin.loadFailed'))).toBe(status)
+  })
+
+  it('is one element from loading to a card that has no photo, and is empty when the photo loaded', async () => {
+    api('level_knee', (url) => {
+      if (url === `${API}/reports/${B}`) throw new TypeError('network')
+      return undefined
+    })
+    renderPin(B)
+    const status = statusWhileLoading()
+    await shown()
+    expect(screen.getByText(text('pin.photoFailed'))).toBe(status)
+
+    cleanup()
+    api()
+    renderPin(B)
+    const again = statusWhileLoading()
+    await shown()
+    expect(again.textContent).toBe('')
+    expect(again.isConnected).toBe(true)
+  })
+
+  it('has the "Flagged" line in the page, empty, before the flag, and fills that same element', async () => {
+    api('level_knee', flagAnswers(3))
+    renderPin(B)
+    await shown()
+    const flagged = document.querySelector('[role="status"][tabindex="-1"]') as HTMLElement
+    expect(flagged.textContent).toBe('')
+
+    fireEvent.click(flagButton())
+    fireEvent.click(screen.getByRole('button', { name: text('flag.confirm') }))
+    expect(await screen.findByText(text('pin.flagged'))).toBe(flagged)
+  })
+
+  it('has the flag-failed line in the page, empty, and fills that same element when the send fails', async () => {
+    api('level_knee', flagAnswers('network'))
+    renderPin(B)
+    await shown()
+    const before = [...document.querySelectorAll('[role="status"]')]
+    fireEvent.click(flagButton())
+    fireEvent.click(screen.getByRole('button', { name: text('flag.confirm') }))
+    const line = await screen.findByText(text('pin.flagFailed'))
+    expect(before).toContain(line)
+    expect([...document.querySelectorAll('[role="status"]')]).toEqual(before)
+  })
+})
+
 // ---- the flag ----
 
 describe('Flag as wrong or fake', () => {
@@ -453,6 +581,21 @@ describe('Flag as wrong or fake', () => {
     expect(screen.queryByRole('article')).toBeNull()
   })
 
+  it('remembers a flag whose answer comes after the person left: the count and "Flagged" are kept for the visit', async () => {
+    const answer = deferred<Response>()
+    api('level_knee', mapShowing(B, 3), (url) => (url.endsWith('/flag') ? answer.promise : undefined))
+    const { unmount } = renderPin(B)
+    await shown()
+    fireEvent.click(flagButton())
+    fireEvent.click(screen.getByRole('button', { name: text('flag.confirm') }))
+    await waitFor(() => expect(flagPin).toHaveBeenCalledTimes(1))
+    unmount()
+
+    await act(async () => answer.resolve(json({ flags: 7 })))
+    expect(wasFlagged(B)).toBe(true)
+    expect(flagCount(B, 0)).toBe(7)
+  })
+
   it('has the dialog in Taglish too, with the screen line still in English', async () => {
     renderPin(B, { lang: 'fil' })
     await shown()
@@ -503,7 +646,6 @@ describe('a flag count never goes down', () => {
 
   it("takes the map screen's read into account too: a count the map showed is not shown lower here", async () => {
     // The map read this pin with 5 flags earlier in the visit (it records every read), then the API said 4.
-    const { flagCount } = await import('../map/pins')
     flagCount(B, 5)
     api('level_knee', mapShowing(B, 4))
     renderPin(B)

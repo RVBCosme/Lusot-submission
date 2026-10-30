@@ -89,8 +89,9 @@ export function MapView({ pins, now, onOpen }: { pins: readonly Pin[]; now: Date
         const marker = L.marker({ lat: pin.lat, lng: pin.lng }, { icon: iconFor(pin), keyboard: true })
         marker.addTo(map)
         marker.on('click', () => open(pin.id))
-        // Enter and Space press a button. preventDefault keeps Space from scrolling the page, and stops the browser's
-        // own keypress from making a second click.
+        // Enter and Space press a button, and this handler is what makes both work: Leaflet 1.9.4 turns an Enter keypress
+        // into an action only for a marker with a popup bound, and a div with role="button" gets no click from the
+        // browser. preventDefault matters for Space, which would otherwise scroll the page.
         marker.getElement()?.addEventListener('keydown', (event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
           event.preventDefault()

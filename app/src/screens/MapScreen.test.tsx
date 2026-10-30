@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import L from 'leaflet'
+import { useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LanguageProvider } from '../i18n'
 import { EN, type StringKey } from '../i18n/en'
@@ -306,6 +307,23 @@ describe('the refresh', () => {
     expect(screen.getByText(text('map.loadFailed'))).toBeTruthy()
   })
 
+  it('keeps its status line in the page from the first draw, so each change to it is announced: loading, could not load, then empty, in one element', async () => {
+    const first = deferred<Pin[]>()
+    scriptedPins([first.promise, []])
+    renderMap()
+    await settle()
+    const status = screen.getByText(text('map.loading'))
+    expect(status.getAttribute('role')).toBe('status')
+
+    first.reject(new TypeError('network'))
+    await settle()
+    expect(screen.getByText(text('map.loadFailed'))).toBe(status)
+
+    await advance(60_000)
+    expect(status.isConnected).toBe(true)
+    expect(status.textContent).toBe('')
+  })
+
   it('says it is loading until the first read is answered, and shows no empty state meanwhile', async () => {
     const answer = deferred<Pin[]>()
     scriptedPins([answer.promise])
@@ -382,7 +400,7 @@ describe('the markers', () => {
     expect(byLabel(ROW_A)?.classList.contains('map-pin-demo')).toBe(false)
   })
 
-  it('fades a pin as the hour passes, and drops one at 3 hours, with no new read to say so', async () => {
+  it('fades a pin as the hour passes, and drops one at 3 hours, when the next read gives the same list', async () => {
     const at = (minutes: number) => new Date(T0 - minutes * MIN).toISOString()
     scriptedPins([[pin({ id: A, capturedAt: at(59.5) }), pin({ id: B, capturedAt: at(179.5) })]])
     await open()
@@ -393,6 +411,25 @@ describe('the markers', () => {
     expect(markers()).toHaveLength(1)
     expect(second.isConnected).toBe(false)
     expect(first.classList.contains('map-pin-faded')).toBe(true)
+  })
+
+  it('moves the clock as soon as the page comes back, before the read answers: a pin past 3 hours goes and one past the hour fades', async () => {
+    const at = (minutes: number) => new Date(T0 - minutes * MIN).toISOString()
+    scriptedPins([
+      [pin({ id: A, capturedAt: at(50) }), pin({ id: B, capturedAt: at(170) })],
+      new Promise<Pin[]>(() => {}), // the read after coming back never answers
+    ])
+    await open()
+    expect(markers()).toHaveLength(2)
+
+    setVisibility('hidden')
+    await advance(20 * MIN)
+    setVisibility('visible')
+    await settle()
+
+    expect(getPins).toHaveBeenCalledTimes(2)
+    expect(markers()).toHaveLength(1)
+    expect(markers()[0]?.classList.contains('map-pin-faded')).toBe(true)
   })
 
   it('keeps each marker element across a refresh, and gives it its new age: a focused marker is not lost', async () => {
@@ -439,6 +476,62 @@ describe('the credit', () => {
     const line = screen.getByText(SCREEN_LINE)
     expect(line.closest('footer')?.contains(link)).toBe(false)
     expect(document.body.textContent?.split(SCREEN_LINE)).toHaveLength(2)
+  })
+})
+
+// ---- focus ----
+
+// A control that had focus before the screen opened, as a pressed link or marker would have.
+function Focused() {
+  const ref = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => ref.current?.focus(), [])
+  return <button ref={ref}>Elsewhere</button>
+}
+
+describe('focus', () => {
+  it("goes to the screen's heading when the screen opens with focus on the page", async () => {
+    await open()
+    const heading = screen.getByRole('heading', { level: 1 })
+    expect(document.activeElement).toBe(heading)
+    expect(heading.getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('stays where it is when it is somewhere already', async () => {
+    render(
+      <LanguageProvider>
+        <main>
+          <Focused />
+          <MapScreen apiUrl={API} />
+        </main>
+      </LanguageProvider>,
+    )
+    await settle()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Elsewhere' }))
+  })
+
+  it('returns to the Map button when "Back to the map" closes the own result', async () => {
+    flow.pin = ownPin
+    await open()
+    fireEvent.click(markers().find((marker) => marker.getAttribute('aria-label')?.startsWith('Your report')) as HTMLElement)
+    fireEvent.click(screen.getByRole('button', { name: text('map.back') }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: text('nav.map') }))
+  })
+
+  it("goes to the heading when the own pin clears while its result is open and the heading it had goes with it", async () => {
+    flow.pin = ownPin
+    const view = await open()
+    fireEvent.click(markers().find((marker) => marker.getAttribute('aria-label')?.startsWith('Your report')) as HTMLElement)
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2 }))
+
+    flow.pin = undefined
+    view.rerender(
+      <LanguageProvider>
+        <main>
+          <MapScreen apiUrl={API} />
+        </main>
+      </LanguageProvider>,
+    )
+    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
   })
 })
 
