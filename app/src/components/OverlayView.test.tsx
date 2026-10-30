@@ -200,6 +200,14 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     expect(words(3)).toBe('3: Not used')
   })
 
+  it('sets the words large enough to read on a phone: 12 px or more on the 276 px photo of a card at 360 px wide', async () => {
+    const svg = await draw(levelLayers('knee'))
+    for (const text of svg.querySelectorAll('text')) {
+      const size = Number(text.getAttribute('font-size'))
+      expect((size * 276) / 800).toBeGreaterThanOrEqual(12)
+    }
+  })
+
   it('draws a dropped reference dimmed, in a token colour at reduced opacity, and no other', async () => {
     const svg = await draw(levelLayers('knee'))
     const dropped = svg.querySelector('[data-ref="3"]') as SVGElement

@@ -140,7 +140,7 @@ function Layer({ layer, size, chip }: { layer: OverlayLayer; size: { width: numb
       if (chip === undefined) return null
       // On the box's top edge, or just inside it when there is no room above; the left edge follows the box and stays on
       // the photo, using the width the words will take, since an SVG can't measure them before it is drawn.
-      const font = short / 18
+      const font = short / 16
       const [x0, y0] = layer.ref.box
       const wide = chip.text.length * font * 0.6
       const x = Math.min(Math.max(x0, font / 4), Math.max(font / 4, size.width - wide - font / 4))

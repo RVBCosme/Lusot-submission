@@ -593,7 +593,8 @@ describe('Flag as wrong or fake', () => {
     fireEvent.click(flagButton())
     fireEvent.click(screen.getByRole('button', { name: text('flag.confirm') }))
     const flagged = await screen.findByText(text('pin.flagged'))
-    expect(document.activeElement).toBe(flagged.closest('[tabindex]'))
+    // Focus moves in an effect, which can come a moment after the text it goes with.
+    await waitFor(() => expect(document.activeElement).toBe(flagged.closest('[tabindex]')))
   })
 
   it('shows "Flagged" for a repeat too, with the count unchanged', async () => {
