@@ -28,14 +28,18 @@ printed line passes through the scripts' shared output mask (guards.py), which r
 each run of 12 digits with <account>. A failure shows its class name, or an AWS error's
 code and HTTP status, never its message. The script takes no path.
 
-It judges two things: every question got HTTP 200 with a readable kind, and each within
-10 s at the client. The kinds themselves (Bacoor outside_metro_manila, the others
-reports or no_reports as the live pins allow, a landmark's place_too_broad) are for
+It judges three things: every question got HTTP 200 with a readable kind, each within
+10 s at the client, and the listed spot's answer came from the model (source "model").
+A listed spot needs no Nominatim, so that answer is the run's one proof that the
+deployed function reads the key and calls Meta; a plain list there fails the run. The
+kinds themselves (Bacoor outside_metro_manila, the others reports or no_reports as the
+live pins allow, a landmark's place_too_broad) and the other questions' sources are for
 whoever reads the output.
 
 Usage: uv run backend/scripts/ask_cloud_check.py
-Exit codes: 0 every question was answered within 10 s, 1 a question wasn't, or the
-stack's API URL couldn't be read.
+Exit codes: 0 every question was answered within 10 s and the listed spot by the model,
+1 a question wasn't, the listed spot's answer wasn't the model's, or the stack's API URL
+couldn't be read.
 """
 
 from __future__ import annotations
@@ -74,8 +78,11 @@ class Ask:
     here: Mapping[str, float] | None = None
 
 
+# The question whose answer must come from the model: see the module's docstring.
+LISTED_SPOT = "listed spot"
+
 QUESTIONS = (
-    Ask("listed spot", "Baha ba sa EDSA cor. Aurora Blvd?"),
+    Ask(LISTED_SPOT, "Baha ba sa EDSA cor. Aurora Blvd?"),
     Ask("landmark", "Baha ba malapit sa Quiapo Church?"),
     Ask("dito", "May baha ba dito?", MANILA_POINT),
     Ask("sedan", "Lusot ba sedan ko sa Taft Avenue in front of PGH?"),
@@ -113,9 +120,12 @@ def main(
             f" within {WITHIN_S} s"
         )
         return 1
+    if not model_answered(results):
+        say("ASK CHECK FAILED: the listed spot's answer was not the model's")
+        return 1
     say(
         f"ASK CHECK OK in {clock() - began:.1f} s: {len(results)} questions, each"
-        f" HTTP 200 within {WITHIN_S} s"
+        f" HTTP 200 within {WITHIN_S} s, the listed spot's from the model"
     )
     return 0
 
@@ -199,6 +209,11 @@ def answered_in_time(result: dict) -> bool:
         and result["kind"] is not None
         and result["seconds"] <= WITHIN_S
     )
+
+
+def model_answered(results: Sequence[dict]) -> bool:
+    """The listed spot's answer came from the model (source "model")."""
+    return any(r["label"] == LISTED_SPOT and r["source"] == "model" for r in results)
 
 
 def describe(n: int, total: int, result: dict) -> str:

@@ -21,6 +21,7 @@ SPEND = ANALYSIS_SRC / "spend.py"
 API_ROUTER = TEMPLATE.parent / "api" / "src" / "index.ts"
 API_LIMITS = TEMPLATE.parent / "api" / "src" / "limits.ts"
 ASK_DEADLINE = TEMPLATE.parent / "api" / "src" / "ask" / "deadline.ts"
+ASK_HANDLER = TEMPLATE.parent / "api" / "src" / "ask" / "handler.ts"
 ASK_NOMINATIM = TEMPLATE.parent / "api" / "src" / "ask" / "nominatim.ts"
 ALARM_TOPIC = [{"Ref": "AlarmTopic"}]
 APP_ORIGINS = {"Ref": "AppOrigins"}
@@ -562,6 +563,15 @@ def test_spend_stop_parameter():
     match = re.search(r'^SPEND_STOP_PARAM\s*=\s*"([^"]+)"', source, re.MULTILINE)
     assert match, "SPEND_STOP_PARAM not found in spend.py"
     assert match.group(1) == p["Name"]
+    # And the name Ask's handler reads before its first Meta call (C736). A wrong one
+    # fails closed, but every typed question would then get the plain list.
+    source = ASK_HANDLER.read_text(encoding="utf-8")
+    match = re.search(
+        r'^export const SPEND_STOP_PARAM = "([^"]+)";', source, re.MULTILINE
+    )
+    assert match, "SPEND_STOP_PARAM not found in the Ask handler"
+    assert match.group(1) == p["Name"]
+    assert "GetParameterCommand({ Name: SPEND_STOP_PARAM })" in source
     assert not [name for name in T["Parameters"] if "spend" in name.lower()]
 
 

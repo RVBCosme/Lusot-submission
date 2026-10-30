@@ -250,7 +250,8 @@ def test_main_passes_when_every_question_is_answered_within_10_s(stack, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert out.splitlines()[-1] == (
-        "ASK CHECK OK in 25.0 s: 5 questions, each HTTP 200 within 10 s"
+        "ASK CHECK OK in 25.0 s: 5 questions, each HTTP 200 within 10 s,"
+        " the listed spot's from the model"
     )
 
 
@@ -272,6 +273,40 @@ def test_main_fails_when_a_question_is_slow_or_not_answered(stack, capsys):
         return httpx.Response(200, json={"answer": {}})
 
     assert main([], transport=Api(no_answer).transport) == 1
+
+
+def in_order(*sources):
+    """A fake API reply that gives the questions these sources, in order."""
+    answers = iter(sources)
+    return lambda request: httpx.Response(200, json=an_answer(source=next(answers)))
+
+
+def test_main_fails_unless_the_listed_spot_is_answered_by_the_model(stack, capsys):
+    # Task 19 M6: a listed spot needs no Nominatim, so only the model's answer there
+    # proves the deployed function reads the key and calls Meta.
+    rest = ["model"] * 4
+    for first in ("plain_list", "Zzyzx"):
+        api = Api(in_order(first, *rest))
+        assert main([], transport=api.transport) == 1
+        out = capsys.readouterr().out
+        assert "ASK CHECK OK" not in out
+        assert out.splitlines()[-1] == (
+            "ASK CHECK FAILED: the listed spot's answer was not the model's"
+        )
+        # Each question's line names its source, as it names its kind.
+        lines = [line for line in out.splitlines() if line.startswith("question ")]
+        assert len(lines) == 5
+        assert all(", source " in line and ", kind " in line for line in lines)
+        shown = "unreadable" if first == "Zzyzx" else first
+        assert lines[0].startswith(
+            f"question 1/5 (listed spot): HTTP 200, source {shown}, kind reports,"
+        )
+        assert "Zzyzx" not in out
+
+    # Only the listed spot must be the model's: the others may be the plain list.
+    api = Api(in_order("model", *["plain_list"] * 4))
+    assert main([], transport=api.transport) == 0
+    assert capsys.readouterr().out.splitlines()[-1].startswith("ASK CHECK OK")
 
 
 def test_the_api_url_comes_from_the_stack_output(stack):
