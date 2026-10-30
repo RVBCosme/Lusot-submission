@@ -42,6 +42,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | [React](https://github.com/facebook/react) | The app's interface | MIT |
 | [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | The app's styles | MIT |
 | [Lucide](https://github.com/lucide-icons/lucide), through `lucide-react` | The app's icons, bundled as inline SVG | ISC. The icons Lucide derives from [Feather](https://github.com/feathericons/feather), among them `info`, are MIT, as its LICENSE lists them. |
+| [marked](https://github.com/markedjs/marked) | Renders the app's own consent notice and privacy policy from Markdown, bundled in the web build and the APK | MIT |
 | [Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next), through [`@fontsource/atkinson-hyperlegible-next`](https://github.com/fontsource/font-files) | The app's typeface (weights 400 and 700), bundled in the web build and the APK, never loaded from Google Fonts or a CDN | SIL Open Font License 1.1 (OFL-1.1). Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors. |
 | [Capacitor](https://github.com/ionic-team/capacitor) (core, CLI and Android) | Wraps the app for Android; `app/android/` comes from its template | MIT |
 | Capacitor's [Camera](https://github.com/ionic-team/capacitor-camera) and [Geolocation](https://github.com/ionic-team/capacitor-geolocation) plugins | Taking the photo and reading the GPS fix | MIT |

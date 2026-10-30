@@ -20,10 +20,43 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: false,
   },
   'layout.errorFallback': { text: 'Hindi maipakita ang screen na ito. Pumili ng ibang screen sa bar sa ibaba.', reviewed: false },
-  // A privacy key: it shows its English line until its Taglish is reviewed (C619).
-  'privacy.title': { text: 'Privacy policy', reviewed: false },
+  // A privacy key: it shows its English line until its Taglish is reviewed (C619). Window 4's draft keeps the
+  // policy's title in English.
+  'privacy.title': { text: 'Lusot privacy policy', reviewed: false },
   'licences.title': { text: 'Mga open-source na lisensya', reviewed: false },
   'pin.title': { text: 'Detalye ng pin', reviewed: false },
+  'privacy.contactPending': { text: 'idadagdag kapag na-publish na ang page', reviewed: false },
+  // The gates' controls, from Window 4's draft of the notice (M20). Consent keys show their English line until
+  // their Taglish is reviewed (C619).
+  'consent.adultTitle': { text: 'Kumpirmahin ang edad mo', reviewed: false },
+  'consent.adultBody': { text: 'Para lang sa mga adult ang Lusot, 18 taong gulang pataas.', reviewed: false },
+  'consent.adult': { text: 'Ako ay 18 taong gulang pataas.', reviewed: false },
+  'consent.required': { text: '(kailangan)', reviewed: false },
+  'consent.continue': { text: 'Magpatuloy', reviewed: false },
+  'consent.notNow': { text: 'Mamaya na lang', reviewed: false },
+  'consent.readPolicy': { text: 'Basahin ang privacy policy', reviewed: false },
+  'about.what': {
+    text: 'Tinatantya ng Lusot ang lalim ng baha sa isang spot mula sa photo na kinunan mo. Binabasa nito ang lalim ayon sa flood gauge ng MMDA at ipinapakita ang ebidensya, o sinasabi nitong hindi nito masabi.',
+    reviewed: false,
+  },
+  'about.theme': { text: 'Tema', reviewed: false },
+  'about.theme.system': { text: 'Gaya ng device na ito', reviewed: false },
+  'about.theme.light': { text: 'Light', reviewed: false },
+  'about.theme.dark': { text: 'Dark', reviewed: false },
+  'about.officialTitle': { text: 'Mga opisyal na abiso', reviewed: false },
+  'about.mmda': { text: 'Opisyal na site ng MMDA', reviewed: false },
+  'about.pagasa': { text: 'Opisyal na site ng PAGASA', reviewed: false },
+  'about.creditsTitle': { text: 'Credits', reviewed: false },
+  'about.credits.maker': {
+    text: 'Ginawa ni Rene Vincent Cosme, bilang solo entry sa Meta Global AI Developer Hackathon.',
+    reviewed: false,
+  },
+  'about.credits.models': { text: 'Binabasa ng Lusot ang mga photo gamit ang SAM 3.1 at Muse Spark ng Meta.', reviewed: false },
+  'about.credits.levels': {
+    text: 'Ang 9 na level ng Lusot ay ang 7 gauge level ng MMDA, dagdag ang dalawang sariling level ng Lusot: below gutter at above chest. Sa MMDA ang mga passability class na PATV, NPLV at NPATV.',
+    reviewed: false,
+  },
+  'about.legalTitle': { text: 'Privacy at mga lisensya', reviewed: false },
   // The draft of D19's line from the Oct 28 log.
   'refusal.d19': {
     text: 'Hindi ko masabi mula sa photo na ito. Kunan ulit mula sa tuyong lugar, kita ang gulong ng nakaparadang sasakyan o isang taong nakatayo. Huwag lumusong sa baha o pumunta sa kalsada.',

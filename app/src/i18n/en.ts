@@ -24,10 +24,45 @@ export const EN = {
   'layout.noApiDetail': { text: 'VITE_API_URL is not set. Put it in app/.env.local, then build again.', reviewed: false },
   // The fallback where a screen that crashed would have been (S5-R5). The nav and the screen line stay.
   'layout.errorFallback': { text: 'This screen could not be shown. Choose another screen from the bar below.', reviewed: false },
-  // Screen headings without a nav label.
-  'privacy.title': { text: 'Privacy policy', reviewed: false },
+  // Screen headings without a nav label. The policy's is the title of Window 4's draft.
+  'privacy.title': { text: 'Lusot privacy policy', reviewed: false },
   'licences.title': { text: 'Open-source licences', reviewed: false },
   'pin.title': { text: 'Pin detail', reviewed: false },
+  // The policy's contact until VITE_PRIVACY_CONTACT is set at build time (PRIV-Q4). The policy is English until
+  // Rene approves its Taglish, so the page uses this English line in both languages.
+  'privacy.contactPending': { text: 'added when the page is published', reviewed: false },
+  // The gates (C605). The notice's prose is app/src/content/consent.en.md; its controls are these lines, from
+  // Window 4's draft. The 18+ check alone, before a sample, has its own heading and line.
+  'consent.adultTitle': { text: 'Confirm your age', reviewed: false },
+  'consent.adultBody': { text: 'Lusot is only for adults, 18 or older.', reviewed: false },
+  'consent.adult': { text: 'I am 18 or older.', reviewed: false },
+  'consent.required': { text: '(required)', reviewed: false },
+  'consent.continue': { text: 'Continue', reviewed: false },
+  'consent.notNow': { text: 'Not now', reviewed: false },
+  'consent.readPolicy': { text: 'Read the privacy policy', reviewed: false },
+  // About (C619, C633, C636). Its links to the policy and the licences use those screens' titles.
+  'about.what': {
+    text: "Lusot estimates the depth of a flood at one spot from a photo you take. It reads the depth against MMDA's flood gauge and shows the evidence, or it says it can't tell.",
+    reviewed: false,
+  },
+  'about.theme': { text: 'Theme', reviewed: false },
+  'about.theme.system': { text: 'Same as this device', reviewed: false },
+  'about.theme.light': { text: 'Light', reviewed: false },
+  'about.theme.dark': { text: 'Dark', reviewed: false },
+  'about.officialTitle': { text: 'Official advisories', reviewed: false },
+  'about.mmda': { text: "MMDA's official site", reviewed: false },
+  'about.pagasa': { text: "PAGASA's official site", reviewed: false },
+  'about.creditsTitle': { text: 'Credits', reviewed: false },
+  'about.credits.maker': {
+    text: 'Made by Rene Vincent Cosme, as a solo entry to the Meta Global AI Developer Hackathon.',
+    reviewed: false,
+  },
+  'about.credits.models': { text: "Lusot reads photos with Meta's SAM 3.1 and Muse Spark models.", reviewed: false },
+  'about.credits.levels': {
+    text: "Lusot's 9 levels are MMDA's 7 gauge levels plus two of Lusot's own, below gutter and above chest. The passability classes PATV, NPLV and NPATV are MMDA's.",
+    reviewed: false,
+  },
+  'about.legalTitle': { text: 'Privacy and licences', reviewed: false },
   // D19's refusal, which Rene confirmed in English.
   'refusal.d19': {
     text: "I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road.",

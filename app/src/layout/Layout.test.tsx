@@ -4,6 +4,7 @@ import App from '../App'
 import { EN, type StringKey } from '../i18n/en'
 import { FIL } from '../i18n/fil'
 import { resolveText, type Lang } from '../i18n/index'
+import { NOTICE_VERSION } from '../lib/consent'
 import { writeItem } from '../lib/storage'
 
 const SCREEN_LINE = 'Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.'
@@ -33,10 +34,17 @@ afterEach(() => {
   document.documentElement.removeAttribute('lang')
 })
 
-// The app at a route, in a language. App mounts its own LanguageProvider, so nothing else wraps it.
-function renderApp({ hash = '', lang = 'en', apiUrl = API }: { hash?: string; lang?: Lang; apiUrl?: string } = {}) {
+// The app at a route, in a language. App mounts its own LanguageProvider, so nothing else wraps it. `consented`
+// keeps the accepted notice, so #/report shows its screen rather than the gate (lib/consent.test.tsx tests that).
+function renderApp({
+  hash = '',
+  lang = 'en',
+  apiUrl = API,
+  consented = false,
+}: { hash?: string; lang?: Lang; apiUrl?: string; consented?: boolean } = {}) {
   history.replaceState(null, '', `/${hash}`)
   if (lang === 'fil') writeItem('lusot.lang', 'fil')
+  if (consented) writeItem('lusot.consent', JSON.stringify({ adult: true, notice: NOTICE_VERSION }))
   return render(<App apiUrl={apiUrl} />)
 }
 
@@ -56,7 +64,7 @@ function expectOneScreenLine() {
 
 describe.each(['en', 'fil'] as const)('in %s', (lang) => {
   it.each(ROUTES)('%j shows its screen and the screen line once, in the bar', (hash, heading) => {
-    renderApp({ hash, lang })
+    renderApp({ hash, lang, consented: true })
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(shown(lang, heading))
     expectOneScreenLine()

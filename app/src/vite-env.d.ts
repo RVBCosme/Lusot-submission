@@ -7,4 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_API_MOCK: string | undefined
   // The mock's scenario, one of those app/src/mock/fixtures.ts lists; `?mock=<scenario>` on the page's URL wins.
   readonly VITE_API_MOCK_SCENARIO: string | undefined
+  // The privacy policy's contact (PRIV-Q4), from the git-ignored .env.local only, never a committed file. Unset or
+  // blank, the policy says it is added when the page is published.
+  readonly VITE_PRIVACY_CONTACT: string | undefined
 }
