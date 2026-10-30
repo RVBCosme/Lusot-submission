@@ -9,6 +9,7 @@ real MetaClient by accident.
 import dataclasses
 import importlib.util
 import json
+import math
 import os
 import re
 import subprocess
@@ -39,7 +40,7 @@ from fakes import (
 )
 from moto import mock_aws
 
-from lusot_analysis import handler, spend
+from lusot_analysis import handler, overlay, spend
 from lusot_analysis.face_blur import blur_for_meta, decode_image
 from lusot_analysis.meta_client import (
     SAM_PHRASES,
@@ -72,7 +73,10 @@ REPORT_ID = "r_" + "0123456789abcdef" * 2
 RAW_KEY = f"raw/{REPORT_ID}.jpg"
 PHOTO_KEY = f"blurred/{REPORT_ID}.jpg"
 # What a level stores: its photo, and its overlay's image and JSON (C510).
-STORED_KEYS = [PHOTO_KEY, f"overlay/{REPORT_ID}.jpg", f"overlay/{REPORT_ID}.json"]
+OVERLAY_KEY = f"overlay/{REPORT_ID}.jpg"
+LAYERS_KEY = f"overlay/{REPORT_ID}.json"
+STORED_KEYS = [PHOTO_KEY, OVERLAY_KEY, LAYERS_KEY]
+LEVEL_KEYS = sorted(STORED_KEYS)  # what keys(aws) lists for a level, as S3 sorts them
 PUBLISHED_FIELDS = ("published", "feedPart")
 CAPTURED_AT = "2026-10-28T03:00:00.000Z"
 NOW_S = 1_800_000_000  # the claim's clock, fixed in every test
@@ -88,8 +92,37 @@ ITEM = {
     "capturedAt": {"S": CAPTURED_AT},
 }
 KEY = {"pk": ITEM["pk"], "sk": ITEM["sk"]}
-# The level case's result as stored: knee from wheel 2, with its photo (C61), and
-# published, as a live level is while the publish switch is "off".
+# The level case's readings as stored (C507): the vehicle's body, read as nothing, and
+# wheel 2, read as knee from its landmark. Neither holds inches.
+KNEE_READINGS = {
+    "L": [
+        {
+            "M": {
+                "id": {"N": "1"},
+                "kind": {"S": "body"},
+                "landmark": {"S": "not_visible"},
+                "level": {"NULL": True},
+                "inches": {"NULL": True},
+                "used": {"BOOL": False},
+                "dropped": {"NULL": True},
+            }
+        },
+        {
+            "M": {
+                "id": {"N": "2"},
+                "kind": {"S": "wheel"},
+                "landmark": {"S": "rim_three_quarters"},
+                "level": {"S": "knee"},
+                "inches": {"NULL": True},
+                "used": {"BOOL": True},
+                "dropped": {"NULL": True},
+            }
+        },
+    ]
+}
+# The level case's result as stored: knee from wheel 2, with its photo (C61), its
+# overlay, its layers and its readings (C505, C507), and published, as a live level is
+# while the publish switch is "off".
 KNEE = {
     "noFloodSeen": {"BOOL": False},
     "level": {"S": "knee"},
@@ -99,6 +132,9 @@ KNEE = {
     "basis": {"M": {"vehicles": {"N": "1"}, "people": {"N": "0"}}},
     "levelFrom": {"S": "landmark"},
     "photoKey": {"S": PHOTO_KEY},
+    "overlayKey": {"S": OVERLAY_KEY},
+    "layersKey": {"S": LAYERS_KEY},
+    "readings": KNEE_READINGS,
     "published": {"BOOL": True},
     "feedPart": {"S": "live"},
 }
@@ -520,13 +556,27 @@ def test_level_result_is_published(aws, fake):
     assert re.fullmatch(r"[0-9a-f]{32}", token)  # new for every delivery (C82)
     assert item == ITEM | claimed(token, NOW_S, status="done") | KNEE
     # The stored photo is the face-blurred one with SAM's faces and plates blurred
-    # (C48, C61), and the raw photo is gone (W25).
-    assert keys(aws) == [PHOTO_KEY]
+    # (C48, C61), and the raw photo is gone (W25). Beside it are the overlay and its
+    # layers (C505), drawn on that stored photo from the run's own record.
+    assert keys(aws) == LEVEL_KEYS
     stored = aws.s3.get_object(Bucket=BUCKET, Key=PHOTO_KEY)
     assert stored["ContentType"] == "image/jpeg"
     data = stored["Body"].read()
     assert decode_image(data).shape[:2] == (480, 640)
     assert data == publish_jpeg(blur_for_meta(LEVEL_PHOTO), sam)
+    _, _, given = level_case()
+    run = run_pipeline(
+        LEVEL_PHOTO, FakeClient(sam, given), handler._prompt(), geometry_in_level=True
+    )
+    drawn, layers = overlay.draw_overlay(
+        publish_jpeg(blur_for_meta(LEVEL_PHOTO), sam), run.evidence
+    )
+    image = aws.s3.get_object(Bucket=BUCKET, Key=OVERLAY_KEY)
+    assert image["ContentType"] == "image/jpeg"
+    assert image["Body"].read() == drawn
+    document = aws.s3.get_object(Bucket=BUCKET, Key=LAYERS_KEY)
+    assert document["ContentType"] == "application/json"
+    assert json.loads(document["Body"].read()) == layers
     # Every SAM phrase and one Muse Spark answer: 7 + 1 calls.
     assert sorted(calls(fake, "segment")) == sorted(SAM_PHRASES)
     assert len(calls(fake, "judge")) == 1
@@ -556,6 +606,30 @@ def test_geometry_result_is_stored_with_its_source_and_inches(aws, geometry_fake
         "depthInMin": {"N": str(expected["depthInMin"])},
         "depthInMax": {"N": str(expected["depthInMax"])},
         "photoKey": {"S": PHOTO_KEY},
+        "overlayKey": {"S": OVERLAY_KEY},
+        "layersKey": {"S": LAYERS_KEY},
+        # C507: the wheel that decided reads the stored inches, and nothing else does.
+        "readings": {
+            "L": [
+                KNEE_READINGS["L"][0],
+                {
+                    "M": {
+                        "id": {"N": "2"},
+                        "kind": {"S": "wheel"},
+                        "landmark": {"S": "rim_quarter"},
+                        "level": {"S": expected["level"]},
+                        "inches": {
+                            "L": [
+                                {"N": str(expected["depthInMin"])},
+                                {"N": str(expected["depthInMax"])},
+                            ]
+                        },
+                        "used": {"BOOL": True},
+                        "dropped": {"NULL": True},
+                    }
+                },
+            ]
+        },
         # Task 7's publish fields: a live level result while the switch reads off.
         "published": {"BOOL": True},
         "feedPart": {"S": "live"},
@@ -641,7 +715,7 @@ def test_publish_switch_is_read_once_after_the_result(aws, fake, monkeypatch):
     item = report(aws)
     token = item["claimToken"]["S"]
     assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert [read["Name"] for read in reads] == [SWITCH, SPEND_STOP, PUBLISH]
     # So the publish read came after the judge call, and the spend stop's before it.
     assert at_judge == [[SWITCH, SPEND_STOP]]
@@ -861,7 +935,7 @@ def test_mode_is_read_from_the_item(aws, fake):
     token = item["claimToken"]["S"]
     expected = ITEM | {"mode": {"S": "private"}} | claimed(token, NOW_S, "done")
     assert item == expected | KNEE_UNPUBLISHED
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
 
 
 def test_failed_publish_read_never_retries(aws, fake, monkeypatch, caplog):
@@ -873,7 +947,7 @@ def test_failed_publish_read_never_retries(aws, fake, monkeypatch, caplog):
     item = report(aws)
     token = item["claimToken"]["S"]
     assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert len(fake.calls) == 8
     assert [read["Name"] for read in reads] == [SWITCH, SPEND_STOP, PUBLISH]  # once
     (line,) = report_lines(caplog)
@@ -923,9 +997,10 @@ def test_publish_read_has_its_own_bounded_client(aws, fake, monkeypatch, caplog)
     assert "Read timeout" not in caplog.text  # the class name only
 
 
-def test_demo_photo_goes_under_demo(aws, fake):
-    # C510: a demo pin's objects go under demo/, with its own 60-day backstop. An
-    # earlier attempt's three demo/ objects are deleted at the claim (C72).
+def test_demo_overlay_goes_under_demo(aws, fake):
+    # C510: a demo pin's photo, overlay and layers go under demo/, with its own 60-day
+    # backstop. An earlier attempt's three demo/ objects are deleted at the claim (C72),
+    # so the three that remain are this attempt's.
     demo_keys = [f"demo/{key}" for key in STORED_KEYS]
     seed(aws, photo=LEVEL_PHOTO, mode={"S": "demo"}, **claimed("old", NOW_S - 901))
     for key in demo_keys:
@@ -933,13 +1008,166 @@ def test_demo_photo_goes_under_demo(aws, fake):
     assert handler.handler(message(), None) == NO_FAILURES
     item = report(aws)
     token = item["claimToken"]["S"]
-    demo_knee = KNEE | {"photoKey": {"S": demo_keys[0]}, "feedPart": {"S": "demo"}}
+    demo_knee = KNEE | {
+        "photoKey": {"S": demo_keys[0]},
+        "overlayKey": {"S": demo_keys[1]},
+        "layersKey": {"S": demo_keys[2]},
+        "feedPart": {"S": "demo"},
+    }
     demo_item = ITEM | {"mode": {"S": "demo"}}
     assert item == demo_item | claimed(token, NOW_S, "done") | demo_knee
-    assert keys(aws) == [demo_keys[0]]
-    _, sam, _ = level_case()
+    assert keys(aws) == sorted(demo_keys)
+    _, sam, given = level_case()
     stored = aws.s3.get_object(Bucket=BUCKET, Key=demo_keys[0])["Body"].read()
     assert stored == publish_jpeg(blur_for_meta(LEVEL_PHOTO), sam)
+    run = run_pipeline(
+        LEVEL_PHOTO, FakeClient(sam, given), handler._prompt(), geometry_in_level=True
+    )
+    drawn, layers = overlay.draw_overlay(stored, run.evidence)
+    assert aws.s3.get_object(Bucket=BUCKET, Key=demo_keys[1])["Body"].read() == drawn
+    written = aws.s3.get_object(Bucket=BUCKET, Key=demo_keys[2])["Body"].read()
+    assert json.loads(written) == layers
+
+
+# The overlay, its layers and the readings (C505, C507; MS4 Task 14)
+
+# The level case's result without what the evidence record adds.
+KNEE_WITHOUT_RECORD = {
+    name: value
+    for name, value in KNEE.items()
+    if name not in ("overlayKey", "layersKey", "readings")
+}
+
+
+def edit_run(monkeypatch, edit) -> list:
+    """Hand each run `handler.analyse` makes through `edit` before the handler reads it.
+
+    Returns the runs as the pipeline made them, which grows as the handler works.
+    """
+    analyse = handler.analyse
+    runs = []
+
+    def edited(*args, **kwargs):
+        runs.append(analyse(*args, **kwargs))
+        return edit(runs[-1])
+
+    monkeypatch.setattr(handler, "analyse", edited)
+    return runs
+
+
+def with_wheel_inches(run, inches):
+    """`run` with wheel 2's inches in the evidence record replaced."""
+    entries = tuple(
+        dataclasses.replace(entry, inches=inches) if entry.id == 2 else entry
+        for entry in run.evidence.references
+    )
+    evidence = dataclasses.replace(run.evidence, references=entries)
+    return dataclasses.replace(run, evidence=evidence)
+
+
+def test_refused_run_with_a_record_writes_no_overlay(aws, fake, monkeypatch):
+    # Critical 1: a gate refusal still builds the record, but only a level result
+    # draws an overlay, writes layers or stores readings.
+    fake.answer = answer(photo_usable="no")
+    runs = edit_run(monkeypatch, lambda run: run)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    (run,) = runs
+    assert run.evidence is not None and run.outcome.status == "refused"
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "refused") | {
+        "refusalReason": {"S": "photo_unusable"}
+    }
+    assert keys(aws) == []
+
+
+def test_no_overlay_without_a_record(aws, fake, monkeypatch, caplog):
+    # A level run whose evidence is None keeps its photo and writes nothing else.
+    edit_run(monkeypatch, lambda run: dataclasses.replace(run, evidence=None))
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | KNEE_WITHOUT_RECORD
+    assert keys(aws) == [PHOTO_KEY]
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert not {"overlay_error", "readings_error"} & set(line)
+
+
+def test_overlay_failure_keeps_the_result(aws, fake, monkeypatch, caplog):
+    # The run is paid for, so a drawing that fails writes the result without its
+    # overlay and layers. It never returns the message to claim and pay again.
+    def fails(*args, **kwargs):
+        raise RuntimeError("the drawing failed: MESSAGE-MARKER")
+
+    monkeypatch.setattr(overlay, "draw_overlay", fails)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | {
+        name: value
+        for name, value in KNEE.items()
+        if name not in ("overlayKey", "layersKey")
+    }
+    assert keys(aws) == [PHOTO_KEY]
+    assert len(fake.calls) == 8  # paid once
+    (line,) = report_lines(caplog)
+    assert line["outcome"] == "done/level"
+    assert line["overlay_error"] == "RuntimeError"  # the class name, never its message
+    assert "readings_error" not in line
+    assert "MESSAGE-MARKER" not in caplog.text
+
+
+def test_readings_failure_keeps_the_result(aws, fake, monkeypatch, caplog):
+    # Review Focus 3: a record the readings can't take (MS3b checks finiteness only on
+    # the outcome's inches) writes the result without them, never retried.
+    runs = edit_run(
+        monkeypatch, lambda run: with_wheel_inches(run, (math.nan, math.nan))
+    )
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    assert len(runs) == 1
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | {
+        name: value for name, value in KNEE.items() if name != "readings"
+    }
+    assert keys(aws) == LEVEL_KEYS  # the overlay and its layers are still drawn
+    assert len(fake.calls) == 8  # none repeated
+    assert outcomes(caplog) == ["done/level"]
+    (line,) = report_lines(caplog)
+    assert line["readings_error"] == "ValueError"
+    assert "overlay_error" not in line
+
+
+def test_failed_overlay_put_keeps_the_result(aws, fake, monkeypatch, caplog):
+    # A put of the overlay or its layers is as much a part of the drawing as the
+    # drawing: losing either writes the result without both keys, never retried.
+    s3 = handler._client("s3")
+    put_object = s3.put_object
+
+    def put(**kwargs):
+        if kwargs["Key"] == LAYERS_KEY:
+            raise aws_error("InternalError", 500, "PutObject")
+        return put_object(**kwargs)
+
+    monkeypatch.setattr(s3, "put_object", put)
+    seed(aws, photo=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    item = report(aws)
+    token = item["claimToken"]["S"]
+    assert item == ITEM | claimed(token, NOW_S, "done") | {
+        name: value
+        for name, value in KNEE.items()
+        if name not in ("overlayKey", "layersKey")
+    }
+    assert len(fake.calls) == 8
+    (line,) = report_lines(caplog)
+    assert line["overlay_error"] == "ClientError"
+    assert "arn:" not in caplog.text
 
 
 # A sample seed's copy (C512, MS4-Q14; the tracker's ruling, Oct 30, 10:31 AM)
@@ -1027,9 +1255,12 @@ def test_a_seed_keeps_its_copy_only_for_a_level_or_no_flood_seen(
     assert handler.handler(message(), None) == NO_FAILURES
     item = report(aws)
     assert item == before | claimed(item["claimToken"]["S"], NOW_S, final) | fields
-    # The copy alone, at the report's photo key: no overlay for it (C505), and no
-    # raw/ left (W25).
-    stored = [PHOTO_KEY] if "photoKey" in fields else []
+    # A level's copy comes with its overlay and layers. A no flood seen copy stands
+    # alone at the report's photo key, with no overlay (C505). No raw/ is left (W25).
+    if "overlayKey" in fields:
+        stored = LEVEL_KEYS
+    else:
+        stored = [PHOTO_KEY] if "photoKey" in fields else []
     assert keys(aws) == stored
     if stored:
         _, sam, _ = level_case()
@@ -1069,7 +1300,11 @@ def copy_lost(monkeypatch) -> None:
             None,
             copy_lost,
             "done/level",
-            {k: v for k, v in KNEE_UNPUBLISHED.items() if k != "photoKey"},
+            {
+                k: v
+                for k, v in KNEE_UNPUBLISHED.items()
+                if k not in ("photoKey", "overlayKey", "layersKey")
+            },
             id="level",
         ),
     ],
@@ -1339,7 +1574,7 @@ def test_live_lease_is_left_alone(aws, fake, monkeypatch, caplog):
     token = item["claimToken"]["S"]
     assert item == ITEM | claimed(token, NOW_S + 1080, "done") | KNEE
     assert len(fake.calls) == 8
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert outcomes(caplog) == ["lease_held", "done/level"]
 
 
@@ -1350,7 +1585,7 @@ def test_expired_lease_is_reclaimed(aws, fake):
     assert item["claimToken"] != {"S": "old"}
     assert item == ITEM | claimed(item["claimToken"]["S"], NOW_S, "done") | KNEE
     assert len(fake.calls) == 8
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
 
 
 def test_racing_deliveries_pay_once(aws, fake, monkeypatch, caplog):
@@ -1372,7 +1607,7 @@ def test_racing_deliveries_pay_once(aws, fake, monkeypatch, caplog):
     assert len(fake.calls) == 8  # one set of calls: 7 + 1
     assert outcomes(caplog) == ["lease_held", "done/level"]
     assert status(aws) == ("done", None)
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     # The returned copy comes back 1,080 s later, after the result, and only finishes.
     monkeypatch.setattr(handler, "_now_s", lambda: NOW_S + 1080)
     assert handler.handler(message(), None) == NO_FAILURES
@@ -1405,11 +1640,11 @@ def test_failed_raw_delete_retries_without_reanalysis(aws, fake, monkeypatch, ca
     assert handler.handler(message(), None) == RETRY
     assert status(aws) == ("done", None)  # written before the delete
     done = report(aws)
-    assert keys(aws) == [PHOTO_KEY, RAW_KEY]
+    assert keys(aws) == sorted([*LEVEL_KEYS, RAW_KEY])
     # SQS delivers the message again: the retry only deletes.
     assert handler.handler(message(), None) == NO_FAILURES
     assert report(aws) == done
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert len(fake.calls) == 8
     assert outcomes(caplog) == ["error", "already_finished"]
 
@@ -1426,7 +1661,7 @@ def test_failed_delete_redelivered_after_lease_time_only_deletes(
     monkeypatch.setattr(handler, "_now_s", lambda: NOW_S + 1080)
     assert handler.handler(message(), None) == NO_FAILURES
     assert report(aws) == done
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert len(fake.calls) == 8
     assert outcomes(caplog) == ["error", "already_finished"]
 
@@ -1452,7 +1687,7 @@ def test_reused_link_during_analysis_pays_once_and_leaves_no_raw(aws, fake, capl
     assert outcomes(caplog) == ["lease_held", "done/level"]
     item = report(aws)
     assert item == ITEM | claimed(item["claimToken"]["S"], NOW_S, "done") | KNEE
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
 
 
 # S3 codes (R22, narrowed)
@@ -1802,7 +2037,7 @@ def test_crossing_the_threshold_flips_the_switch_after_the_run(
     assert handler.handler(message(), None) == NO_FAILURES
     assert result(aws) == KNEE_RESULT
     assert published(aws) == {"published": {"BOOL": True}, "feedPart": {"S": "live"}}
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert spent(aws) == before + RUN_COST
     assert (switch(aws), puts) == ("on", [FLIP])
     (line,) = report_lines(caplog)
@@ -1851,7 +2086,7 @@ def test_spend_write_still_throttled_flips_the_stop(
     assert handler.handler(message(), None) == NO_FAILURES
     assert attempts == ["failed"] * 5
     assert result(aws) == KNEE_RESULT
-    assert keys(aws) == [PHOTO_KEY]
+    assert keys(aws) == LEVEL_KEYS
     assert spent(aws) == 0
     assert (switch(aws), puts) == ("on", [FLIP])
     (line,) = report_lines(caplog)
@@ -2197,7 +2432,8 @@ def test_log_line_carries_the_geometry_fields(aws, geometry_fake, caplog):
 
 def test_log_line_holds_no_evidence(aws, geometry_fake, monkeypatch, caplog):
     # Review Focus 6, C328: the run carries the evidence record, but the handler logs
-    # run.log only and stores item_fields() only, so neither holds any of it.
+    # run.log only and stores item_fields() and the readings (C507) only, so neither
+    # holds any of it. The readings are the one place the item says `inches`.
     runs = []
     analyse = handler.analyse
 
@@ -2213,7 +2449,19 @@ def test_log_line_holds_no_evidence(aws, geometry_fake, monkeypatch, caplog):
     lines = logged(caplog)
     assert lines
     assert not EVIDENCE_KEYS & all_keys(lines)
-    assert not EVIDENCE_KEYS & all_keys(report(aws))
+    item = report(aws)
+    readings = item.pop("readings")
+    assert not EVIDENCE_KEYS & all_keys(item)
+    # A reading holds its seven fields and nothing of the record's drawing.
+    assert all_keys(readings) - {"L", "M", "S", "N", "NULL", "BOOL"} == {
+        "id",
+        "kind",
+        "landmark",
+        "level",
+        "inches",
+        "used",
+        "dropped",
+    }
 
 
 def test_logs_never_carry_private_data(aws, monkeypatch, caplog):

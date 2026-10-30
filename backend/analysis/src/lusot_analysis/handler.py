@@ -23,9 +23,16 @@ the model-calls switch "on" and ends the report paused. After the run, its cost 
 to the counter, and a total that reaches the stop, or a write that is lost, sets the
 switch too. Each flip logs spend_stop or spend_error, which the SpendPauseAlarm counts.
 
-The Meta client and the pipeline are imported where they are first used, not at
-import: with OpenCV beside them, the Lambda's init reached its 10 s limit (the cold
-start, Oct 29). The first delivery in each container pays for them inside its invoke.
+A level result also gets its overlay and its layers beside the photo, and its readings
+on the item (C505, C507), all from the pipeline's evidence record. The result is paid
+for, so neither the readings nor the drawing is ever retried: a fault in either is
+logged by its class name as `readings_error` or `overlay_error`, and the result is
+written without what failed.
+
+The Meta client, the pipeline and the overlay are imported where they are first used,
+not at import: with OpenCV beside them, the Lambda's init reached its 10 s limit (the
+cold start, Oct 29). The first delivery in each container pays for them inside its
+invoke.
 """
 
 from __future__ import annotations
@@ -63,6 +70,7 @@ from lusot_analysis.spend import (
 if TYPE_CHECKING:  # annotations only: each loads where it is used
     from lusot_analysis import meta_client
     from lusot_analysis.pipeline import PipelineRun
+    from lusot_analysis.pipeline.evidence import Evidence
     from lusot_analysis.pipeline.types import ModelClient, Outcome
 
 DEADLINE_MARGIN_S = 30  # the run stops this long before Lambda's timeout (C84, C88)
@@ -541,12 +549,15 @@ def _process(report_id: str, key: str, context: object, line: dict) -> str:
         # However the run ends, before its final write or its error return, so a
         # retried message's paid attempt is counted too.
         _record_spend(counted, stop, line)
-    # The log line takes run.log only, and _finish stores item_fields() only, so the
-    # evidence record reaches neither CloudWatch nor the table (C328).
+    # The log line takes run.log only. The evidence record reaches the table only as
+    # the overlay's readings and never CloudWatch, and the overlay and its layers
+    # never carry inches (C328, C505).
     line.update(run.log)
 
     # Step 8: publish.
-    return _finish(report, key, token, run.outcome, run.publish_jpeg, line)
+    return _finish(
+        report, key, token, run.outcome, run.publish_jpeg, line, evidence=run.evidence
+    )
 
 
 def _find_report(report_id: str) -> dict:
@@ -568,6 +579,7 @@ def _finish(
     outcome: Outcome,
     photo: bytes | None = None,
     line: dict | None = None,
+    evidence: Evidence | None = None,
 ) -> str:
     """Store the photo, if any, write the result, then delete the raw photo (spec §3.2).
 
@@ -577,11 +589,12 @@ def _finish(
     refused or failed stores none (C512; the tracker's ruling, Oct 30, 10:31 AM).
     The photo is stored before the write, so a failed put writes nothing. A seed's
     level or no flood seen without its copy adds `kept_copy: false` to `line`
-    (Window 3's review, Minor 3). The write carries the publish fields, if any, and
-    errors join `line`, the report's one log line. The write is under the claim: a
-    lost lease writes nothing and leaves the raw photo to the worker that holds the
-    report. If the delete fails, the message returns, and the retry finds the report
-    finished and only deletes.
+    (Window 3's review, Minor 3). A level with an evidence record also stores its
+    overlay and layers and writes its readings (_evidence_fields). The write carries
+    the publish fields, if any, and errors join `line`, the report's one log line. The
+    write is under the claim: a lost lease writes nothing and leaves the raw photo to
+    the worker that holds the report. If the delete fails, the message returns, and
+    the retry finds the report finished and only deletes.
     """
     fields = outcome.item_fields()
     line = {} if line is None else line
@@ -598,6 +611,8 @@ def _finish(
             fields["photoKey"] = photo_key
         elif seed:
             line["kept_copy"] = False
+    if outcome.level is not None and evidence is not None:
+        fields |= _evidence_fields(report, photo, evidence, line)
     fields |= _publish_fields(report, outcome, line)
     written = write_result(
         _client("dynamodb"), os.environ["TABLE_NAME"], _item_key(report), token, fields
@@ -606,6 +621,49 @@ def _finish(
         return "lease_lost"
     _delete(key)
     return outcome.log_name
+
+
+def _evidence_fields(
+    report: dict, photo: bytes | None, evidence: Evidence, line: dict
+) -> dict:
+    """A level's readings, and its overlay and layers stored beside its photo (C505).
+
+    The overlay is drawn on `photo`, the stored one. Each of the two runs inside its
+    own guard and is never retried: the result is paid for, and a message returned for
+    a fault here would claim the report again and pay again (Review Focus 3). A fault
+    in `readings` adds `readings_error` to `line`, with its class name only, and the
+    result goes without them. One in the drawing, or in storing it, adds
+    `overlay_error` the same way, and the result goes without `overlayKey` and
+    `layersKey`. The two keys come only after both objects are stored. A level with no
+    photo gets readings but no overlay.
+    """
+    from lusot_analysis import overlay  # OpenCV: loaded here, not at import
+
+    fields: dict[str, object] = {}
+    try:
+        fields["readings"] = overlay.readings(evidence)
+    except Exception as exc:  # noqa: BLE001
+        line["readings_error"] = type(exc).__name__
+    if photo is None:
+        return fields
+    try:
+        image, layers = overlay.draw_overlay(photo, evidence)
+        document = json.dumps(layers, allow_nan=False).encode()
+        _, overlay_key, layers_key = _photo_keys(report)
+        for stored, body, content_type in (
+            (overlay_key, image, "image/jpeg"),
+            (layers_key, document, "application/json"),
+        ):
+            _client("s3").put_object(
+                Bucket=os.environ["BUCKET_NAME"],
+                Key=stored,
+                Body=body,
+                ContentType=content_type,
+            )
+    except Exception as exc:  # noqa: BLE001
+        line["overlay_error"] = type(exc).__name__
+        return fields
+    return fields | {"overlayKey": overlay_key, "layersKey": layers_key}
 
 
 def _publish_fields(report: dict, outcome: Outcome, line: dict) -> dict:
