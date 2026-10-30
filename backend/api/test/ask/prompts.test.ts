@@ -3,20 +3,10 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROMPT_VERSION, loadPrompts, promptDir } from "../../src/ask/prompts";
-
-// Test-only stand-in for Task 4's normalize, doing what it does for these samples: NFD, combining
-// marks removed, lowercase, punctuation and spaces collapsed to one space, trimmed.
-function normaliseSampleForThisTest(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
+import { normalize } from "../../src/ask/text";
 
 function matches(patterns: RegExp[], sample: string): boolean {
-  const text = normaliseSampleForThisTest(sample);
+  const text = normalize(sample);
   return patterns.some((re) => re.test(text));
 }
 
