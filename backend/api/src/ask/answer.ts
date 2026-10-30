@@ -98,12 +98,15 @@ export function classify(input: { calls: ToolArgs[]; verdict?: ModelVerdict; que
   const fromModel = calls.some((call) => call.kind === "crossing") || verdict?.kind === "crossing";
   const fromWords = hasCrossingWords(question);
 
-  // A model-only on_foot is dropped here: only a walking word makes it hold, and a wrong one would drop every class line.
+  // A vehicle the model names (light or heavy) decides, by the heavy and light rules. Only when it names none does a
+  // walking word give on_foot: "lakad" is also an errand and "wade" is how a vehicle crosses water, so a walking word
+  // must not drop the class lines from a vehicle's question. A model-only on_foot is dropped: it holds only with a
+  // walking word, and a wrong one would drop every class line.
   const said = [...calls.map((call) => call.vehicle), ...(verdict === undefined ? [] : [verdict.vehicle])];
   let vehicle: Reading["vehicle"] = null;
-  if (hasWalkingWords(question)) vehicle = "on_foot";
-  else if (said.includes("heavy") && hasHeavyWords(question)) vehicle = "heavy";
+  if (said.includes("heavy") && hasHeavyWords(question)) vehicle = "heavy";
   else if (said.some((v) => v === "heavy" || v === "light")) vehicle = "light";
+  else if (hasWalkingWords(question)) vehicle = "on_foot";
 
   return {
     crossing: fromModel || fromWords,

@@ -360,10 +360,33 @@ describe("the guards (spec AK12)", () => {
     expect(read("truck namin", [call({ vehicle: "light" })]).vehicle).toBe("light");
   });
 
-  it("a walking word makes on_foot even when the model says light", () => {
-    expect(read("pwede ba akong maglakad dito", [call({ vehicle: "light" })], verdict({ vehicle: "light" })).vehicle).toBe("on_foot");
+  it("a walking word gives on_foot when the model names no vehicle", () => {
     expect(read("can I walk through there", [call({ vehicle: "none" })]).vehicle).toBe("on_foot");
-    expect(read("lumusong ako sa baha", [call({ vehicle: "heavy" })]).vehicle).toBe("on_foot");
+    expect(read("pwede ba akong maglakad dito", [call({ vehicle: "none" })], verdict({ vehicle: "none" })).vehicle).toBe("on_foot");
+    expect(read("lumusong ako sa baha", [call({ vehicle: "none" }), call({ vehicle: "none" })]).vehicle).toBe("on_foot");
+    // The model's own on_foot names no vehicle either, and the walking word makes it hold.
+    expect(read("maglalakad ako", [call({ vehicle: "on_foot" })], verdict({ vehicle: "on_foot" })).vehicle).toBe("on_foot");
+    expect(read("on foot ako", []).vehicle).toBe("on_foot");
+  });
+
+  it("a walking word doesn't override a model's light", () => {
+    expect(read("pwede ba akong maglakad dito", [call({ vehicle: "light" })], verdict({ vehicle: "light" })).vehicle).toBe("light");
+    expect(read("can I walk through there", [call({ vehicle: "none" }), call({ vehicle: "light" })]).vehicle).toBe("light");
+    expect(read("lumusong ako sa baha", [], verdict({ vehicle: "light" })).vehicle).toBe("light");
+    // A model on_foot beside another call's light is the light reading, walking word or not.
+    expect(read("maglakad ako", [call({ vehicle: "on_foot" }), call({ vehicle: "light" })]).vehicle).toBe("light");
+  });
+
+  it("a walking word that is an everyday vehicle phrasing keeps the model's vehicle", () => {
+    // "lakad" is also an errand, and "wade" is how a vehicle crosses water (review I1).
+    const sedan = "Kaya ba ng sedan ko sa España cor. Maceda? May lakad kasi ako.";
+    expect(read(sedan, [call({ kind: "crossing", vehicle: "light" })], verdict({ kind: "crossing", vehicle: "light" })).vehicle).toBe("light");
+    const truck = "Pwede bang dumaan ang truck namin sa España, may lakad kami";
+    expect(read(truck, [call({ vehicle: "heavy" })], verdict({ vehicle: "heavy" })).vehicle).toBe("heavy");
+    const suv = "Can my SUV wade through España cor. Maceda?";
+    expect(read(suv, [call({ kind: "crossing", vehicle: "light" })], verdict({ kind: "crossing", vehicle: "light" })).vehicle).toBe("light");
+    const bus = "Can our bus wade through Taft Ave cor. Vito Cruz?";
+    expect(read(bus, [call({ kind: "crossing", vehicle: "heavy" })], verdict({ kind: "crossing", vehicle: "heavy" })).vehicle).toBe("heavy");
   });
 
   it("a model-only on_foot answers none, with its class lines", () => {
@@ -380,9 +403,9 @@ describe("the guards (spec AK12)", () => {
     expect(read("sedan namin", [call({ vehicle: "on_foot" }), call({ vehicle: "none" })], verdict({ vehicle: "on_foot" })).vehicle).toBeNull();
   });
 
-  it("on_foot wins over heavy", () => {
+  it("a model's heavy with a truck word and a walking word stays heavy", () => {
     const reading = read("maglalakad ako, hindi truck", [call({ vehicle: "heavy" })], verdict({ vehicle: "heavy" }));
-    expect(reading.vehicle).toBe("on_foot");
+    expect(reading.vehicle).toBe("heavy");
   });
 
   it("any light or heavy without a truck word is light; none stays null", () => {
