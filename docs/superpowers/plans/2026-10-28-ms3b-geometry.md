@@ -1313,7 +1313,7 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
   - **The export.** Through MS3b's export, it writes only §4.3's fields to `--results`. That is the repo's `eval/results/`, or `eval/results/rerun/` for the one disclosed rerun, at the second freeze with its reason (MS6's C421). It is the one place any MS3b tool writes into the repo, and only in Rene's run (MS6 §4.5 step 6). Its `run.json` has `kind` `sealed`, the freeze commit, the frozen versions, the baseline pair and each stop. The raw outputs stay under `sealed`.
   - **Output:** counts and timings only. It never prints a photo's name, a path, a label, an answer, a reason or a key, and every line masks 12-digit runs.
 
-- [ ] **Step 1: Write the failing tests.** They use synthetic data only: `tmp_path` trees, flat test images and `FakeClient`.
+- [x] **Step 1: Write the failing tests.** Evidence: `ea45ede`, 27 tests in `test_run_sealed.py` (43 after the fix rounds), synthetic data only. They use synthetic data only: `tmp_path` trees, flat test images and `FakeClient`.
   - A `tmp_path/"sealed"` folder made by a test is synthetic, not sealed data.
   - No test reads `lusot-data` or any real sealed folder. Every test passes `--results` under `tmp_path`, so none writes into the repo's `eval/results/`. No test makes a Meta call.
   - No one opens these test folders by hand.
@@ -1333,10 +1333,19 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
   - `test_export_holds_only_the_row_contract`: the rows hold only §4.3's fields, the raw outputs stay under the synthetic `sealed` folder, and `run.json` has `kind` `sealed`, the freeze commit and the baseline pair from a synthetic `summary.json`.
   - `test_prints_counts_only`: no name, path, label, reason or 12-digit run.
   - `test_guard_copies_match_ms2s` (only when the fallback copies are used; R132): the `ast.dump` of each new guard copy equals that of `set_b_masks.py`'s, which the test reads as text.
-- [ ] **Step 2:** Run `uv run pytest -q tests/test_run_sealed.py`. Expected: FAIL.
-- [ ] **Step 3:** Implement `run_sealed.py`, and `parse_set_d` and `set_d_estimates` in `lusot_analysis.export`. It reuses the runner's conventions and Tasks 12 and 15's path-free functions, never the development tools' readers. It never imports `eval/` code (C321).
-- [ ] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`, then `node scripts/check_account_ids.mjs` from the repo root. Expected: PASS, clean, clean and clean.
-- [ ] **Step 5:** Commit `feat(analysis): add the sealed-run entry point (MS6 C412)`.
-- [ ] **Step 6:** Run `security-review`, since the entry point reads sealed paths and builds a Meta client from the key, then `superpowers:requesting-code-review`. Fix anything confirmed, and re-run Step 4.
+- [x] **Step 2:** Run `uv run pytest -q tests/test_run_sealed.py`. Expected: FAIL. Evidence: RED at collection, as the tool didn't exist (task-19 report).
+- [x] **Step 3:** Implement `run_sealed.py`, and `parse_set_d` and `set_d_estimates` in `lusot_analysis.export`. It reuses the runner's conventions and Tasks 12 and 15's path-free functions, never the development tools' readers. It never imports `eval/` code (C321). Evidence: `ea45ede`, then the fix rounds `7736efd`, `871f6d3`, `ee5c569` and Task 19b's `e1b1e65` (`service_retries`, a null `sam_water_found` on twice-failed items, the rules version checked before paying).
+- [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`, then `node scripts/check_account_ids.mjs` from the repo root. Expected: PASS, clean, clean and clean. Evidence: on `e1b1e65`, 1008 passed and 1 skipped; ruff, format and both scans clean.
+- [x] **Step 5:** Commit `feat(analysis): add the sealed-run entry point (MS6 C412)`. Evidence: `ea45ede`.
+- [x] **Step 6:** Run `security-review`, since the entry point reads sealed paths and builds a Meta client from the key, then `superpowers:requesting-code-review`. Fix anything confirmed, and re-run Step 4. Evidence (R162: one review per task, so one Opus 5.5 `xhigh` review covered code and security): `task-19-review.md` found 2 Important and 7 Minor issues, and nothing at confidence 7 or above. All of them were fixed, apart from the `rules_version` half, which landed in `e1b1e65`. The combined review of the fixes and Task 20 marked every finding addressed. Ubuntu CI passed on `871f6d3`.
 - [ ] **Step 7:** Tick D11 in the spec's §6 with its evidence. Then use `superpowers:finishing-a-development-branch` to merge into `main`, and push to the private repo (D16).
 - [ ] **Step 8:** Tell the tracker that the entry point is built and tested on synthetic data only, for Window 4's freeze checklist (MS6's §4.5 step 4). Never run it on the real `sealed` folder.
+
+### Task 20: M5's floors and M11's tire codes (added Oct 30)
+
+*Rene approved both under his delegation through the tracker at 8:06 AM. It's the measuring path, so it lands before freeze-1. Its brief is in Window 3's SDD folder.*
+
+- [x] **M5:** each answered wheel of a geometry-only type holds its sedan Table 8 row as a floor that never decides. Evidence: `c42c6e7`, with tests for van, unknown and pickup, and sedans unchanged.
+- [x] **M11 (`tire-codes-v2`):** the four Hilux codes and the Tamaraw AT's. Evidence: `eaae0f4` added six codes. Then `d9914dd` took the jeepney code out (R170, after the combined review's Important: one Fuso code can't stand for every jeepney), leaving 17 codes for `unknown`. Spec §4 is amended.
+- [x] **Checks:** pytest 1002 passed and 1 skipped on `d9914dd`. The combined review (Opus 5.5 `xhigh`) found M5 ready and the codes checked.
+
