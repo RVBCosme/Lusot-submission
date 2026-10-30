@@ -111,6 +111,23 @@ it("the class line names the level's own class, and the two added levels name th
   expect(classLine(en, 'waist').text).toBe('MMDA lists this level as not passable to any vehicle (NPATV).')
 })
 
+// A class line is what MMDA lists, never a verdict on the spot. A draft that drops the source would read as one, and
+// `result.*` keys aren't held back on a Taglish screen the way `reason.*` keys are, so it would show unreviewed.
+it('every class line, in both tables, keeps MMDA as the source of the class', () => {
+  const classKeys = (table: Record<string, unknown>) => Object.keys(table).filter((key) => key.startsWith('result.class.'))
+  for (const [table, source] of [
+    [EN, 'MMDA lists'],
+    [FIL, 'ng MMDA'],
+  ] as const) {
+    const keys = classKeys(table)
+    expect(keys).toHaveLength(5)
+    for (const key of keys) {
+      const { text } = (table as Record<string, { text: string }>)[key]
+      expect(text, key).toContain(source)
+    }
+  }
+})
+
 it('no class line speaks of a road or of what a person may do', () => {
   for (const [, t] of BOTH) {
     for (const level of LEVELS) {
@@ -263,7 +280,8 @@ it('the three outcomes keep their own lines: no flood, processing failed, and ca
 })
 
 it("C81's English lines and D19's start reviewed; every other new line and every Taglish draft doesn't", () => {
-  // The pattern and the four level names C81 spells out, and its five class lines.
+  // The pattern, the four level names and the three class lines C81 spells out. Its PATV and NPATV lines come
+  // from plan §9, Table 10, not from C81, so they wait for Rene's review like the other names.
   const c81 = new Set([
     'result.level.exact',
     'result.level.floor',
@@ -272,9 +290,7 @@ it("C81's English lines and D19's start reviewed; every other new line and every
     'result.levelName.knee',
     'result.levelName.tire',
     'result.levelName.above_chest',
-    'result.class.patv',
     'result.class.nplv',
-    'result.class.npatv',
     'result.class.belowGutter',
     'result.class.aboveChest',
   ])

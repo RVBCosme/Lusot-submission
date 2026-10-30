@@ -50,10 +50,11 @@ export const EN = {
   // The two levels that aren't MMDA's drop "(MMDA level)" (CLAUDE.md, C81).
   'result.level.off': { text: '{level} deep at this spot.', reviewed: true },
   'result.level.offFloor': { text: 'At least {level} deep at this spot.', reviewed: false },
-  // The class line is what MMDA lists, never a verdict on the spot (plan §9, C81).
-  'result.class.patv': { text: 'MMDA lists this level as passable to all vehicles (PATV).', reviewed: true },
+  // The class line is what MMDA lists, never a verdict on the spot (plan §9, C81). C81 spells out the NPLV line
+  // and the two added levels' lines; the PATV and NPATV lines follow plan §9, Table 10, so they wait for review.
+  'result.class.patv': { text: 'MMDA lists this level as passable to all vehicles (PATV).', reviewed: false },
   'result.class.nplv': { text: 'MMDA lists this level as not passable to light vehicles (NPLV).', reviewed: true },
-  'result.class.npatv': { text: 'MMDA lists this level as not passable to any vehicle (NPATV).', reviewed: true },
+  'result.class.npatv': { text: 'MMDA lists this level as not passable to any vehicle (NPATV).', reviewed: false },
   'result.class.belowGutter': {
     text: "Shallower than MMDA's gutter level, which MMDA lists as passable to all vehicles (PATV).",
     reviewed: true,

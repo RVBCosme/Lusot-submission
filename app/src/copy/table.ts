@@ -1,7 +1,10 @@
 // The copy-review table (C609, M20): every line of both string tables, ordered by the screen that shows it, as one
 // Markdown table for Rene. `npm run copy:table -w app` prints it.
+import { makeT } from '../i18n'
 import { EN, type Entry } from '../i18n/en'
 import { FIL } from '../i18n/fil'
+import { LEVELS } from './levels'
+import { levelLine } from './wording'
 
 // Where a screen-line key sits when its name holds no screen of its own: 'reason.too_dark' is shown on the
 // result, 'retake.tip' on the report flow.
@@ -30,13 +33,17 @@ const SCREEN_ORDER = [
   'licences',
 ]
 
-// A key names its screen as its first part, or, after a screen-line prefix, as the part that follows it when
-// the key has a third part ('refusal.sample.cantTell' is on 'sample'; 'refusal.d19' on the result).
+// A key names its screen as its first part. After refusal., reason. or retake., a third part that is a listed
+// screen names it instead ('refusal.sample.cantTell' is on 'sample'); any other key of those prefixes sits on
+// the screen that shows it ('refusal.d19' on the result). consent. and privacy. are screens themselves, so a
+// longer key ('consent.adult.label') stays on its own.
 export function screenOf(key: string): string {
   const parts = key.split('.')
   const first = parts[0]
   if (!Object.hasOwn(SCREEN_OF_PREFIX, first)) return first
-  return parts.length >= 3 ? parts[1] : SCREEN_OF_PREFIX[first]
+  const home = SCREEN_OF_PREFIX[first]
+  if (home === first) return home
+  return parts.length >= 3 && SCREEN_ORDER.includes(parts[1]) ? parts[1] : home
 }
 
 const cell = (text: string) => text.replaceAll('|', '\\|').replace(/\s*\r?\n\s*/g, ' ')
@@ -59,4 +66,19 @@ export function copyTable(english: Record<string, Entry> = EN, taglish: Record<s
     return `| \`${key}\` | ${cell(en.text)} | ${cell(fil.text)} | en ${mark(en.reviewed)}, fil ${mark(fil.reviewed)} |`
   })
   return ['| Key | English | Taglish | Reviewed |', '| --- | --- | --- | --- |', ...rows].join('\n')
+}
+
+// The level lines as people read them: each of the 9 levels in its template, in both languages, and the one floor
+// the rules reach (every floor is at tire). The table above lists the templates and the names apart, so this is
+// where Rene reads the whole line and sees how its capital letter falls.
+export function levelLineTable(): string {
+  const en = makeT('en')
+  const fil = makeT('fil')
+  const rows = [
+    ...LEVELS.map((level) => ({ label: `\`${level}\``, level, isFloor: false })),
+    { label: '`tire`, at least', level: 'tire' as const, isFloor: true },
+  ].map(({ label, level, isFloor }) => {
+    return `| ${label} | ${cell(levelLine(en, level, isFloor).text)} | ${cell(levelLine(fil, level, isFloor).text)} |`
+  })
+  return ['| Level | English | Taglish |', '| --- | --- | --- |', ...rows].join('\n')
 }
