@@ -426,6 +426,102 @@ export const EN = {
   },
   'flag.confirm': { text: 'Flag it', reviewed: false },
   'flag.cancel': { text: 'Cancel', reviewed: false },
+  // The Tested page (MS5 Task 15, C616): how Lusot is tested, its figures once the sealed run is done, its known limits
+  // and the samples. Its figures are "agreement with the labels MMDA and the cities posted", each "indicative" and with
+  // its n; the page never says "accuracy". The known limits match the privacy policy's words on the face blur.
+  'tested.how.title': { text: 'How Lusot is tested', reviewed: false },
+  'tested.how.labels': {
+    text: "Lusot's readings are compared with the flood levels that MMDA and the cities posted with their own photos.",
+    reviewed: false,
+  },
+  'tested.how.sealed': {
+    text: 'Part of those photos was set aside and sealed before any tuning. Lusot runs on them once, with its settings frozen, and every figure here comes from that run.',
+    reviewed: false,
+  },
+  'tested.how.rules': { text: 'The scoring rules were fixed and approved before any result was seen.', reviewed: false },
+  'tested.how.cars': {
+    text: 'The wheel-rim measurement is also tested on photos of parked cars, with water drawn in at known depths.',
+    reviewed: false,
+  },
+  'tested.results.title': { text: 'Results', reviewed: false },
+  'tested.pending': { text: 'The results appear here after the sealed run on Nov 3.', reviewed: false },
+  'tested.results.from': { text: 'From the sealed run on {date}.', reviewed: false },
+  'tested.results.rerunFrom': {
+    text: 'From the rerun on {date}, the one rerun the scoring rules allow.',
+    reviewed: false,
+  },
+  'tested.results.intro': {
+    text: 'Each figure is agreement with the labels MMDA and the cities posted, and shows how many photos it counts. With this few photos, every figure is indicative.',
+    reviewed: false,
+  },
+  'tested.shipped.landmark': {
+    text: 'These figures are for Lusot as it ships: reading the depth from wheels and people.',
+    reviewed: false,
+  },
+  'tested.shipped.geometry': {
+    text: 'These figures are for Lusot as it ships: reading the depth from wheels and people, and measuring the wheel rim.',
+    reviewed: false,
+  },
+  'tested.figure.underestimation': { text: 'Read shallower than the label (lower is better)', reviewed: false },
+  'tested.figure.passability': { text: 'Same passability class as the label', reviewed: false },
+  'tested.figure.coverage': { text: 'Photos answered, not refused', reviewed: false },
+  'tested.figure.exact': { text: 'Same level as the label', reviewed: false },
+  'tested.figure.withinOne': { text: 'Within one level of the label', reviewed: false },
+  // A rate: "12 of 20 (60%)", and "0 of 0" with no share.
+  'tested.rate': { text: '{k} of {n} ({percent}%)', reviewed: false },
+  'tested.rateNoShare': { text: '{k} of {n}', reviewed: false },
+  'tested.indicative': { text: 'indicative', reviewed: false },
+  'tested.inches.shown': {
+    text: 'Inches are shown: the wheel-rim measurement passed its release check.',
+    reviewed: false,
+  },
+  'tested.inches.notShown': {
+    text: "Inches aren't shown: the wheel-rim measurement didn't pass its release check.",
+    reviewed: false,
+  },
+  'tested.setB.title': { text: 'Wheel-rim measurement on parked cars', reviewed: false },
+  'tested.setB.median': { text: 'Median error', reviewed: false },
+  'tested.setB.medianValue': { text: '{inches} in, over {n} wheels', reviewed: false },
+  'tested.setB.measured': { text: 'Wheels measured', reviewed: false },
+  'tested.reportLink': { text: 'Read the full test report', reviewed: false },
+  'tested.limits.title': { text: 'Known limits', reviewed: false },
+  'tested.limits.night': {
+    text: 'At night, a photo that is too dark is refused, and a dim one is harder to read.',
+    reviewed: false,
+  },
+  'tested.limits.rain': { text: 'Rain on the lens, or heavy rain, can hide where the water reaches.', reviewed: false },
+  'tested.limits.blur': { text: 'A photo that is too blurry is refused.', reviewed: false },
+  'tested.limits.faceBlur': {
+    text: 'The automatic face blur can miss some faces: very small, side-on, partly covered or in the dark. A face it misses reaches Meta unblurred.',
+    reviewed: false,
+  },
+  'tested.samples.title': { text: 'Samples', reviewed: false },
+  'tested.samples.intro': {
+    text: "Credited flood photos you can run through Lusot now, for a fresh reading. A sample's result never goes on the map.",
+    reviewed: false,
+  },
+  'tested.samples.loading': { text: 'Loading samples.', reviewed: false },
+  // Only when the list is short (fewer than 3) or empty, and in place of any error (amendment 11).
+  'tested.samples.more': { text: 'More samples coming.', reviewed: false },
+  'tested.samples.noApi': { text: "This build can't run samples.", reviewed: false },
+  // A sample's run (C617). Each run spends Meta credits, so a run that may have started is never offered again on the
+  // spot, and a limit names no time, since the API's reset may differ.
+  'sample.run': { text: 'Run this sample', reviewed: false },
+  'sample.reading': { text: 'Lusot is reading this sample.', reviewed: false },
+  'sample.unanswered': {
+    text: "Lusot didn't get a usable answer. The run may have started and may still finish, but this page can't show its result.",
+    reviewed: false,
+  },
+  'sample.gone': { text: 'This sample is no longer available.', reviewed: false },
+  'sample.failed': { text: "Lusot couldn't run this sample just now.", reviewed: false },
+  'sample.limit.device_limit': {
+    text: 'This phone has run as many samples as Lusot allows in an hour. Try again later.',
+    reviewed: false,
+  },
+  'sample.limit.global_cap': {
+    text: 'Lusot has run as many samples as it can for now. Try again later.',
+    reviewed: false,
+  },
 } satisfies Record<string, Entry>
 
 export type StringKey = keyof typeof EN

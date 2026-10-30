@@ -27,7 +27,7 @@ function Screen({ route, apiUrl }: { route: Route; apiUrl: string }) {
         </NoticeGate>
       )
     case 'tested':
-      return <TestedScreen />
+      return <TestedScreen apiUrl={apiUrl} />
     case 'about':
       return <AboutScreen />
     case 'privacy':
