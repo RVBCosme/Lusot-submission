@@ -10,7 +10,7 @@ import { distanceM, type Fix, type LatLng } from '../../lib/geo'
 import { writeItem } from '../../lib/storage'
 import { offsetM, offsetOf } from '../../test/geo'
 import placeMapSource from '../../components/PlaceMap.tsx?raw'
-import { PlaceStep } from './PlaceStep'
+import { PlaceStep, type Place } from './PlaceStep'
 import placeStepSource from './PlaceStep.tsx?raw'
 
 const SCREEN_LINE = 'Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.'
@@ -107,6 +107,81 @@ describe('the place step', () => {
     )
     expect(circles.at(-1)?.getRadius()).toBe(12)
     expect(container.querySelectorAll('path.place-accuracy')).toHaveLength(1)
+  })
+
+  // The same step, given another fix without a new key: the way a retry could hand it one (I-1).
+  const withFix = (fix: Fix, onSend: (place: Place) => void) => (
+    <LanguageProvider>
+      <PlaceStep fix={fix} onSend={onSend} onRetryFix={vi.fn()} />
+    </LanguageProvider>
+  )
+
+  it('given a new fix 300 m away and no remount, sends a point within 100 m of the new fix, with a true nudgeM', () => {
+    const { onSend, rerender } = renderStep()
+    place(offsetM(FIX, 0, 50))
+    const next: Fix = { ...offsetM(FIX, 300, 0), accuracyM: 20 }
+    rerender(withFix(next, onSend))
+    fireEvent.click(sendButton())
+
+    const got = sent(onSend)
+    expect(distanceM(next, got)).toBeLessThanOrEqual(100)
+    expect(got.nudgeM).toBe(Math.min(100, Math.round(distanceM(next, got))))
+    // The old pin belonged to the old fix: it starts again on the new one, unmoved.
+    expect(got).toEqual({ lat: next.lat, lng: next.lng, nudgeM: 0 })
+  })
+
+  it('given a new fix, puts the map, the circle and the pin on it, says nothing of a move, and counts from it', () => {
+    const { onSend, rerender, container } = renderStep()
+    place(offsetM(FIX, 0, 50))
+    expect(screen.getByRole('status').textContent).not.toBe('')
+
+    const next: Fix = { ...offsetM(FIX, 300, 0), accuracyM: 20 }
+    rerender(withFix(next, onSend))
+    expect(distanceM(maps[0]?.getCenter() as LatLng, next)).toBeLessThan(0.5)
+    expect(distanceM(pinAt(), next)).toBeLessThan(0.5)
+    expect(circles.at(-1)?.getRadius()).toBe(20)
+    expect(distanceM(circles.at(-1)?.getLatLng() as LatLng, next)).toBeLessThan(0.5)
+    expect(container.querySelectorAll('path.place-accuracy')).toHaveLength(1)
+    expect(container.querySelectorAll('.leaflet-marker-icon')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toBe('')
+    expect(screen.queryByRole('button', { name: text('place.reset') })).toBeNull()
+
+    // A move after that is held to 100 m of the new fix and counted from it.
+    place(offsetM(next, 0, 30))
+    fireEvent.click(sendButton())
+    expect(sent(onSend).nudgeM).toBe(30)
+    place(offsetM(next, 0, 300))
+    fireEvent.click(sendButton())
+    expect(sent(onSend, 1).nudgeM).toBe(100)
+    expect(Math.abs(distanceM(next, sent(onSend, 1)) - 100)).toBeLessThan(0.5)
+  })
+
+  it('keeps its pin when the same fix comes again with only another accuracy', () => {
+    const { onSend, rerender } = renderStep()
+    const target = offsetM(FIX, 24, 32)
+    place(target)
+    rerender(withFix({ ...FIX, accuracyM: 12 }, onSend))
+    fireEvent.click(sendButton())
+
+    expect(sent(onSend)).toEqual({ lat: target.lat, lng: target.lng, nudgeM: 40 })
+  })
+
+  it('puts the status line right above Send in the page, with the legend out of that block, and fixes nothing over the map', () => {
+    const { container } = renderStep()
+    const status = screen.getByRole('status')
+    const block = status.parentElement as HTMLElement
+
+    expect(block.contains(sendButton())).toBe(true)
+    expect(block.contains(screen.getByText(text('place.legend')))).toBe(false)
+    // The status comes before Send, so it reads above it, and stays in that block as it fills.
+    expect(status.compareDocumentPosition(sendButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    place(offsetM(FIX, 0, 40))
+    expect(block.contains(status)).toBe(true)
+    expect(status.textContent).toBe(EN['place.moved'].text.replace('{metres}', '40'))
+
+    // A bar fixed to the bottom of the scrolling area hid the map's edge, its credit and the pin at 360 x 640 (S5-R14).
+    expect(container.querySelector('.sticky, .fixed')).toBeNull()
+    expect(placeStepSource.replace(/\/\/.*$|\{\/\*[\s\S]*?\*\/\}/gm, '')).not.toMatch(/\bsticky\b|\bfixed\b/)
   })
 
   it('sends the fix itself with nudgeM 0 when the pin has not moved', () => {
@@ -266,7 +341,7 @@ describe('the place step', () => {
     expect(sessionStorage.length).toBe(0)
   })
 
-  it('credits OpenStreetMap on the map, linked, above the layout\'s one screen line', () => {
+  it('has the OpenStreetMap credit as a link inside the screen, and the one screen line outside it', () => {
     render(
       <LanguageProvider>
         <Layout route={{ name: 'report' }} apiReady>

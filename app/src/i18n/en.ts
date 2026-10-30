@@ -77,18 +77,16 @@ export const EN = {
   'place.legend': { text: 'The circle shows how closely your phone placed you.', reviewed: false },
   'place.map': { text: 'Map with the pin', reviewed: false },
   'place.pin': { text: 'Pin. Use the arrow keys to move it 10 m at a time.', reviewed: false },
-  'place.moved': { text: 'You moved the pin {metres} m from where your phone placed you.', reviewed: false },
-  'place.atLimit': {
-    text: "The pin can't go further than 100 m from where your phone placed you.",
-    reviewed: false,
-  },
+  // The two status lines stay short enough for one line at 360 px, so the feedback shows above Send without scrolling.
+  'place.moved': { text: 'You moved the pin {metres} m.', reviewed: false },
+  'place.atLimit': { text: "The pin can't go further than 100 m.", reviewed: false },
   'place.reset': { text: 'Put the pin back', reviewed: false },
   'place.send': { text: 'Send', reviewed: false },
   // The location's own problem lines (locationLine in lib/geo.ts picks one). The flow shows them with
   // 'location.retry' and keeps the photo for a new try. Not screen-line keys, so their Taglish drafts show.
   'location.retry': { text: 'Try the location again', reviewed: false },
   'location.poor': {
-    text: "Lusot couldn't get a good enough fix on your spot. Move to where you have a clear view of the sky, then try the location again. On Android 12 or later, also allow precise location, not only approximate, in the settings for this page or app.",
+    text: "Lusot couldn't get a good enough fix on your spot. A clear view of the sky helps the phone find you. Try the location again. On Android 12 or later, also allow precise location, not only approximate, in the settings for this page or app.",
     reviewed: false,
   },
   'location.denied': {

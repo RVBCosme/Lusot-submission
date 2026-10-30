@@ -106,8 +106,12 @@ function errorCode(err: unknown): string {
 
 const isTimeout = (code: string) => code === 'TIMEOUT' || code === PLUGIN_TIMEOUT
 
-// The plugin's own wording of "no permission": Android resolves the request with 'denied' rather than throwing.
-const PERMISSION_DENIED = 'OS-PLUG-GLOC-0003'
+// The plugin's own code for "permission refused", apart from the browser's 'PERMISSION_DENIED' above. Android
+// resolves the permission request with 'denied' rather than throwing, so waitForFix raises this code itself.
+const NATIVE_DENIED = 'OS-PLUG-GLOC-0003'
+
+// A refusal, in either of its two spellings. Once a position has come, it is the only error that ends the wait early.
+const isRefusal = (code: string) => code === 'PERMISSION_DENIED' || code === NATIVE_DENIED
 
 // Rejects with the signal's reason when it aborts, whatever `promise` does after.
 function orAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
@@ -130,7 +134,7 @@ async function askNativePermission(signal: AbortSignal | undefined): Promise<voi
     if (signal?.aborted) throw signal.reason
     throw new LocationDenied(errorCode(err))
   }
-  if (status.location === 'denied' && status.coarseLocation === 'denied') throw new LocationDenied(PERMISSION_DENIED)
+  if (status.location === 'denied' && status.coarseLocation === 'denied') throw new LocationDenied(NATIVE_DENIED)
 }
 
 export type WaitForFixOptions = {
@@ -145,8 +149,8 @@ export type WaitForFixOptions = {
 // permission. The window of `maxWaitMs` (20,000 ms) counts from the first position update, never from the prompt or
 // from the start, so a slow prompt or a slow first fix never uses it up; the watch's own timeout, the same length,
 // ends a wait for a first position. It rejects with PoorFix when the window passes with no good fix, or when the watch
-// times out before any position, and with LocationDenied for any other error. The watch is cleared however it ends,
-// including on an abort.
+// times out before any position; with LocationDenied for any other error before a position; and, after one, only for
+// a refused permission (the window decides the rest). The watch is cleared however it ends, including on an abort.
 export async function waitForFix({
   maxWaitMs = FIX_WINDOW_MS,
   goodM = GOOD_FIX_M,
@@ -193,12 +197,15 @@ export async function waitForFix({
       if (finished) return
       if (position === null || position === undefined) {
         const code = errorCode(err)
-        // A timeout after a position is no reason to stop: the window decides.
-        if (isTimeout(code)) {
-          if (!seen) finish(() => reject(new PoorFix()))
+        // Before any position, a timeout is a PoorFix and any other error ends the wait. After one, the window is
+        // already bounded at 20 s: a timeout or a passing error (Chrome and Android raise POSITION_UNAVAILABLE and
+        // OS-PLUG-GLOC-0002 now and then mid-watch) must not throw away a good fix that may still come, so only a
+        // refused permission ends the wait early, and the window decides the rest.
+        if (seen) {
+          if (isRefusal(code)) finish(() => reject(new LocationDenied(code)))
           return
         }
-        finish(() => reject(new LocationDenied(code)))
+        finish(() => reject(isTimeout(code) ? new PoorFix() : new LocationDenied(code)))
         return
       }
       const { latitude: lat, longitude: lng, accuracy: accuracyM } = position.coords
@@ -231,7 +238,7 @@ export async function waitForFix({
 // error table: 0003 permission refused, 0007 location services off, 0009 the request to turn them on refused, 0010
 // timed out (which waitForFix reports as PoorFix, so it shares that line), 0017 location and network both off.
 const LINE_BY_CODE = new Map<string, StringKey>([
-  [PERMISSION_DENIED, 'location.denied'],
+  [NATIVE_DENIED, 'location.denied'],
   ['PERMISSION_DENIED', 'location.denied'],
   ['OS-PLUG-GLOC-0007', 'location.servicesOff'],
   ['OS-PLUG-GLOC-0009', 'location.enableDenied'],

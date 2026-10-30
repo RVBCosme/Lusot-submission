@@ -61,6 +61,28 @@ describe("the step's own limit", () => {
     expect(onSend.mock.calls[1]?.[0]).toEqual({ lat: near.lat, lng: near.lng, nudgeM: 40 })
   })
 
+  it('holds a late report for the old fix to 100 m of the new fix, so nothing past 100 m of the fix in hand is sent (I-1)', () => {
+    const onSend = vi.fn<(place: LatLng & { nudgeM: number }) => void>()
+    const { rerender } = render(
+      <LanguageProvider>
+        <PlaceStep fix={FIX} onSend={onSend} onRetryFix={vi.fn()} />
+      </LanguageProvider>,
+    )
+    const next: Fix = { ...offsetM(FIX, 300, 0), accuracyM: 25 }
+    rerender(
+      <LanguageProvider>
+        <PlaceStep fix={next} onSend={onSend} onRetryFix={vi.fn()} />
+      </LanguageProvider>,
+    )
+    // A point 40 m from the old fix, which is about 260 m from the new one.
+    act(() => fakeMap.place(offsetM(FIX, 40, 0)))
+    send()
+
+    const got = onSend.mock.calls[0]?.[0] as LatLng & { nudgeM: number }
+    expect(Math.abs(distanceM(next, got) - 100)).toBeLessThan(0.5)
+    expect(got.nudgeM).toBe(100)
+  })
+
   it('"Put the pin back" returns to the fix, whatever the map reported before', () => {
     const onSend = renderStep()
     act(() => fakeMap.place(offsetM(FIX, 300, 0)))

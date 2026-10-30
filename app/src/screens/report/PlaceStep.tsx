@@ -16,8 +16,10 @@ const LINK = 'inline-flex min-h-tap items-center text-action underline underline
 // "Send" gives the flow the position and `nudgeM`, 0 if the pin never moved. A position is private: it is never
 // written out as numbers, logged or kept, and what the person sees of a move is its distance.
 //
-// `fix` is the fix this step was opened with: a new fix needs a new step (the flow keys it). The step sends what it
-// is given once per press, so the flow guards against a double tap (Review Focus 1).
+// The 100 m holds against the fix in hand, at the point of use: the position shown, counted and sent is always the
+// pin read against the current `fix`, clamped to 100 m of it. A pin belongs to the fix it was put against, so a step
+// given another fix without a new key starts on that fix, unmoved, and the map follows. The step sends what it is
+// given once per press, so the flow guards against a double tap (Review Focus 1).
 export function PlaceStep({
   fix,
   onSend,
@@ -28,8 +30,12 @@ export function PlaceStep({
   onRetryFix(): void
 }) {
   const headingId = useId()
-  const [placed, setPlaced] = useState<LatLng>({ lat: fix.lat, lng: fix.lng })
-  const moved = nudgeM(fix, placed)
+  // Where the pin was last put (as the map reported it) and the fix it was put against.
+  const [pin, setPin] = useState<{ from: LatLng; to: LatLng }>()
+  const here: LatLng = { lat: fix.lat, lng: fix.lng }
+  const placed =
+    pin !== undefined && pin.from.lat === here.lat && pin.from.lng === here.lng ? clampToRadius(here, pin.to) : here
+  const moved = nudgeM(here, placed)
 
   return (
     <section aria-labelledby={headingId} className="flex min-h-full flex-col">
@@ -40,20 +46,21 @@ export function PlaceStep({
         <T k="place.hint" />
       </p>
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        {/* The map holds the pin to 100 m itself; this holds it again, so nothing past 100 m can be sent. */}
-        <PlaceMap fix={fix} placed={placed} onPlace={(next) => setPlaced(clampToRadius(fix, next))} />
+        <PlaceMap fix={fix} placed={placed} onPlace={(next) => setPin({ from: here, to: next })} />
         <p className="mt-2 text-small text-ink-2">
           <T k="place.legend" />
         </p>
       </div>
-      {/* Always in the page, so a screen reader that has it will say what changes in it. */}
-      <p role="status" className="mt-1 min-h-6 text-small">
-        {moved > 0 &&
-          (moved >= MAX_NUDGE_M ? <T k="place.atLimit" /> : <T k="place.moved" vars={{ metres: moved }} />)}
-      </p>
-      {/* "Send" stays at the bottom of the scrolling area, above the screen line, on a short phone where the step
-          is taller than the screen. The map's own stacking is closed (isolate), so this bar is painted over it. */}
-      <div className="sticky bottom-0 z-10 bg-surface pt-2">
+      {/* The status of the pin's move sits right above "Send", in the flow of the page. Nothing is fixed to the bottom of
+          the scrolling area: a bar that stayed there, with or without the status in it, hid the map's lower edge, its
+          credit and the pin on a 640 px screen (measured at 360 x 640, in both languages, S5-R14), so on a short phone
+          the step scrolls instead and nothing is ever covered. */}
+      <div className="mt-2">
+        {/* Always in the page, so a screen reader that has it will say what changes in it; no height while empty. */}
+        <p role="status" className="pb-2 text-small empty:p-0">
+          {moved > 0 &&
+            (moved >= MAX_NUDGE_M ? <T k="place.atLimit" /> : <T k="place.moved" vars={{ metres: moved }} />)}
+        </p>
         <button
           type="button"
           onClick={() => onSend({ lat: placed.lat, lng: placed.lng, nudgeM: moved })}
@@ -64,11 +71,7 @@ export function PlaceStep({
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
         {moved > 0 && (
-          <button
-            type="button"
-            onClick={() => setPlaced({ lat: fix.lat, lng: fix.lng })}
-            className={`${LINK} cursor-pointer`}
-          >
+          <button type="button" onClick={() => setPin(undefined)} className={`${LINK} cursor-pointer`}>
             <T k="place.reset" />
           </button>
         )}

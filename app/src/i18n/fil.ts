@@ -74,16 +74,13 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'place.map': { text: 'Mapa na may pin', reviewed: false },
   'place.pin': { text: 'Pin. Gamitin ang mga arrow key para igalaw ito nang 10 m bawat pindot.', reviewed: false },
-  'place.moved': { text: 'Inilipat mo ang pin nang {metres} m mula sa kung saan ka inilagay ng phone mo.', reviewed: false },
-  'place.atLimit': {
-    text: 'Hindi puwedeng lumayo ang pin nang higit sa 100 m mula sa kung saan ka inilagay ng phone mo.',
-    reviewed: false,
-  },
+  'place.moved': { text: 'Inilipat mo ang pin nang {metres} m.', reviewed: false },
+  'place.atLimit': { text: 'Hanggang 100 m lang ang layo ng pin.', reviewed: false },
   'place.reset': { text: 'Ibalik ang pin', reviewed: false },
   'place.send': { text: 'Ipadala', reviewed: false },
   'location.retry': { text: 'Subukan ulit ang location', reviewed: false },
   'location.poor': {
-    text: 'Hindi nakakuha ang Lusot ng sapat na tumpak na location mo. Pumunta sa lugar na kita ang langit, saka subukan ulit ang location. Sa Android 12 o mas bago, payagan din ang precise location, hindi lang approximate, sa settings ng page o app na ito.',
+    text: 'Hindi nakakuha ang Lusot ng sapat na tumpak na location mo. Mas madaling mahanap ng phone ang lokasyon mo kapag kita ang langit. Subukan ulit ang location. Sa Android 12 o mas bago, payagan din ang precise location, hindi lang approximate, sa settings ng page o app na ito.',
     reviewed: false,
   },
   'location.denied': {

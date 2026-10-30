@@ -67,7 +67,7 @@ describe('what the map reports', () => {
     expect(Math.abs(distanceM(FIX, reported(onPlace)) - 100)).toBeLessThan(0.5)
   })
 
-  it('reports nothing for a key that is not an arrow, or for a click it never got', () => {
+  it('reports nothing for a key that is not an arrow', () => {
     const onPlace = renderMap()
     fireEvent.keyDown(marker.getElement() as HTMLElement, { key: 'Enter' })
     expect(onPlace).not.toHaveBeenCalled()

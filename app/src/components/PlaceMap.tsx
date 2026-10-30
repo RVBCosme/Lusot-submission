@@ -52,6 +52,12 @@ export function PlaceMap({
     latest.current = { fix, placed, onPlace }
   })
 
+  // The map holds still on the fix, because the pin can't leave its 100 m, and follows a new fix: useLeaflet reads
+  // its centre once, when the map is made. The first run only says again where the map already is.
+  useEffect(() => {
+    map?.setView({ lat: fix.lat, lng: fix.lng }, ZOOM, { animate: false })
+  }, [map, fix.lat, fix.lng])
+
   // The circle: the fix's accuracy, in metres. Its look is in index.css (.place-accuracy).
   useEffect(() => {
     if (map === undefined) return

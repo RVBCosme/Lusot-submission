@@ -307,25 +307,65 @@ describe('waitForFix on the web', () => {
     expect(fake.watch.clearWatch).toHaveBeenCalledOnce()
   })
 
-  it('any other error, before or after a position, rejects with LocationDenied and the native code as it came', async () => {
+  it('before any position, any other error rejects with LocationDenied and the code as it came', async () => {
+    const cases: [unknown, string][] = [
+      [{ code: 'OS-PLUG-GLOC-0007', message: 'Location services are not enabled' }, 'OS-PLUG-GLOC-0007'],
+      [{ code: 'OS-PLUG-GLOC-0002' }, 'OS-PLUG-GLOC-0002'],
+      [{ code: 2 }, 'POSITION_UNAVAILABLE'],
+      [new Error('Something else'), 'unknown'],
+    ]
+    for (const [err, code] of cases) {
+      const fake = fakeWatch()
+      const outcome = track(waitForFix({ watch: fake.watch }))
+      fake.fail(err)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(outcome.value).toEqual(new LocationDenied(code))
+      expect(fake.watch.clearWatch).toHaveBeenCalledOnce()
+    }
+  })
+
+  it("after a position, only a refused permission ends the wait early, the browser's code or the plugin's", async () => {
+    for (const code of [1, 'OS-PLUG-GLOC-0003']) {
+      const fake = fakeWatch()
+      const outcome = track(waitForFix({ watch: fake.watch }))
+      fake.fix(80)
+      fake.fail({ code })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(outcome.state).toBe('rejected')
+      expect(outcome.value).toBeInstanceOf(LocationDenied)
+      expect(fake.watch.clearWatch).toHaveBeenCalledOnce()
+    }
+  })
+
+  it('after a position, any other error is ignored and the 20 s window decides', async () => {
     const fake = fakeWatch()
     const outcome = track(waitForFix({ watch: fake.watch }))
     fake.fix(80)
-    fake.fail({ code: 'OS-PLUG-GLOC-0007', message: 'Location services are not enabled' })
+    await vi.advanceTimersByTimeAsync(5_000)
+    for (const code of [2, 'OS-PLUG-GLOC-0002', 'OS-PLUG-GLOC-0007', 'OS-PLUG-GLOC-0015', 'what-is-this']) {
+      fake.fail({ code })
+    }
+    fake.fail(new Error('no code at all'))
     await vi.advanceTimersByTimeAsync(0)
-    expect(outcome.value).toEqual(new LocationDenied('OS-PLUG-GLOC-0007'))
+    expect(outcome.state).toBe('pending')
+    expect(fake.watch.clearWatch).not.toHaveBeenCalled()
 
-    const other = fakeWatch()
-    const second = track(waitForFix({ watch: other.watch }))
-    other.fail({ code: 2 })
+    // A better fix after the errors still counts.
+    fake.fix(40)
     await vi.advanceTimersByTimeAsync(0)
-    expect((second.value as LocationDenied).code).toBe('POSITION_UNAVAILABLE')
+    expect(outcome.value).toMatchObject({ accuracyM: 40 })
+  })
 
-    const odd = fakeWatch()
-    const third = track(waitForFix({ watch: odd.watch }))
-    odd.fail(new Error('Something else'))
-    await vi.advanceTimersByTimeAsync(0)
-    expect((third.value as LocationDenied).code).toBe('unknown')
+  it('after a position and some errors, the window still ends with PoorFix of the best accuracy at 20,000 ms', async () => {
+    const fake = fakeWatch()
+    const outcome = track(waitForFix({ watch: fake.watch }))
+    fake.fix(90)
+    fake.fix(70)
+    fake.fail({ code: 2 })
+    await vi.advanceTimersByTimeAsync(19_999)
+    expect(outcome.state).toBe('pending')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(outcome.value).toEqual(new PoorFix(70))
   })
 
   it('a watch that cannot start rejects with LocationDenied, and starts nothing to clear', async () => {
@@ -441,7 +481,8 @@ describe('waitForFix on the web', () => {
     const fake = fakeWatch()
     const outcome = track(waitForFix({ watch: fake.watch }))
     fake.fix(80, { lat: 14.61, lng: 121.01 })
-    fake.fail({ code: 'OS-PLUG-GLOC-0007', message: 'Location services are not enabled' })
+    fake.fail({ code: 2, message: 'Position unavailable' })
+    fake.fail({ code: 1, message: 'User denied Geolocation' })
     await vi.advanceTimersByTimeAsync(0)
     expect(outcome.state).toBe('rejected')
     for (const spy of spies) expect(spy).not.toHaveBeenCalled()
@@ -622,6 +663,18 @@ describe('locationLine', () => {
     expect(EN['location.poor'].text).toMatch(/precise location/)
     expect(EN['location.poor'].text).toMatch(/Android 12/)
     expect(EN['location.poor'].text).toMatch(/open sky|clear view of the sky/)
+  })
+
+  it('the poor-fix line never tells the person to move, in either language, and keeps the precise-location part', () => {
+    expect(EN['location.poor'].text).toContain('A clear view of the sky helps the phone find you.')
+    for (const line of [EN['location.poor'].text, FIL['location.poor'].text]) {
+      expect(line).not.toMatch(
+        /\b(move|go to|go somewhere|walk|step|head|relocate|pumunta|lumipat|lumapit|lumabas|umalis|maglakad)\b/i,
+      )
+      expect(line).toMatch(/precise location/)
+      expect(line).toMatch(/Android 12/)
+    }
+    expect(FIL['location.poor'].text).toMatch(/langit/)
   })
 })
 
