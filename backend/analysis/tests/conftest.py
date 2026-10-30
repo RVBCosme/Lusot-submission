@@ -17,5 +17,13 @@ def _no_lusot_profile():
 
 
 @pytest.fixture(autouse=True)
-def no_real_spend_counter(monkeypatch):
+def no_real_spend_counter(monkeypatch, tmp_path):
     monkeypatch.setattr(laptop_spend, "operator_session", _no_lusot_profile)
+    # Any other route to AWS (spend.operator_session, a ddb=None call, a subprocess)
+    # finds no profile and only dummy keys, so it fails to sign in rather than reach
+    # the real counter. moto's mocks accept the dummy keys.
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "no-aws-config"))
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(tmp_path / "no-aws-creds"))
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+        monkeypatch.setenv(name, "testing")
