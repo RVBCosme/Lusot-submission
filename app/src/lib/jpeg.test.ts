@@ -19,16 +19,17 @@ it('scaledSize leaves a photo of 1600 px or less unscaled', () => {
 describe('encodeJpeg', () => {
   const source = document.createElement('canvas')
 
-  it('draws the photo at 1600 px on its longest side and returns the JPEG with the pixels it was made from', async () => {
+  it('draws the photo at 1600 px on its longest side and returns only the JPEG', async () => {
     const { context, canvases } = stubCanvas()
 
-    const { blob, pixels } = await encodeJpeg(source, 2000, 1500)
+    const encoded = await encodeJpeg(source, 2000, 1500)
 
-    expect(blob.type).toBe('image/jpeg')
+    expect(encoded.blob.type).toBe('image/jpeg')
+    expect(Object.keys(encoded)).toEqual(['blob'])
     expect(canvases[0]).toMatchObject({ width: 1600, height: 1200 })
     expect(context.drawImage).toHaveBeenCalledWith(source, 0, 0, 1600, 1200)
-    expect(context.getImageData).toHaveBeenCalledWith(0, 0, 1600, 1200)
-    expect(pixels).toMatchObject({ width: 1600, height: 1200 })
+    // A plain 2D context: nothing reads the pixels back, so the canvas needn't be CPU-backed (M1).
+    expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalledWith('2d')
   })
 
   it('downscales with high-quality smoothing, set before the photo is drawn', async () => {
@@ -45,10 +46,10 @@ describe('encodeJpeg', () => {
   })
 
   it('keeps a photo of 1600 px or less at its own size', async () => {
-    const { canvases } = stubCanvas()
-    const { pixels } = await encodeJpeg(source, 1280, 720)
+    const { canvases, context } = stubCanvas()
+    await encodeJpeg(source, 1280, 720)
     expect(canvases[0]).toMatchObject({ width: 1280, height: 720 })
-    expect(pixels).toMatchObject({ width: 1280, height: 720 })
+    expect(context.drawImage).toHaveBeenCalledWith(source, 0, 0, 1280, 720)
   })
 
   it('encodes once at quality 0.85 when the blob is 450 KB or less', async () => {

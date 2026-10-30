@@ -349,16 +349,16 @@ describe('the shutter', () => {
     return { ...step, ...canvas }
   }
 
-  it('calls onPhoto once with a JPEG, its pixels, and the shutter time', async () => {
+  it('calls onPhoto once with a JPEG and the shutter time, and keeps no pixel array', async () => {
     const { onPhoto } = await press()
 
     expect(onPhoto).toHaveBeenCalledOnce()
     const photo = onPhoto.mock.calls[0]?.[0]
     expect(photo.blob).toBeInstanceOf(Blob)
     expect(photo.blob.type).toBe('image/jpeg')
-    expect(photo.pixels).toMatchObject({ width: 1600, height: 900 })
     expect(photo.capturedAt).toBe('2026-10-30T09:15:30.000Z')
     expect(photo.smallStill).toBe(false)
+    expect(Object.keys(photo).sort()).toEqual(['blob', 'capturedAt', 'smallStill'])
   })
 
   it('stamps the time of the press, not the time the photo finished', async () => {
@@ -404,7 +404,6 @@ describe('the shutter', () => {
   it('a 1,280 x 720 still sets smallStill, and a 1,920 x 1,080 one does not', async () => {
     const small = await press({ width: 1280, height: 720 })
     expect(small.onPhoto.mock.calls[0]?.[0].smallStill).toBe(true)
-    expect(small.onPhoto.mock.calls[0]?.[0].pixels).toMatchObject({ width: 1280, height: 720 })
     cleanup()
     vi.restoreAllMocks()
     getUserMedia.mockReset()

@@ -35,19 +35,6 @@ it('getUserMedia finds no camera, until a test gives it a stream', async () => {
   await expect(navigator.mediaDevices.getUserMedia({ video: true })).resolves.toBe(stream)
 })
 
-it('ImageData holds RGBA bytes, as the browser one does', () => {
-  const blank = new ImageData(2, 1)
-  expect([blank.width, blank.height, blank.data.length, blank.data[0]]).toEqual([2, 1, 8, 0])
-
-  const data = new Uint8ClampedArray([1, 2, 3, 4, 5, 6, 7, 8])
-  const given = new ImageData(data, 1)
-  expect(given.data).toBe(data)
-  expect([given.width, given.height]).toEqual([1, 2])
-
-  expect(() => new ImageData(new Uint8ClampedArray(6), 1)).toThrow()
-  expect(() => new ImageData(data, 1, 3)).toThrow()
-})
-
 it('matchMedia matches nothing, until a test says it does', () => {
   expect(window.matchMedia('(prefers-reduced-motion: reduce)')).toMatchObject({
     matches: false,

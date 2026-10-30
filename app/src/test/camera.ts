@@ -50,7 +50,6 @@ export function stubCanvas({ blobBytes = [1000], hold = false }: { blobBytes?: (
   const canvases: HTMLCanvasElement[] = []
   const context = {
     drawImage: vi.fn(),
-    getImageData: vi.fn((_x: number, _y: number, width: number, height: number) => new ImageData(width, height)),
   }
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
     canvases.push(this)

@@ -25,7 +25,6 @@ import {
 const T0 = Date.parse('2026-10-30T09:15:30.000Z')
 const PHOTO: Photo = {
   blob: new Blob([new Uint8Array(10)], { type: 'image/jpeg' }),
-  pixels: new ImageData(2, 2),
   capturedAt: new Date(T0).toISOString(),
   smallStill: false,
 }

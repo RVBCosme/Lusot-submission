@@ -22,25 +22,20 @@ function encode(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   )
 }
 
-// Draws the photo at scaledSize and encodes it as a JPEG. The pixels returned are the ones the JPEG was made from,
-// the scaled image, for the phone's quality check (C604). The caller keeps the source, and closes it if it is a bitmap.
-export async function encodeJpeg(
-  source: CanvasImageSource,
-  width: number,
-  height: number,
-): Promise<{ blob: Blob; pixels: ImageData }> {
+// Draws the photo at scaledSize and encodes it as a JPEG. Nothing reads its pixels back, so the canvas is a plain one.
+// The caller keeps the source, and closes it if it is a bitmap.
+export async function encodeJpeg(source: CanvasImageSource, width: number, height: number): Promise<{ blob: Blob }> {
   const size = scaledSize(width, height)
   const canvas = document.createElement('canvas')
   canvas.width = size.width
   canvas.height = size.height
-  const context = canvas.getContext('2d', { willReadFrequently: true })
+  const context = canvas.getContext('2d')
   if (context === null) throw new Error('Canvas 2D is not available')
   // A 1,920 px still drawn at 1,600 px: the browser's best smoothing keeps edges (a wheel rim, a waterline) clean.
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
   context.drawImage(source, 0, 0, size.width, size.height)
-  const pixels = context.getImageData(0, 0, size.width, size.height)
   let blob = await encode(canvas, FIRST_QUALITY)
   if (blob.size > SECOND_PASS_OVER_BYTES) blob = await encode(canvas, SECOND_QUALITY)
-  return { blob, pixels }
+  return { blob }
 }

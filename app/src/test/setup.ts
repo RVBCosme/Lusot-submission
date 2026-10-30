@@ -20,31 +20,6 @@ Object.defineProperty(navigator, 'mediaDevices', {
   },
 })
 
-// The browser's ImageData: new ImageData(width, height), or new ImageData(data, width, height?) over RGBA bytes.
-class ImageDataStub {
-  readonly colorSpace = 'srgb'
-  readonly data: Uint8ClampedArray
-  readonly width: number
-  readonly height: number
-
-  constructor(dataOrWidth: Uint8ClampedArray | number, widthOrHeight: number, height?: number) {
-    if (typeof dataOrWidth === 'number') {
-      this.width = dataOrWidth
-      this.height = widthOrHeight
-      this.data = new Uint8ClampedArray(4 * dataOrWidth * widthOrHeight)
-      return
-    }
-    const rows = dataOrWidth.length / (4 * widthOrHeight)
-    if (!Number.isInteger(rows) || rows === 0 || (height !== undefined && height !== rows)) {
-      throw new DOMException('The data does not fit the width and height', 'IndexSizeError')
-    }
-    this.data = dataOrWidth
-    this.width = widthOrHeight
-    this.height = rows
-  }
-}
-globalThis.ImageData = ImageDataStub as unknown as typeof ImageData
-
 // Nothing matches (no dark scheme, no reduced motion) until a test says it does.
 window.matchMedia = (query: string): MediaQueryList => ({
   matches: false,
