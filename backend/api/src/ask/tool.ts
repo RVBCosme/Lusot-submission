@@ -139,7 +139,10 @@ export async function runGetReports(args: ToolArgs, ctx: ToolCtx): Promise<ToolR
   if (!ctx.inMetroManila(point.lat, point.lng)) return refuse("outside_metro_manila", { place });
   if (wideBox !== undefined) {
     const { south, north, west, east } = wideBox;
-    const inside = ctx.spots.filter((s) => s.lat >= south && s.lat <= north && s.lng >= west && s.lng <= east);
+    const inside = ctx.spots
+      .filter((s) => s.lat >= south && s.lat <= north && s.lng >= west && s.lng <= east)
+      // The nearest to the result's point first, so a city-sized box offers spots near its centre, not the list's first.
+      .sort((a, b) => distanceM(point, a) - distanceM(point, b));
     return refuse("place_too_broad", { place, suggestions: names(inside) });
   }
 
@@ -182,7 +185,7 @@ const names = (spots: Spot[]): string[] => spots.slice(0, MAX_SUGGESTIONS).map((
 export function toModelOutput(result: ToolResult): string {
   return JSON.stringify({
     status: result.status,
-    place: result.place?.name,
+    place: result.place?.name ?? null,
     window_minutes: result.windowMin,
     radius_m: RADIUS_M,
     count: result.count,

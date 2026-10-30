@@ -30,6 +30,9 @@ const ESPANA = spot({ id: "espana-maceda", name: "España Blvd cor. Maceda St", 
 // A point `metres` north of the spot.
 const northOf = (metres: number) => ESPANA.lat + metres / M_PER_DEG_LAT;
 
+// The capture time of a photo taken `minutes` before NOW_S.
+const ago = (minutes: number) => new Date((NOW_S - minutes * 60) * 1000).toISOString();
+
 let counter = 0;
 // A live knee pin at the spot, taken `minutesAgo` before NOW_S.
 function pin(fields: Partial<PublicPin> = {}, minutesAgo = 10): PublicPin {
@@ -38,7 +41,7 @@ function pin(fields: Partial<PublicPin> = {}, minutesAgo = 10): PublicPin {
     lat: ESPANA.lat,
     lng: ESPANA.lng,
     gpsAccuracyM: 12,
-    capturedAt: new Date((NOW_S - minutesAgo * 60) * 1000).toISOString(),
+    capturedAt: ago(minutesAgo),
     mode: "live",
     level: "knee",
     landmark: "rim_three_quarters",
@@ -230,7 +233,16 @@ describe("the place", () => {
       count: 1,
     });
     expect(g.geocode).not.toHaveBeenCalled();
+    expect(c.inMetroManila).toHaveBeenCalledWith(ESPANA.lat, ESPANA.lng);
     expect(c.nearbyPins).toHaveBeenCalledWith(ESPANA.lat, ESPANA.lng, 300);
+  });
+
+  it("a listed spot whose point is outside Metro Manila gives outside_metro_manila", async () => {
+    const c = ctx([pin()], { inMetroManila: vi.fn(() => false) });
+    const result = await runGetReports(args({ place: "espana cor maceda" }), c);
+    expect(result).toMatchObject({ status: "outside_metro_manila", place: { name: ESPANA.name, source: "spots" } });
+    expect(result.point).toBeUndefined();
+    expect(c.nearbyPins).not.toHaveBeenCalled();
   });
 
   it("an unknown place goes to the geocoder, with the deadline", async () => {
@@ -303,22 +315,24 @@ describe("the place", () => {
     const inBox = (id: string, lat: number, lng: number) => spot({ id, name: `${id} corner`, lat, lng });
     const box = { south: 14.6, north: 14.61, west: 120.98, east: 121.0 };
 
+    const street = found({ name: "Maginhawa Street", lat: 14.605, lng: 120.99, box, spanM: 1200 });
+
     it("a wide result is too broad, and offers the spots inside its box", async () => {
-      const street = found({ name: "Maginhawa Street", lat: 14.605, lng: 120.99, box, spanM: 1200 });
+      // One spot just past each edge of the box, each nearer the result's point than the second spot inside.
       const spots = [
-        inBox("one", 14.601, 120.985),
-        inBox("outside-north", 14.7, 120.99),
-        inBox("two", 14.605, 120.99),
-        inBox("three", 14.609, 120.999),
-        inBox("outside-east", 14.605, 121.2),
-        inBox("four", 14.602, 120.981),
+        inBox("inside-near", 14.602, 120.985),
+        inBox("outside-north", 14.6101, 120.99),
+        inBox("outside-south", 14.5999, 120.99),
+        inBox("inside-far", 14.609, 120.996),
+        inBox("outside-west", 14.605, 120.9799),
+        inBox("outside-east", 14.605, 121.0001),
       ];
       const c = ctx([pin()], { geocoder: geocoder(street, "called"), spots });
       const result = await runGetReports(args({ place: "Maginhawa Street" }), c);
       expect(result).toMatchObject({
         status: "place_too_broad",
         place: { name: "Maginhawa Street", source: "nominatim" },
-        suggestions: ["one corner", "two corner", "three corner"],
+        suggestions: ["inside-near corner", "inside-far corner"],
         geo: "called",
         live: [],
         demo: [],
@@ -326,6 +340,18 @@ describe("the place", () => {
       });
       expect(result.point).toBeUndefined();
       expect(c.nearbyPins).not.toHaveBeenCalled();
+    });
+
+    it("offers the three spots nearest the result's point, nearest first", async () => {
+      // In list order they run one, two, three, four; by distance from (14.605, 120.99) they run two, one, four, three.
+      const spots = [
+        inBox("one", 14.601, 120.985),
+        inBox("two", 14.605, 120.99),
+        inBox("three", 14.609, 120.999),
+        inBox("four", 14.602, 120.981),
+      ];
+      const result = await runGetReports(args({ place: "Maginhawa Street" }), ctx([], { geocoder: geocoder(street, "called"), spots }));
+      expect(result.suggestions).toEqual(["two corner", "one corner", "four corner"]);
     });
 
     it("a wide result with no listed spot inside is still too broad", async () => {
@@ -419,12 +445,34 @@ describe("ranking", () => {
     const waist50 = pin({ level: "waist", passability: "NPATV" }, 50);
     const knee5 = pin({ level: "knee" }, 5);
     const halfTire1 = pin({ level: "half_tire" }, 1);
-    // A floor (at least knee) sits among the knees, so by time: not below the shallower half_tire, not above the waist.
-    const kneeFloor3 = pin({ level: "knee", levelIsFloor: true }, 3);
-    const result = await runGetReports(args({ place: ESPANA.name }), ctx([knee10, waist50, knee5, halfTire1, kneeFloor3]));
-    expect(result.live.map((r) => r.pin.id)).toEqual([waist50, kneeFloor3, knee5, knee10, halfTire1].map((p) => p.id));
+    // The floor (at least knee) is the oldest knee, so a ranking that gave it any bonus over the exact knees would put it
+    // first among them. It still beats the newer half_tire, so it isn't ranked a level lower either.
+    const kneeFloor20 = pin({ level: "knee", levelIsFloor: true }, 20);
+    const result = await runGetReports(args({ place: ESPANA.name }), ctx([knee10, waist50, knee5, halfTire1, kneeFloor20]));
+    expect(result.live.map((r) => r.pin.id)).toEqual([waist50, knee5, knee10, kneeFloor20, halfTire1].map((p) => p.id));
     expect(result.live.map((r) => r.ref)).toEqual(["r1", "r2", "r3", "r4", "r5"]);
     expect(result.count).toBe(5);
+  });
+
+  it("a newer floor does not outrank an older exact reading one level deeper", async () => {
+    // The knee floor is 58 minutes newer than the tire. A bonus of a whole level would tie them, and the newer would win.
+    const tire60 = pin({ level: "tire", passability: "NPATV" }, 60);
+    const kneeFloor2 = pin({ level: "knee", levelIsFloor: true }, 2);
+    const result = await runGetReports(args({ place: ESPANA.name }), ctx([kneeFloor2, tire60]));
+    expect(result.live.map((r) => r.pin.id)).toEqual([tire60.id, kneeFloor2.id]);
+  });
+
+  it("a demo pin taken inside the window never joins the live list (C707)", async () => {
+    // A donor photo from this week, seeded as a demo pin, deeper than the live reading.
+    const live30 = pin({ level: "knee" }, 30);
+    const demo20 = demoPin({ level: "chest", passability: "NPATV", capturedAt: ago(20) });
+    const result = await runGetReports(args({ place: ESPANA.name }), ctx([demo20, live30]));
+    expect(result.live.map((r) => [r.ref, r.pin.id])).toEqual([["r1", live30.id]]);
+    expect(result.count).toBe(1);
+    expect(result.demo.map((r) => [r.ref, r.pin.id])).toEqual([["d1", demo20.id]]);
+    const output = JSON.parse(toModelOutput(result));
+    expect(output.reports.map((r: { level: string }) => r.level)).toEqual(["knee"]);
+    expect(output.demo_reports.map((r: { level: string }) => r.level)).toEqual(["chest"]);
   });
 
   it("the deepest of many is r1, and count is every live pin kept", async () => {
@@ -528,7 +576,15 @@ describe("toModelOutput", () => {
 
   it("says only the status when there is no point", async () => {
     const output = JSON.parse(toModelOutput(await runGetReports(args({ here: true }), ctx())));
-    expect(output).toEqual({ status: "no_location", window_minutes: 180, radius_m: 300, count: 0, reports: [], demo_reports: [] });
+    expect(output).toEqual({
+      status: "no_location",
+      place: null,
+      window_minutes: 180,
+      radius_m: 300,
+      count: 0,
+      reports: [],
+      demo_reports: [],
+    });
   });
 
   it("gives the place's name for a too-broad place, with no suggestions or coordinates", async () => {
