@@ -3,6 +3,10 @@ export const BUDGET = {
   transcribeBy: 4000, // a spoken question is transcribed by here
   modelBy: 7500, // the model's last turn ends by here
   answerBy: 8500, // the answer is on its way by here
+  // After the answer, inside the API function's 15 s timeout (C736): the spend write ends by here, or counts as
+  // failed, and the pause that follows ends by the next mark.
+  settleBy: 12000,
+  pauseBy: 14000,
   minTurn: 1500, // a model turn starts only with this much left
   minNominatim: 2500, // Nominatim is asked only with this much left before modelBy: a 1 s wait and a 1.5 s call
   nominatimCall: 1500, // Nominatim's own timeout

@@ -9,10 +9,18 @@ describe("BUDGET", () => {
       transcribeBy: 4000,
       modelBy: 7500,
       answerBy: 8500,
+      settleBy: 12000,
+      pauseBy: 14000,
       minTurn: 1500,
       minNominatim: 2500,
       nominatimCall: 1500,
     });
+  });
+
+  it("settles the spend, then pauses, inside the API function's 15 s", () => {
+    expect(BUDGET.answerBy).toBeLessThan(BUDGET.settleBy);
+    expect(BUDGET.settleBy).toBeLessThan(BUDGET.pauseBy);
+    expect(BUDGET.pauseBy).toBeLessThan(15_000);
   });
 });
 

@@ -98,7 +98,7 @@ async function answer(req: AskRequest, deps: AskDeps, deadline: Deadline, line: 
 
   const q: Question = { text: parsed.question, here: parsed.here, nowS, deadline, deps, line };
   if (await deps.isStopped("model-calls", deps.now())) return plainAnswer(q, "model_calls_paused");
-  const stopUsd = await spendCheck(deps);
+  const stopUsd = await spendCheck(deps, deadline);
   if (stopUsd === null) return plainAnswer(q, "model_calls_paused");
 
   let key: string;
@@ -163,20 +163,18 @@ async function modelPath(q: Question, meta: Meta, stopUsd: number): Promise<Json
     line.input_tokens = usage.input;
     line.output_tokens = usage.output;
     line.reasoning_tokens = usage.reasoning;
-    await settleSpend(usage, stopUsd, deps);
+    await settleSpend(usage, stopUsd, deps, q.deadline);
   }
 }
 
-// The plain list with its own place (spec §4.5): the longest spot name in the question, or the location sent
-// when the question has a "here" word or names no spot. A "here" word without a location still finds a named
-// spot, and gives no_location without one. Never Nominatim: without the model, code can't tell which words are a place.
+// The plain list with its own place (spec §4.5): the longest spot name in the question. A "here" word, or no spot
+// found while a location was sent, means the phone's location; a "here" word without one gives no_location, as the
+// model's `here: true` call does. Never Nominatim: without the model, code can't tell which words are a place.
 async function plainAnswer(q: Question, fallback: Fallback): Promise<JsonResponse> {
   const spot = findSpotIn(q.text, q.deps.spots);
-  const hereWord = hasHereWords(q.text);
   let args: ToolArgs | undefined;
-  if (q.here !== undefined && (hereWord || spot === undefined)) args = { ...PLAIN_ARGS, here: true };
+  if (hasHereWords(q.text) || (spot === undefined && q.here !== undefined)) args = { ...PLAIN_ARGS, here: true };
   else if (spot !== undefined) args = { ...PLAIN_ARGS, place: spot.name };
-  else if (hereWord) args = { ...PLAIN_ARGS, here: true };
 
   let tool: ToolResult | undefined;
   if (args !== undefined) {
@@ -226,7 +224,30 @@ function toolCtx(q: Question): ToolCtx {
   };
 }
 
-// --- the pins read's bound (spec §4.1: the answer by 8.5 s) ------------------------------------------------------
+// --- the marks: the pins read by 8.5 s (spec §4.1), the spend write by 12 s and the pause by 14 s (C736) ---------
+
+// A call that hadn't returned by its mark. Its name is what the log lines show.
+class MarkPassed extends Error {
+  constructor() {
+    super("the call hadn't returned by its mark");
+    this.name = "MarkPassed";
+  }
+}
+
+// `work`'s result, or MarkPassed once the mark passes. The timer is cleared either way. Promise.race subscribes to
+// `work`, so a work that fails after the mark raises no unhandled rejection; it may still land later, which for a
+// spend write can only over-count.
+async function byMark<T>(work: Promise<T>, deadline: Deadline, byMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new MarkPassed()), deadline.remainingMs(byMs));
+  });
+  try {
+    return await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // The pins read failed, or hadn't returned by the answer mark: a 503 ask_unavailable (spec §5.4).
 class PinsUnavailable extends Error {
@@ -236,26 +257,13 @@ class PinsUnavailable extends Error {
   }
 }
 
-class PinsLate extends Error {
-  constructor() {
-    super("the pins read hadn't returned by the answer mark");
-    this.name = "PinsLate";
-  }
-}
-
 // The read, or PinsUnavailable once it fails or the answer mark passes. Only the read is bounded, never the tool
 // loop, so the usage of the turns already paid always comes back (inside AgentToolError).
 async function byAnswerMark(read: Promise<PublicPin[]>, deadline: Deadline): Promise<PublicPin[]> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new PinsLate()), deadline.remainingMs(BUDGET.answerBy));
-  });
   try {
-    return await Promise.race([read, late]);
+    return await byMark(read, deadline, BUDGET.answerBy);
   } catch (err) {
     throw new PinsUnavailable(err);
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -283,18 +291,19 @@ function errorCode(res: JsonResponse): string | undefined {
 
 // Before the first Meta call: the stop in USD while the counter is under it, else null once model calls are paused.
 // A total at or over the stop, or either one unreadable (an unseeded counter included), pauses: fail closed.
-async function spendCheck(deps: AskDeps): Promise<number | null> {
+async function spendCheck(deps: AskDeps, deadline: Deadline): Promise<number | null> {
   let stop: number;
   let total: number;
   try {
     stop = await readStop(deps.ssm);
     total = await spendTotal({ ddb: deps.spendDdb, limitsTableName: deps.limitsTableName });
   } catch (err) {
-    await pause(deps, "spend_stop", err instanceof SpendUnseeded ? { unseeded: true } : { unreadable: errorFields(err) });
+    const fields = err instanceof SpendUnseeded ? { unseeded: true } : { unreadable: errorFields(err) };
+    await pause(deps, deadline, "spend_stop", fields);
     return null;
   }
   if (total >= stop) {
-    await pause(deps, "spend_stop", { total_usd: String(total), stop_usd: String(stop) });
+    await pause(deps, deadline, "spend_stop", { total_usd: String(total), stop_usd: String(stop) });
     return null;
   }
   return stop;
@@ -309,28 +318,37 @@ async function readStop(ssm: SSMClient): Promise<number> {
 }
 
 // After the question: its cost on the counter, under the source "ask". Nothing billed records nothing. A total that
-// reaches the stop pauses at once. A write that still fails after the client's retries logs spend_error with the
-// amount and pauses (fail closed). The answer stands either way, so nothing here throws.
-async function settleSpend(usage: AgentUsage, stopUsd: number, deps: AskDeps): Promise<void> {
+// reaches the stop pauses at once. A write that still fails after the client's retries, or is still out at the
+// settle mark, logs spend_error with the amount and pauses (fail closed). The client's retries alone could run
+// about 7.5 s, so the mark keeps a late answer's settle and pause inside the 15 s timeout, where a killed Lambda
+// would record nothing and log nothing. The answer stands either way, so nothing here throws.
+async function settleSpend(usage: AgentUsage, stopUsd: number, deps: AskDeps, deadline: Deadline): Promise<void> {
   let cost: string | undefined;
   try {
     cost = costOf({ spark_input_tokens: usage.input, spark_output_tokens: usage.output });
     if (cost === "0") return;
-    const total = await recordSpend(cost, "ask", { ddb: deps.spendDdb, limitsTableName: deps.limitsTableName });
-    if (total >= stopUsd) await pause(deps, "spend_stop", { total_usd: String(total), stop_usd: String(stopUsd) });
+    const write = recordSpend(cost, "ask", { ddb: deps.spendDdb, limitsTableName: deps.limitsTableName });
+    const total = await byMark(write, deadline, BUDGET.settleBy);
+    if (total >= stopUsd) await pause(deps, deadline, "spend_stop", { total_usd: String(total), stop_usd: String(stopUsd) });
   } catch (err) {
-    await pause(deps, "spend_error", { usd: cost === undefined ? null : String(toMicro(cost) / 1_000_000), ...errorFields(err) });
+    const usd = cost === undefined ? null : String(toMicro(cost) / 1_000_000);
+    await pause(deps, deadline, "spend_error", { usd, ...errorFields(err) });
   }
 }
 
 // Sets /lusot/stop/model-calls "on" and logs the reason as its own line, which MS4's SpendPauseAlarm counts by its
-// msg. A put that fails is named on the line as `switch`; the line still reaches the alarm.
-async function pause(deps: AskDeps, msg: "spend_stop" | "spend_error", fields: Record<string, unknown>): Promise<void> {
+// msg. A put that fails, or is still out at the pause mark, is named on the line as `switch`; the line still
+// reaches the alarm.
+async function pause(
+  deps: AskDeps,
+  deadline: Deadline,
+  msg: "spend_stop" | "spend_error",
+  fields: Record<string, unknown>,
+): Promise<void> {
   const out: Record<string, unknown> = { msg, source: "ask", ...fields };
   try {
-    await deps.ssm.send(
-      new PutParameterCommand({ Name: `${deps.stopParamPrefix}model-calls`, Value: "on", Type: "String", Overwrite: true }),
-    );
+    const put = new PutParameterCommand({ Name: `${deps.stopParamPrefix}model-calls`, Value: "on", Type: "String", Overwrite: true });
+    await byMark(deps.ssm.send(put), deadline, BUDGET.pauseBy);
   } catch (err) {
     out.switch = errorFields(err);
   }

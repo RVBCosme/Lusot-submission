@@ -11,6 +11,7 @@ import { mockClient } from "aws-sdk-client-mock";
 import type { Response } from "openai/resources/responses/responses";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { type AskDeps, askTyped, NCR_BOUNDS, SPEND_CLIENT_CONFIG, SPEND_STOP_PARAM } from "../../src/ask/handler";
+import { BUDGET } from "../../src/ask/deadline";
 import { ASK_LOG_FIELDS } from "../../src/ask/log";
 import { type Meta, type MetaCall, type MetaDeps, MetaError } from "../../src/ask/meta";
 import type { Geocoder } from "../../src/ask/nominatim";
@@ -367,12 +368,15 @@ describe("the plain list's own place (spec §4.5)", () => {
     expect(w.nearbyPins).toHaveBeenCalledWith(HERE.lat, HERE.lng, 300);
   });
 
-  it("a here word without a location falls to a named spot, and with none gives no_location", async () => {
+  it("a here word without a location gives no_location, even beside a named spot", async () => {
+    // Spec §4.5, literally (the controller's ruling): a "here" word means the phone's location, as the model's
+    // `here: true` call would.
     const spot = await ask({ question: "Baha ba dito sa España cor. Maceda?" });
-    expect(parsed(spot).answer.place).toEqual({ name: ESPANA.name, source: "spots" });
+    expect(parsed(spot).answer).toMatchObject({ kind: "no_location", place: null });
 
     const none = await ask({ question: "May baha ba dito?" });
     expect(parsed(none).answer).toMatchObject({ kind: "no_location", place: null });
+    expect(w.nearbyPins).not.toHaveBeenCalled();
   });
 
   it("neither a spot nor a location gives no_place, with no pins read", async () => {
@@ -703,6 +707,66 @@ describe("spend (spec C736)", () => {
       { msg: "spend_error", source: "ask", usd: "0.007229", error: "ProvisionedThroughputExceededException", status: 400 },
     ]);
     expect(lastAskLine()).toMatchObject({ status: 200, source: "model" });
+  });
+
+  // The settle is bounded (the review's Important 1): a late answer plus a write that keeps retrying, then a pause
+  // that does too, must still end inside the API function's 15 s, with the failure on the log and the pause set.
+  // The pins read moves the manual clock, so each mark is a few real milliseconds away.
+  const pinsReadAt = (ms: number) =>
+    w.nearbyPins.mockImplementation(async () => {
+      clock = START + ms;
+      return w.pins;
+    });
+
+  it("a spend write still out at the settle mark is a failed write: spend_error with the amount, then the pause", async () => {
+    spendMock.on(UpdateCommand).callsFake(() => new Promise(() => {}));
+    pinsReadAt(BUDGET.settleBy - 10);
+
+    const res = await ask({ question: QUESTION });
+
+    expect(res.statusCode).toBe(200);
+    expect(parsed(res).answer).toMatchObject({ source: "model", kind: "reports" });
+    expect(spendWrites()).toHaveLength(1);
+    // Turn 1 only, since the final turn had no time: 1,285 in and 445 out, 3,498 micro-dollars.
+    expect(linesWith("spend_error")).toEqual([{ msg: "spend_error", source: "ask", usd: "0.003498", error: "MarkPassed" }]);
+    expect(pauses()).toEqual([{ name: "/lusot/stop/model-calls", value: "on", overwrite: true }]);
+    expect(lastAskLine()).toMatchObject({ status: 200, final: "skipped" });
+  });
+
+  it("a spend write that fails after the settle mark raises no unhandled rejection", async () => {
+    spendMock.on(UpdateCommand).callsFake(
+      () => new Promise((_, reject) => setTimeout(() => reject(awsError("ProvisionedThroughputExceededException", 400)), 30)),
+    );
+    pinsReadAt(BUDGET.settleBy - 10);
+
+    await ask({ question: QUESTION });
+    await new Promise((resolve) => setTimeout(resolve, 60)); // the write fails now, after the answer
+
+    expect(linesWith("spend_error")).toEqual([{ msg: "spend_error", source: "ask", usd: "0.003498", error: "MarkPassed" }]);
+  });
+
+  it("a pause whose switch isn't set by the pause mark doesn't hold the answer", async () => {
+    spendMock.on(UpdateCommand).rejects(awsError("ProvisionedThroughputExceededException", 400));
+    ssmMock.on(PutParameterCommand).callsFake(() => new Promise(() => {}));
+    pinsReadAt(BUDGET.pauseBy - 10);
+    const started = performance.now();
+
+    const res = await ask({ question: QUESTION });
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(res.statusCode).toBe(200);
+    expect(parsed(res).answer).toMatchObject({ source: "model", kind: "reports" });
+    expect(pauses()).toHaveLength(1);
+    expect(linesWith("spend_error")).toEqual([
+      {
+        msg: "spend_error",
+        source: "ask",
+        usd: "0.003498",
+        error: "ProvisionedThroughputExceededException",
+        status: 400,
+        switch: { error: "MarkPassed" },
+      },
+    ]);
   });
 
   it("gives the spend counter its own client: 5 attempts, each bounded at 1 s", () => {
