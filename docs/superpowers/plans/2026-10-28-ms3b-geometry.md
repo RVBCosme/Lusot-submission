@@ -1003,7 +1003,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 
 ### Task 14: The Manila check, the water phrases, the effort comparison and the type check (C313, C326, C312, C325, C323)
 
-**Status (Oct 30):** not started. Tier Should. Waits for the split and `eval/rules.md` v0.7, because C313's check needs labelled development photos; the usage plan runs it after the merge if there is room.
+**Status (Oct 30):** **dropped** at 7:28 AM, Oct 30, under the usage plan's Must-only rule (the tracker's `queue.md`, "Usage over the line"; usage at 34%). Its steps stay below for the record and aren't run. Before that it waited for the split and v0.7, since C313's check needs labelled development photos.
 
 **Files:**
 - Modify: `backend/analysis/probes/dev_eval.py`
@@ -1125,7 +1125,7 @@ This task checks the value, passes the tuning's effort and drawing, and logs the
 
 ### Task 16: The Set C checks and the Oct 31 decision (C312, C325, C323, C311; Claude)
 
-**Status (Oct 30):** not started. Tier Should. Waits for Rene's usage reading: its paid checks (about $1.47) run only after his morning reading. Until then the Oct 31 defaults stand: effort default, drawing `boxes-v1`, self-check off and not built.
+**Status (Oct 30):** **dropped** at 7:28 AM, Oct 30, under the usage plan's Must-only rule (the tracker's `queue.md`, "Usage over the line"; usage at 34%). Its steps stay below for the record and aren't run. Its held $1.47 isn't spent, and the Oct 31 defaults stand as the frozen values: effort default, drawing `boxes-v1`, self-check off and not built.
 
 **Files:** possibly `backend/analysis/src/lusot_analysis/tuning.py` and `tests/test_tuning.py`; `docs/log/<date>.md`
 
@@ -1167,7 +1167,7 @@ This task runs on Set C, before the split and before v0.7 (C322, C323), and open
 
 ### Task 17: Development data through the harness (C325, C313, C326, C314, C319, C310, C324, C315, C309; Claude)
 
-**Status (Oct 30):** not started. Tier Should. Waits for the split, v0.7 and Set B (MS3b-Q1's fallback applies). Step 11's deploy folds into the integrated deploy after MS3b merges and MS4 Phase B rebases (R155).
+**Status (Oct 30):** **dropped** at 7:28 AM, Oct 30, under the usage plan's Must-only rule (the tracker's `queue.md`, "Usage over the line"; usage at 34%). Its steps stay below for the record and aren't run. So the cutoffs stay at their start values: a sealed run.json records `frozen.untuned: "yes"` (R173). MS4's integrated deploy carries MS3b's code (R155).
 
 **Files:** possibly `tuning.py`, the tests that pin start values, and `backend/template.yaml` (`GEOMETRY_IN_LEVEL`'s literal); results only under `LUSOT_DATA_DIR`
 
