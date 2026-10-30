@@ -228,4 +228,11 @@ C309 sets the live default from the final ablation, after Set B's k and the tuni
   - **Jeepney stays without codes (R170).** M11's one Fuso code, at 28.11 in, would read traditional, Hino and Isuzu jeepneys (29.6 to 32.2 in) too shallow.
 - **For the freeze:** `tire-codes-v2` is a frozen value. Once v0.7 makes `RULES_VERSION` 0.7, `run_sealed` refuses a `--baseline` from a 0.6 development report, so the development report must be rerun on the freeze first.
 - **Meta spend for these tasks:** $0.
+- **Task 12b (laptop spend):** every laptop tool that calls Meta itself now reads MS4's counter before paying, and adds its cost after.
+  - **Where:** `run_pipeline live`, `dev_eval run`, `set_b`, `set_b_masks`, `run_probe` and `run_sealed`.
+  - **Before paying:** it refuses with exit 2 when the counter is unseeded, unreadable or at the stop.
+  - **After paying:** a failed record prints `spend_error` and exits nonzero.
+  - **To run it:** paid laptop runs need `--with "botocore[crt]==1.43.120"` under `aws login`.
+  - **A limit to know:** the stop is checked once per run in each window. Concurrent runs can overshoot it by their combined cost.
+- **Update to §14 (v0.7):** `eval/rules.md` v0.7 is approved and on `main` (`1138caf`, Oct 30), so MS3b-Q4 and item 10.1's freeze items are settled by its freeze list. MS3b-Q3 is moot, since the self-check is off and unbuilt. `run_eval.py --rules-version` prints 0.7, so the development report must be rerun under v0.7 before `run_sealed`.
 

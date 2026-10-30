@@ -20,17 +20,26 @@ import importlib.util
 import io
 import json
 import re
+import threading
 from decimal import Decimal
 from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
-from fakes import FakeClient, geometry_case, instance, noise_jpeg, wheel_scene
+from fakes import (
+    FakeClient,
+    FakeSpend,
+    geometry_case,
+    instance,
+    noise_jpeg,
+    wheel_scene,
+)
 
 from lusot_analysis import export
 from lusot_analysis.face_blur import BlurredImage
-from lusot_analysis.meta_client import SamResult
+from lusot_analysis.meta_client import MetaApiError, SamResult
+from lusot_analysis.spend import cost_of
 from lusot_analysis.tuning import START
 
 TOOL = Path(__file__).parents[1] / "probes" / "set_b.py"
@@ -128,6 +137,7 @@ def offline(tmp_path, monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(tool.runner, "make_client", no_client)
+    monkeypatch.setattr(tool.runner, "check_before_paying", FakeSpend)  # no AWS
 
 
 def csv_text(columns, rows) -> str:
@@ -838,3 +848,80 @@ def test_overlay_writes_under_the_data_dir(tmp_path, monkeypatch, capsys):
     assert tool.main([*argv, "1"], tuning=START) == 2
     assert capsys.readouterr().out == "refused: path inside a folder named sealed\n"
     assert not (tmp_path / "Sealed").exists()
+
+
+def no_counter():
+    raise AssertionError("the spend counter was read")
+
+
+def counted(monkeypatch, fake, folder: Path) -> tuple[FakeSpend, list[str]]:
+    """A FakeSpend as the runner's check_before_paying, and `fake` as its client,
+    with each check, client and record in order, each record with the run.json files
+    saved under `folder` by then."""
+    events = []
+
+    def recorded():
+        events.append(f"record, {len(list(folder.rglob('run.json')))} saved")
+
+    spend = FakeSpend(on_record=recorded)
+    monkeypatch.setattr(
+        tool.runner, "check_before_paying", lambda: events.append("check") or spend
+    )
+    monkeypatch.setattr(
+        tool.runner, "make_client", lambda: events.append("client") or fake
+    )
+    return spend, events
+
+
+def test_segment_and_rims_record_each_photo_once_saved(tmp_path, monkeypatch):
+    # Task 12b (C527): the counter is read after --yes and before the one client,
+    # and each crop's or photo's SAM calls are recorded once its run.json is saved.
+    data = write_set_b(tmp_path, [truth_row("B01-1-1"), truth_row("B03-1-1")])
+    spend, events = counted(monkeypatch, FakeClient(set_b_sam()), data.root)
+    argv = ["segment", "--truth", str(data.truth)]
+    assert tool.main(argv, tuning=START) == 2  # without --yes: nothing to check
+    assert events == []
+    assert tool.main([*argv, "--yes"], tuning=START) == 0
+    assert events == ["check", "client", "record, 1 saved", "record, 2 saved"]
+    assert spend.records == [(cost_of(sam_images=3), "set_b")] * 2
+    # rims: two phrases for each of the two photos with codes and a credit line.
+    folder = write_cars(tmp_path, CARS)
+    spend, events = counted(monkeypatch, FakeClient(dry_sam()), data.root)
+    assert tool.main(["rims", "--folder", str(folder), "--yes"], tuning=START) == 0
+    assert events == ["check", "client", "record, 3 saved", "record, 4 saved"]
+    assert spend.records == [(cost_of(sam_images=2), "set_b")] * 2
+    # Nothing left to send, an export and an overlay make no Meta call: none reads
+    # the counter.
+    monkeypatch.setattr(tool.runner, "check_before_paying", no_counter)
+    monkeypatch.setattr(tool.runner, "make_client", no_client)
+    assert tool.main([*argv, "--yes"], tuning=START) == 0
+    assert tool.main(["rims", "--folder", str(folder), "--yes"], tuning=START) == 0
+    out = data.root / "results" / "set-b-1"
+    assert tool.main(export_argv(data, out), tuning=START) == 0
+    overlay = ["overlay", "--truth", str(data.truth), "--crop", "B01-1-1"]
+    assert tool.main([*overlay, "--wheel", "1"], tuning=START) == 0
+
+
+def test_a_failed_send_still_records_what_was_paid(tmp_path, monkeypatch, capsys):
+    # The second crop's wheel call fails with Meta's 503 after its other two returned:
+    # the first crop and those two calls are recorded, the failed one isn't billed.
+    data = write_set_b(tmp_path, [truth_row("B01-1-1"), truth_row("B03-1-1")])
+    seen = []
+    lock = threading.Lock()
+
+    def fail_the_fifth(phrase):
+        with lock:  # the phrases run in parallel
+            seen.append(phrase)
+            fifth = len(seen) == 5
+        if fifth:
+            raise MetaApiError("HTTP 503", status=503)
+
+    fake = FakeClient(set_b_sam(), on_segment=fail_the_fifth)
+    spend, _ = counted(monkeypatch, fake, data.root)
+    argv = ["segment", "--truth", str(data.truth), "--yes"]
+    assert tool.main(argv, tuning=START) == 3
+    assert capsys.readouterr().out.splitlines()[-1] == "failed: MetaApiError (HTTP 503)"
+    assert spend.records == [
+        (cost_of(sam_images=3), "set_b"),
+        (cost_of(sam_images=2), "set_b"),
+    ]

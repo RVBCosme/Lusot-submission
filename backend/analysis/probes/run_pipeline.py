@@ -20,6 +20,11 @@ Run from backend/analysis:
     (C312, C325). run.json records all of it (v0.7 item 10.1).
   - --sam-from reuses that run folder's SAM outputs, for the same photo, and pays
     for Muse Spark alone (C312).
+  - What it pays goes to MS4's spend counter (C527): the counter is read first,
+    with the lusot profile, and a counter that is unseeded, unreadable or at its
+    stop refuses the run. The cost is recorded after the save. The profile's
+    `aws login` credentials need botocore's CRT, so a live run adds
+    `--with "botocore[crt]==1.43.120"` after `uv run`.
 - replay: the pipeline again, from a run folder, with no key and no Meta call, and
   with the geometry setting and tuning it was saved with: geometry off and START
   for an MS3a run, which recorded neither. It says whether the outcome is the saved
@@ -35,12 +40,13 @@ Exit codes:
 - 1: the replay's outcome isn't the saved one, or the run was saved under other C56
   or C70 values than the live ones (R144)
 - 2: refused: a sealed path, a STURM photo, a data or run folder inside the repo, a
-  run folder that already exists, a missing, short or rejected key, or another
-  photo's outputs. argparse's own usage errors exit 2 too, an unknown --effort,
-  --drawing or --geometry among them (R146).
+  run folder that already exists, a missing, short or rejected key, another
+  photo's outputs, or a spend counter that can't take the run. argparse's own usage
+  errors exit 2 too, an unknown --effort, --drawing or --geometry among them (R146).
 - 3: the run couldn't read or write what it needed, a run.json with a missing or
   unknown key among them. It prints `failed:` and the error's class only, never a
-  path or the error's text (R110).
+  path or the error's text (R110). A cost the spend counter couldn't record exits 3
+  too, with one spend_error line holding the amount, for spend.py's add (R126).
 """
 
 from __future__ import annotations
@@ -55,6 +61,13 @@ from datetime import datetime
 from pathlib import Path
 
 from lusot_analysis.annotate import DRAWINGS
+
+# check_before_paying is a seam, as make_client is: tests replace it (C527).
+from lusot_analysis.laptop_spend import (
+    CountedClient,
+    SpendCounter,
+    check_before_paying,
+)
 from lusot_analysis.meta_client import REASONING_EFFORTS, MetaClient, MissingApiKey
 from lusot_analysis.pipeline import (
     READING_PHRASES,
@@ -158,6 +171,8 @@ def live(
     geometry_in_level: bool = True,
     tuning: Tuning = TUNING,
     sam_from: Path | None = None,
+    spend: SpendCounter | None = None,
+    source: str = "run_pipeline",
 ) -> tuple[Path, PipelineRun]:
     """Run the pipeline on `photo` with Meta's models, and save what they return.
 
@@ -169,6 +184,14 @@ def live(
     the same photo, SAM's results come from there and only Muse Spark is paid for
     (C312); other outputs there raise PhotoMismatch. A key or account Meta rejects
     raises ModelKeyRejected (C73), and nothing is saved.
+
+    The run's Meta cost goes to MS4's spend counter as `source` (C527). `spend` is
+    the counter a caller has already checked, as dev_eval.py's run does once for its
+    rows; without one, check_before_paying reads it here, after the refusals and
+    before any client is built, and exits 2 when it can't take the run. The cost is
+    recorded once the run is saved, or once it fails after paying, so a call paid for
+    is recorded either way; a failed record exits 3 (SpendNotRecorded), with the run
+    folder kept.
     """
     folders = [folder for folder in (run_dir, sam_from) if folder is not None]
     refuse_sealed(photo, data_dir, *folders)
@@ -185,22 +208,29 @@ def live(
     prompt = load_prompt(PROMPTS)
     data = photo.read_bytes()
     saved = None if sam_from is None else SavedOutputsClient(sam_from, data)
-    model = make_client()
+    if spend is None:
+        spend = check_before_paying()
+    model = CountedClient(make_client())
     client = RecordingClient(
         model if saved is None else SavedSamLiveJudge(saved, model)
     )
-    run = run_pipeline(
-        data,
-        client,
-        prompt,
-        phrases=READING_PHRASES,
-        geometry_in_level=geometry_in_level,
-        tuning=tuning,
-    )
-    config = run_config(
-        geometry_in_level=geometry_in_level, tuning=tuning, sam_from=saved is not None
-    )
-    client.save(run_dir, photo=photo, prompt=prompt, run=run, config=config)
+    try:
+        run = run_pipeline(
+            data,
+            client,
+            prompt,
+            phrases=READING_PHRASES,
+            geometry_in_level=geometry_in_level,
+            tuning=tuning,
+        )
+        config = run_config(
+            geometry_in_level=geometry_in_level,
+            tuning=tuning,
+            sam_from=saved is not None,
+        )
+        client.save(run_dir, photo=photo, prompt=prompt, run=run, config=config)
+    finally:  # what was paid for, saved or not (R126)
+        spend.record_after(model.take(), source)
     return run_dir, run
 
 

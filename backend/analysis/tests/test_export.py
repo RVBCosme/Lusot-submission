@@ -21,6 +21,7 @@ import pytest
 from fakes import (
     REPO_PROMPTS,
     FakeClient,
+    FakeSpend,
     answer,
     geometry_case,
     person,
@@ -158,6 +159,7 @@ runner = load_runner()
 def offline(tmp_path, monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(runner, "check_before_paying", FakeSpend)  # no AWS (C527)
 
 
 @pytest.fixture(scope="module")
