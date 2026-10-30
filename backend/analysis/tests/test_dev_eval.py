@@ -20,10 +20,11 @@ import sys
 from pathlib import Path
 
 import pytest
-from fakes import FakeClient, geometry_case
+from fakes import FakeClient, FakeSpend, geometry_case
 
 from lusot_analysis import rules
 from lusot_analysis.pipeline import READING_PHRASES
+from lusot_analysis.spend import cost_of
 from lusot_analysis.tuning import START
 
 TOOL = Path(__file__).parents[1] / "probes" / "dev_eval.py"
@@ -163,6 +164,7 @@ def offline(tmp_path, monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setattr(tool.runner, "make_client", no_client)
+    monkeypatch.setattr(tool.runner, "check_before_paying", FakeSpend)  # no AWS
 
 
 @pytest.fixture
@@ -982,3 +984,54 @@ def test_run_refuses_sealed_and_repo_folders(tmp_path, monkeypatch, capsys):
     assert tool.main(["run", "--manifest", str(data.set_a), "--yes"]) == 2
     assert capsys.readouterr().out == "refused: the data folder is inside the repo\n"
     assert not (TOOL.parents[1] / "data-r131-test").exists()
+
+
+def test_run_records_each_row_once_it_is_saved(tmp_path, monkeypatch, capsys, harness):
+    # Task 12b (C527): the counter is read once, after --yes and before any client,
+    # and each row's live run is recorded once its folder is saved.
+    data = write_data(tmp_path, set_a=("A001", "A002"), a_neg=())
+    events = []
+
+    def recorded():
+        saved = len(list((data.root / "runs").rglob("run.json")))
+        events.append(f"record, {saved} saved")
+
+    spend = FakeSpend(on_record=recorded)
+    monkeypatch.setattr(
+        tool.runner, "check_before_paying", lambda: events.append("check") or spend
+    )
+    _, sam, given = geometry_case("van")
+    fake = FakeClient(sam, given)
+    monkeypatch.setattr(
+        tool.runner, "make_client", lambda: events.append("client") or fake
+    )
+    argv = ["run", "--manifest", str(data.set_a)]
+    assert tool.main(argv, tuning=START) == 2  # without --yes: nothing to check
+    assert events == []
+    assert tool.main([*argv, "--yes"], tuning=START) == 0
+    assert events == [
+        "check",
+        "client",
+        "record, 1 saved",
+        "client",
+        "record, 2 saved",
+    ]
+    row_usd = cost_of(
+        sam_images=len(READING_PHRASES),
+        spark_input_tokens=1000,
+        spark_output_tokens=200,
+    )
+    assert spend.records == [(row_usd, "dev_eval")] * 2
+    # A rerun with every row saved pays nothing, and the export makes no Meta call:
+    # neither reads the counter.
+    events.clear()
+    monkeypatch.setattr(tool.runner, "check_before_paying", no_counter)
+    monkeypatch.setattr(tool.runner, "make_client", no_client)
+    assert tool.main([*argv, "--yes"], tuning=START) == 0
+    out = data.root / "results" / "dev-1"
+    assert tool.main(export_argv(data, out), tuning=START) == 0
+    assert len(read_lines(out / "set_a.jsonl")) == 2
+
+
+def no_counter():
+    raise AssertionError("the spend counter was read")

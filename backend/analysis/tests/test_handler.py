@@ -1211,10 +1211,21 @@ def test_lambda_never_counts_tokens(aws, fake, monkeypatch):
 # B3: the same saved outputs give the same result on the laptop and in the cloud
 
 
+def spend_offline(monkeypatch) -> None:
+    """The runner's spend counter as a FakeSpend, so a B3 run reaches no AWS (C527).
+
+    FakeSpend is imported here, not in the import block above, which MS4 rewrites.
+    """
+    from fakes import FakeSpend
+
+    monkeypatch.setattr(runner, "check_before_paying", FakeSpend)
+
+
 def test_b3_replay_through_runner_and_handler_match(tmp_path, monkeypatch, prompts):
     data, sam, given = level_case()
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    spend_offline(monkeypatch)
     photo = tmp_path / "street.jpg"
     photo.write_bytes(data)
     run_dir, live = runner.live(photo, tmp_path / "data")
@@ -1234,6 +1245,7 @@ def test_b3_geometry_replay_matches(tmp_path, monkeypatch, prompts):
     data, sam, given = geometry_case()
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setattr(runner, "make_client", lambda: FakeClient(sam, given))
+    spend_offline(monkeypatch)
     photo = tmp_path / "street.jpg"
     photo.write_bytes(data)
     run_dir, live = runner.live(photo, tmp_path / "data", geometry_in_level=True)

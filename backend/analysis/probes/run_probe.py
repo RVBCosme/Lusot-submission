@@ -17,6 +17,12 @@ The photos follow R7's seeded choice over Level1 to Level3. Every output goes to
 LUSOT_DATA_DIR/probes/<today>/, ending with summary.json, and a run refuses to start
 over an earlier summary.json. Stdout gets counts and timings only: never the key, a
 photo or a model's text.
+
+Before the client is built, MS4's spend counter is read with the lusot profile (its
+`aws login` credentials need `--with "botocore[crt]==1.43.120"` after `uv run`): an
+unseeded or unreadable counter, or one at its stop, exits 2. The run's cost is
+recorded once, at its end, however it ends; a cost the counter couldn't record exits
+3, with one spend_error line holding the amount (C527, R126).
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ import statistics
 import sys
 import time
 import wave
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
@@ -52,6 +58,9 @@ from lusot_analysis.face_blur import (
     decode_image,
     detect_faces,
 )
+
+# check_before_paying is a seam: tests replace it, as they pass make_client (C527).
+from lusot_analysis.laptop_spend import CountedClient, check_before_paying
 from lusot_analysis.meta_client import (
     SAM_MODEL,
     SAM_PHRASES,
@@ -350,7 +359,12 @@ def totals(a1: list[dict], a2: list[dict], voice: list[dict]) -> dict:
     }
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    make_client: Callable[[], MetaClient] = MetaClient,
+) -> int:
+    """The probe. `make_client` is for tests: MetaClient, with MODEL_API_KEY's key."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--photos", type=int, default=5, help="A1 photos")
     parser.add_argument("--water", type=int, default=10, help="A2 photos")
@@ -380,8 +394,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     validator_class = validator_for(schema, default=Draft202012Validator)
     validator_class.check_schema(schema)
     validator = validator_class(schema)
-    client = MetaClient()  # one client for the run, so connections are kept
+    spend = check_before_paying()  # MS4's counter, before any client (C527)
+    client = CountedClient(make_client())  # one client, so connections are kept
+    try:
+        return _run(client, a1_photos, a2_photos, clips, prompt, schema, validator, out)
+    finally:  # the whole run's cost, once, however it ends (R126)
+        spend.record_after(client.take(), "run_probe")
 
+
+def _run(
+    client: CountedClient,
+    a1_photos: list[str],
+    a2_photos: list[str],
+    clips: list[Path],
+    prompt: str,
+    schema: dict,
+    validator: Validator,
+    out: Path,
+) -> int:
+    """The paid part: A1, A2 and the clips, then summary.json."""
     out.mkdir(parents=True, exist_ok=True)
     # Each HTTP try's model, phrase or schema name, status and time; never content.
     calls_log = logging.FileHandler(out / "meta_calls.jsonl", encoding="utf-8")

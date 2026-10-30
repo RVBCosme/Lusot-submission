@@ -368,3 +368,30 @@ class FakeClient:
 
 def _jpeg(bgr: np.ndarray) -> bytes:
     return cv2.imencode(".jpg", bgr)[1].tobytes()
+
+
+class FakeSpend:
+    """Stands in for laptop_spend.SpendCounter, with no AWS (C527).
+
+    `records` holds each amount recorded and its source, in order. As the real one
+    does, it does nothing for nothing billed. Each record runs `on_record` first, if
+    set, as `on_record()`: a test can note what is saved by then. A tool's tests make
+    it their check_before_paying, so a run checks and records without the lusot
+    profile.
+    """
+
+    def __init__(self, on_record: Callable[[], object] | None = None) -> None:
+        self.records: list[tuple[object, str]] = []
+        self.on_record = on_record
+
+    def record_after(self, usd, source: str) -> None:
+        if usd <= 0:
+            return
+        if self.on_record is not None:
+            self.on_record()
+        self.records.append((usd, source))
+
+    @property
+    def total(self):
+        """Everything recorded, in USD."""
+        return sum(usd for usd, _ in self.records)

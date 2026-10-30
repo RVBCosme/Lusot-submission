@@ -18,8 +18,9 @@ Run from backend/analysis:
   only the first N rows still to run, and --photos is the photo folder, relative to
   the manifest's. It spends Meta credits, so it prints the count and the estimated
   cost first ($0.03 a full photo, $0.015 for Muse Spark alone) and stops there unless
-  given --yes. After the runs it prints counts only, never an outcome, so no Set A
-  result shows before v0.7 (C322).
+  given --yes. Then MS4's spend counter is read once, as the runner reads it, and
+  each row's cost is recorded once its run is saved (C527). After the runs it prints
+  counts only, never an outcome, so no Set A result shows before v0.7 (C322).
 - export: MS6's §4.3 rows from the saved runs, through lusot_analysis.export, into
   --out: run.json, set_a.jsonl and a_neg.jsonl. Each saved run is replayed with no
   Meta call, once per configuration: `landmark` and `geometry`, or `landmark` alone
@@ -44,9 +45,11 @@ holds no set_b.jsonl, and no set_a.jsonl or a_neg.jsonl that this export won't r
 --runs and --sam-from are single folder names. Nothing printed holds a photo's name,
 a path, a label, an answer or a key, and every line masks runs of 12 digits.
 
-Exit codes: 0 done; 2 refused, invalid input, waiting for the harness, or a paid run
-without --yes; 3 the run couldn't read or write what it needed, with the error's
-class only (R110). argparse's own usage errors exit 2 too.
+Exit codes: 0 done; 2 refused, invalid input, waiting for the harness, a paid run
+without --yes, or a spend counter that can't take the run; 3 the run couldn't read
+or write what it needed, with the error's class only (R110), or a cost the spend
+counter couldn't record, as one spend_error line (R126). argparse's own usage errors
+exit 2 too.
 """
 
 from __future__ import annotations
@@ -204,9 +207,18 @@ def run_command(args: argparse.Namespace, *, tuning: Tuning = TUNING) -> int:
     if pending and not args.yes:
         say("stopped: add --yes to pay for these runs")
         return 2
+    # MS4's spend counter, read once before any client; each row is recorded once its
+    # run is saved (C527).
+    spend = runner.check_before_paying() if pending else None
     for row, run_dir, sam_from in pending:
         runner.live(
-            row["photo"], data_dir, run_dir=run_dir, tuning=tuning, sam_from=sam_from
+            row["photo"],
+            data_dir,
+            run_dir=run_dir,
+            tuning=tuning,
+            sam_from=sam_from,
+            spend=spend,
+            source="dev_eval",
         )
     say(f"runs saved: {len(pending)}")
     return 0

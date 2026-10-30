@@ -23,6 +23,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from fakes import FakeSpend
 
 from lusot_analysis.face_blur import FACE_BLUR_VERSION, BlurredImage
 from lusot_analysis.meta_client import (
@@ -31,6 +32,7 @@ from lusot_analysis.meta_client import (
     SamInstance,
     SamResult,
 )
+from lusot_analysis.spend import cost_of
 
 PROBE = Path(__file__).parents[1] / "probes" / "set_b_masks.py"
 TIMEOUT = 120  # seconds a subprocess may run, so a stray prompt fails instead of hangs
@@ -123,6 +125,7 @@ LOAD = (
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.setattr(probe, "check_before_paying", FakeSpend)  # no AWS (C527)
 
 
 class FakeClient:
@@ -1194,3 +1197,74 @@ def test_source_lists_no_folder_and_reads_no_environment():
     assert re.search(r"\benvironb?\b", text) is None  # but not "environment"
     assert "getenv" not in text
     assert "LUSOT_DATA_DIR" not in text
+
+
+# Task 12b (C527): each photo's or crop's SAM calls reach MS4's spend counter.
+
+
+def counted(monkeypatch, fake, out: Path):
+    """A FakeSpend as the probe's check_before_paying, its events, and a make_client
+    giving `fake`, with each check, client and record in order, each record with the
+    meta.json files saved under `out` by then."""
+    events = []
+
+    def recorded():
+        events.append(f"record, {len(list(out.rglob('meta.json')))} saved")
+
+    spend = FakeSpend(on_record=recorded)
+    monkeypatch.setattr(
+        probe, "check_before_paying", lambda: events.append("check") or spend
+    )
+
+    def make():
+        events.append("client")
+        return fake
+
+    return spend, events, make
+
+
+def no_counter():
+    raise AssertionError("the spend counter was read")
+
+
+def test_each_photo_and_crop_is_recorded_once_saved(tmp_path, monkeypatch):
+    folder = tmp_path / "set_b" / "dev"
+    cars = car_set(
+        folder, [("B01", "B01-1.jpg", "B01.txt"), ("B03", "B03-1.jpg", "B03.txt")]
+    )
+    out = folder / "masks"
+    spend, events, make = counted(monkeypatch, FakeClient(), out)
+    argv = [str(arg) for arg in dev_argv(cars, out)]
+    assert probe.main(argv, make_client=make) == 0
+    # The counter is read before the one client, and each photo is recorded once its
+    # meta.json is written.
+    assert events == ["check", "client", "record, 1 saved", "record, 2 saved"]
+    assert spend.records == [(cost_of(sam_images=3), "set_b_masks")] * 2
+    # --water: one floodwater call a crop.
+    truth = crop_set(folder / "generated", ["B01-1-1", "B01-1-2"])
+    water = ["--water", str(truth), "--out", str(out)]
+    spend, events, make = counted(monkeypatch, FakeClient(), out / "water")
+    assert probe.main(water, make_client=make) == 0
+    assert events == ["check", "client", "record, 1 saved", "record, 2 saved"]
+    assert spend.records == [(cost_of(sam_images=1), "set_b_masks")] * 2
+    # A rerun with everything done sends nothing, and reads no counter.
+    monkeypatch.setattr(probe, "check_before_paying", no_counter)
+    assert run(dev_argv(cars, out), FakeClient()) == 0
+    assert probe.main(water, make_client=make) == 0
+
+
+def test_a_meta_error_still_records_what_was_paid(tmp_path, monkeypatch, capsys):
+    # The 5th call, the second photo's wheel, fails with Meta's 503: the first photo
+    # and the second's vehicle call were paid for, and the failed call wasn't.
+    folder = tmp_path / "set_b" / "dev"
+    cars = car_set(
+        folder, [("B01", "B01-1.jpg", "B01.txt"), ("B03", "B03-1.jpg", "B03.txt")]
+    )
+    spend, _, make = counted(monkeypatch, FakeClient(fail_on=5), folder / "masks")
+    argv = [str(arg) for arg in dev_argv(cars, folder / "masks")]
+    assert probe.main(argv, make_client=make) == 1
+    assert capsys.readouterr().err == "stopped: MetaApiError status=503\n"
+    assert spend.records == [
+        (cost_of(sam_images=3), "set_b_masks"),
+        (cost_of(sam_images=1), "set_b_masks"),
+    ]

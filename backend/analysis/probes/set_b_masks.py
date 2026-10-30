@@ -3,7 +3,8 @@ masks (spec §5.6; C200, C210, C213, C214, C218).
 
 Run from the repo root, with MODEL_API_KEY set for that one command:
 
-    uv run --locked --directory backend/analysis python probes/set_b_masks.py
+    uv run --locked --with "botocore[crt]==1.43.120" --directory backend/analysis
+        python probes/set_b_masks.py
         --cars <data>\set_b\dev\cars.csv --photos <data>\set_b\dev\photos
         --out <data>\set_b\dev\masks
 
@@ -26,11 +27,17 @@ version change.
 only from his own console, asks him to type yes before any call, and names a photo by
 its row in cars.csv, never by its car.
 
+Before the first call, MS4's spend counter is read with the lusot profile, whose
+`aws login` credentials need the --with above, and each photo's or crop's calls are
+recorded once its files are listed (C527).
+
 It prints each skip as <car or photo> skipped: <cause>, the planned calls and their
 cost, then photos=<n> skipped=<k> sam_calls=<c> seconds=<s>. Exit codes: 0 done; 1 a
 problem in cars.csv or truth.csv, printed as <ref> <column>: <kind>, or a MetaApiError,
 printed as its class and status only, with the photos finished before it kept, or any
-other failure, printed as its class only; 2 a refusal, or a missing MODEL_API_KEY.
+other failure, printed as its class only; 2 a refusal, a spend counter that can't take
+the run, or a missing MODEL_API_KEY; 3 a cost the spend counter couldn't record,
+printed as one spend_error line with the amount, with the photos finished kept (R126).
 
 MS1's calls are used as on main, positionally: blur_for_meta(data) and
 MetaClient.segment(image, phrase). save_result re-implements run_probe.save_sam, since
@@ -52,6 +59,9 @@ from pathlib import Path
 import numpy as np
 
 from lusot_analysis.face_blur import BlurredImage, UndecodableImage, blur_for_meta
+
+# check_before_paying is a seam: tests replace it, as they pass make_client (C527).
+from lusot_analysis.laptop_spend import CountedClient, check_before_paying
 from lusot_analysis.meta_client import (
     MetaApiError,
     MetaClient,
@@ -60,6 +70,7 @@ from lusot_analysis.meta_client import (
 )
 
 PHRASES = ("vehicle", "wheel", "wheel rim")
+SPEND_SOURCE = "set_b_masks"  # its name on MS4's spend counter (C527)
 WATER_PHRASE = "floodwater"
 # SAM's price per image, from dev.meta.ai on Oct 26, as run_probe has it.
 USD_PER_CALL = 0.0025
@@ -358,27 +369,35 @@ def _run(argv: Sequence[str] | None, make_client: Callable[[], MetaClient]) -> i
     # A run stopped between a folder's meta.json and the files.txt merge left that
     # folder unlisted, so the finished folders are merged again: a no-op when listed.
     write_files_txt(out, [path for folder in finished for path in _written(folder)])
-    # 6. The client, made only when there is a call to make, then the calls in turn.
+    # 6. MS4's spend counter and the client, read and made only when there is a call
+    # to make, then the calls in turn. Each photo's or crop's calls are recorded once
+    # its files are listed, and calls paid for before a stop as it stops (C527).
+    spend = check_before_paying() if jobs else None
     started = time.monotonic()
     try:
-        client = make_client() if jobs else None
+        client = CountedClient(make_client()) if jobs else None
     except MissingApiKey as error:
         print(f"stopped: {type(error).__name__}", file=sys.stderr)
         return 2
     photos, skipped, calls = 0, len(skips), 0
-    for label, path, folder, send in jobs:
-        try:
-            calls += send(client, path.read_bytes(), folder)
-        except UndecodableImage:  # it doesn't decode, or a side is 32 px or less
-            print(f"{label} skipped: undecodable")
-            skipped += 1
-            continue
-        except MetaApiError as error:  # DeadlineExceeded too, once MS3a merges
-            status = f"status={error.status}"
-            print(f"stopped: {type(error).__name__} {status}", file=sys.stderr)
-            return 1
-        write_files_txt(out, _written(folder))
-        photos += 1
+    try:
+        for label, path, folder, send in jobs:
+            try:
+                calls += send(client, path.read_bytes(), folder)
+            except UndecodableImage:  # it doesn't decode, or a side is 32 px or less
+                print(f"{label} skipped: undecodable")
+                skipped += 1
+                continue
+            except MetaApiError as error:  # DeadlineExceeded too, once MS3a merges
+                status = f"status={error.status}"
+                print(f"stopped: {type(error).__name__} {status}", file=sys.stderr)
+                return 1
+            write_files_txt(out, _written(folder))
+            spend.record_after(client.take(), SPEND_SOURCE)
+            photos += 1
+    finally:
+        if client is not None:
+            spend.record_after(client.take(), SPEND_SOURCE)
     seconds = time.monotonic() - started
     print(f"photos={photos} skipped={skipped} sam_calls={calls} seconds={seconds:.1f}")
     return 0
