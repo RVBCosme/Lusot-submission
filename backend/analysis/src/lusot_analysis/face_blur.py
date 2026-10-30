@@ -147,6 +147,16 @@ def detect_faces(
     return boxes
 
 
+def blur_area(face: FaceBox, margin: float = MARGIN) -> tuple[int, int, int, int]:
+    """Where `face` is blurred: (x0, y0, x1, y1), half-open and not clipped.
+
+    The box grows by ceil(w * margin) px left and right, and ceil(h * margin) px up
+    and down. blur_faces clips it to the image; annotate and the probe use it as is.
+    """
+    dx, dy = math.ceil(face.w * margin), math.ceil(face.h * margin)
+    return face.x - dx, face.y - dy, face.x + face.w + dx, face.y + face.h + dy
+
+
 def blur_faces(
     bgr: np.ndarray, faces: Sequence[FaceBox], *, margin: float = MARGIN
 ) -> np.ndarray:
@@ -157,9 +167,8 @@ def blur_faces(
     out = bgr.copy()
     height, width = out.shape[:2]
     for face in faces:
-        dx, dy = math.ceil(face.w * margin), math.ceil(face.h * margin)
-        x0, y0 = max(0, face.x - dx), max(0, face.y - dy)
-        x1, y1 = min(width, face.x + face.w + dx), min(height, face.y + face.h + dy)
+        x0, y0, x1, y1 = blur_area(face, margin)
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(width, x1), min(height, y1)
         if x0 >= x1 or y0 >= y1:
             continue
         # Pixelate to a grid of about PIXELATE_CELLS a side, then smooth it with an odd
