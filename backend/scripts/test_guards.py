@@ -297,7 +297,8 @@ def test_scripts_refuse_a_sealed_data_dir(tmp_path, monkeypatch, capsys, script,
 def test_scripts_print_counts_and_ids_only(tmp_path, monkeypatch, capsys):
     data = data_folder(
         tmp_path / "data",
-        open_rows=[open_row("OL001", 1)],
+        # Slugs, as the open manifest holds them: samples.py refuses any other place.
+        open_rows=[open_row("OL001", 1, place="manila", event="rain")],
         consent_rows=[consent_row("S001", 2)],
     )
     commons_folder(data, [f"Flood_in_Manila_{n:02d}.jpg" for n in range(5)])

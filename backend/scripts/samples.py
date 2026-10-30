@@ -20,15 +20,20 @@
   refused seed is skipped under refused, a failed one under failed, and one without a
   copy under no_copy. Its last line gives how many candidates it was given and how
   many qualified. Set A photos never become samples. The entry's credit ends with the
-  sample note (guards.SAMPLE_CHANGE_NOTE: the photo has no outlines), and its place and
-  event are display words, not the open manifest's slugs (PLACE_WORDS, EVENT_WORDS). A
-  slug with no words is refused before any run, under unmapped_slug.
+  sample note (guards.SAMPLE_CHANGE_NOTE: the photo has no outlines). An open-licensed
+  source's place and event become display words (PLACE_WORDS, EVENT_WORDS): the value
+  must be a table key, "unknown" in any case (the field is left out) or empty, and any
+  other is refused before any run, under unmapped_slug. A consented photo's place text
+  is shown verbatim, never through the table.
 - `relabel`: rewrites the listed samples' credit note and place and event as the seed
   now writes them, with no re-seed and no Meta call. Each entry is recomputed from its
-  source, found through lusot-data's source notes and the allow-list; one with no source
-  has only its credit's trailing note changed. It refuses (exit 2) before any write if a
-  slug in the manifest or a source has no words, writes the manifest only if something
-  changed, and prints how many entries it read, changed and left unchanged.
+  source, found through lusot-data's source notes and the allow-list; a notes row counts
+  only if its source id gives the sample's id. An entry with no source gets its credit's
+  trailing note changed and its table slugs mapped, and nothing else. It refuses (exit
+  2) before any write if an open-licensed source's place or event has no words. Before
+  it writes, it says how many entries had no source and how many credit lines changed
+  beyond the note (expect 0). It writes the manifest only if something changed, and
+  prints how many entries it read, changed and left unchanged.
 - `remove [sampleId]`: one sample's manifest entry, photo and source note, as when a
   donor withdraws (MS10's P6), or with no id every samples/ object, the manifest
   included, and every source note.
@@ -111,27 +116,41 @@ EVENT_WORDS = {
     "high-tide": "High tide",
 }
 WORDS = {"place": PLACE_WORDS, "event": EVENT_WORDS}
-SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 
 
 class UnmappedSlug(Exception):
-    """A place or event slug with no approved display words; its message is the slug."""
+    """An open-licensed source's place or event with no approved display words. Its
+    message is the value, and `name` says whether it is the place or the event."""
+
+    def __init__(self, name: str, slug: str):
+        super().__init__(slug)
+        self.name, self.slug = name, slug
 
 
-def display_words(words: dict[str, str], value: str) -> str:
-    """The words a place or event is shown as, or "" to leave the field out.
+def is_unknown(value: str) -> bool:
+    return value.strip().casefold() == "unknown"
 
-    A slug becomes its words; "unknown" becomes "". A value that isn't slug-shaped, a
-    consented photo's place text or words already shown, passes through, so running
-    this twice changes nothing. A slug outside the table raises UnmappedSlug.
-    """
-    if value == "unknown":
+
+def open_words(name: str, value: str) -> str:
+    """An open-licensed source's place or event as a sample shows it, "" to leave the
+    field out. The open manifest holds slugs only, so the value must be a key of the
+    table, "unknown" in any case, or nothing. Any other raises UnmappedSlug: it is text
+    nobody has reviewed, and none is passed through."""
+    if value == "" or is_unknown(value):
         return ""
-    if value in words:
-        return words[value]
-    if SLUG.fullmatch(value):
-        raise UnmappedSlug(value)
-    return value
+    if value in WORDS[name]:
+        return WORDS[name][value]
+    raise UnmappedSlug(name, value)
+
+
+def known_words(name: str, value: str) -> str:
+    """An entry's stored place or event as a sample shows it, when its source can't be
+    found to say what kind it is: a table key becomes its words, and "unknown" becomes
+    "" (the field is left out). Anything else, the words already shown, a donor's place
+    text or a slug with no words, stays as it is."""
+    if is_unknown(value):
+        return ""
+    return WORDS[name].get(value, value)
 
 
 def sample_id(source_id: str) -> str:
@@ -259,13 +278,20 @@ def skipped(name: str, reasons: Counter) -> str:
     return f"{name} {total} ({counts(reasons)})" if total else f"{name} 0"
 
 
+def shown_word(source: Source, name: str) -> str:
+    """The source's place or event as a sample shows it; "" leaves the field out.
+
+    An open-licensed source holds slugs, so its value goes through the table
+    (open_words, which raises UnmappedSlug for anything else). A consented photo's
+    place text is its donor's own words, shown verbatim and never through the table.
+    """
+    value = getattr(source, name)
+    return open_words(name, value) if source.kind == "open" else value
+
+
 def shown_words(source: Source) -> tuple[str, str]:
-    """The source's place and event as a sample shows them; "" leaves a field out.
-    UnmappedSlug if either is a slug with no approved words."""
-    return (
-        display_words(PLACE_WORDS, source.place),
-        display_words(EVENT_WORDS, source.event),
-    )
+    """The source's place and event, as shown. UnmappedSlug if either has no words."""
+    return shown_word(source, "place"), shown_word(source, "event")
 
 
 def manifest_entry(sid: str, source: Source, final: dict, saved_at: str) -> dict:
@@ -411,31 +437,45 @@ def relabel_samples(session) -> int:
             say(f"refused: {name} slug outside the table: {slug}")
         return 2  # before any write
     changed = sum(new != old for new, old in zip(relabelled, entries, strict=True))
+    # What the operator must see before the manifest is written.
+    without = sum(entry.get("sampleId") not in sources for entry in entries)
+    if without:
+        say(
+            f"relabel: {without} entries have no source on the allow-list; only their"
+            " change note and table slugs are rewritten"
+        )
+    beyond = sum(
+        credit_line(new.get("credit", "")) != credit_line(old.get("credit", ""))
+        for new, old in zip(relabelled, entries, strict=True)
+    )
+    say(f"relabel: {beyond} entries have a credit line that changed beyond the note")
     if changed:
         write_manifest(s3, stack.bucket, {"version": 1, "samples": relabelled})
     say(
         f"relabel: {len(entries)} entries read, {changed} changed,"
         f" {len(entries) - changed} unchanged"
     )
-    without = sum(entry.get("sampleId") not in sources for entry in entries)
-    if without:
-        say(
-            f"relabel: {without} entries have no source on the allow-list; only their"
-            " change note is rewritten"
-        )
     return 0
+
+
+def credit_line(credit: str) -> str:
+    """A credit without its change note, the old one or the sample one."""
+    return credit.removesuffix(CHANGE_NOTE).removesuffix(SAMPLE_CHANGE_NOTE)
 
 
 def listed_sources(entries: list[dict]) -> dict[str, Source]:
     """The allowed source of each listed sample, by sample id, found through its row in
-    lusot-data's source notes. A sample with no row, or whose source is no longer
-    allowed, is left out."""
+    lusot-data's source notes. A sample with no row, whose row names a source that
+    doesn't give the sample's id (a hand edit, a merged file), or whose source is no
+    longer allowed, is left out: a wrong row would credit one photo to another's
+    author, beside its own licence."""
     notes = read_notes(notes_path())
-    wanted = {
-        entry["sampleId"]: notes[entry["sampleId"]]["source_id"]
-        for entry in entries
-        if entry.get("sampleId") in notes
-    }
+    wanted = {}
+    for entry in entries:
+        sid = entry.get("sampleId")
+        row = notes.get(sid)
+        if row is not None and sample_id(row["source_id"]) == sid:
+            wanted[sid] = row["source_id"]
     found, _ = allowed_sources(wanted.values(), approved_m9_versions())
     return {sid: found[src] for sid, src in wanted.items() if src in found}
 
@@ -445,28 +485,26 @@ def relabelled_entry(
 ) -> dict:
     """The entry with the sample note, and its place and event as display words.
 
-    Recomputed from its source when it has one. Without one only the credit's trailing
-    note changes. A slug with no words, in the entry or its source, is added to
-    `unmapped`, and the value is left as it is.
+    Recomputed from its source when it has one. A value of an open-licensed source with
+    no words is added to `unmapped`, and the entry's value is left as it is. Without a
+    source, the credit's trailing note changes, and a stored place or event that is a
+    table slug becomes its words (known_words); nothing else changes.
     """
-
-    def shown(name: str, value: str) -> str:
-        try:
-            return display_words(WORDS[name], value)
-        except UnmappedSlug:
-            unmapped.add((name, value))
-            return value
-
-    for name in WORDS:
-        if name in entry:
-            shown(name, entry[name])  # the manifest's own value is checked too
     credit = entry.get("credit", "")
     if credit.endswith(CHANGE_NOTE):
         credit = credit.removesuffix(CHANGE_NOTE) + SAMPLE_CHANGE_NOTE
     words = {}
-    if source is not None:
+    if source is None:
+        words = {
+            name: known_words(name, entry[name]) for name in WORDS if name in entry
+        }
+    else:
         credit = source.credited(SAMPLE_CHANGE_NOTE)
-        words = {name: shown(name, getattr(source, name)) for name in WORDS}
+        for name in WORDS:
+            try:
+                words[name] = shown_word(source, name)
+            except UnmappedSlug as exc:
+                unmapped.add((exc.name, exc.slug))
     relabelled = {}
     for name, value in entry.items():
         if name == "credit":
