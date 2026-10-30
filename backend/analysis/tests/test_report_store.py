@@ -4,8 +4,12 @@ G2 and C46: a worker claims a report with a 15-minute lease before any Meta call
 writes the result only while its claim holds. Run against moto's DynamoDB.
 """
 
+import math
+from decimal import Decimal
+
 import boto3
 import pytest
+from boto3.dynamodb.types import TypeDeserializer
 from botocore.exceptions import ClientError
 from fakes import create_reports_table
 from moto import mock_aws
@@ -26,6 +30,28 @@ PENDING = KEY | {
     "capturedAt": {"S": CAPTURED_AT},
 }
 PHOTO_KEY = f"blurred/{REPORT_ID}.jpg"
+# Two readings as the overlay makes them (C507): a null level, a null pair of inches,
+# a bool, and a pair of floats.
+READINGS = [
+    {
+        "id": 1,
+        "kind": "body",
+        "landmark": "not_visible",
+        "level": None,
+        "inches": None,
+        "used": False,
+        "dropped": None,
+    },
+    {
+        "id": 2,
+        "kind": "wheel",
+        "landmark": "rim_quarter",
+        "level": "half_knee",
+        "inches": [7.7, 8.2],
+        "used": True,
+        "dropped": None,
+    },
+]
 
 
 @pytest.fixture
@@ -169,6 +195,72 @@ def test_writes_inches_as_numbers(ddb):
     }
 
 
+def test_writes_lists_nulls_and_numbers(ddb):
+    # C507: `readings` is a list of maps. A null is stored as NULL, a pair of floats
+    # as a list of numbers, and a tuple as a list.
+    seed(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    fields = Outcome.no_flood().item_fields() | {
+        "readings": READINGS,
+        "pair": (1, 2.5),
+    }
+    assert write_result(ddb, TABLE, KEY, "a", fields) is True
+    item = stored(ddb)
+    assert item["readings"] == {
+        "L": [
+            {
+                "M": {
+                    "id": {"N": "1"},
+                    "kind": {"S": "body"},
+                    "landmark": {"S": "not_visible"},
+                    "level": {"NULL": True},
+                    "inches": {"NULL": True},
+                    "used": {"BOOL": False},
+                    "dropped": {"NULL": True},
+                }
+            },
+            {
+                "M": {
+                    "id": {"N": "2"},
+                    "kind": {"S": "wheel"},
+                    "landmark": {"S": "rim_quarter"},
+                    "level": {"S": "half_knee"},
+                    "inches": {"L": [{"N": "7.7"}, {"N": "8.2"}]},
+                    "used": {"BOOL": True},
+                    "dropped": {"NULL": True},
+                }
+            },
+        ]
+    }
+    assert item["pair"] == {"L": [{"N": "1"}, {"N": "2.5"}]}
+    # And it reads back as it went in, numbers as decimals.
+    back = TypeDeserializer().deserialize(item["readings"])
+    assert back[1]["inches"] == [Decimal("7.7"), Decimal("8.2")]
+    assert (back[0]["level"], back[0]["used"], back[1]["id"]) == (None, False, 2)
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize(
+    "shape",
+    [lambda v: v, lambda v: [v], lambda v: {"a": [v]}],
+    ids=["bare", "in-list", "in-map"],
+)
+def test_non_finite_number_raises_before_the_write(ddb, monkeypatch, bad, shape):
+    # DynamoDB has no NaN or infinity. The update is built before it is sent, so a bad
+    # number leaves the report as it was, still processing under the claim.
+    seed(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    before = stored(ddb)
+    sent = []
+    monkeypatch.setattr(ddb, "update_item", lambda **kwargs: sent.append(kwargs))
+    fields = Outcome.no_flood().item_fields() | {"inches": shape(bad)}
+    with pytest.raises(ValueError):
+        write_result(ddb, TABLE, KEY, "a", fields)
+    assert sent == []
+    assert stored(ddb) == before
+    assert stored(ddb)["status"] == {"S": "processing"}
+
+
 @pytest.mark.parametrize(
     ("status", "reason"), [("refused", "too_dark"), ("failed", "model_error")]
 )
@@ -218,6 +310,21 @@ def test_a_repeated_write_is_its_own(ddb):
     assert write_result(ddb, TABLE, KEY, "b", fields) is False
     failed = Outcome.failed("model_error").item_fields()
     assert write_result(ddb, TABLE, KEY, "a", failed) is False
+    assert stored(ddb) == written
+
+
+def test_a_repeated_write_with_readings_is_its_own(ddb):
+    # C82: a repeat of a write that carries `readings` finds this worker's token and
+    # the status it wrote, so the check reads only those two, never the list.
+    seed(ddb)
+    assert claim(ddb, TABLE, KEY, "a", NOW_S) == "claimed"
+    fields = Outcome.no_flood().item_fields() | {"readings": READINGS}
+    assert write_result(ddb, TABLE, KEY, "a", fields) is True
+    written = stored(ddb)
+    assert write_result(ddb, TABLE, KEY, "a", fields) is True
+    assert stored(ddb) == written
+    # Another token never counts, with the same readings.
+    assert write_result(ddb, TABLE, KEY, "b", fields) is False
     assert stored(ddb) == written
 
 
