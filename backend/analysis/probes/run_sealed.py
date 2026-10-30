@@ -28,8 +28,10 @@ In order (MS6's C412):
    freeze-1, or freeze-2 for the one disclosed rerun (--rerun REASON). git runs with
    no GIT_ variable, untracked files shown whatever its settings say, and no file
    flagged assume-unchanged or skip-worktree, so no setting hides a change.
-4. The label words, from `python eval/run_eval.py --label-words` (MS6's C420): without
-   the harness, or when it fails, nothing is read.
+4. The label words, from `python eval/run_eval.py --label-words` (MS6's C420), and the
+   rules version, from its --rules-version, which must be --baseline's (MS6's C424),
+   so the baseline was scored by the frozen harness's rules: without the harness,
+   when it fails, or when the two versions differ, nothing in the folder is read.
 5. The inputs, through export's path-free parsers (C315, C327). A file that breaks its
    format is named by its kind, and by its row where the parser names one, never by a
    cell's text. Every photo and crop must be there before anything is paid for. Then
@@ -50,10 +52,12 @@ In order (MS6's C412):
    into outputs\<RUN>\retry\, and counted; an invalid answer is never sent again
    (MS6E-Q6, default (a)). Three such sends in a row stop the run, as a lost
    connection would. A crop or Set D photo failed twice is exported with every
-   variant of its wheels unmeasured as model_error.
+   variant of its wheels unmeasured as model_error, and sam_water_found null.
 8. The export, once the run is complete: run.json, set_a.jsonl, a_neg.jsonl and, when
    they exist, set_b.jsonl and set_d.jsonl, through export's rows (MS6's §4.3), each
-   configuration from replays of the saved outputs (C309, C315). --results defaults
+   configuration from replays of the saved outputs (C309, C315). run.json's
+   service_retries counts the photos, crops and Set D photos retried in the whole
+   run, resumes included (MS6E-Q6). --results defaults
    to the repo's eval/results, or eval/results/rerun with --rerun (MS6's C421); MS6's
    loader needs a rerun's folder named rerun, and only a rerun's.
 
@@ -68,10 +72,10 @@ twice. A resume must give the run's own settings.
 It prints counts and timings only: never a photo's name, a path, a label, an answer,
 a reason or a key, and every line masks runs of 12 digits.
 
-Exit codes: 0 exported; 2 refused (a path, the console, the freeze, the harness, an
-input, another window's run, a no, a missing or rejected key); 3 a stop or a failure,
-printed as its cause or its error's class only (R110). argparse's own usage errors
-exit 2 too.
+Exit codes: 0 exported; 2 refused (a path, the console, the freeze, the harness or its
+rules version, an input, another window's run, a no, a missing or rejected key); 3 a
+stop or a failure, printed as its cause or its error's class only (R110). argparse's
+own usage errors exit 2 too.
 """
 
 from __future__ import annotations
@@ -153,6 +157,10 @@ LOCK = "run.lock"  # in <folder>/outputs: held by the one window running
 LOCK_REFUSAL = (
     "another window is running this folder's run: let it end or close it, then resume"
 )
+RULES_REFUSAL = (
+    "--baseline's rules version isn't the frozen harness's; rerun the development"
+    " report on this freeze first"
+)
 # The freeze check's status: untracked files shown, whatever git's settings say.
 STATUS = (
     "-c",
@@ -232,15 +240,12 @@ def read_git(args: Sequence[str]) -> str | None:
     return done.stdout.strip() if done.returncode == 0 else None
 
 
-def label_words() -> frozenset[str]:
-    """The words a committed label may hold, as `eval/run_eval.py --label-words`
-    prints them, run once as a subprocess (MS6's C420). Without the harness, or when
-    it fails or prints no word, the run is refused."""
-    if not RUN_EVAL.is_file():
-        _refuse("the harness isn't on this branch, so the labels can't be checked")
+def _harness(flag: str) -> str | None:
+    """What `eval/run_eval.py <flag>` prints, run once as a subprocess, or None when
+    it can't be run or fails."""
     try:
         done = subprocess.run(
-            [sys.executable, "-I", "-B", str(RUN_EVAL), "--label-words"],
+            [sys.executable, "-I", "-B", str(RUN_EVAL), flag],
             capture_output=True,
             text=True,
             timeout=60,
@@ -248,11 +253,37 @@ def label_words() -> frozenset[str]:
             check=False,  # its exit code is read below
         )
     except (OSError, subprocess.SubprocessError):
-        done = None
-    words = frozenset(done.stdout.split()) if done is not None else frozenset()
-    if done is None or done.returncode != 0 or not words:
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def label_words() -> frozenset[str]:
+    """The words a committed label may hold, as `eval/run_eval.py --label-words`
+    prints them, run once as a subprocess (MS6's C420). Without the harness, or when
+    it fails or prints no word, the run is refused."""
+    if not RUN_EVAL.is_file():
+        _refuse("the harness isn't on this branch, so the labels can't be checked")
+    printed = _harness("--label-words")
+    words = frozenset(printed.split()) if printed is not None else frozenset()
+    if not words:
         _refuse("the harness's --label-words gave no words")
     return words
+
+
+def rules_version() -> str:
+    """The rules version the frozen harness scores, as `eval/run_eval.py
+    --rules-version` prints it, run once as a subprocess, stripped of its line end
+    (Windows' is \\r\\n). Without the harness, or when it fails or prints nothing, the
+    run is refused."""
+    if not RUN_EVAL.is_file():
+        _refuse(
+            "the harness isn't on this branch, so the rules version can't be checked"
+        )
+    printed = _harness("--rules-version")
+    version = printed.strip() if printed is not None else ""
+    if not version:
+        _refuse("the harness's --rules-version gave no version")
+    return version
 
 
 def main(
@@ -316,10 +347,13 @@ def _run(
             "--results must be a folder named rerun for the rerun, and only then"
             " (MS6's C421)"
         )
-    # 3. The freeze. 4. The label words. Then the settings run.json records.
+    # 3. The freeze. 4. The label words, the settings run.json records, and the
+    # harness's rules version, which must be --baseline's (MS6's C424).
     freeze = _freeze(git, run_name)
     words = label_words()
     settings = _settings(args)
+    if rules_version() != settings["rules_version"]:
+        _refuse(RULES_REFUSAL)
     # 5. The inputs, and the run's state.
     if not folder.is_dir():
         _refuse("the folder given isn't there")
@@ -423,7 +457,8 @@ def _locked_run(
                 f" resume with --resume {run_name}"
             )
             return 3
-        written = _export(inputs, outputs, results, state, prompt, tuning)
+        retried = _retried(inputs, outputs)
+        written = _export(inputs, outputs, results, state, prompt, tuning, retried)
     except (ModelKeyRejected, MetaApiError) as exc:
         status = exc.status
         if isinstance(exc, ModelKeyRejected) or status in KEY_REJECTED_STATUSES:
@@ -444,8 +479,6 @@ def _locked_run(
     _write_json(outputs / STATE, state)
 
     seconds = time.monotonic() - started
-    retried = sum(_saved(_retry_dir(outputs, photo)) for photo in inputs.photos)
-    retried += sum(_saved(_item_retry_dir(outputs, item)) for item in inputs.items)
     say(
         f"sent: {tally['photos']} to the pipeline, {tally['items']} to SAM alone;"
         f" service failures retried: {retried}"
@@ -886,6 +919,13 @@ def _item_to_retry(outputs: Path, item: Item) -> bool:
     return "meta_status" in record
 
 
+def _retried(inputs: Inputs, outputs: Path) -> int:
+    """MS6E-Q6's count for the whole run, resumes included: the photos and the Set B
+    crops and Set D photos whose one retry is saved."""
+    retried = sum(_saved(_retry_dir(outputs, photo)) for photo in inputs.photos)
+    return retried + sum(_saved(_item_retry_dir(outputs, i)) for i in inputs.items)
+
+
 def _set_aside(folder: Path) -> None:
     """Move aside a folder a stop left without its whole record, so the item is sent
     again into a new one. Nothing is deleted."""
@@ -997,11 +1037,13 @@ def _export(
     state: Mapping,
     prompt: PromptSpec,
     tuning: Tuning,
+    service_retries: int,
 ) -> dict[str, int]:
-    """run.json and the rows, from the saved outputs, into `results`. Each photo's
-    or item's retry, when it has one, is its result: an item Meta's service failed
-    twice has every variant of its wheels unmeasured as model_error, and no water
-    found. It returns each file's row count."""
+    """run.json, with `service_retries` (MS6E-Q6), and the rows, from the saved
+    outputs, into `results`. Each photo's or item's retry, when it has one, is its
+    result: an item Meta's service failed twice has every variant of its wheels
+    unmeasured as model_error, and a null sam_water_found, as it was never answered.
+    It returns each file's row count."""
     settings = state["settings"]
     dropped = settings["geometry_default"] == "dropped"
     configurations = {"landmark": False} if dropped else export.CONFIGURATIONS
@@ -1043,7 +1085,7 @@ def _export(
         for row in inputs.set_b:
             found, brightness = sam["set_b", row.crop_id]
             if found is None:
-                estimates, water = _model_error(export.SET_B_VARIANTS), False
+                estimates, water = _model_error(export.SET_B_VARIANTS), None
             else:
                 estimates = export.wheel_estimates(
                     row, found, brightness, tuning=tuning
@@ -1055,7 +1097,7 @@ def _export(
         for row in inputs.set_d:
             found, brightness = sam["set_d", row.photo_id]
             if found is None:
-                estimates, water = _model_error(export.SET_D_VARIANTS), False
+                estimates, water = _model_error(export.SET_D_VARIANTS), None
             else:
                 estimates = export.set_d_estimates(
                     row, found, brightness, tuning=tuning
@@ -1077,6 +1119,7 @@ def _export(
         stops=state["stops"],
         rerun_reason=state["rerun_reason"],
         self_check_decided=settings["self_check_decided"],
+        service_retries=service_retries,
     )
     results.mkdir(parents=True, exist_ok=True)
     _write(results / RECORD, json.dumps(manifest, indent=2) + "\n")

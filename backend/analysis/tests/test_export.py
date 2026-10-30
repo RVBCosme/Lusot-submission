@@ -571,6 +571,7 @@ def test_parsers_take_text_not_paths():
         stops=stops,
         rerun_reason="fix_for_a_depth_output",
         self_check_decided="2026-10-31",
+        service_retries=2,
         **common,
     )
     assert sealed["kind"] == "sealed"
@@ -579,6 +580,7 @@ def test_parsers_take_text_not_paths():
     assert sealed["stops"] == stops
     assert sealed["rerun_reason"] == "fix_for_a_depth_output"
     assert sealed["self_check_decided"] == "2026-10-31"
+    assert sealed["service_retries"] == 2
     development = export.results_manifest(**common)
     assert development["kind"] == "development"
     for key in (
@@ -588,6 +590,7 @@ def test_parsers_take_text_not_paths():
         "stops",
         "rerun_reason",
         "self_check_decided",
+        "service_retries",
     ):
         assert key not in development
     assert {key: development[key] for key in ("self_check", "geometry_default")} == {
@@ -601,6 +604,45 @@ def test_parsers_take_text_not_paths():
         export.results_manifest(kind="sealed", **common)
     with pytest.raises(ValueError, match="development"):
         export.results_manifest(freeze_commit=commit, **common)
+
+
+def test_a_sealed_run_json_counts_its_service_retries():
+    # MS6E-Q6: MS6's loader refuses a sealed run.json without service_retries, a
+    # whole number of 0 or more, so it is refused here first; a development
+    # run.json leaves it out.
+    development = {
+        "date": "2026-11-03",
+        "rules_version": "0.6",
+        "tuning": START,
+        "saved_run": {
+            "models": {"sam": "sam-3.1", "spark": "muse-spark-1.3"},
+            "prompt_version": "muse_spark_photo_v1",
+            "schema_name": "muse_spark_photo_v1",
+            "blur_version": "blur-v",
+            "phrases": list(READING_PHRASES),
+        },
+        "geometry_default": "on",
+        "dropped_reason": None,
+        "datasets": {"set_a": {"version": "v1", "split_seed": "7"}},
+    }
+    sealed = development | {
+        "kind": "sealed",
+        "freeze_commit": "0123456789abcdef" * 2 + "01234567",
+        "baseline": {"baseline_level": "knee", "baseline_class": "NPLV"},
+        "self_check_decided": "2026-10-31",
+    }
+    for count in (0, 1, 7):
+        written = export.results_manifest(service_retries=count, **sealed)
+        assert written["service_retries"] == count
+        assert type(written["service_retries"]) is int
+    with pytest.raises(ValueError, match="service_retries"):
+        export.results_manifest(**sealed)
+    for value in (None, -1, True, False, 1.0, "1"):
+        with pytest.raises(ValueError, match="service_retries"):
+            export.results_manifest(service_retries=value, **sealed)
+    assert "service_retries" not in export.results_manifest(**development)
+    with pytest.raises(ValueError, match="development"):
+        export.results_manifest(service_retries=0, **development)
 
 
 @pytest.mark.parametrize(

@@ -513,14 +513,17 @@ def results_manifest(
     stops: Sequence[Mapping] = (),
     rerun_reason: str | None = None,
     self_check_decided: str | None = None,
+    service_retries: int | None = None,
 ) -> dict:
     """run.json, in MS6's names (its §4.3).
 
     - `kind`, the Manila `date` and `rules_version`
     - for a sealed run (Task 19): `freeze_commit`, `baseline_level` and
       `baseline_class` from `baseline` (the last development report's summary.json
-      names them so, MS6's C424), `stops` (C419) and a rerun's `rerun_reason`
-      (C421). It needs the first three. A development run carries none of these.
+      names them so, MS6's C424), `stops` (C419), `service_retries` (MS6E-Q6: the
+      run's photos and items sent once more after Meta's service failed them, a
+      whole number of 0 or more) and a rerun's `rerun_reason` (C421). It needs the
+      first three and `service_retries`. A development run carries none of these.
     - `frozen` (v0.7 item 10.1): the models, the prompt and schema, the drawing, the
       blur, `store`, `max_side`, the SAM phrases sent, the tuning version, every
       numeric Tuning field under its own name (k among them, so a `--set`
@@ -541,10 +544,21 @@ def results_manifest(
             "a sealed run.json needs the freeze commit, the baseline pair and the"
             " self-check's decision"
         )
-    sealed_only = (freeze_commit, baseline, rerun_reason)
+    counted = (
+        isinstance(service_retries, int)
+        and not isinstance(service_retries, bool)
+        and service_retries >= 0
+    )
+    if sealed and not counted:
+        raise ValueError(
+            "a sealed run.json needs service_retries, a whole number of 0 or more"
+            " (MS6E-Q6)"
+        )
+    sealed_only = (freeze_commit, baseline, rerun_reason, service_retries)
     if not sealed and (stops or any(value is not None for value in sealed_only)):
         raise ValueError(
-            "a development run.json carries no freeze commit, baseline, stop or rerun"
+            "a development run.json carries no freeze commit, baseline, stop, rerun"
+            " or service_retries"
         )
     if (geometry_default == "dropped") != (dropped_reason is not None):
         raise ValueError("a dropped geometry, and only it, has a reason (MS6's C418)")
@@ -589,6 +603,7 @@ def results_manifest(
         manifest["baseline_level"] = baseline["baseline_level"]
         manifest["baseline_class"] = baseline["baseline_class"]
         manifest["stops"] = [dict(stop) for stop in stops]
+        manifest["service_retries"] = service_retries
         if rerun_reason is not None:
             manifest["rerun_reason"] = rerun_reason
     return manifest
@@ -797,11 +812,13 @@ def k_estimate(ratios_by_car: Mapping[str, Sequence[float]]) -> float | None:
 
 
 def set_b_row(
-    row: WheelRow, estimates: Mapping[str, Mapping], sam_water_found: bool
+    row: WheelRow, estimates: Mapping[str, Mapping], sam_water_found: bool | None
 ) -> dict:
     """One set_b.jsonl row, in MS6's names (its §4.3 and C423): the row's ids, its
-    true type, tire code and depth, whether SAM found any water in the crop, MS2's
-    `view` and `size_bin` as `bins` under those names, and the `estimates`."""
+    true type, tire code and depth, whether SAM found any water in the crop (None
+    when Meta's service failed its send and its one retry, so every estimate is
+    model_error, MS6E-Q6), MS2's `view` and `size_bin` as `bins` under those names,
+    and the `estimates`."""
     return {
         "crop_id": row.crop_id,
         "wheel": row.wheel,
@@ -905,12 +922,13 @@ def set_d_estimates(
 
 
 def set_d_row(
-    row: SetDRow, estimates: Mapping[str, Mapping], sam_water_found: bool
+    row: SetDRow, estimates: Mapping[str, Mapping], sam_water_found: bool | None
 ) -> dict:
     """One set_d.jsonl row, in MS6's Set B names (its §4.3): the photo's id as its
     `crop_id` and, as Set D has no car id, its `car_id`; the wheel, 1 for left and 2
     for right; the true type and tire code; the ruler depth as `true_depth_in`;
-    whether SAM found any water; and the `estimates`. Set D has no bins."""
+    whether SAM found any water, None as set_b_row has it; and the `estimates`. Set
+    D has no bins."""
     return {
         "crop_id": row.photo_id,
         "wheel": _SET_D_WHEELS[row.wheel],

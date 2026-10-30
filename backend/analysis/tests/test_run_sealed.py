@@ -5,8 +5,9 @@ is synthetic, not sealed data, and no one opens it by hand. No test reads lusot-
 a real sealed folder, every export goes to a --results folder under tmp_path, and
 FakeClient stands in for Meta, so no test makes a Meta call. git, the console and
 Rene's answers are fakes passed to main, but for one test that reads a real git repo
-under tmp_path. The harness's --label-words comes from a stand-in script that prints
-WORDS, so a test never runs the harness but where it checks WORDS against it.
+under tmp_path. The harness's --label-words and --rules-version come from a stand-in
+script that prints WORDS and RULES, so a test never runs the harness but where it
+checks them against it.
 
 MS2's guard copies are on this branch (probes/set_b_masks.py), so run_sealed uses them
 as they are and makes no copies: there is no parity test to run (R132).
@@ -89,6 +90,12 @@ WORDS = [
     "vehicles",
     "waist",
 ]
+# The stand-in harness's rules version, which write_summary's --baseline names too.
+RULES = "0.6"
+RULES_REFUSAL = (
+    "refused: --baseline's rules version isn't the frozen harness's; rerun the"
+    " development report on this freeze first\n"
+)
 # MS2's columns (its formats.py and §5.9), written out: backend/analysis can't import
 # eval/.
 MANIFEST_COLUMNS = (
@@ -226,6 +233,7 @@ SEALED_RUN_FIELDS = {
     "geometry_default",
     "baseline_level",
     "baseline_class",
+    "service_retries",
 }
 OPTIONAL_RUN_FIELDS = {"stops", "rerun_reason", "geometry_dropped_reason"}
 # --datasets, in MS6's shape: each set's MS2 version and split seed.
@@ -267,20 +275,33 @@ def fail(*_args, **_kwargs):
     raise AssertionError("called before the checks before it passed")
 
 
-@pytest.fixture(autouse=True)
-def offline(tmp_path, monkeypatch):
-    """No key, no real client, and the stand-in harness for --label-words."""
-    monkeypatch.delenv("MODEL_API_KEY", raising=False)
-    monkeypatch.setattr(tool.runner, "make_client", fail)
-    script = tmp_path / "harness" / "eval" / "run_eval.py"
-    script.parent.mkdir(parents=True)
+def stand_in(script: Path, version: str | None = RULES) -> None:
+    """A stand-in eval/run_eval.py at `script`: --label-words prints WORDS, and
+    --rules-version prints `version` and Windows' line end, on every OS. With
+    `version` None it knows no --rules-version, as an older harness wouldn't, and
+    exits 2, as argparse would."""
+    script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text(
         "import sys\n"
         f"WORDS = {WORDS!r}\n"
+        f"VERSION = {version!r}\n"
         "if sys.argv[1:] == ['--label-words']:\n"
-        "    print('\\n'.join(WORDS))\n",
+        "    print('\\n'.join(WORDS))\n"
+        "elif sys.argv[1:] == ['--rules-version'] and VERSION is not None:\n"
+        "    sys.stdout.buffer.write(VERSION.encode() + b'\\r\\n')\n"
+        "else:\n"
+        "    sys.exit(2)\n",
         encoding="utf-8",
     )
+
+
+@pytest.fixture(autouse=True)
+def offline(tmp_path, monkeypatch):
+    """No key, no real client, and the stand-in harness."""
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    monkeypatch.setattr(tool.runner, "make_client", fail)
+    script = tmp_path / "harness" / "eval" / "run_eval.py"
+    stand_in(script)
     monkeypatch.setattr(tool, "RUN_EVAL", script)
 
 
@@ -535,7 +556,7 @@ def write_summary(tmp_path: Path, **fields) -> Path:
     summary.parent.mkdir(parents=True, exist_ok=True)
     content = {
         "kind": "development",
-        "rules_version": "0.6",
+        "rules_version": RULES,
         "baseline_level": "knee",
         "baseline_class": "NPLV",
     } | fields
@@ -736,7 +757,7 @@ def test_refuses_a_console_stdout_with_another_stdin(tmp_path, monkeypatch, caps
     # git, the harness, the summary, the folder or any prompt is reached.
     sealed = write_sealed(tmp_path)
     results = tmp_path / "results"
-    for reader in ("label_words", "_settings", "_read_inputs"):
+    for reader in ("label_words", "_settings", "rules_version", "_read_inputs"):
         monkeypatch.setattr(tool, reader, fail)
     asked = []
 
@@ -1089,6 +1110,7 @@ def test_service_failure_is_retried_once(tmp_path, capsys):
     assert run(sealed, results, made=[fake])[0] == 0
     out = capsys.readouterr().out
     assert "service failures retried: 1" in out
+    assert read_json(results / "run.json")["service_retries"] == 1
     assert calls(fake, "judge") == 4
     assert fake.answers == []
     assert (sealed.outputs() / "retry" / "set_a" / "A101" / "run.json").is_file()
@@ -1214,7 +1236,8 @@ SAM_ALONE = {
 def test_an_item_meta_fails_is_retried_once(tmp_path, capsys, kind):
     # A Set B crop or a Set D photo whose send fails at Meta's service (a 400 on
     # every call) is saved as failed, sent once more after the rest, and counted
-    # (MS6E-Q6, (a)). Failing again, its wheels are unmeasured as model_error.
+    # (MS6E-Q6, (a)). Failing again, its wheels are unmeasured as model_error, and
+    # whether SAM found water is null.
     key, rows = SAM_ALONE[kind]
     variants = export.SET_B_VARIANTS if kind == "set_b" else export.SET_D_VARIANTS
     sealed = write_sealed(tmp_path / "down", **rows)
@@ -1232,7 +1255,8 @@ def test_an_item_meta_fails_is_retried_once(tmp_path, capsys, kind):
     assert len(exported) == 2
     for row in exported:
         assert row["estimates"] == dict.fromkeys(variants, MODEL_ERROR)
-        assert row["sam_water_found"] is False
+        assert row["sam_water_found"] is None  # never answered (MS6E-Q6)
+    assert read_json(results / "run.json")["service_retries"] == 1
     # A 400 once, then an answer: the retry's row is the row a clean run gives.
     clean = write_sealed(tmp_path / "clean", **rows)
     clean_results = tmp_path / "clean" / "results"
@@ -1247,6 +1271,8 @@ def test_an_item_meta_fails_is_retried_once(tmp_path, capsys, kind):
     retried = read_lines(results / f"{kind}.jsonl")
     assert retried == read_lines(clean_results / f"{kind}.jsonl")
     assert any(e["measured"] for row in retried for e in row["estimates"].values())
+    assert all(isinstance(row["sam_water_found"], bool) for row in retried)
+    assert read_json(results / "run.json")["service_retries"] == 1
 
 
 def test_item_service_failures_in_a_row_stop_the_run(tmp_path, capsys):
@@ -1267,9 +1293,34 @@ def test_item_service_failures_in_a_row_stop_the_run(tmp_path, capsys):
     assert run(sealed, results, "--resume", "freeze-1", made=[up])[0] == 0
     assert (calls(up, "segment"), calls(up, "judge")) == (3 * 3, 0)
     assert "service failures retried: 3" in capsys.readouterr().out
+    assert read_json(results / "run.json")["service_retries"] == 3  # the whole run's
     rows = read_lines(results / "set_d.jsonl")
     assert [row["crop_id"] for row in rows] == ["D01", "D02", "D03"]
     assert all(row["estimates"]["geometry"]["measured"] for row in rows)
+
+
+def test_service_retries_count_photos_and_items(tmp_path, capsys):
+    # MS6E-Q6's count is the whole run's, every set's (MS6's report, Window 4's
+    # word): A101's answer and the crop's first send fail at Meta's service, and
+    # each is sent once more. The count is 2, as printed.
+    sealed = write_sealed(tmp_path, set_b=[truth_row()])
+    results = tmp_path / "results"
+    fake = SamAloneFails(photos=3, failures=1, status=503)
+    given = fake.answer
+    first = [meta_error(503)]
+
+    def first_answer_fails():
+        fake.answer = first.pop() if first else given
+
+    fake.on_judge = first_answer_fails
+    assert run(sealed, results, made=[fake])[0] == 0
+    assert "service failures retried: 2" in capsys.readouterr().out
+    assert calls(fake, "judge") == 4
+    assert (sealed.outputs() / "retry" / "set_a" / "A101" / "run.json").is_file()
+    assert (sealed.outputs() / "retry" / "set_b" / "B02-1-1" / "run.json").is_file()
+    assert read_json(results / "run.json")["service_retries"] == 2
+    (row,) = read_lines(results / "set_b.jsonl")
+    assert isinstance(row["sam_water_found"], bool)
 
 
 def test_one_run_at_a_time(tmp_path, capsys):
@@ -1349,6 +1400,7 @@ def test_export_holds_only_the_row_contract(tmp_path, capsys):
     assert manifest["self_check_decided"] == "2026-10-31"
     assert (manifest["self_check"], manifest["geometry_default"]) == ("off", "on")
     assert manifest["stops"] == []
+    assert manifest["service_retries"] == 0  # a clean run (MS6E-Q6)
     assert manifest["datasets"] == DATASETS
     assert (
         manifest["frozen"]["sam_phrases"] == "floodwater,wheel,wheel rim,person,vehicle"
@@ -1486,6 +1538,66 @@ def test_a_resume_takes_the_run_s_own_settings(tmp_path, capsys):
     assert "the run started with other settings" in capsys.readouterr().out
 
 
+def test_the_rules_version_is_checked_before_paying(tmp_path, capsys):
+    # The stand-in prints 0.6 and \r\n, as Windows ends it. --baseline's 0.5 isn't
+    # the frozen harness's: refused before any client is built, any prompt asked or
+    # anything made under outputs/, and nothing printed names a path.
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    write_summary(tmp_path, rules_version="0.5")
+    assert run(sealed, results, made=[]) == (2, [])
+    out = capsys.readouterr().out
+    assert out.endswith(RULES_REFUSAL)
+    for path in (str(tmp_path), tmp_path.name, "summary.json", "run_eval"):
+        assert path not in out
+    assert not (sealed.root / "outputs").exists()
+    assert not results.exists()
+    # --baseline's 0.6 is the harness's: the run goes on.
+    write_summary(tmp_path, rules_version=RULES)
+    fake = photo_client()
+    assert run(sealed, results, made=[fake])[0] == 0
+    assert calls(fake, "judge") == 3
+    assert read_json(results / "run.json")["rules_version"] == RULES
+
+
+def test_the_rules_version_needs_the_harness(tmp_path, monkeypatch, capsys):
+    sealed = write_sealed(tmp_path)
+    results = tmp_path / "results"
+    no_version = "refused: the harness's --rules-version gave no version\n"
+    # An older harness, which knows no --rules-version, and one that prints a blank
+    # line: refused before anything is paid for or made.
+    for version in (None, " "):
+        stand_in(tool.RUN_EVAL, version)
+        assert run(sealed, results, made=[]) == (2, [])
+        assert capsys.readouterr().out.endswith(no_version)
+        assert not (sealed.root / "outputs").exists()
+
+    # One that can't be run.
+    def times_out(*args, **kwargs):
+        raise tool.subprocess.TimeoutExpired(cmd="run_eval.py", timeout=60)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(tool.subprocess, "run", times_out)
+        with pytest.raises(SystemExit) as refused:
+            tool.rules_version()
+    assert refused.value.code == 2
+    assert capsys.readouterr().out == no_version
+    # A missing harness: a run is refused at the label words, before the version,
+    # and the version's own check refuses it too.
+    monkeypatch.setattr(tool, "RUN_EVAL", tmp_path / "nowhere" / "run_eval.py")
+    assert run(sealed, results, made=[]) == (2, [])
+    assert "refused: the harness isn't on this branch" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as refused:
+        tool.rules_version()
+    assert refused.value.code == 2
+    assert capsys.readouterr().out == (
+        "refused: the harness isn't on this branch, so the rules version can't be"
+        " checked\n"
+    )
+    assert not (sealed.root / "outputs").exists()
+    assert not results.exists()
+
+
 def test_words_are_the_harness_s(monkeypatch):
     # The stand-in prints WORDS: they must be the words the real harness prints, run
     # as the tool runs it (MS6's C420).
@@ -1494,3 +1606,49 @@ def test_words_are_the_harness_s(monkeypatch):
         pytest.skip("eval/run_eval.py isn't in this tree")
     monkeypatch.setattr(tool, "RUN_EVAL", harness)
     assert sorted(tool.label_words()) == WORDS
+
+
+def test_the_rules_version_is_the_harness_s(tmp_path, monkeypatch):
+    # The real harness's --rules-version, run as the tool runs it, stripped, is a
+    # version the tool takes from --baseline's summary.json (MS6's C424).
+    harness = REPO / "eval" / "run_eval.py"
+    if not harness.is_file():
+        pytest.skip("eval/run_eval.py isn't in this tree")
+    monkeypatch.setattr(tool, "RUN_EVAL", harness)
+    version = tool.rules_version()
+    assert isinstance(version, str) and version and version == version.strip()
+    folder = tmp_path / "data" / "sealed" / "run-1"  # never reached
+    summary = write_summary(tmp_path, rules_version=version)
+    argv = argv_for(folder, summary, tmp_path / "results")
+    assert tool._settings(tool._parse(argv))["rules_version"] == version
+
+
+def test_the_harness_loads_a_sealed_export(tmp_path, monkeypatch):
+    # End to end through MS6's own loader, run as its command, so nothing here
+    # imports eval/ (C321): a synthetic sealed export whose one crop Meta's service
+    # failed twice loads, with its service_retries and a null sam_water_found, and
+    # its report is written under tmp_path.
+    harness = REPO / "eval" / "run_eval.py"
+    if not harness.is_file():
+        pytest.skip("eval/run_eval.py isn't in this tree")
+    monkeypatch.setattr(tool, "RUN_EVAL", harness)
+    sealed = write_sealed(tmp_path, set_b=[truth_row(), truth_row(wheel="2")])
+    write_summary(tmp_path, rules_version=tool.rules_version())
+    results = tmp_path / "results"
+    assert run(sealed, results, made=[SamAloneFails(photos=3)])[0] == 0
+    assert read_json(results / "run.json")["service_retries"] == 1
+    rows = read_lines(results / "set_b.jsonl")
+    assert [row["sam_water_found"] for row in rows] == [None, None]
+    done = subprocess.run(
+        [sys.executable, "-I", "-B", str(harness), "--from-saved"]
+        + ["--results", str(results), "--write"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout[-2000:]
+    summary = read_json(results / "report" / "summary.json")
+    assert (summary["kind"], summary["service_retries"]) == ("sealed", 1)
+    assert summary["set_b"]["sam_water_found"] == {"k": 0, "n": 0}
+    assert summary["set_b"]["no_answer"] == 2
