@@ -35,6 +35,9 @@ export async function encodeJpeg(
   canvas.height = size.height
   const context = canvas.getContext('2d', { willReadFrequently: true })
   if (context === null) throw new Error('Canvas 2D is not available')
+  // A 1,920 px still drawn at 1,600 px: the browser's best smoothing keeps edges (a wheel rim, a waterline) clean.
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
   context.drawImage(source, 0, 0, size.width, size.height)
   const pixels = context.getImageData(0, 0, size.width, size.height)
   let blob = await encode(canvas, FIRST_QUALITY)

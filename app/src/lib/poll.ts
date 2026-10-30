@@ -42,7 +42,8 @@ export interface PollOptions {
   startElapsedMs?: number
   // The deadline as a time on the `now` clock. Left out, it is 600 s after this call. A poll restarted mid-wait
   // (after the app comes back to the front) passes the upload's time plus POLL.windowMs, so the total stays
-  // 600 s. "Check again" leaves it out, for a new 600 s window.
+  // 600 s. "Check again" leaves it out, for a new 600 s window. One that isn't a finite number counts as left out,
+  // so a NaN can never make the poll run forever.
   deadlineAt?: number
 }
 
@@ -68,7 +69,7 @@ export async function pollReport(
   }: PollOptions = {},
 ): Promise<ReportResult> {
   const startedAt = now()
-  const endAt = deadlineAt ?? startedAt + POLL.windowMs
+  const endAt = deadlineAt !== undefined && Number.isFinite(deadlineAt) ? deadlineAt : startedAt + POLL.windowMs
   for (;;) {
     stopIfAborted(signal)
     let report: ReportResult | undefined

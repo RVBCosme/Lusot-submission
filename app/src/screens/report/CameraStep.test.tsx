@@ -429,6 +429,9 @@ describe('the shutter', () => {
 
     expect(onPhoto).not.toHaveBeenCalled()
     expect(screen.getByText(text('camera.capture'))).toBeTruthy()
+    // A still that fails turns the camera off: the step can't be left with the camera on.
+    expect(track.stop).toHaveBeenCalled()
+    expect(video().srcObject).toBeNull()
   })
 
   it('says so, with another try, when the photo cannot be encoded', async () => {

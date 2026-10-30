@@ -31,6 +31,19 @@ describe('encodeJpeg', () => {
     expect(pixels).toMatchObject({ width: 1600, height: 1200 })
   })
 
+  it('downscales with high-quality smoothing, set before the photo is drawn', async () => {
+    const { context } = stubCanvas()
+    const settings = context as unknown as { imageSmoothingEnabled?: boolean; imageSmoothingQuality?: string }
+    let atDraw: unknown[] = []
+    context.drawImage.mockImplementation(() => {
+      atDraw = [settings.imageSmoothingEnabled, settings.imageSmoothingQuality]
+    })
+
+    await encodeJpeg(source, 2000, 1500)
+
+    expect(atDraw).toEqual([true, 'high'])
+  })
+
   it('keeps a photo of 1600 px or less at its own size', async () => {
     const { canvases } = stubCanvas()
     const { pixels } = await encodeJpeg(source, 1280, 720)

@@ -135,6 +135,19 @@ it('a restart in the 2 s phase keeps its intervals and the deadline', async () =
   expect((await poll).error).toBeInstanceOf(PollTimeoutError)
 })
 
+it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+  'a deadline that is not a finite time (%s) falls back to 600 s from the call, so the poll still ends',
+  async (deadlineAt) => {
+    const { fetchFn, times } = fetchAnswering(report('pending'))
+
+    const poll = settle(pollReport(API, ID, { fetchFn, deadlineAt }))
+    await vi.advanceTimersByTimeAsync(POLL.windowMs + 60_000)
+
+    expect(times.at(-1)).toBe(POLL.windowMs)
+    expect((await poll).error).toBeInstanceOf(PollTimeoutError)
+  },
+)
+
 it('an aborted poll cancels its request in flight', async () => {
   const { fetchFn } = fetchAnswering('stall')
   const controller = new AbortController()

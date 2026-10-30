@@ -282,7 +282,8 @@ describe('useGate', () => {
 // The notice is enforced on the report screen itself, so a link, a bookmark or a typed #/report all meet it (C605).
 describe('the report route', () => {
   const API = 'https://api.example.test'
-  const reportHeading = () => screen.queryByRole('heading', { level: 1, name: EN['nav.report'].text })
+  // The report screen opens on its first step, the camera.
+  const reportHeading = () => screen.queryByRole('heading', { level: 1, name: EN['camera.title'].text })
 
   function renderReport() {
     history.replaceState(null, '', '/#/report')

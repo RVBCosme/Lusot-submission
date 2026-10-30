@@ -100,6 +100,50 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: false,
   },
   'location.unavailable': { text: 'Hindi nakuha ng Lusot ang location mo. Subukan ulit.', reviewed: false },
+  // The report flow (MS5 Task 12). Drafts for Rene's copy review (M20).
+  'report.noApi': { text: 'Hindi makakapagpadala ng photo ang build na ito.', reviewed: false },
+  'report.locationTitle': { text: 'Ang location mo', reviewed: false },
+  'report.locating': { text: 'Hinahanap kung nasaan ka.', reviewed: false },
+  'report.smallStill': {
+    text: 'Mas maliit ang photo na binigay ng camera mo kaysa sa hinihingi ng Lusot, kaya baka mas mahirap itong basahin. Puwede mo itong ipadala, o kumuha ng bagong photo.',
+    reviewed: false,
+  },
+  'report.newPhoto': { text: 'Kumuha ng bagong photo', reviewed: false },
+  'report.tooOld': { text: 'Lampas na sa 15 minuto ang photo na ito.', reviewed: false },
+  'report.sendingTitle': { text: 'Pinapadala ang photo mo', reviewed: false },
+  'report.sendingHint': { text: 'Huwag munang isara ang Lusot hanggang maipadala ang photo.', reviewed: false },
+  'report.waitingTitle': { text: 'Binabasa ang photo mo', reviewed: false },
+  'report.waitingHint': {
+    text: 'Naipadala na ang photo mo. Puwede kang umalis sa screen na ito, at nandito ang resulta pagbalik mo.',
+    reviewed: false,
+  },
+  'report.elapsed': { text: '{seconds} s na', reviewed: false },
+  'report.queue': { text: 'Baka may ibang photo na nauna sa iyo.', reviewed: false },
+  'report.resultTitle': { text: 'Ang resulta mo', reviewed: false },
+  'report.notSent': { text: 'Hindi naipadala ang photo', reviewed: false },
+  'report.nothingUploaded': { text: 'Walang na-upload.', reviewed: false },
+  'report.uploadFailed': { text: 'Tingnan ang connection mo, saka subukan ulit.', reviewed: false },
+  'report.sendFailed': { text: 'Hindi naipadala ng Lusot ang photo.', reviewed: false },
+  'report.limit.device_limit': {
+    text: 'Naabot na ng phone na ito ang dami ng photo na tinatanggap ng Lusot sa isang oras. Subukan ulit mamaya.',
+    reviewed: false,
+  },
+  'report.limit.global_cap': {
+    text: 'Naabot na ng Lusot ang dami ng photo na kaya nito sa ngayon. Subukan ulit mamaya.',
+    reviewed: false,
+  },
+  'report.refused.capture_in_future': {
+    text: 'Mas advanced ang oras ng photo kaysa sa orasan ng Lusot. Tingnan ang date at time ng phone na ito, saka kumuha ng bagong photo.',
+    reviewed: false,
+  },
+  'report.refused.gps_too_coarse': {
+    text: 'Hindi sapat na tumpak ang location ng phone mo para mailagay ang pin.',
+    reviewed: false,
+  },
+  'report.refused.nudge_too_far': {
+    text: 'Lampas sa 100 m ang pin mula sa kung saan ka inilagay ng phone mo.',
+    reviewed: false,
+  },
   'about.what': {
     text: 'Tinatantya ng Lusot ang lalim ng baha sa isang spot mula sa photo na kinunan mo. Binabasa nito ang lalim ayon sa flood gauge ng MMDA at ipinapakita ang ebidensya, o sinasabi nitong hindi nito masabi.',
     reviewed: false,

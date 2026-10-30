@@ -13,11 +13,12 @@ const PIN = '#/pin/r_0123456789abcdef0123456789abcdef'
 // The text a line shows in a language, after the review gate (C619).
 const shown = (lang: Lang, key: StringKey) => resolveText(lang, key).text
 
-// Each route, with the string key of its screen's heading. The empty hash is the map.
+// Each route, with the string key of its screen's heading. The empty hash is the map. The report screen opens on
+// its first step, the camera.
 const ROUTES: [hash: string, heading: StringKey][] = [
   ['', 'nav.map'],
   ['#/map', 'nav.map'],
-  ['#/report', 'nav.report'],
+  ['#/report', 'camera.title'],
   ['#/tested', 'nav.tested'],
   ['#/about', 'nav.about'],
   ['#/privacy', 'privacy.title'],

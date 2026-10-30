@@ -106,6 +106,55 @@ export const EN = {
     reviewed: false,
   },
   'location.unavailable': { text: "Lusot couldn't get your location. Try again.", reviewed: false },
+  // The report flow (MS5 Task 12): finding the location, sending, waiting, the result's heading, and why a photo
+  // wasn't sent. Not screen-line keys, so their Taglish drafts show. "Nothing was uploaded." follows each line that
+  // the API's refusal or pause gives (C638). A limit's line names no time, since the API's reset may differ.
+  'report.noApi': { text: "This build can't send photos.", reviewed: false },
+  'report.locationTitle': { text: 'Your location', reviewed: false },
+  'report.locating': { text: 'Finding where you are.', reviewed: false },
+  'report.smallStill': {
+    text: 'Your camera gave a smaller photo than Lusot asks for, so it may be harder to read. You can send it, or take a new photo.',
+    reviewed: false,
+  },
+  'report.newPhoto': { text: 'Take a new photo', reviewed: false },
+  'report.tooOld': { text: 'This photo is more than 15 minutes old.', reviewed: false },
+  'report.sendingTitle': { text: 'Sending your photo', reviewed: false },
+  'report.sendingHint': { text: 'Keep Lusot open until the photo is sent.', reviewed: false },
+  'report.waitingTitle': { text: 'Reading your photo', reviewed: false },
+  'report.waitingHint': {
+    text: 'Your photo was sent. You can leave this screen, and the result will be here when you come back.',
+    reviewed: false,
+  },
+  'report.elapsed': { text: '{seconds} s so far', reviewed: false },
+  // From 60 s. It promises no time (C601).
+  'report.queue': { text: 'Other photos may be ahead of yours.', reviewed: false },
+  'report.resultTitle': { text: 'Your result', reviewed: false },
+  'report.notSent': { text: 'Photo not sent', reviewed: false },
+  'report.nothingUploaded': { text: 'Nothing was uploaded.', reviewed: false },
+  // Under the heading "Photo not sent", so it says only what to do.
+  'report.uploadFailed': { text: 'Check your connection, then try again.', reviewed: false },
+  'report.sendFailed': { text: "Lusot couldn't send the photo.", reviewed: false },
+  'report.limit.device_limit': {
+    text: 'This phone has sent as many photos as Lusot takes in an hour. Try again later.',
+    reviewed: false,
+  },
+  'report.limit.global_cap': {
+    text: 'Lusot has taken as many photos as it can for now. Try again later.',
+    reviewed: false,
+  },
+  // MS4's 422s (its §4.3). The app's own checks should keep the last two from happening.
+  'report.refused.capture_in_future': {
+    text: "The photo's time is ahead of Lusot's clock. Check the date and time on this phone, then take a new photo.",
+    reviewed: false,
+  },
+  'report.refused.gps_too_coarse': {
+    text: "Your phone's location wasn't close enough to place the pin.",
+    reviewed: false,
+  },
+  'report.refused.nudge_too_far': {
+    text: 'The pin was more than 100 m from where your phone placed you.',
+    reviewed: false,
+  },
   // About (C619, C633, C636). Its links to the policy and the licences use those screens' titles.
   'about.what': {
     text: "Lusot estimates the depth of a flood at one spot from a photo you take. It reads the depth against MMDA's flood gauge and shows the evidence, or it says it can't tell.",

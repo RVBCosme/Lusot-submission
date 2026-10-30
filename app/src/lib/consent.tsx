@@ -101,6 +101,8 @@ export function GateProvider({ children }: { children: ReactNode }) {
 
   return (
     <GateContext value={request}>
+      {/* `hidden` beats `contents` only through Tailwind's base rule [hidden] { display: none !important }: without
+          it, display: contents would show the screen behind the gate. */}
       <div hidden={open !== null} className="contents">
         {children}
       </div>
