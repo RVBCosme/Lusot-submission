@@ -11,6 +11,10 @@ describe("the word lists", () => {
     }
   });
 
+  it("a word with an accent still counts", () => {
+    expect(hasCrossingWords("Lusót ba?")).toBe(true);
+  });
+
   it("here words", () => {
     for (const text of ["may baha ba dito", "near me", "May baha ba rito?"]) {
       expect(hasHereWords(text), text).toBe(true);
@@ -47,6 +51,24 @@ describe("statedMinutes", () => {
   it("takes the largest when several are stated", () => {
     expect(statedMinutes("30 minutes or the last 2 hours")).toBe(120);
     expect(statedMinutes("90 minutes, not the last hour")).toBe(90);
+    // Two windows, not one: the words between them are more than "and".
+    expect(statedMinutes("the last hour or 30 minutes")).toBe(60);
+  });
+
+  it("a hyphen doesn't hide a time", () => {
+    expect(statedMinutes("in the last 30-minute window")).toBe(30);
+  });
+
+  it("adds an hour amount and the minutes that follow it", () => {
+    expect(statedMinutes("1 hour 30 minutes")).toBe(90);
+    expect(statedMinutes("2 hours and 30 minutes")).toBe(150);
+    expect(statedMinutes("sa nakaraang isang oras at 15 minuto")).toBe(75);
+  });
+
+  it("adds 30 for and a half, or at kalahati, after an hour amount", () => {
+    expect(statedMinutes("an hour and a half")).toBe(90);
+    expect(statedMinutes("isang oras at kalahati")).toBe(90);
+    expect(statedMinutes("in the last 2 hours and a half")).toBe(150);
   });
 
   it("gives undefined when no window is stated", () => {

@@ -25,12 +25,43 @@ function longestFormIn(text: string, forms: Form[]): Spot | undefined {
   return best?.spot;
 }
 
-// The tool's place against the list: the longest name or alias the place holds, else a place that is only a
-// road's name, which finds the road's one spot or, when the list has several, all of them (C733).
+const ROAD_TYPES = new Set(["avenue", "ave", "boulevard", "blvd", "street", "st", "road", "rd", "highway", "hwy"]);
+
+// A road's normalised name without a trailing road-type word, so "Aurora Blvd" and "Aurora Boulevard" are one road.
+// Only the corner step compares roads this way; a whole-road place compares the full normalised name.
+export function roadKey(road: string): string {
+  const words = normalize(road).split(" ");
+  if (words.length > 1 && ROAD_TYPES.has(words[words.length - 1])) words.pop();
+  return words.join(" ");
+}
+
+// Does the normalised text name two different roads of the spot, one after the other without overlapping?
+function holdsTwoRoads(text: string, spot: Spot): boolean {
+  const words = text.split(" ");
+  const spans: { key: string; start: number; end: number }[] = [];
+  for (const key of new Set(spot.roads.map(roadKey))) {
+    if (key === "") continue;
+    const parts = key.split(" ");
+    for (let start = 0; start + parts.length <= words.length; start++) {
+      if (parts.every((part, i) => words[start + i] === part)) spans.push({ key, start, end: start + parts.length });
+    }
+  }
+  return spans.some((a) => spans.some((b) => a.key !== b.key && a.end <= b.start));
+}
+
+// A corner by its roads: the spot that is the only one holding two different roads of the text.
+function cornerIn(text: string, spots: Spot[]): Spot | undefined {
+  const holders = spots.filter((spot) => holdsTwoRoads(text, spot));
+  return holders.length === 1 ? holders[0] : undefined;
+}
+
+// The tool's place against the list: the longest name or alias the place holds, else the one spot that holds two
+// of the place's roads, else a place that is only a road's name, which finds the road's one spot or, when the
+// list has several, all of them (C733).
 export function matchPlace(place: string, spots: Spot[] = SPOTS): { spot: Spot } | { roadSpots: Spot[] } | undefined {
   const text = normalize(place);
   if (text === "") return undefined;
-  const spot = longestFormIn(text, formsOf(spots));
+  const spot = longestFormIn(text, formsOf(spots)) ?? cornerIn(text, spots);
   if (spot) return { spot };
   const onRoad = spots.filter((candidate) => candidate.roads.some((road) => normalize(road) === text));
   if (onRoad.length === 1) return { spot: onRoad[0] };
@@ -38,9 +69,10 @@ export function matchPlace(place: string, spots: Spot[] = SPOTS): { spot: Spot }
   return undefined;
 }
 
-// For the plain list: a question names a spot only by a name or an alias, never by a road alone.
+// For the plain list: a question names a spot by a name or an alias, or by two of its roads, never by one road alone.
 export function findSpotIn(question: string, spots: Spot[] = SPOTS): Spot | undefined {
-  return longestFormIn(normalize(question), formsOf(spots));
+  const text = normalize(question);
+  return longestFormIn(text, formsOf(spots)) ?? cornerIn(text, spots);
 }
 
 // The display names, sent to the transcription as keywords.

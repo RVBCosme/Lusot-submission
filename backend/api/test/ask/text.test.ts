@@ -28,6 +28,14 @@ describe("normalize", () => {
     expect(normalize("Corner")).toBe("corner");
   });
 
+  it("drops an & at the start or the end like other punctuation", () => {
+    expect(normalize("España &")).toBe("espana");
+    expect(normalize("& Maceda")).toBe("maceda");
+    expect(normalize("&& España & Maceda &!")).toBe("espana cor maceda");
+    expect(normalize("España&Maceda")).toBe("espana cor maceda");
+    expect(normalize("&")).toBe("");
+  });
+
   it("gives the same text when run twice", () => {
     for (const s of ["España & Maceda!", "Roxas Blvd at the US Embassy", "at España corner", "N.S. Amoranto cor. Don Jose"]) {
       expect(normalize(normalize(s)), s).toBe(normalize(s));

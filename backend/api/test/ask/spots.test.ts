@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalize } from "../../src/ask/text";
-import { SPOTS, findSpotIn, matchPlace, spotKeywords, type Spot } from "../../src/ask/spots";
+import { SPOTS, findSpotIn, matchPlace, roadKey, spotKeywords, type Spot } from "../../src/ask/spots";
 
 function spot(id: string, name: string, roads: string[], aliases: string[] = []): Spot {
   return { id, name, city: "Manila", lat: 14.6, lng: 121, roads, aliases };
@@ -29,6 +29,22 @@ describe("the spot list", () => {
       }
     }
     expect(clashes).toEqual([]);
+  });
+
+  it("a road that several spots sit on gives exactly those spots, and any other road gives its one", () => {
+    const sitting = new Map<string, string[]>();
+    for (const s of SPOTS) {
+      for (const road of new Set(s.roads.map(normalize))) sitting.set(road, [...(sitting.get(road) ?? []), s.id]);
+    }
+    const wrong: string[] = [];
+    for (const [road, ids] of sitting) {
+      const found = matchPlace(road);
+      const got = found === undefined ? undefined : "spot" in found ? [found.spot.id] : found.roadSpots.map((s) => s.id);
+      if (JSON.stringify(got) !== JSON.stringify(ids)) wrong.push(`"${road}" gave ${JSON.stringify(got)}, wanted ${JSON.stringify(ids)}`);
+      if (ids.length > 1 && !(found && "roadSpots" in found)) wrong.push(`"${road}" is on ${ids.length} spots but gave no roadSpots`);
+    }
+    expect(wrong).toEqual([]);
+    expect([...sitting.values()].some((ids) => ids.length > 1)).toBe(true);
   });
 });
 
@@ -62,6 +78,75 @@ describe("matchPlace", () => {
     expect(matchPlace("taft avenue!", list)).toEqual({ roadSpots: [taftA, taftB] });
     expect(matchPlace("Lone Road", list)).toEqual({ spot: lone });
     expect(matchPlace("B Street", list)).toEqual({ spot: taftB });
+    // The whole place must be the road: a road with extra words around it is not that road.
+    expect(matchPlace("Lone Road cor. Z St", list)).toBeUndefined();
+  });
+
+  it("a corner written by its two roads finds the spot, in either order", () => {
+    // Every pair of different road keys among a spot's roads, in both orders. When another spot holds the same two
+    // keys (the three Araneta spots list three spellings of one street), no corner is chosen.
+    const keysOf = (s: Spot) => new Set(s.roads.map(roadKey));
+    const wrong: string[] = [];
+    let found = 0;
+    for (const s of SPOTS) {
+      for (const a of s.roads) {
+        for (const b of s.roads) {
+          if (roadKey(a) === roadKey(b)) continue;
+          const holders = SPOTS.filter((h) => keysOf(h).has(roadKey(a)) && keysOf(h).has(roadKey(b)));
+          const want = holders.length === 1 ? holders[0].id : undefined;
+          const place = `${a} cor. ${b}`;
+          if (want !== undefined) found++;
+          if (idOf(matchPlace(place)) !== want) wrong.push(`matchPlace: ${place} wanted ${want} (${s.id})`);
+          if (findSpotIn(`Gaano kalalim sa ${place} ngayon?`)?.id !== want) wrong.push(`findSpotIn: ${place} wanted ${want} (${s.id})`);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(found).toBeGreaterThan(0);
+
+    for (const [place, id] of [
+      ["UN Ave cor. Taft", "un-ave-taft"],
+      ["España Blvd cor. Maceda", "espana-maceda"],
+      ["Maceda cor. España", "espana-maceda"],
+      ["Aurora Blvd cor. EDSA", "edsa-aurora"],
+      ["Roxas at EDSA", "roxas-edsa"],
+    ]) {
+      expect(idOf(matchPlace(place)), place).toBe(id);
+      expect(findSpotIn(`May baha ba sa ${place}?`)?.id, place).toBe(id);
+    }
+  });
+
+  it("two roads that no spot holds together, or one road alone, find no spot", () => {
+    for (const place of ["Quezon Ave corner Araneta", "Taft Avenue cor. Pedro Gil", "Shaw Boulevard cor. Pioneer St"]) {
+      expect(matchPlace(place), place).toBeUndefined();
+      expect(findSpotIn(`Gaano kalalim sa ${place}?`), place).toBeUndefined();
+    }
+    for (const place of ["EDSA", "Taft Avenue", "España"]) {
+      expect(matchPlace(place), place).toHaveProperty("roadSpots");
+    }
+  });
+
+  it("the two roads of a corner must be two roads, apart, and held by one spot", () => {
+    const taftA = spot("taft-a", "Taft Ave cor. A St", ["Taft Avenue", "A Street"]);
+    const taftB = spot("taft-b", "Taft Ave cor. B St", ["Taft Avenue", "B Street"]);
+    const bonny = spot("bonny", "Bonny corner", ["Colonel Bonny Avenue", "Bonny Avenue"]);
+    const twin1 = spot("twin-1", "Twin 1", ["Ridge Road", "Valley Road"]);
+    const twin2 = spot("twin-2", "Twin 2", ["Valley Rd", "Ridge Rd"]);
+    const list = [taftA, taftB, bonny, twin1, twin2];
+
+    // Either order, whatever the type word.
+    expect(idOf(matchPlace("A St cor. Taft", list))).toBe("taft-a");
+    expect(idOf(matchPlace("B Street and Taft Ave", list))).toBe("taft-b");
+    // One road written twice is one road.
+    expect(matchPlace("Taft Avenue cor. Taft", list)).toBeUndefined();
+    // A road inside the other's words is not a second road.
+    expect(matchPlace("Colonel Bonny Avenue Extension", list)).toBeUndefined();
+    // Two spots hold both roads: no corner is chosen.
+    expect(matchPlace("Ridge Road cor. Valley Road", list)).toBeUndefined();
+    expect(findSpotIn("flooded at Ridge Road cor. Valley Road", list)).toBeUndefined();
+    // "Aurora Blvd" and "Aurora Boulevard" are one road when keyed.
+    expect(roadKey("Aurora Blvd")).toBe(roadKey("Aurora Boulevard"));
+    expect(roadKey("Aurora")).toBe("aurora");
   });
 
   it("a word inside another word doesn't match", () => {
