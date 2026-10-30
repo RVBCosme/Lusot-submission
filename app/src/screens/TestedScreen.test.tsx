@@ -638,3 +638,101 @@ describe('the samples', () => {
     expect(runButtons()).toHaveLength(3)
   })
 })
+
+// ---- a saved result while analysis is paused (Step 6) ----
+
+describe('a saved result while analysis is paused', () => {
+  const SAVED_AT = '2026-10-29T14:20:00Z'
+  const savedRun = (result: unknown, savedAt: unknown = SAVED_AT): Override => (method, path) =>
+    method === 'POST' && path.startsWith('/samples/') ? json(200, { saved: true, savedAt, result }) : undefined
+
+  it("a sample run answering 200 { saved: true, savedAt, result } shows the paused line, then the saved result through the result card, with no poll", async () => {
+    adult()
+    // MS4's C527 while model calls are paused: each sample's seeding run, saved and dated.
+    await openWithSamples('failed_model_calls_paused')
+    await runFirst()
+    expect(runSample).toHaveBeenCalledOnce()
+    expect(pollReport).not.toHaveBeenCalled()
+    expect(getReport).not.toHaveBeenCalled()
+
+    const card = page().querySelector('article[data-outcome="level"]') as HTMLElement
+    expect(card).not.toBeNull()
+    expect(within(card).getByText(text('badge.sample'))).toBeTruthy()
+    // The paused line comes first, then the saved reading.
+    const paused = within(card).getByText(text('result.paused'))
+    const level = within(card).getByText(KNEE_LINE)
+    expect(paused.compareDocumentPosition(level) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(card.textContent).toContain('Saved result from Oct 29, 2026')
+    expect(card.textContent).toContain(text('sample.savedReading'))
+    expect(card.textContent).not.toContain(text('sample.liveReading'))
+    // The paused line links to the map, and leaves out the Tested page it is on.
+    expect(within(card).getByRole('link', { name: text('nav.map') })).toBeTruthy()
+    expect(within(card).queryByRole('link', { name: text('nav.tested') })).toBeNull()
+    // No basis, overlay or inches for a saved answer (amendment 10), and no outlines claimed.
+    expect(card.textContent).not.toContain('Estimated')
+    expect(card.textContent).not.toContain(text('result.levelFrom.geometry'))
+    expect(card.textContent).not.toMatch(/From \d+ reference object/)
+    expect(card.textContent).not.toContain(text('sample.outlines'))
+    expect(card.querySelector('img')).not.toBeNull()
+    expect(pageText()).not.toContain(text('result.failed'))
+    // No second run of it on the spot; the others still run.
+    expect(runButtons()).toHaveLength(2)
+    expect(runButtons().every((button) => !button.disabled)).toBe(true)
+
+    // The next sample's saved answer is "no flood seen".
+    await runFirst()
+    const dry = page().querySelector('article[data-outcome="no-flood"]') as HTMLElement
+    expect(dry).not.toBeNull()
+    expect(dry.textContent).toContain(text('result.noFlood'))
+    expect(dry.textContent).toContain(text('result.paused'))
+    expect(dry.textContent).toContain(text('sample.savedReading'))
+    expect(runSample).toHaveBeenCalledTimes(2)
+    expect(pollReport).not.toHaveBeenCalled()
+  })
+
+  it("a saved refused result gets C637's sample frame", async () => {
+    adult()
+    await openWithSamples('level_knee', savedRun({ status: 'refused', refusalReason: 'no_usable_reference' }))
+    await runFirst()
+    const card = page().querySelector('article[data-outcome="cant-tell"]') as HTMLElement
+    expect(card).not.toBeNull()
+    expect(card.textContent).toContain(text('result.paused'))
+    expect(card.textContent).toContain('Saved result from Oct 29, 2026')
+    expect(card.textContent).toContain(text('refusal.sample.cantTell'))
+    expect(card.textContent).toContain(text('reason.no_usable_reference'))
+    expect(card.textContent).toContain(text('refusal.sample.someoneWouldSee'))
+    expect(card.textContent).toContain(text('refusal.d19'))
+    expect(card.textContent).toContain(text('sample.savedReading'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(pollReport).not.toHaveBeenCalled()
+  })
+
+  it('a saved answer in the wrong shape shows a plain line, never a card, and nothing is retried', async () => {
+    adult()
+    const cases: Override[] = [
+      // No date.
+      (method, path) =>
+        method === 'POST' && path.startsWith('/samples/')
+          ? json(200, { saved: true, result: { status: 'done', noFloodSeen: true } })
+          : undefined,
+      savedRun({ status: 'done', noFloodSeen: true }, 'not a date'),
+      savedRun({ status: 'pending' }),
+      savedRun({ status: 'done' }), // neither a level nor "no flood seen"
+      savedRun({ status: 'done', noFloodSeen: false, level: 'ankle' }), // not one of the 9 levels
+      savedRun(undefined),
+    ]
+    for (const override of cases) {
+      vi.mocked(runSample).mockClear()
+      await openWithSamples('level_knee', override)
+      await runFirst()
+      expect(page().querySelector('article')).toBeNull()
+      expect(shows('sample.failed')).toBe(true)
+      // A saved answer means nothing ran, so the sample can be tried again by hand.
+      expect(runButtons()).toHaveLength(3)
+      await advance(10_000)
+      expect(runSample).toHaveBeenCalledOnce()
+      expect(pollReport).not.toHaveBeenCalled()
+      cleanup()
+    }
+  })
+})

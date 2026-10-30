@@ -2,7 +2,8 @@ import { LoaderCircleIcon } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Line, T, useLanguage, useT } from '../i18n'
 import type { StringKey } from '../i18n/en'
-import { getSamples, HttpError, runSample, type ReportResult, type Sample } from '../lib/api'
+import { LEVELS } from '../copy/levels'
+import { getSamples, HttpError, runSample, type ReportResult, type Sample, type SavedSample } from '../lib/api'
 import { useGate } from '../lib/consent'
 import { getDeviceId } from '../lib/device'
 import { POLL, pollReport } from '../lib/poll'
@@ -25,6 +26,7 @@ type Run =
   | { phase: 'waiting' } // its own poll
   | { phase: 'noResult'; reportId: string } // the poll ran out: "No result yet" and "Check again" (C601)
   | { phase: 'result'; result: ReportResult }
+  | { phase: 'saved'; result: ReportResult; savedAt: string } // model calls paused: the seeding run's result (C617)
   | { phase: 'paused' } // MS1's 503 uploads_paused (C638)
   | { phase: 'refused'; line: StringKey } // a limit, a sample gone: nothing ran
   | { phase: 'unanswered' } // no usable answer: a paid run may have started (S5-R8)
@@ -36,6 +38,20 @@ const runnable = (run: Run | undefined) => run === undefined || run.phase === 'f
 
 // A card's stand-in result while there is none yet: the card shows "No result yet" for it (C601).
 const NO_RESULT: ReportResult = { reportId: '', status: 'pending', mode: 'sample', published: false }
+
+const KNOWN_LEVELS: ReadonlySet<unknown> = new Set(LEVELS)
+
+// MS4's saved answer (C527, amendment 10) as a result the card can show, or undefined when it can't be shown truly: no
+// date, or a done result with neither "no flood seen" nor one of the 9 levels. It never carries a report id.
+function savedResultOf({ savedAt, result }: SavedSample): ReportResult | undefined {
+  if (typeof savedAt !== 'string' || !Number.isFinite(Date.parse(savedAt))) return undefined
+  if (typeof result !== 'object' || result === null) return undefined
+  const readable =
+    result.status === 'refused' ||
+    (result.status === 'done' && (result.noFloodSeen === true || KNOWN_LEVELS.has(result.level)))
+  if (!readable) return undefined
+  return { ...result, reportId: '', mode: 'sample', published: false }
+}
 
 // What a failed POST /samples/{id} means. runSample is never retried (Task 5): a run whose answer was lost may already
 // be paid for, so a timeout, a lost connection, an answer in the wrong shape or a server error reads as "may have
@@ -133,8 +149,11 @@ export function SampleList({ apiUrl }: { apiUrl: string }) {
     }
     if (!alive.current) return
     if ('saved' in answer) {
+      // Model calls are paused, so nothing ran and nothing is polled: the saved reading, or a plain line for an answer
+      // the card can't show.
       paying.current = null
-      setRun(id, { phase: 'failed' })
+      const result = savedResultOf(answer)
+      setRun(id, result === undefined ? { phase: 'failed' } : { phase: 'saved', result, savedAt: answer.savedAt })
       return
     }
     poll(id, answer.reportId, false)
@@ -251,6 +270,18 @@ function SampleItem({
   let body: ReactNode
   if (run?.phase === 'result') {
     body = <ResultCard result={run.result} source="sample" sample={sample} onPhotoExpired={onPhotoExpired} />
+  } else if (run?.phase === 'saved') {
+    // The card puts the paused line first, marks the reading "Saved result from" its date, and says it is a saved
+    // reading, with no basis, overlay or inches (C617, MS9's N2).
+    body = (
+      <ResultCard
+        result={run.result}
+        source="sample"
+        sample={sample}
+        savedAt={run.savedAt}
+        onPhotoExpired={onPhotoExpired}
+      />
+    )
   } else if (run?.phase === 'noResult') {
     body = (
       <ResultCard
