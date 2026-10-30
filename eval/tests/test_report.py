@@ -504,7 +504,7 @@ def test_set_b_only_report(tmp_path):
         "geometry, view front",
         "geometry, view side",
     ]
-    assert "SAM found water on 7 of 8 (87.5%) wheels." in section(report, "Set B")
+    assert water_line("7 of 8 (87.5%)", 0) in section(report, "Set B")
     summary = json.loads(files["summary.json"])
     for key in ("configurations", "shipped", "geometry_stays", "inches_shown"):
         assert summary[key] is None, key
@@ -1030,6 +1030,8 @@ def test_report_with_empty_sets(tmp_path):
         "median_error_in": None,
         "worst_error_in": None,
         "envelope": {"k": 0, "n": 0},
+        "sam_water_found": {"k": 0, "n": 0},
+        "no_answer": 0,
     }
     assert build_review(run) is None
 
@@ -1122,7 +1124,43 @@ def test_summary_json(tmp_path):
         "median_error_in": "0.75",
         "worst_error_in": "1.50",
         "envelope": {"k": 7, "n": 7},
+        "sam_water_found": {"k": 7, "n": 8},
+        "no_answer": 0,
     }
+
+
+def water_line(rate: str, left_out: int) -> str:
+    return (
+        f"SAM found water on {rate} wheels; left out: {left_out} with no answer from"
+        " Meta (model_error)."
+    )
+
+
+def test_a_wheel_with_no_answer_is_counted_beside_the_water_rate(tmp_path):
+    # MS3b exports a wheel whose Meta call failed twice with every variant
+    # model_error and no water answer. It stays a wheel that wasn't measured, but
+    # SAM's water rate leaves it out, and the report and summary count it.
+    def silent(crop_id: str) -> dict:
+        estimates = dict.fromkeys(VARIANTS, unmeasured("model_error"))
+        return set_b_row(crop_id, sam_water_found=None, estimates=estimates)
+
+    run = load(
+        tmp_path,
+        run_json(),
+        set_b=[*wheel_rows("B"), silent("B09")],
+        set_d=[silent("D01")],
+    )
+    files = build_report(run)
+    report = files["report.md"].decode("utf-8")
+    assert water_line("7 of 8 (87.5%)", 1) in section(report, "Set B")
+    assert water_line("0 of 0 (undefined)", 1) in section(report, "Set D")
+    rows = metric_rows(section_text(report, "Set B"))
+    assert rows[0].startswith("| geometry | 7 of 9 (77.8%) |")
+    summary = json.loads(files["summary.json"])["set_b"]
+    assert summary["wheels"] == 9
+    assert summary["measured"] == {"k": 7, "n": 9}
+    assert summary["sam_water_found"] == {"k": 7, "n": 8}
+    assert summary["no_answer"] == 1
 
 
 def test_summary_marks_synthetic_data_and_the_rerun(tmp_path):

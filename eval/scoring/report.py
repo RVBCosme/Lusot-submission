@@ -1042,11 +1042,14 @@ def _wheels(
         "Worst error",
         "Envelope coverage",
     ]
-    water = score_wheels(rows, "geometry").sam_water_found
+    geometry = score_wheels(rows, "geometry")
     blocks: list[object] = [
         f"{lead} {_WHEELS_LEAD}",
         _table(header, table),
-        f"SAM found water on {fmt_rate(water)} wheels.",
+        (
+            f"SAM found water on {fmt_rate(geometry.sam_water_found)} wheels; left out:"
+            f" {geometry.no_answer} with no answer from Meta (model_error)."
+        ),
     ]
     if chart:
         errors = measured_errors(rows, "geometry")
@@ -1295,6 +1298,8 @@ def _summary(run: Run, outcome: _Outcome | None) -> str:
             "median_error_in": _inches(wheels.median_error),
             "worst_error_in": _inches(wheels.worst_error),
             "envelope": _pair(wheels.envelope),
+            "sam_water_found": _pair(wheels.sam_water_found),
+            "no_answer": wheels.no_answer,
         }
     summary = {
         "kind": run.kind,

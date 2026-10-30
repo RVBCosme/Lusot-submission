@@ -157,7 +157,7 @@ class WheelRow:
     vehicle_type: str
     tire_code: str
     true_depth_in: Decimal
-    sam_water_found: bool
+    sam_water_found: bool | None
     bins: Mapping[str, str]
     estimates: Mapping[str, Estimate]
 
@@ -832,6 +832,9 @@ def _estimate(value: object, where: str) -> Estimate:
     return Estimate(False, None, None, None, found["fail"])
 
 
+# What MS3b's export gives every variant of a wheel whose Meta call failed twice. Such
+# a wheel never got an answer, so whether SAM found water is null (MS6E-Q6).
+_NO_ANSWER = Estimate(False, None, None, None, "model_error")
 _VARIANT_FIELDS = dict.fromkeys(SET_B_VARIANTS, _estimate)
 _VARIANTS_OPTIONAL = tuple(name for name in SET_B_VARIANTS if name != "geometry")
 
@@ -852,7 +855,7 @@ def _wheel_fields(self_check: bool) -> dict[str, _Check]:
         "vehicle_type": _VEHICLE_TYPE,
         "tire_code": _tire_code,
         "true_depth_in": _depth,
-        "sam_water_found": _bool,
+        "sam_water_found": _nullable(_bool),
         "bins": _map_of(_token, _token),
         "estimates": lambda value, where: _estimates(value, where, self_check),
     }
@@ -860,6 +863,13 @@ def _wheel_fields(self_check: bool) -> dict[str, _Check]:
 
 def _wheel_row(value: object, fields: Mapping[str, _Check]) -> WheelRow:
     row = _object(value, "", fields, optional=("bins",))
+    if row["sam_water_found"] is None and any(
+        estimate != _NO_ANSWER for estimate in row["estimates"].values()
+    ):
+        raise _Bad(
+            "sam_water_found may be null only when every variant failed with"
+            " model_error"
+        )
     return WheelRow(
         crop_id=row["crop_id"],
         wheel=row["wheel"],

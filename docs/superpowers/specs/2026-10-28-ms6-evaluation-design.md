@@ -162,7 +162,7 @@ The status and unmapped rules are MS6E-Q1's defaults.
 **A Set B row:**
 - `crop_id` and `wheel`, which together are unique, and `car_id`
 - the true `vehicle_type` and `tire_code`, and `true_depth_in` (G3)
-- `sam_water_found`, and optional `bins`, such as view and size (W7)
+- `sam_water_found`, and optional `bins`, such as view and size (W7). `sam_water_found` is null only for a wheel whose every variant is `{measured: false, fail: model_error}` (the Meta call failed twice and gave no answer); the water-found rate leaves that wheel out of its numerator and denominator, and the report and summary.json count it beside the rate (`no_answer`), while it stays counted as unmeasured
 - `estimates`, keyed by variant. A measured wheel gives `depthInPoint` (the estimate from its true tire code), `depthInMin` and `depthInMax`, unrounded, to 4 decimal places. An unmeasured one names the check that failed.
 
 The variants:

@@ -749,6 +749,81 @@ def test_set_b_estimates(tmp_path):
     assert run.set_d[0].estimates["geometry"] == run.set_b[0].estimates["geometry"]
 
 
+def no_answer(crop_id: str = "B01", wheel: int = 1, **fields: object) -> dict:
+    """A Set B wheel whose Meta call failed twice (MS3b): its one variant is
+    model_error, and whether SAM found water was never known."""
+    row = set_b_row(
+        crop_id,
+        wheel,
+        sam_water_found=None,
+        estimates={"geometry": unmeasured("model_error")},
+    )
+    row.update(fields)
+    return row
+
+
+def test_sam_water_found_is_null_for_a_wheel_with_no_answer(tmp_path):
+    run = load(
+        tmp_path / "geometry",
+        run_json(),
+        set_b=[no_answer()],
+        set_d=[no_answer("D01")],
+    )
+    assert run.set_b[0].sam_water_found is None
+    assert run.set_d[0].sam_water_found is None
+    # Every variant, with the self-check on.
+    every = dict.fromkeys(SET_B_VARIANTS, unmeasured("model_error"))
+    run = load(
+        tmp_path / "every",
+        run_json(self_check="on"),
+        set_b=[no_answer(estimates=every), no_answer("B02", estimates=every)],
+    )
+    assert [row.sam_water_found for row in run.set_b] == [None, None]
+    # False and true still read as they did, whatever the estimates say.
+    found = [
+        set_b_row("B03", sam_water_found=True),
+        set_b_row("B04", sam_water_found=False, estimates={"geometry": unmeasured()}),
+        no_answer("B05", sam_water_found=False),
+    ]
+    run = load(tmp_path / "bool", run_json(), set_b=found)
+    assert [row.sam_water_found for row in run.set_b] == [True, False, False]
+
+
+NULL_RULE = (
+    "sam_water_found may be null only when every variant failed with model_error"
+)
+
+
+def test_sam_water_found_is_never_null_for_a_wheel_that_got_an_answer(tmp_path):
+    def wheel_with(**estimates: dict) -> dict:
+        return set_b_row("B01", sam_water_found=None, estimates=estimates)
+
+    cases = {
+        "measured": set_b_row("B01", sam_water_found=None),
+        "other fail": wheel_with(geometry=unmeasured("no_water_contact")),
+        "one variant measured": wheel_with(
+            geometry=unmeasured("model_error"), known_waterline=measured()
+        ),
+        "one variant another fail": wheel_with(
+            geometry=unmeasured("model_error"),
+            known_waterline=unmeasured("no_waterline"),
+        ),
+        "geometry measured": wheel_with(
+            geometry=measured(), known_waterline=unmeasured("model_error")
+        ),
+    }
+    for case, row in cases.items():
+        message = refusal(tmp_path / case, "set_b.jsonl", set_b=[row])
+        assert message == f"set_b.jsonl:1: {NULL_RULE}", case
+    in_set_d = refusal(tmp_path / "set_d", "set_d.jsonl", set_d=[cases["measured"]])
+    assert in_set_d == f"set_d.jsonl:1: {NULL_RULE}"
+    # Any other value is still refused as before.
+    for case, value in {"text": "yes", "number": 1}.items():
+        row = set_b_row("B01", sam_water_found=value)
+        message = refusal(tmp_path / case, "set_b.jsonl", set_b=[row])
+        assert "sam_water_found" in message and "null" not in message, case
+
+
 # Set B's and Set D's estimates and Set A's wheel_inches keep a result's bounds: each
 # depth from 0 to under 100 in, and depthInMin not above depthInMax. Every box id is a
 # whole number from 0 to 9999, and comes once in each of the answer's lists.
