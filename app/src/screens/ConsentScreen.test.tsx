@@ -85,7 +85,7 @@ describe('the notice', () => {
     renderScreen('notice')
 
     expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo')
-    expect(within(notice()).getAllByRole('listitem')).toHaveLength(6)
+    expect(within(notice()).getAllByRole('listitem')).toHaveLength(7)
     expect(notice().querySelector('input, button, a')).toBeNull()
     expect(notice().textContent).not.toContain(SCREEN_LINE)
     expect(notice().textContent).not.toContain(NOT_AFFILIATED)
@@ -110,6 +110,7 @@ describe('the notice', () => {
     ['plates reach Meta and are blurred before storage', /Licence plates aren't blurred before Meta receives the photo, only before Lusot stores it/],
     ['the original is deleted after analysis', /Your original waits in a private storage area until the analysis ends, and is then deleted\./],
     ['data is kept 7 days', /for 7 days/],
+    ['the map images show OpenStreetMap the area, within about 300 m', /Placing the pin loads OpenStreetMap's map images[^.]*the area on your screen, within about 300 m of you\./],
     ['no accounts, no names', /No accounts, no names\./],
   ])('says %s', (_what, pattern) => {
     renderScreen('notice')
