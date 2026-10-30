@@ -30,8 +30,8 @@ class Measured:
       counts twice there but keeps its step 3 cause here.
     - `readings`: the reading each box gives, by box id, for every box of a vehicle
       that isn't dropped and every adult with a reading, deciding or not. A box with
-      two readings gives the one that can decide (R147): a covered wheel of a type
-      kept for geometry gives its geometry reading over its tire floor (R143).
+      two readings gives the one that can decide (R147): a wheel of a type kept for
+      geometry gives its geometry reading over its floor (R143, M5).
     """
 
     references: list[Reference]
@@ -77,9 +77,12 @@ def measure_boxes(
        and none for a type kept for geometry (C318). A wheel step 3 dropped gives its
        landmark reading, if it has one, as a reference that doesn't decide (C317).
        Otherwise keep_reading gives G4's reading, or drops the wheel as
-       `wheel_methods_disagree`. A covered wheel of a type kept for geometry also
-       gives the sedan row's tire floor, as a reference that doesn't decide (R143).
-       This floor holds whether or not step 3 dropped the wheel (R143, C317).
+       `wheel_methods_disagree`. Each wheel of a type kept for geometry whose answer
+       has a Table 8 row also gives that sedan row's level as a floor, as a reference
+       that doesn't decide: water at a larger wheel's mark is at least as deep (M5,
+       Rene, Oct 30). A covered wheel's tire floor is one case (R143). This floor
+       holds whether or not step 3 dropped the wheel (C317), and not_visible gives
+       none.
     3. Deciding wheel readings that fail C54's test drop it as
        `vehicle_wheels_disagree`: an exact one sits more than one level below the
        deepest (C43).
@@ -110,17 +113,19 @@ def measure_boxes(
     for vehicle in kept.vehicles:
         reads_rows = vehicle.vehicle_type in rules.READING_TYPES  # C45, C318
         wheels: list[Reference] = []  # the wheel readings that may decide
-        held: list[Reference] = []  # step 3's drops, which never decide (C317)
+        held: list[Reference] = []  # never decide: step 3's drops, M5's floors (C317)
         # The causes and readings that count only if the vehicle stays.
         found: list[tuple[int, str]] = []
         given: dict[int, KeptReading] = {}
         for wheel_id, line in vehicle.wheels:
-            landmark = rules.WHEEL_ROWS[line] if reads_rows else None
-            if not reads_rows and line == "wheel_covered":
-                # The sedan row's floor bounds any larger covered wheel too, so it is
-                # held to refuse a shallower exact result, never to decide (R143). It
-                # holds whether or not step 3 dropped the wheel (C317).
-                floor = rules.WHEEL_ROWS[line]
+            row = rules.WHEEL_ROWS[line]
+            landmark = row if reads_rows else None
+            if not reads_rows and row is not None:
+                # The sedan row bounds any larger wheel from below, so it is held as a
+                # floor to refuse a shallower exact result, never to decide (M5, Rene,
+                # Oct 30). A covered wheel's tire floor is one case (R143). It holds
+                # whether or not step 3 dropped the wheel (C317).
+                floor = rules.Reading(row.level, floor=True)
                 held.append(Reference("wheel", wheel_id, line, floor, decides=False))
                 given[wheel_id] = KeptReading(floor, "landmark", None)
             if wheel_id in step3_drops:
@@ -145,7 +150,7 @@ def measure_boxes(
                         depth_in=kept_reading.depth_in,
                     )
                 )
-                given[wheel_id] = kept_reading  # over R143's floor (R147)
+                given[wheel_id] = kept_reading  # over M5's floor (R147)
         covered = any(line == "wheel_covered" for _, line in vehicle.wheels)
         low_body = vehicle.body_waterline in rules.BODY_AT_OR_BELOW_SILL
         if reads_rows and covered and low_body:  # C53, sedans and SUVs only (R142)

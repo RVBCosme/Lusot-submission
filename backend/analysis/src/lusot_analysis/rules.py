@@ -215,7 +215,7 @@ TIRE_CODES_VERSION, _TIRE_CODES = _load_tire_codes()
 
 
 def tire_codes(vehicle_type: str) -> tuple[TireCode, ...]:
-    """The type's tire codes. A type with none, a pickup among them, gets () (C304)."""
+    """The type's tire codes. A type with none, a tricycle among them, gets () (C304)."""
     return _TIRE_CODES.get(vehicle_type, ())
 
 

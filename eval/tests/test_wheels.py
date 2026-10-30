@@ -108,6 +108,7 @@ def test_hand_computed_wheels(tmp_path):
         worst_error=Decimal(2),
         envelope=Rate(3, 4),
         sam_water_found=Rate(5, 5),
+        no_answer=0,
     )
     assert measured_errors(rows, "geometry") == tuple(
         Decimal(error) for error in ("0", "0.5", "1", "2")
@@ -153,7 +154,7 @@ def test_variants_are_scored_apart(tmp_path):
     scores = [score_wheels(rows, variant) for variant in SET_B_VARIANTS]
     assert scores == [
         WheelScores(
-            "geometry", 3, Rate(3, 3), Decimal(1), Decimal(3), Rate(2, 3), water
+            "geometry", 3, Rate(3, 3), Decimal(1), Decimal(3), Rate(2, 3), water, 0
         ),
         WheelScores(
             "geometry_uncalibrated",
@@ -163,9 +164,17 @@ def test_variants_are_scored_apart(tmp_path):
             Decimal(3),
             Rate(0, 1),
             water,
+            0,
         ),
         WheelScores(
-            "known_waterline", 3, Rate(3, 3), Decimal(0), Decimal(0), Rate(3, 3), water
+            "known_waterline",
+            3,
+            Rate(3, 3),
+            Decimal(0),
+            Decimal(0),
+            Rate(3, 3),
+            water,
+            0,
         ),
         WheelScores(
             "known_waterline_uncalibrated",
@@ -175,9 +184,10 @@ def test_variants_are_scored_apart(tmp_path):
             Decimal(2),
             Rate(1, 2),
             water,
+            0,
         ),
         WheelScores(
-            "geometry_no_self_check", 3, Rate(0, 3), None, None, Rate(0, 0), water
+            "geometry_no_self_check", 3, Rate(0, 3), None, None, Rate(0, 0), water, 0
         ),
     ]
     # Their figures differ, not just their names.
@@ -212,6 +222,28 @@ def test_groups_by_type_and_bins(tmp_path):
     assert wheel_groups(rows, "size_bin") == ()
 
 
+def test_a_wheel_with_no_answer_is_left_out_of_the_water_rate(tmp_path):
+    rows = load_set_b(
+        tmp_path,
+        [
+            wheel_row("C1", "10", measured("11", "9", "12")),
+            wheel_row("C2", "12", unmeasured("no_waterline"), sam_water_found=False),
+            wheel_row("C3", "14", unmeasured("model_error"), sam_water_found=None),
+        ],
+    )
+    scores = score_wheels(rows, "geometry")
+    # The wheel stays counted as a wheel that wasn't measured, but SAM's water is a
+    # rate over the wheels that got an answer from Meta.
+    assert (scores.wheels, scores.measured) == (3, Rate(1, 3))
+    assert scores.sam_water_found == Rate(1, 2)
+    assert scores.no_answer == 1
+    # The same in a group, and with no wheel left to rate.
+    alone = score_wheels(rows[2:], "geometry")
+    assert (alone.wheels, alone.sam_water_found, alone.no_answer) == (1, Rate(0, 0), 1)
+    # Wheels that all got an answer leave none out.
+    assert score_wheels(rows[:2], "geometry").no_answer == 0
+
+
 def test_nothing_measured(tmp_path):
     rows = load_set_b(
         tmp_path,
@@ -230,7 +262,7 @@ def test_nothing_measured(tmp_path):
     assert measured_errors(rows, "geometry") == ()
     # No wheels at all leave every figure undefined.
     assert score_wheels((), "geometry") == WheelScores(
-        "geometry", 0, Rate(0, 0), None, None, Rate(0, 0), Rate(0, 0)
+        "geometry", 0, Rate(0, 0), None, None, Rate(0, 0), Rate(0, 0), 0
     )
 
 

@@ -123,6 +123,7 @@ The plan's first check, a wheel at least 40 px tall, is MS3a's C56 rule, applied
 - **A failed fit (C306):** a depth of 0 or less on any code drops the geometry reading for that wheel. Check 8 already keeps every depth at or below the tire's radius.
 - **One wheel with both readings (G4, plan §7 step 5):** the deeper level is kept. Readings more than one level apart drop the wheel as `wheel_methods_disagree`.
 - **Vans and `unknown`** are kept for geometry, which narrows MS3a's type drop (C45, C318). Their wheels give geometry readings only, since Table 8's wheel rows don't cover them. Sedans and SUVs get both readings.
+  - *Amended Oct 30 (M5, approved by Rene under his delegation, 8:06 AM; Task 20):* each answered wheel of a geometry-only type (van, `unknown`, and `pickup` since M11) holds its sedan Table 8 row as a floor that never decides, whether or not step 3 dropped it, as R143 already did for a covered wheel. A larger wheel can't sit shallower than a sedan's at the same mark, so this only ever adds refusals.
 
 **Tire codes (C304)**, from plan Table 7 and G5. They live in one versioned data file inside the package, with their sources.
 
@@ -130,9 +131,12 @@ The plan's first check, a wheel at least 40 px tall, is MS3a's C56 rule, applied
 |---|---|---|
 | `sedan_hatch` | 175/65R14 (Wigo), 185/55R15 (Mirage G4), 185/60R15 and 195/55R16 (Vios) | 23.0 to 24.4 |
 | `suv_mpv` | 205/55R16 and 205/55R17 (Xpander), 185/65R15 and 195/60R16 (Avanza), 205/65R16 (Raize and Innova), 205/60R17 (Raize), 215/55R17 (Innova) | 24.5 to 26.7 |
-| `van` | 215/70R16C (Hiace) | 27.9 |
-| `unknown` | every code above | 23.0 to 27.9 |
-| `pickup`, `jeepney`, `tricycle`, `motorcycle`, `bus_truck` | none until M11's sizes, from public tire specs and reviewed by Rene, are added (R124) | none |
+| `van` | 215/70R16C (Hiace); 215/65R16 (Tamaraw 2024+ GL AT; M11) | 27.0 to 27.9 |
+| `pickup` | 205/70R15, 225/70R17, 265/65R17 and 265/60R18 (Hilux; M11) | 26.3 to 30.6 |
+| `unknown` | every code above (17) | 23.0 to 30.6 |
+| `jeepney`, `tricycle`, `motorcycle`, `bus_truck` | none until sizes, from public tire specs and reviewed by Rene, cover the type (R124). Jeepney's one M11 code (the Fuso Canter's 205/75R16, 28.11 in) can't stand for traditional, Hino and Isuzu jeepneys (29.6 to 32.2 in), so it was left out (R170) | none |
+
+*Amended Oct 30 (M11, tire-codes-v2; approved by Rene under his delegation, 8:06 AM, and R170 at 9:35 AM; Task 20):* the pickup codes and the Tamaraw AT's are from public specs that Rene reviewed. The Tamaraw MT's 195R14C can't be written in C304's form, so an MT Tamaraw reads with the AT's code.
 
 The Tamaraw stays out of `van` until a sidewall photo confirms its size, because G5 found it in one secondary source only. A Hilux (30.5 in) that Muse Spark calls `unknown` would read too shallow, so W14's development confusion matrix checks pickups (G5). The Commons PUV photos hold 3 of them (C323).
 
@@ -203,7 +207,7 @@ The Tamaraw stays out of `van` until a sidewall photo confirms its size, because
 | D8 | Weaknesses checked as Table 11 asks | Development results, called indicative, for: W2 (Set B by type), W3 (the ablation and G4 drops), W4 (the reflection test, and development photos with reflections), W5 (passability and within-one-level agreement), W6 (development photos whose alert gave tire or deeper, with their refusals by cause, §D8), W7 (Set B by angle and size), W8 (the splash subset's coverage), W9 (development A-neg, with C326's false water) and W14 (the vehicle-type confusion matrix on the Commons PUV photos, C323). Headline numbers wait for the sealed run (MS6). | waits. No development results yet for W2 to W9 and W14. Indicative signs from real photos: step 3 dropped references with no water contact on 2 of the 6 offline photos, and one overlay showed them to be people and carts on dry debris (W9); check 9 passed 2 of 6 real rims (W2, W7). See the [results note](../../research/2026-10-30-ms3b-results.md), §4, §5 and §7. |
 | D9 | Backup method decided | C319's trigger checked on D2's figures and recorded | waits. C319's trigger needs D2's figures, so it is neither fired nor cleared, and no backup is built. See the [results note](../../research/2026-10-30-ms3b-results.md), §10. |
 | D10 | The evidence record handed to MS4 | D3's tests, and C328's field list sent to Window 4 through the tracker. It names any field that differs from MS4's C518. C505's gap (C505 draws a linked rim as a mask) is closed by C328's `rim_outline`, added on Oct 29 (the tracker's ruling under Rene's delegation). | ✅ D3's tests, and C328's field list sent to Window 4 through the tracker at 2:18 AM. No field was renamed; the five wording differences and M8 were listed. MS4's Task 14 took the record as built at 2:21 AM, and `rim_outline` closes C505's gap. See the [results note](../../research/2026-10-30-ms3b-results.md), §11. |
-| D11 | The sealed-run entry point built (C329) | By Nov 2, after MS3b's merge: its tests pass on synthetic data only, its security and code reviews are clean, and it is merged. It was never run on real sealed data. | waits. Task 19 sets this. |
+| D11 | The sealed-run entry point built (C329) | By Nov 2, after MS3b's merge: its tests pass on synthetic data only, its security and code reviews are clean, and it is merged. It was never run on real sealed data. | built and reviewed on synthetic data only (Oct 30; Task 19, 19b), with no security finding at confidence 7 or above; never run on real data. The merge is ticked after it. |
 
 ## 7. Left to the builder
 

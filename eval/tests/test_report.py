@@ -344,6 +344,7 @@ RUNS: dict[str, Callable[[Path], tuple[Run, Run | None]]] = {
         None,
     ),
     "synthetic": lambda folder: (full_run(folder, synthetic=True), None),
+    "retried": lambda folder: (full_run(folder, service_retries=2), None),
     "replay": lambda folder: (load(folder, run_json(), set_a=replay_rows()), None),
 }
 
@@ -503,7 +504,7 @@ def test_set_b_only_report(tmp_path):
         "geometry, view front",
         "geometry, view side",
     ]
-    assert "SAM found water on 7 of 8 (87.5%) wheels." in section(report, "Set B")
+    assert water_line("7 of 8 (87.5%)", 0) in section(report, "Set B")
     summary = json.loads(files["summary.json"])
     for key in ("configurations", "shipped", "geometry_stays", "inches_shown"):
         assert summary[key] is None, key
@@ -1029,6 +1030,8 @@ def test_report_with_empty_sets(tmp_path):
         "median_error_in": None,
         "worst_error_in": None,
         "envelope": {"k": 0, "n": 0},
+        "sam_water_found": {"k": 0, "n": 0},
+        "no_answer": 0,
     }
     assert build_review(run) is None
 
@@ -1078,6 +1081,7 @@ def test_summary_json(tmp_path):
         "set_b",
         "baseline_level",
         "baseline_class",
+        "service_retries",
     }
     assert [summary[key] for key in ("kind", "date", "rules_version")] == [
         "sealed",
@@ -1120,7 +1124,43 @@ def test_summary_json(tmp_path):
         "median_error_in": "0.75",
         "worst_error_in": "1.50",
         "envelope": {"k": 7, "n": 7},
+        "sam_water_found": {"k": 7, "n": 8},
+        "no_answer": 0,
     }
+
+
+def water_line(rate: str, left_out: int) -> str:
+    return (
+        f"SAM found water on {rate} wheels; left out: {left_out} with no usable answer"
+        " from Meta (model_error)."
+    )
+
+
+def test_a_wheel_with_no_answer_is_counted_beside_the_water_rate(tmp_path):
+    # MS3b exports a wheel whose Meta call failed twice with every variant
+    # model_error and no water answer. It stays a wheel that wasn't measured, but
+    # SAM's water rate leaves it out, and the report and summary count it.
+    def silent(crop_id: str) -> dict:
+        estimates = dict.fromkeys(VARIANTS, unmeasured("model_error"))
+        return set_b_row(crop_id, sam_water_found=None, estimates=estimates)
+
+    run = load(
+        tmp_path,
+        run_json(),
+        set_b=[*wheel_rows("B"), silent("B09")],
+        set_d=[silent("D01")],
+    )
+    files = build_report(run)
+    report = files["report.md"].decode("utf-8")
+    assert water_line("7 of 8 (87.5%)", 1) in section(report, "Set B")
+    assert water_line("0 of 0 (undefined)", 1) in section(report, "Set D")
+    rows = metric_rows(section_text(report, "Set B"))
+    assert rows[0].startswith("| geometry | 7 of 9 (77.8%) |")
+    summary = json.loads(files["summary.json"])["set_b"]
+    assert summary["wheels"] == 9
+    assert summary["measured"] == {"k": 7, "n": 9}
+    assert summary["sam_water_found"] == {"k": 7, "n": 8}
+    assert summary["no_answer"] == 1
 
 
 def test_summary_marks_synthetic_data_and_the_rerun(tmp_path):
@@ -1133,6 +1173,76 @@ def test_summary_marks_synthetic_data_and_the_rerun(tmp_path):
     assert marks(full_run(tmp_path / "final")) == (False, False)
     assert marks(full_run(tmp_path / "synthetic", synthetic=True)) == (True, False)
     assert marks(*rerun_pair(tmp_path / "rerun")) == (False, True)
+
+
+FROZEN = "Frozen versions and data"
+
+
+def retries_line(count: int) -> str:
+    return (
+        "Photos retried once after a Meta service failure in this run (MS6E-Q6):"
+        f" {count}."
+    )
+
+
+def run_without_retries(folder: Path, **overrides: object) -> Run:
+    """A full run whose run.json lacks service_retries, which only a development run
+    may do."""
+    return load(
+        folder,
+        without(full_run_json(kind="development", **overrides), "service_retries"),
+        set_a=set_a_rows(),
+        a_neg=a_neg_rows(),
+        set_b=wheel_rows("B"),
+        set_d=wheel_rows("D")[:2],
+        latency=LATENCY,
+    )
+
+
+def test_service_retries_line(tmp_path):
+    # MS6E-Q6 (a): a sealed report always discloses how many photos were retried, and
+    # a development report only when there were some. The count covers the whole run
+    # (Set A, Set B and Set D), so the line sits with the run's other events, beside
+    # the stops table, and not in a set's section.
+    for number, (kind, count) in enumerate((("sealed", 0), ("sealed", 3))):
+        run = full_run(tmp_path / f"run{number}", kind=kind, service_retries=count)
+        report = report_of(run)
+        lines = section(report, FROZEN)
+        assert lines.count(retries_line(count)) == 1, (kind, count)
+        assert lines[lines.index(retries_line(count)) - 1].startswith("| 21:10 |")
+        assert "retried once" not in "".join(section(report, "Set A: every metric"))
+    two = full_run(tmp_path / "two", kind="development", service_retries=2)
+    assert retries_line(2) in section(report_of(two), FROZEN)
+    for name, run in (
+        ("an absent count", run_without_retries(tmp_path / "absent")),
+        (
+            "a count of 0",
+            full_run(tmp_path / "zero", kind="development", service_retries=0),
+        ),
+    ):
+        assert "retried once" not in report_of(run), name
+    # Set A not run: its section says so and nothing else, and the count shows in the
+    # run's own section.
+    set_b_only = load(
+        tmp_path / "set_b_only",
+        run_json(service_retries=2),
+        set_b=wheel_rows("B"),
+    )
+    report = report_of(set_b_only)
+    assert section(report, "Set A: every metric") == [NOT_RUN]
+    assert retries_line(2) in section(report, FROZEN)
+
+
+def test_service_retries_in_the_summary(tmp_path):
+    def summarised(run: Run) -> object:
+        return json.loads(build_report(run)["summary.json"])["service_retries"]
+
+    assert summarised(full_run(tmp_path / "final", service_retries=3)) == 3
+    assert summarised(full_run(tmp_path / "zero", service_retries=0)) == 0
+    absent = summarised(run_without_retries(tmp_path / "absent"))
+    assert absent == 0 and type(absent) is int
+    two = full_run(tmp_path / "two", kind="development", service_retries=2)
+    assert summarised(two) == 2
 
 
 def test_exclusions_listed(tmp_path):
