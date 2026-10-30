@@ -16,7 +16,8 @@ Without --yes it prints the planned call count and the worst-case cost, and stop
 no key, no counter and no network. With --yes it spends Meta credits: 44 calls in the
 main plan at --runs 10 (49 with step 5). --runs takes 1 to 10.
 
-The cost guard holds the run to COST_CAP_USD ($0.30). A call's worst case is its
+The cost guard holds the run to COST_CAP_USD ($0.50; raised from $0.30 once the estimate
+became a proven upper bound, so the plan's 10 timings fit). A call's worst case is its
 request body's UTF-8 byte count as input tokens (a token is never fewer than one
 byte, so the text sent can't cost more tokens than bytes) plus the whole
 max_output_tokens as output. That bound covers the bytes sent, not Meta's own chat
@@ -78,7 +79,7 @@ MAX_OUTPUT_TOKENS = 800  # spec 4.3
 EFFORTS = ("minimal", "low")
 RUNS = 10  # timings for each effort (plan Task 2, step 1)
 MAX_RUNS = 10
-COST_CAP_USD = Decimal("0.30")
+COST_CAP_USD = Decimal("0.50")  # the tracker, Oct 30, 7:48 PM: 10 runs fit, inside C730
 MIN_KEY_LENGTH = 20  # MetaClient's rule: the real key has 48 characters
 # What a 400 must name to count as Meta refusing tools beside text.format (F4).
 _F4_WORDS = re.compile(r"\b(text|format|tools|tool_choice)\b", re.IGNORECASE)

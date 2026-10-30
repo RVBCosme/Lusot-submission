@@ -643,8 +643,17 @@ def test_without_yes_it_prints_the_plan_and_makes_no_call(
     assert not data.exists()  # nothing written
     assert "44 calls" in out
     assert "49 with" in out  # with step 5's fallback
-    assert "$0.30" in out
+    assert "$0.50" in out
     assert "--yes" in out
+
+
+def test_the_full_plan_at_10_runs_fits_the_cap():
+    # The tracker's ruling (Oct 30, 7:48 PM, under Rene's delegation): the cap is $0.50,
+    # so the plan's 10 timings per effort run, with step 5's forms, inside C730's $1.
+    prompts = probe.load_prompts()
+    main, fallback = probe.main_jobs(10), probe.fallback_jobs()
+    assert probe.COST_CAP_USD == Decimal("0.50")
+    assert probe.estimate_plan(prompts, main + fallback) <= probe.COST_CAP_USD
 
 
 def test_the_plan_is_44_calls_and_5_more():
@@ -893,7 +902,12 @@ def test_the_guard_counts_what_was_already_spent(tmp_path, monkeypatch):
     assert run.spent == kept * each
 
 
-def test_a_run_that_has_spent_nearly_the_cap_stops_before_the_next_call(data, go):
+def test_a_run_that_has_spent_nearly_the_cap_stops_before_the_next_call(
+    data, go, monkeypatch
+):
+    # Its numbers are worked for a $0.30 cap, whatever the probe's own cap is.
+    monkeypatch.setattr(probe, "COST_CAP_USD", Decimal("0.30"))
+
     def costly(body):
         reply = ScriptedMeta().default(body)
         reply.input_tokens, reply.output_tokens = 59_000, 0  # $0.07375 a call
