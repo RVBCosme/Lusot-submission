@@ -287,6 +287,52 @@ def test_r147_a_van_wheel_with_two_readings_shows_its_deciding_one(prompt):
     assert wheel_entry.rim is not None
 
 
+def test_an_entry_keeps_its_readings_floor(prompt):
+    # C54: an entry says whether its own reading is a floor, since a landmark can't:
+    # M5 holds a van wheel's hub as a floor, where a sedan's hub is exact. MS4's
+    # overlay labels a floor as one (its final review's I1).
+    def found(given, geometry_in_level=False, rims=True):
+        photo, sam, _ = geometry_case()
+        if not rims:
+            sam = sam | {"wheel rim": SamResult("wheel rim", [], elapsed_s=0.5, raw="")}
+        run = run_pipeline(
+            photo,
+            FakeClient(sam, given),
+            prompt,
+            geometry_in_level=geometry_in_level,
+            tuning=START,
+        )
+        return entries(run)
+
+    covered = found(
+        answer(vehicles=[vehicle(1, body="window")], wheels=[wheel(2, "wheel_covered")])
+    )
+    assert (covered[1].level, covered[1].level_is_floor) == ("tire", True)
+    assert (covered[2].level, covered[2].level_is_floor) == ("tire", True)
+    # M5: the van's hub, with no rim to measure, holds the sedan row as a floor.
+    van = found(
+        answer(vehicles=[vehicle(1, "van")], wheels=[wheel(2, "hub")]),
+        geometry_in_level=True,
+        rims=False,
+    )
+    assert (van[2].level, van[2].level_from, van[2].level_is_floor) == (
+        "half_tire",
+        "landmark",
+        True,
+    )
+    exact = found(answer(vehicles=[vehicle(1)], wheels=[wheel(2, "hub")]))
+    assert (exact[2].level, exact[2].level_is_floor) == ("half_tire", False)
+    # The same landmark, level and source; only the floor tells them apart.
+    same = ("landmark", "level", "level_from")
+    assert [getattr(van[2], k) for k in same] == [getattr(exact[2], k) for k in same]
+    measured = found(
+        answer(vehicles=[vehicle(1)], wheels=[wheel(2, "rim_quarter")]),
+        geometry_in_level=True,
+    )
+    assert (measured[2].level_from, measured[2].level_is_floor) == ("geometry", False)
+    assert (exact[1].level, exact[1].level_is_floor) == (None, False)
+
+
 def test_evidence_holds_no_face_plate_or_reason(prompt):
     # Review Focus 6 (C62, C518): only the numbered boxes and the water are outlined.
     photo, sam, given = level_case()

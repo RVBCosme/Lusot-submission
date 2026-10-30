@@ -474,7 +474,11 @@ def _self_check_line(run: Run) -> str:
     decided = run.meta.get("self_check_decided")
     when = "decided: not recorded" if decided is None else f"decided {decided}"
     if not run.self_check:
-        return f"Self-check: off ({when}, MS3)."
+        return (
+            f"Self-check: off ({when}, MS3). It is off in this evaluation: MS3b's"
+            " ablation was dropped, so no development ablation exists to turn it on"
+            " (eval/rules.md §8)."
+        )
     line = f"Self-check: on ({when}, MS3)."
     if run.geometry_dropped:
         return line
@@ -885,7 +889,9 @@ def _a_neg(run: Run) -> list[str]:
     }
     return _section(
         heading,
-        'Flood-free photos that got a level instead of "no flood seen" or a refusal,'
+        "The A-neg photos are openly licensed Wikimedia Commons photos"
+        " (CC0, public domain or CC BY)."
+        ' Flood-free photos that got a level instead of "no flood seen" or a refusal,'
         " over the A-neg photos kept. A processing failure counts in the n, never as a"
         " false flood.",
         _metric_table(_A_NEG_METRICS, columns),
@@ -1063,16 +1069,18 @@ def _wheel_row(label: str, scores: WheelScores) -> list[str]:
 
 
 def _latency(run: Run) -> list[str]:
-    """Live tests' seconds from upload to pin (C416), when measured."""
+    """Live tests' seconds from upload, or a sample's start, to the final result
+    (C416), when measured."""
     heading = "## Latency"
     if run.latency is None:
         return _section(heading, _NO_LATENCY)
     scores = score_latency(run.latency)
     return _section(
         heading,
-        "Live tests' seconds from upload to pin (C416).",
+        "Live tests' seconds from upload, or a sample's start, to the final result"
+        " (C416).",
         _table(
-            ["Measure", "Upload to pin"],
+            ["Measure", "Upload, or a sample's start, to the final result"],
             [
                 ["Median", _seconds(scores.median, scores.n)],
                 ["95th percentile, nearest rank", _seconds(scores.p95, scores.n)],
@@ -1166,6 +1174,16 @@ _DATASETS = (
 )
 
 
+# What frozen.untuned says, in the report (rules 4.3).
+_UNTUNED_LINES = {
+    "yes": "The cutoffs in force are their start values, untuned (rules 4.3).",
+    "no": (
+        "The cutoffs were tuned on development data and validated by event replay"
+        " (rules 4.3)."
+    ),
+}
+
+
 def _frozen(run: Run) -> list[str]:
     """The freeze commit, geometry's live default before the run (C309), what
     run.json froze, the datasets with their counts, each stop, and the face blur's
@@ -1185,6 +1203,8 @@ def _frozen(run: Run) -> list[str]:
         )
     else:
         blocks.append("run.json records no frozen versions.")
+    if frozen.get("untuned") in _UNTUNED_LINES:
+        blocks.append(_UNTUNED_LINES[frozen["untuned"]])
     datasets = run.meta["datasets"]
     rows = []
     for key, name in _DATASETS:
@@ -1216,15 +1236,16 @@ def _frozen(run: Run) -> list[str]:
 
 
 def _retried(run: Run) -> list[str]:
-    """MS6E-Q6's count of photos retried once after a Meta service failure, across
-    every set of the run: always in a sealed report, and in a development one only when
-    there were some. It states the count and nothing about it."""
+    """MS6E-Q6's count of photos and crops retried once after a Meta service failure,
+    across every set of the run (Set A's photos, and Set B's and Set D's items):
+    always in a sealed report, and in a development one only when there were some. It
+    states the count and nothing about it."""
     if run.kind == "development" and run.service_retries == 0:
         return []
     return [
         (
-            "Photos retried once after a Meta service failure in this run (MS6E-Q6):"
-            f" {run.service_retries}."
+            "Photos and crops retried once after a Meta service failure in this run"
+            f" (MS6E-Q6): {run.service_retries}."
         )
     ]
 

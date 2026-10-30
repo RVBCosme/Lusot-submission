@@ -21,6 +21,7 @@ import pytest
 from fakes import (
     REPO_PROMPTS,
     FakeClient,
+    FakeSpend,
     answer,
     geometry_case,
     person,
@@ -158,6 +159,7 @@ runner = load_runner()
 def offline(tmp_path, monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY", raising=False)
     monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(runner, "check_before_paying", FakeSpend)  # no AWS (C527)
 
 
 @pytest.fixture(scope="module")
@@ -643,6 +645,37 @@ def test_a_sealed_run_json_counts_its_service_retries():
     assert "service_retries" not in export.results_manifest(**development)
     with pytest.raises(ValueError, match="development"):
         export.results_manifest(service_retries=0, **development)
+
+
+def test_a_sealed_run_json_says_whether_its_cutoffs_are_untuned():
+    # Rules 4.3: a sealed run.json's frozen carries untuned, "yes" when the tuning in
+    # force is START and "no" otherwise; a development run makes no claim (R171).
+    development = {
+        "date": "2026-11-03",
+        "rules_version": "0.7",
+        "tuning": START,
+        "saved_run": {
+            "models": {"sam": "sam-3.1", "spark": "muse-spark-1.3"},
+            "prompt_version": "muse_spark_photo_v1",
+            "schema_name": "muse_spark_photo_v1",
+            "blur_version": "blur-v",
+            "phrases": list(READING_PHRASES),
+        },
+        "geometry_default": "on",
+        "dropped_reason": None,
+        "datasets": {"set_a": {"version": "v1", "split_seed": "7"}},
+    }
+    sealed = development | {
+        "kind": "sealed",
+        "freeze_commit": "0123456789abcdef" * 2 + "01234567",
+        "baseline": {"baseline_level": "knee", "baseline_class": "NPLV"},
+        "self_check_decided": "2026-10-31",
+        "service_retries": 0,
+    }
+    assert export.results_manifest(**sealed)["frozen"]["untuned"] == "yes"
+    swept = sealed | {"tuning": dataclasses.replace(START, rim_edge_k=1.05)}
+    assert export.results_manifest(**swept)["frozen"]["untuned"] == "no"
+    assert "untuned" not in export.results_manifest(**development)["frozen"]
 
 
 @pytest.mark.parametrize(
