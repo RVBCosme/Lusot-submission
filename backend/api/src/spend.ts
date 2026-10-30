@@ -37,6 +37,21 @@ const PRICE_OF: Record<keyof Usage, keyof typeof PRICES> = {
   audio_seconds: "audio_second",
 };
 
+// What a Spark call whose usage Meta didn't report is charged: spend.py's SPARK_TOKENS_IF_UNREPORTED
+// (input, output). About $0.042, about 3 times a typical judge, so the count runs over, never under.
+export const UNREPORTED_USAGE = Object.freeze({ spark_input_tokens: 20_000, spark_output_tokens: 4_000 } satisfies Usage);
+
+// The Spark tokens a reply's usage reports, each count it leaves out (or gives as null) charged at
+// UNREPORTED_USAGE's, as handler.py's judge charges a reply. A reply without usage gets all of it.
+export function sparkUsage(
+  reported: { input_tokens?: number | null; output_tokens?: number | null } | null | undefined,
+): Usage {
+  return {
+    spark_input_tokens: reported?.input_tokens ?? UNREPORTED_USAGE.spark_input_tokens,
+    spark_output_tokens: reported?.output_tokens ?? UNREPORTED_USAGE.spark_output_tokens,
+  };
+}
+
 const MICRO_DIGITS = 6;
 const MAX_MICRO = 2n ** 53n - 1n; // the largest integer a number holds exactly
 const PLAIN_USD = /^(\d+)(?:\.(\d+))?$/;
@@ -73,12 +88,21 @@ const COST_DIGITS = Math.max(...Object.values(PRICES).map((price) => digits(pric
 
 // What `usage` costs at PRICES, in USD, exact: spend.py's cost_of. It counts in BigInt units of
 // 10^-COST_DIGITS USD, never on a float, and doesn't round; recordSpend's toMicro rounds up, as
-// record_spend's to_micro does. The result is what recordSpend takes.
+// record_spend's to_micro does. The result is what recordSpend takes. Only an absent count is 0, as
+// cost_of defaults only an absent keyword. A count that is present but can't be read (undefined,
+// null, not a whole number of zero or more) or a name cost_of doesn't take throws a RangeError, so
+// no count is ever priced at $0 by mistake.
 export function costOf(usage: Usage): string {
+  for (const name of Object.keys(usage)) {
+    if (!Object.hasOwn(PRICE_OF, name)) throw new RangeError(`${name} has no price`);
+  }
   let units = 0n;
   for (const [name, price] of Object.entries(PRICE_OF) as [keyof Usage, keyof typeof PRICES][]) {
-    const count = usage[name] ?? 0;
-    if (!Number.isInteger(count) || count < 0) throw new RangeError(`${name} must be a whole number of zero or more`);
+    if (!Object.hasOwn(usage, name)) continue;
+    const count = usage[name];
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      throw new RangeError(`${name} must be a whole number of zero or more`);
+    }
     const [whole, fraction] = digits(PRICES[price]);
     units += BigInt(count) * BigInt(whole + fraction.padEnd(COST_DIGITS, "0"));
   }

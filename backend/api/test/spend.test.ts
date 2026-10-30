@@ -12,8 +12,10 @@ import {
   SPEND_PK,
   SPEND_SEEDED_ATTR,
   SpendUnseeded,
+  sparkUsage,
   spendTotal,
   toMicro,
+  UNREPORTED_USAGE,
   type Usage,
 } from "../src/spend";
 
@@ -135,10 +137,27 @@ describe("costOf", () => {
     }
   });
 
-  it("refuses a count that isn't a whole number of zero or more", () => {
-    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => costOf({ spark_input_tokens: bad }), String(bad)).toThrow(RangeError);
+  it("refuses a count it can't read, never pricing it at $0, and an unknown name, as cost_of raises", () => {
+    // Present but undefined or null, not a number, not whole, negative or not finite.
+    const bad: unknown[] = [undefined, null, "5", 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+    for (const count of bad) {
+      for (const name of ["sam_images", "spark_input_tokens", "spark_output_tokens", "audio_seconds"]) {
+        expect(() => costOf({ [name]: count } as Usage), `${name}: ${String(count)}`).toThrow(RangeError);
+      }
     }
+    // A name cost_of doesn't take, such as PRICES' singular one, or one only the prototype has.
+    for (const name of ["sam_image", "spark_reasoning_tokens", "toString"]) {
+      expect(() => costOf({ [name]: 5 } as Usage), name).toThrow(RangeError);
+    }
+    // Only an absent count is 0, as cost_of defaults only an absent keyword.
+    expect(costOf({ spark_output_tokens: 4_000 })).toBe("0.017");
+  });
+
+  it("exports spend.py's unreported counts, priced at $0.042", () => {
+    expect(UNREPORTED_USAGE).toEqual({ spark_input_tokens: 20_000, spark_output_tokens: 4_000 });
+    expect(Object.isFrozen(UNREPORTED_USAGE)).toBe(true);
+    expect(costOf(UNREPORTED_USAGE)).toBe("0.042");
+    expect(toMicro(costOf(UNREPORTED_USAGE))).toBe(42_000);
   });
 
   it("with recordSpend, adds exactly cost_of's micro-dollars, rounded up, to the counter", async () => {
@@ -149,6 +168,36 @@ describe("costOf", () => {
     }
     expect(sent()).toEqual(COSTS.map(([, , micro]) => ADD(micro)));
     expect(total).toBe(sum);
+  });
+});
+
+// A Muse Spark reply as the Meta client returns it (Task 7's fixture, from Task 2's probe).
+type Reply = { usage?: { input_tokens?: number | null; output_tokens?: number | null } };
+const REPLY: Reply = JSON.parse(readFileSync(new URL("./fixtures/meta/ask_answer.json", import.meta.url), "utf8"));
+
+describe("sparkUsage", () => {
+  it("takes a reply's own counts", () => {
+    expect(REPLY.usage).toMatchObject({ input_tokens: 1897, output_tokens: 320 });
+    expect(sparkUsage(REPLY.usage)).toEqual({ spark_input_tokens: 1897, spark_output_tokens: 320 });
+  });
+
+  it("charges each count a reply leaves out at UNREPORTED_USAGE's, as handler.py's judge does", () => {
+    expect(sparkUsage(undefined)).toEqual(UNREPORTED_USAGE);
+    expect(sparkUsage(null)).toEqual(UNREPORTED_USAGE);
+    expect(sparkUsage({})).toEqual(UNREPORTED_USAGE);
+    expect(sparkUsage({ input_tokens: 1897, output_tokens: null })).toEqual({ spark_input_tokens: 1897, spark_output_tokens: 4_000 });
+    expect(sparkUsage({ output_tokens: 320 })).toEqual({ spark_input_tokens: 20_000, spark_output_tokens: 320 });
+  });
+
+  it("charges a reply without usage $0.042 on the counter, not $0", async () => {
+    const { usage, ...withoutUsage }: Reply = REPLY;
+    expect(usage).toBeDefined();
+    const reply: Reply = withoutUsage;
+
+    expect(await recordSpend(costOf(sparkUsage(reply.usage)), "ask", deps())).toBe(0.042);
+    expect(sent()).toEqual([ADD(42_000)]);
+    // Read straight off the reply, the missing counts throw rather than price at $0.
+    expect(() => costOf({ spark_input_tokens: reply.usage?.input_tokens, spark_output_tokens: reply.usage?.output_tokens } as Usage)).toThrow(RangeError);
   });
 });
 
