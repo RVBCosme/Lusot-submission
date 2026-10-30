@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- No backup: the app keeps its few settings (the 18+ check and notice, the language, the theme, a random device id)
-         on the phone only, and Android must not copy them to a Google account or another phone. -->
+    <!-- No cloud backup: the app keeps its few settings (the 18+ check and notice, the language, the theme, a random device
+         id) on the phone, and Android doesn't copy them to a Google account. Some phones' direct transfer to a new phone
+         may still copy them; nothing in them is private. -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
@@ -44,12 +45,13 @@
     <!-- Geolocation Plugin -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- Not required: a phone without GPS still has network location, and the 50 m rule refuses a poor fix anyway. -->
+    <!-- Not required, so an app store wouldn't filter out a phone without GPS: network location still works, and the
+         50 m rule refuses a poor fix anyway. (Android itself doesn't check uses-feature at install.) -->
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- In-app camera (C602): the page's own camera stream. With CAMERA declared, Capacitor's WebView client asks
          Android for it when the page opens the stream (BridgeWebChromeClient.onPermissionRequest). Not required,
-         so the app still installs on a device without a camera, where it points to the samples. -->
+         so an app store wouldn't filter out a device without a camera, where the app points to the samples. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

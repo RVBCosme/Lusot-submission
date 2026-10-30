@@ -61,7 +61,7 @@ describe('AndroidManifest.xml', () => {
     expect(attr(usesFeature('android.hardware.camera'), 'required')).toBe('false')
   })
 
-  it('does not require a GPS, so a phone with network location only still installs the app', () => {
+  it('does not require a GPS, so a store would not filter out a phone with network location only', () => {
     expect(attr(usesFeature('android.hardware.location.gps'), 'required')).toBe('false')
   })
 })
