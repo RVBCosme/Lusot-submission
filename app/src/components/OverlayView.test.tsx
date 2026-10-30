@@ -167,29 +167,84 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     ])
   })
 
-  it("gives the SVG a short overall label, the water a label, and each reference a label from refLabel", async () => {
+  it("lists every reference under the photo, one line each as refLabel gives it, in a list with the overlay's short label (C615)", async () => {
     const svg = await draw(levelLayers('knee'))
     const t = makeT('en')
-    expect(svg.getAttribute('aria-label')).toBe(EN['overlay.title'].text)
-    expect(screen.getByRole('img', { name: EN['overlay.water'].text })).toBeTruthy()
-    for (const ref of levelLayers('knee').refs) {
-      const group = screen.getByRole('img', { name: refLabel(t, ref).text })
-      expect(group.getAttribute('data-ref')).toBe(String(ref.id))
-    }
-    // The measured wheel, the adult, and the person who may not be an adult.
-    expect(screen.getByRole('img', { name: /^Wheel 1: Knee\. .* Measured from the size of the wheel rim\.$/ })).toBeTruthy()
-    expect(screen.getByRole('img', { name: 'Person 3: Not used, since this person may not be an adult.' })).toBeTruthy()
+    const legend = screen.getByRole('list', { name: EN['overlay.title'].text })
+    const items = within(legend).getAllByRole('listitem')
+    const refs = levelLayers('knee').refs
+    expect(items.map((item) => item.textContent)).toEqual(refs.map((ref) => refLabel(t, ref).text))
+    // The measured wheel, the adult, and the person who may not be an adult: a dropped reference shows its cause.
+    expect(items[0].textContent).toMatch(/^Wheel 1: Knee\. .* Measured from the size of the wheel rim\.$/)
+    expect(items[2].textContent).toBe('Person 3: Not used, since this person may not be an adult.')
+    // Under the photo: the legend follows the photo's box, in the same figure.
+    expect(photo().parentElement?.nextElementSibling).toBe(legend)
+    expect(svg.parentElement?.nextElementSibling).toBe(legend)
   })
 
-  it('writes each label in the screen\'s language, with that language on it', async () => {
+  it('numbers each legend line as its chip on the photo is numbered, and marks a dropped one', async () => {
+    const svg = await draw(levelLayers('knee'))
+    const legend = screen.getByRole('list')
+    for (const ref of levelLayers('knee').refs) {
+      const item = legend.querySelector(`[data-ref="${ref.id}"]`) as HTMLElement
+      const chip = svg.querySelector(`[data-ref="${ref.id}"] [data-layer="label"] text`)?.textContent ?? ''
+      expect(chip.startsWith(`${ref.id}`), `chip ${ref.id}`).toBe(true)
+      expect(item.textContent, `legend ${ref.id}`).toContain(`${ref.id}:`)
+      expect(item.getAttribute('data-dimmed')).toBe(String(ref.dropped !== null))
+    }
+    expect(legend.querySelectorAll('li')).toHaveLength(svg.querySelectorAll('[data-ref]').length)
+  })
+
+  it('leaves the SVG to the legend for screen readers, so nothing is said twice', async () => {
+    const svg = await draw(levelLayers('knee'))
+    expect(svg.getAttribute('aria-hidden')).toBe('true')
+    // The only image a screen reader finds is the photo, and no group repeats a legend line.
+    expect(screen.getAllByRole('img')).toEqual([photo()])
+    expect(svg.querySelector('[aria-label], [role]')).toBeNull()
+    expect(screen.getAllByText(/Not used, since this person may not be an adult\./)).toHaveLength(1)
+  })
+
+  it("writes the legend in the screen's language", async () => {
     serve(levelLayers('knee'))
     renderOverlay({}, 'fil')
-    const svg = await drawn()
-    expect(svg.getAttribute('aria-label')).toBe(FIL['overlay.title'].text)
-    const dropped = screen.getByRole('img', {
-      name: `${FIL['overlay.ref.person'].text.replace('{id}', '3')}: ${FIL['dropped.person_not_adult'].text}`,
-    })
-    expect(dropped.getAttribute('lang')).toBe('fil')
+    await drawn()
+    const legend = screen.getByRole('list', { name: FIL['overlay.title'].text })
+    const dropped = within(legend).getAllByRole('listitem')[2]
+    expect(dropped.textContent).toBe(
+      `${FIL['overlay.ref.person'].text.replace('{id}', '3')}: ${FIL['dropped.person_not_adult'].text}`,
+    )
+  })
+
+  it('has no legend while the layers load, when they fail, or when they hold nothing', async () => {
+    const answer = deferred<Response>()
+    serve(() => answer.promise)
+    renderOverlay()
+    await flush()
+    expect(screen.queryByRole('list')).toBeNull()
+    answer.resolve(json({ error: 'AccessDenied' }, 403))
+    await flush()
+    expect(screen.queryByRole('list')).toBeNull()
+    cleanup()
+
+    serve({ version: 1, width: 800, height: 600, water: [], refs: [] })
+    renderOverlay()
+    await flush()
+    expect(screen.queryByRole('list')).toBeNull()
+  })
+
+  it('has no legend for water alone, and lists only the references it drew', async () => {
+    const layers = levelLayers('knee')
+    serve({ ...layers, refs: [] })
+    renderOverlay()
+    await drawn()
+    expect(screen.queryByRole('list')).toBeNull()
+    cleanup()
+
+    const broken = { ...layers.refs[1], id: 9, box: [1, 2, Number.NaN, 4] }
+    serve({ ...layers, refs: [layers.refs[0], broken] })
+    renderOverlay()
+    await drawn()
+    expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(1)
   })
 
   it('shows each reference\'s number and its short reading on the photo, and "Not used" on a dropped one', async () => {
@@ -200,12 +255,39 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     expect(words(3)).toBe('3: Not used')
   })
 
-  it('sets the words large enough to read on a phone: 12 px or more on the 276 px photo of a card at 360 px wide', async () => {
-    const svg = await draw(levelLayers('knee'))
-    for (const text of svg.querySelectorAll('text')) {
+  // The photo is drawn the full width of its box, so the file's width sets the scale: a word's size on screen is its
+  // font-size in the file times the shown width over the file's width (I3). 276 px is the photo of a card at 360 px.
+  it.each([
+    ['4:3', 800, 600],
+    ['16:9', 1600, 900],
+    ['3:2', 1500, 1000],
+    ['portrait 9:16', 900, 1600],
+    ['a full-size still', 1600, 1200],
+  ])('sets the words to read on a phone, 12 px or more on the 276 px photo of a card at 360 px wide, for %s', async (_shape, width, height) => {
+    const svg = await draw({ ...levelLayers('knee'), width, height })
+    const words = [...svg.querySelectorAll('text')]
+    expect(words.length).toBeGreaterThan(0)
+    for (const text of words) {
       const size = Number(text.getAttribute('font-size'))
-      expect((size * 276) / 800).toBeGreaterThanOrEqual(12)
+      expect((size * 276) / width, `${width} x ${height}`).toBeGreaterThanOrEqual(12)
+      // And no larger than the photo can hold: a line of the longest short label fits across it.
+      expect((size * 276) / width).toBeLessThanOrEqual(16)
     }
+  })
+
+  it('squeezes a label that is wider than the photo to fit it, and leaves a shorter one alone', async () => {
+    const layers = levelLayers('floor')
+    const refs = layers.refs.map((ref) => ({ ...ref, level: 'below_gutter', level_is_floor: true }))
+    const svg = await draw({ ...layers, refs }, {}, 'fil')
+    const label = svg.querySelector('[data-ref="1"] [data-layer="label"] text') as SVGElement
+    // "1: Hindi bababa sa mas mababa sa gutter" is longer than the photo is wide at this size.
+    expect(label.textContent).toBe('1: Hindi bababa sa mas mababa sa gutter')
+    expect(Number(label.getAttribute('textLength'))).toBeLessThanOrEqual(800)
+    expect(label.getAttribute('lengthAdjust')).toBe('spacingAndGlyphs')
+    cleanup()
+
+    const short = await draw(levelLayers('knee'))
+    expect(short.querySelector('text')?.getAttribute('textLength')).toBeNull()
   })
 
   it('draws a dropped reference dimmed, in a token colour at reduced opacity, and no other', async () => {
@@ -297,7 +379,7 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     const floor: OverlayData = { ...layers, refs: layers.refs.map((ref) => ({ ...ref, level_is_floor: true })) }
     const svg = await draw(floor)
     expect(svg.querySelector('[data-ref="1"] [data-layer="label"] text')?.textContent).toBe('1: At least tire')
-    expect(screen.getByRole('img', { name: /^Wheel 1: At least tire\. / })).toBeTruthy()
+    expect(within(screen.getByRole('list')).getByText(/^Wheel 1: At least tire\. /)).toBeTruthy()
   })
 
   it('shows the same reading as its level when level_is_floor is false, null or absent', async () => {
@@ -437,6 +519,20 @@ describe('without layers: the overlay JPEG, then the photo alone', () => {
     expect(onExpired).not.toHaveBeenCalled()
   })
 
+  it('tries a new overlay link after the old one failed, and keeps its failure for the old link only', async () => {
+    const { container, again } = renderOverlay({ layersUrl: undefined })
+    fireEvent.error(overlayJpeg(container) as Element)
+    expect(overlayJpeg(container)).toBeNull()
+
+    const fresh = `${OVERLAY}&fresh=1`
+    again({ layersUrl: undefined, overlayUrl: fresh })
+    expect(container.querySelector(`img[src="${fresh}"]`)).toBeTruthy()
+
+    // Back to the link that failed: it is not tried again.
+    again({ layersUrl: undefined, overlayUrl: OVERLAY })
+    expect(overlayJpeg(container)).toBeNull()
+  })
+
   it('waits for the layers before showing the JPEG, and shows the SVG when they come', async () => {
     const answer = deferred<Response>()
     serve(() => answer.promise)
@@ -536,7 +632,10 @@ describe('what it never shows or logs', () => {
     await drawn()
     const text = container.textContent ?? ''
     expect(text).not.toMatch(/https?:|r_[0-9a-f]{32}|sig=/)
-    const labels = [...container.querySelectorAll('[aria-label]')].map((element) => element.getAttribute('aria-label') ?? '')
+    const labels = [...container.querySelectorAll('li, [aria-label]')].map(
+      (element) => `${element.textContent} ${element.getAttribute('aria-label') ?? ''}`,
+    )
+    expect(labels.length).toBeGreaterThan(3)
     for (const label of labels) {
       expect(label).not.toMatch(/https?:|r_[0-9a-f]{32}|sig=|safe|ligtas/i)
     }

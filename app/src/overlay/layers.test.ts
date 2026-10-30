@@ -287,7 +287,6 @@ describe('refLabel', () => {
 describe("the overlay's new lines", () => {
   const KEYS = [
     'overlay.title',
-    'overlay.water',
     'overlay.ref.wheel',
     'overlay.ref.body',
     'overlay.ref.person',

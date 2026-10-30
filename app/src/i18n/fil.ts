@@ -389,7 +389,6 @@ export const FIL: Record<StringKey, Entry> = {
   'gauge.outside': { text: 'Labas sa gauge ng MMDA', reviewed: true },
   'gauge.orDeeper': { text: 'o mas malalim', reviewed: true },
   'overlay.title': { text: 'Mga outline ng Lusot sa photo', reviewed: false },
-  'overlay.water': { text: 'Outline ng tubig', reviewed: false },
   'overlay.ref.wheel': { text: 'Gulong {id}', reviewed: false },
   'overlay.ref.body': { text: 'Katawan ng sasakyan {id}', reviewed: false },
   'overlay.ref.person': { text: 'Tao {id}', reviewed: false },

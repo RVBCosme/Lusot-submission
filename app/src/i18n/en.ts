@@ -390,7 +390,6 @@ export const EN = {
   // the drop-cause lines above. A floor reads as the result card does ("At least {level}"), and none of these names a
   // road or tells anyone to go anywhere. All wait for Rene's copy review.
   'overlay.title': { text: "Lusot's outlines on the photo", reviewed: false },
-  'overlay.water': { text: 'Outline of the water', reviewed: false },
   'overlay.ref.wheel': { text: 'Wheel {id}', reviewed: false },
   'overlay.ref.body': { text: 'Car body {id}', reviewed: false },
   'overlay.ref.person': { text: 'Person {id}', reviewed: false },

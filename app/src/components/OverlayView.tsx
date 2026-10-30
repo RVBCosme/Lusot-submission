@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useT, type Text } from '../i18n'
+import { Line, useT, type Text } from '../i18n'
 import { getLayers, type OverlayData, type OverlayRef } from '../lib/api'
 import { orderLayers, refChip, refLabel, type LayerKind, type OverlayLayer } from '../overlay/layers'
 
@@ -81,7 +81,8 @@ function Marked({
 const tenth = (value: number) => Math.round(value * 10) / 10
 const points = (polygon: readonly (readonly [number, number])[]) => polygon.map(([x, y]) => `${x},${y}`).join(' ')
 
-// One layer. The photo's short side sets the size of the words and the ticks, so they scale with the photo.
+// One layer. The words scale with the drawing's width, which is what sets the scale on screen (the photo fills its box's
+// width), and the ticks with its short side.
 function Layer({ layer, size, chip }: { layer: OverlayLayer; size: { width: number; height: number }; chip: Text | undefined }) {
   const short = Math.min(size.width, size.height)
   switch (layer.kind) {
@@ -138,11 +139,15 @@ function Layer({ layer, size, chip }: { layer: OverlayLayer; size: { width: numb
     }
     case 'label': {
       if (chip === undefined) return null
-      // On the box's top edge, or just inside it when there is no room above; the left edge follows the box and stays on
-      // the photo, using the width the words will take, since an SVG can't measure them before it is drawn.
-      const font = short / 16
+      // The size is the drawing's width over 21, so a photo of any shape shows its words at about 13 px on a card at 360 px
+      // (12 px or more), where the short side would make a wide photo's words small (I3). On the box's top edge, or just
+      // inside it when there is no room above; the left edge follows the box and stays on the photo, using the width the
+      // words will take, since an SVG can't measure them before it is drawn. A label wider than the photo is squeezed to it.
+      const font = size.width / 21
       const [x0, y0] = layer.ref.box
       const wide = chip.text.length * font * 0.6
+      const room = size.width - font / 2
+      const squeezed = wide > room
       const x = Math.min(Math.max(x0, font / 4), Math.max(font / 4, size.width - wide - font / 4))
       const y = Math.min(y0 >= font * 1.4 ? y0 - font * 0.3 : y0 + font * 1.1, size.height - font * 0.3)
       return (
@@ -155,6 +160,8 @@ function Layer({ layer, size, chip }: { layer: OverlayLayer; size: { width: numb
             paintOrder="stroke"
             strokeWidth={tenth(font / 4)}
             strokeLinejoin="round"
+            textLength={squeezed ? tenth(room) : undefined}
+            lengthAdjust={squeezed ? 'spacingAndGlyphs' : undefined}
             className="fill-ink stroke-surface"
           >
             {chip.text}
@@ -178,44 +185,32 @@ function byReference(layers: OverlayLayer[]): { ref: OverlayRef | null; layers: 
 }
 
 // MS4's layers drawn as one still SVG over the photo, scaled with it (C615): the water, then each reference's outline,
-// rim outline, box, fitted rim, waterline and label, in MS4's order. The SVG has a short label, the water has one, and
-// each reference has its own from `refLabel`, so the overlay adds evidence and is never the only place a reading is said.
+// rim outline, box, fitted rim, waterline and label, in MS4's order. The legend under the photo carries each reference's
+// words, so the SVG is hidden from screen readers and nothing is said twice.
 function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[] }) {
   const t = useT()
-  const title = t('overlay.title')
-  const water = t('overlay.water')
   const size = { width: data.width, height: data.height }
   return (
     <svg
       data-testid="overlay-svg"
       viewBox={`0 0 ${data.width} ${data.height}`}
-      role="group"
-      aria-label={title.text}
-      lang={title.lang}
+      aria-hidden="true"
       focusable="false"
       className="pointer-events-none absolute inset-0 size-full"
     >
       {byReference(layers).map(({ ref, layers: own }, index) => {
         if (ref === null) {
           return (
-            <g key={`water-${index}`} role="img" aria-label={water.text} lang={water.lang}>
+            <g key={`water-${index}`}>
               {own.map((layer) => (
                 <Layer key={layer.kind} layer={layer} size={size} chip={undefined} />
               ))}
             </g>
           )
         }
-        const label = refLabel(t, ref)
         const chip = refChip(t, ref)
         return (
-          <g
-            key={`ref-${index}`}
-            role="img"
-            aria-label={label.text}
-            lang={label.lang}
-            data-ref={ref.id}
-            data-dimmed={String(typeof ref.dropped === 'string')}
-          >
+          <g key={`ref-${index}`} data-ref={ref.id} data-dimmed={String(typeof ref.dropped === 'string')}>
             {own.map((layer) => (
               <Layer key={layer.kind} layer={layer} size={size} chip={chip} />
             ))}
@@ -226,6 +221,25 @@ function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[
   )
 }
 
+// Under the photo: every reference that was drawn, one numbered line each, as `refLabel` gives it. The number is the one
+// on its chip, a dropped reference shows its cause, and a used one its level, landmark and how it was measured (C615).
+// It is the words for screen readers too, in a list that has the overlay's short label.
+function Legend({ layers }: { layers: OverlayLayer[] }) {
+  const t = useT()
+  const title = t('overlay.title')
+  const refs = byReference(layers).flatMap(({ ref }) => (ref === null ? [] : [ref]))
+  if (refs.length === 0) return null
+  return (
+    <ol aria-label={title.text} lang={title.lang} className="mt-2 space-y-1 text-small text-ink-2">
+      {refs.map((ref, index) => (
+        <li key={index} data-ref={ref.id} data-dimmed={String(typeof ref.dropped === 'string')}>
+          <Line value={refLabel(t, ref)} />
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 // The blurred photo with Lusot's evidence over it. While the layers file is read the photo shows alone. Then the layers
 // are drawn as an SVG; if the file can't be used (an expired link, a bucket without GET in its CORS rule, a file in
 // another shape), the overlay JPEG goes over the photo instead, and failing that the photo stays alone.
@@ -233,7 +247,8 @@ export function OverlayView({ photoUrl, overlayUrl, layersUrl, onExpired, onLaye
   const t = useT()
   const alt = t('sample.photoAlt')
   const [loaded, setLoaded] = useState<{ url: string; data: OverlayData | undefined }>()
-  const [jpegFailed, setJpegFailed] = useState(false)
+  // The link of the overlay JPEG that failed to load: a new link is tried again.
+  const [failedJpeg, setFailedJpeg] = useState<string>()
   const [gone, setGone] = useState(false)
   const failures = useRef(0)
   const told = useRef(onLayers)
@@ -259,6 +274,8 @@ export function OverlayView({ photoUrl, overlayUrl, layersUrl, onExpired, onLaye
   const data = layersUrl !== undefined && loaded?.url === layersUrl ? loaded.data : undefined
   const usable = data !== undefined && data.width > 0 && data.height > 0 ? data : undefined
   const layers = useMemo(() => (usable === undefined ? [] : orderLayers(usable)), [usable])
+  // The file's drawing, once it is read and holds something to draw.
+  const drawn = settled && layers.length > 0 ? usable : undefined
 
   if (gone) return null
 
@@ -274,18 +291,21 @@ export function OverlayView({ photoUrl, overlayUrl, layersUrl, onExpired, onLaye
   }
 
   return (
-    <div className="relative overflow-hidden rounded-control border border-outline">
-      <img src={photoUrl} alt={alt.text} lang={alt.lang} onError={photoFailed} className="block w-full" />
-      {settled && usable !== undefined && layers.length > 0 && <OverlaySvg data={usable} layers={layers} />}
-      {settled && usable === undefined && overlayUrl !== undefined && !jpegFailed && (
-        <img
-          src={overlayUrl}
-          alt=""
-          aria-hidden="true"
-          onError={() => setJpegFailed(true)}
-          className="pointer-events-none absolute inset-0 size-full"
-        />
-      )}
+    <div>
+      <div className="relative overflow-hidden rounded-control border border-outline">
+        <img src={photoUrl} alt={alt.text} lang={alt.lang} onError={photoFailed} className="block w-full" />
+        {drawn !== undefined && <OverlaySvg data={drawn} layers={layers} />}
+        {settled && usable === undefined && overlayUrl !== undefined && failedJpeg !== overlayUrl && (
+          <img
+            src={overlayUrl}
+            alt=""
+            aria-hidden="true"
+            onError={() => setFailedJpeg(overlayUrl)}
+            className="pointer-events-none absolute inset-0 size-full"
+          />
+        )}
+      </div>
+      {drawn !== undefined && <Legend layers={layers} />}
     </div>
   )
 }

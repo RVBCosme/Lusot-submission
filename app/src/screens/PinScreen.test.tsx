@@ -166,7 +166,8 @@ describe('a live pin', () => {
     expect(svg.getAttribute('viewBox')).toBe('0 0 800 600')
     expect(svg.querySelectorAll('[data-ref]').length).toBeGreaterThan(0)
     expect(svg.querySelector('[data-layer="water"]')).toBeTruthy()
-    for (const group of svg.querySelectorAll('[data-ref]')) expect(group.getAttribute('aria-label')).toBeTruthy()
+    // Every reference drawn is listed under the photo, with its words.
+    expect(within(within(card).getByRole('list', { name: text('overlay.title') })).getAllByRole('listitem')).toHaveLength(svg.querySelectorAll('[data-ref]').length)
     expect(within(card).getByText(`${text('sample.edited')} ${text('sample.outlines')}`)).toBeTruthy()
     expect(document.body.textContent).not.toMatch(ID_PATTERN)
   })

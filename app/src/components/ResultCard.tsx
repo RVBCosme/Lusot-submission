@@ -168,7 +168,18 @@ export function PausedNotice({ links, children }: { links: readonly PausedLink[]
   )
 }
 
-export function ResultCard({
+// What a card remembers about its photo (its failures, its layers, whether it was given up) belongs to one result, so
+// another result handed to the same card starts afresh. A refreshed link for the same result keeps it: the key is the
+// report's id, never a link. (A sample's list has one card for each sample, so its id needn't be part of the key.)
+function resultKey({ result }: ResultCardProps): string {
+  return 'status' in result ? result.reportId : result.id
+}
+
+export function ResultCard(props: ResultCardProps) {
+  return <ResultCardBody key={resultKey(props)} {...props} />
+}
+
+function ResultCardBody({
   result,
   source,
   sample,
@@ -191,7 +202,9 @@ export function ResultCard({
   // The age is read once, when the card first shows: a screen that wants it fresh passes `now`.
   const [opened] = useState(() => new Date())
   const clock = now ?? opened
-  const photo = photoUrl ?? report?.photoUrl ?? sample?.photoUrl
+  // A sample card shows the sample's own link first: the Tested page refreshes that one when a photo fails to load, and the
+  // run's report link would never change (M3). Everything else shows its report's link.
+  const photo = photoUrl ?? (isSample ? (sample?.photoUrl ?? report?.photoUrl) : (report?.photoUrl ?? sample?.photoUrl))
   // What the overlay found in the layers file once it was read, and whether its photo has been given up on.
   const [layers, setLayers] = useState<OverlayData | undefined>()
   const [photoGone, setPhotoGone] = useState(false)
@@ -253,6 +266,9 @@ export function ResultCard({
       />
     )
 
+  // A live card, and a demo pin's, show the photo under the level line and the gauge, so the line is on the first screen
+  // (addition 4, I2); a demo pin's Demo badge stays first. A sample's photo comes first, as the Tested page has it.
+  const photoBelow = !isSample && outcome === 'level' && level !== undefined
   const showsReading = outcome === 'level' || outcome === 'noFlood' || outcome === 'cantTell'
   const shownPrivate = result.mode === 'private' && showsReading
   const pausedLinks: PausedLink[] = isSample ? ['map'] : ['map', 'tested']
@@ -268,7 +284,14 @@ export function ResultCard({
         </div>
       )}
 
-      {isExample && (
+      {isExample && photoBelow && (
+        <div className="mb-4">
+          <Badge>
+            <T k="badge.demo" />
+          </Badge>
+        </div>
+      )}
+      {isExample && !photoBelow && (
         <figure className="mb-4">
           <div className="mb-3">
             <Badge>
@@ -307,12 +330,15 @@ export function ResultCard({
               <Note value={basis} className="text-ink-2" />
             </div>
           </div>
-          {/* A live result's own photo comes under the level line, so that line stays on the first screen. */}
-          {!isExample && live && photoView !== null && !photoGone && (
+          {/* The photo comes under the level line, so that line stays on the first screen. A demo pin keeps its credit and
+              date with it, even with no photo to show. */}
+          {photoBelow && (isExample || (live && photoView !== null && !photoGone)) && (
             <figure className="mt-4">
               {photoView}
               <figcaption className="mt-2 text-small text-ink-2">
-                <PhotoLine outlines={hasOutlines} />
+                {isExample && <Note value={photoFrom} />}
+                {isExample && credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
+                {!photoGone && <PhotoLine outlines={hasOutlines} className={isExample ? 'mt-1' : undefined} />}
               </figcaption>
             </figure>
           )}

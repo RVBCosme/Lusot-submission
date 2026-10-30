@@ -686,8 +686,12 @@ describe('the photo and its overlay', () => {
     expect(after(level, figure())).toBe(true)
     expect(after(screen.getByTestId('gauge'), figure())).toBe(true)
     expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
-    // Every reference the reading used is on the photo, with the cause on the one it left out.
-    expect(screen.getByRole('img', { name: 'Person 3: Not used, since this person may not be an adult.' })).toBeTruthy()
+    // Every reference is listed under the photo in the figure, with the cause on the one it left out (C615).
+    const legend = within(figure()).getByRole('list')
+    expect(within(legend).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(legend).getByText('Person 3: Not used, since this person may not be an adult.')).toBeTruthy()
+    expect(after(svg, legend)).toBe(true)
+    expect(after(legend, figure().querySelector('figcaption') as Node)).toBe(true)
   })
 
   it("shows the same on a floor reading, labelled as a floor, as the card's level line is", async () => {
@@ -703,7 +707,8 @@ describe('the photo and its overlay', () => {
     renderCard({ result }, 'fil')
     const svg = await screen.findByTestId('overlay-svg')
     expect(svg.querySelector('[data-layer="label"] text')?.textContent).toBe('1: Hindi bababa sa tire')
-    expect(svg.getAttribute('aria-label')).toBe(FIL['overlay.title'].text)
+    const legend = within(screen.getByRole('figure')).getByRole('list', { name: FIL['overlay.title'].text })
+    expect(within(legend).getAllByRole('listitem')[0].textContent).toMatch(/^Gulong 1: Hindi bababa sa tire\. /)
   })
 
   it('has no photo for a pin card with no links, or a result with no photo link', async () => {
@@ -809,6 +814,9 @@ describe('the photo and its overlay', () => {
     expect(screen.queryByTestId('overlay-svg')).toBeNull()
     expect(screen.queryByRole('figure')).toBeNull()
     expect(text()).not.toContain(BLURRED)
+    // The legend goes with the photo; Details still lists each reference.
+    expect(screen.queryByText('Person 3: Not used, since this person may not be an adult.')).toBeNull()
+    expect(screen.queryByRole('list', { name: EN['overlay.title'].text })).toBeNull()
     // The reading is all still there, and nothing says something went wrong.
     expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -824,8 +832,144 @@ describe('the photo and its overlay', () => {
     expect(screen.queryByRole('img', { name: PHOTO_ALT })).toBeNull()
     expect(text()).not.toContain(BLURRED)
     expect(text()).not.toContain(OUTLINES)
+    expect(screen.queryByRole('list', { name: EN['overlay.title'].text })).toBeNull()
     expect(screen.getByText('Photo from Sep 26, 2009, Marikina, Typhoon Ondoy')).toBeTruthy()
     expect(screen.getByText('Photo: Example Contributor (mock), CC0 1.0')).toBeTruthy()
+  })
+
+  // I2: a demo pin's card is ordered as a live card is: the badge, the level line, the gauge block, then the photo with
+  // its credit. The Tested page's sample card keeps its photo first (the controller's call).
+  async function demoReport() {
+    const { fetchFn } = mockWith()
+    const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    return (await getReport(API, demo.id, fetchFn)) as ReportResult
+  }
+
+  it("puts a demo pin's photo under the gauge block, after the Demo badge and the level line, so the line is on the first screen", async () => {
+    renderCard({ result: await demoReport(), source: 'pin' })
+    await screen.findByTestId('overlay-svg')
+
+    const badge = screen.getByText('Demo')
+    const level = screen.getByText('Above chest deep at this spot.')
+    const gauge = screen.getByTestId('gauge')
+    expect(after(badge, level)).toBe(true)
+    expect(after(level, gauge)).toBe(true)
+    expect(after(gauge, figure())).toBe(true)
+    // Its credit and date stay with the photo, under it, and the badge is not inside the figure.
+    expect(figure().contains(badge)).toBe(false)
+    const photo = screen.getByRole('img', { name: PHOTO_ALT })
+    const from = screen.getByText('Photo from Sep 26, 2009, Marikina, Typhoon Ondoy')
+    expect(figure().contains(from)).toBe(true)
+    expect(after(photo, from)).toBe(true)
+    expect(after(within(figure()).getByRole('list'), from)).toBe(true)
+    expect(caption()).toContain(`${BLURRED} ${OUTLINES}`)
+    // The live-reading note and the rest of the card are still there, after the photo.
+    expect(after(figure(), screen.getByText('This is a live reading of a credited photo, not a test result.'))).toBe(true)
+  })
+
+  it('keeps a demo pin that has no photo as it was: the badge, the level line, then its credit and the blurred line', async () => {
+    const { fetchFn } = mockWith()
+    const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    renderCard({ result: demo, source: 'pin' })
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(after(screen.getByText('Demo'), screen.getByText('Above chest deep at this spot.'))).toBe(true)
+    expect(screen.getByText(demo.credit as string)).toBeTruthy()
+    expect(screen.getByText(BLURRED)).toBeTruthy()
+  })
+
+  it("leaves a sample card's photo first, as the Tested page has it, with the Sample badge inside the figure", async () => {
+    const { sample, result } = await sampleRun()
+    renderCard({ result, source: 'sample', sample })
+    await screen.findByTestId('overlay-svg')
+    expect(figure().contains(screen.getByText('Sample'))).toBe(true)
+    expect(after(figure(), screen.getByText('Knee deep at this spot (MMDA level).'))).toBe(true)
+  })
+
+  // M3: a sample card's refreshed photo link is the one it shows.
+  it("shows a sample's refreshed photo link, not the old link its run's report carried", async () => {
+    const { sample, result } = await sampleRun()
+    const linked = { ...result, photoUrl: 'https://photos.example.test/report-link.jpg' }
+    const onPhotoExpired = vi.fn()
+    const first = { ...sample, photoUrl: 'https://photos.example.test/sample-link-1.jpg' }
+    const view = renderCard({ result: linked, source: 'sample', sample: first, onPhotoExpired })
+    expect(screen.getByRole('img', { name: PHOTO_ALT }).getAttribute('src')).toBe(first.photoUrl)
+
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    expect(onPhotoExpired).toHaveBeenCalledTimes(1)
+    // The Tested page refreshes the list's links, so the card gets the sample again with a new one.
+    const fresh = { ...sample, photoUrl: 'https://photos.example.test/sample-link-2.jpg' }
+    view.rerender(
+      <LanguageProvider>
+        <ResultCard result={linked} source="sample" sample={fresh} onPhotoExpired={onPhotoExpired} />
+      </LanguageProvider>,
+    )
+    expect(screen.getByRole('img', { name: PHOTO_ALT }).getAttribute('src')).toBe(fresh.photoUrl)
+    await act(async () => {})
+  })
+
+  it("falls back to the run's own photo link when the sample has none", async () => {
+    const { sample, result } = await sampleRun()
+    const linked = { ...result, photoUrl: 'https://photos.example.test/report-link.jpg' }
+    renderCard({ result: linked, source: 'sample', sample: { ...sample, photoUrl: undefined } })
+    expect(screen.getByRole('img', { name: PHOTO_ALT }).getAttribute('src')).toBe(linked.photoUrl)
+    await act(async () => {})
+  })
+
+  // M2: what a card remembers about its photo belongs to one result.
+  it("keeps counting the photo's failures across a refreshed link of the same result, and gives it up on the second", async () => {
+    const result = await takePhoto()
+    const onPhotoExpired = vi.fn()
+    const view = renderCard({ result, onPhotoExpired })
+    await screen.findByTestId('overlay-svg')
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    view.rerender(
+      <LanguageProvider>
+        <ResultCard result={{ ...result, photoUrl: 'https://photos.example.test/new.jpg' }} source="own" onPhotoExpired={onPhotoExpired} />
+      </LanguageProvider>,
+    )
+    expect(screen.getByRole('img', { name: PHOTO_ALT }).getAttribute('src')).toBe('https://photos.example.test/new.jpg')
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    expect(onPhotoExpired).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('img', { name: PHOTO_ALT })).toBeNull()
+  })
+
+  it('starts afresh for another result handed to the same card: the photo, its layers and its caption come back', async () => {
+    const first = await takePhoto()
+    const view = renderCard({ result: first, onPhotoExpired: vi.fn() })
+    await screen.findByTestId('overlay-svg')
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    fireEvent.error(screen.getByRole('img', { name: PHOTO_ALT }))
+    expect(screen.queryByRole('img', { name: PHOTO_ALT })).toBeNull()
+
+    const second = await takePhoto('level_floor')
+    expect(second.reportId).not.toBe(first.reportId)
+    view.rerender(
+      <LanguageProvider>
+        <ResultCard result={second} source="own" />
+      </LanguageProvider>,
+    )
+    const svg = await screen.findByTestId('overlay-svg')
+    expect(screen.getByRole('img', { name: PHOTO_ALT }).getAttribute('src')).toBe(second.photoUrl)
+    expect(svg.querySelector('[data-layer="label"] text')?.textContent).toBe('1: At least tire')
+    expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
+  })
+
+  it('forgets the layers of the last result too: an empty file for one does not hide the outlines of the next', async () => {
+    const first = await takePhoto()
+    answering(emptyLayers)
+    const view = renderCard({ result: first })
+    await act(async () => {})
+    expect(caption()).toBe(BLURRED)
+
+    const second = await takePhoto()
+    view.rerender(
+      <LanguageProvider>
+        <ResultCard result={second} source="own" />
+      </LanguageProvider>,
+    )
+    expect(caption()).toContain(OUTLINES)
+    await screen.findByTestId('overlay-svg')
+    expect(caption()).toBe(`${BLURRED} ${OUTLINES}`)
   })
 
   it("writes no link, report id or place into the card, and no banned or crossing words into the overlay's labels", async () => {
@@ -835,8 +979,8 @@ describe('the photo and its overlay', () => {
     const everything = svg.outerHTML + (container.textContent ?? '')
     expect(everything).not.toMatch(/r_[0-9a-f]{32}|sig=|https?:\/\/(?!www\.w3\.org|mmda\.gov\.ph|www\.pagasa)/)
     expect(everything).not.toContain(result.reportId)
-    const labels = [...svg.querySelectorAll('[aria-label]')].map((element) => element.getAttribute('aria-label') ?? '')
-    expect(labels.length).toBeGreaterThan(3)
+    const labels = within(within(figure()).getByRole('list')).getAllByRole('listitem').map((item) => item.textContent ?? '')
+    expect(labels).toHaveLength(3)
     for (const label of labels) {
       expect(label).not.toMatch(BANNED_WORDS)
       expect(label).not.toMatch(CROSSING)
