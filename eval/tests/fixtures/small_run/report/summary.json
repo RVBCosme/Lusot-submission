@@ -57,6 +57,7 @@
   "kind": "sealed",
   "rerun": false,
   "rules_version": "0.6",
+  "service_retries": 0,
   "set_b": {
     "envelope": {
       "k": 4,
@@ -67,6 +68,11 @@
       "n": 8
     },
     "median_error_in": "0.75",
+    "no_answer": 0,
+    "sam_water_found": {
+      "k": 7,
+      "n": 8
+    },
     "wheels": 8,
     "worst_error_in": "2.75"
   },

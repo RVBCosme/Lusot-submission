@@ -21,7 +21,7 @@ import pytest
 import run_eval
 from builders import a_neg_row, level, run_json, set_a_row, set_b_row, write_run
 from run_eval import main
-from scoring import rows
+from scoring import RULES_VERSION, rows
 from scoring.labels import LABEL_WORDS
 from scoring.metrics import fmt_inches
 
@@ -162,10 +162,55 @@ def test_from_saved_is_required(tmp_path, capsys):
     assert not (folder / "report").exists()
 
 
+def test_the_print_flags_exclude_each_other(capsys):
+    for flags in (
+        ("--rules-version", "--label-words"),
+        ("--label-words", "--rules-version"),
+    ):
+        code, lines = run(capsys, *flags)
+        assert code == 2, flags
+        assert len(lines) == 1, flags
+        assert lines[0].startswith("invalid: ") and "not allowed with" in lines[0], (
+            flags
+        )
+    # The refusal that asks for --from-saved names every flag that can stand alone.
+    code, lines = run(capsys)
+    assert code == 2
+    assert "--label-words" in lines[-1] and "--rules-version" in lines[-1]
+
+
 def test_label_words(capsys):
     code, lines = run(capsys, "--label-words")
     assert code == 0
     assert lines == sorted(LABEL_WORDS)
+
+
+def test_rules_version(capsys, monkeypatch):
+    # MS3b's run_sealed.py checks its rules_version against this, by subprocess and
+    # before it pays for the sealed run. The flag needs no --results and reads nothing
+    # from disk, so no data folder is touched.
+    def refuse(*args, **kwargs):
+        raise AssertionError("--rules-version read from disk")
+
+    # Only the call itself is guarded, since pytest reads files to report a failure.
+    with monkeypatch.context() as guard:
+        guard.setattr(rows, "load_run", refuse)
+        for name in ("exists", "is_dir", "is_file", "iterdir", "open", "read_bytes"):
+            guard.setattr(Path, name, refuse)
+        code = main(["--rules-version"])
+    out, err = capsys.readouterr()
+    assert code == 0
+    assert (out, err) == (RULES_VERSION + "\n", "")
+    assert re.fullmatch("[0-9]+[.][0-9]+", RULES_VERSION)
+
+
+def test_rules_version_in_a_plain_python(tmp_path):
+    done = isolated(RUN_EVAL, "--rules-version", cwd=tmp_path)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done.stderr == b""
+    # Windows writes \r\n for the newline.
+    assert done.stdout.replace(b"\r\n", b"\n") == (RULES_VERSION + "\n").encode()
+    assert not any(tmp_path.iterdir())
 
 
 def test_rebuilds_the_fixture_identically(capsys):
