@@ -21,6 +21,22 @@ export const PRICES = {
   audio_second: "0.00005",
 } as const;
 
+// What one call used, in the units spend.py's cost_of takes. Spark's output tokens include its
+// reasoning tokens, which Meta bills as output.
+export interface Usage {
+  sam_images?: number;
+  spark_input_tokens?: number;
+  spark_output_tokens?: number;
+  audio_seconds?: number;
+}
+
+const PRICE_OF: Record<keyof Usage, keyof typeof PRICES> = {
+  sam_images: "sam_image",
+  spark_input_tokens: "spark_input_token",
+  spark_output_tokens: "spark_output_token",
+  audio_seconds: "audio_second",
+};
+
 const MICRO_DIGITS = 6;
 const MAX_MICRO = 2n ** 53n - 1n; // the largest integer a number holds exactly
 const PLAIN_USD = /^(\d+)(?:\.(\d+))?$/;
@@ -37,14 +53,38 @@ export class SpendUnseeded extends Error {
 // decimal such as "0.0025" and works on its digits, never on a float. Anything else throws a
 // RangeError, so a bad amount fails loud and never counts as less.
 export function toMicro(usd: string): number {
-  const match = PLAIN_USD.exec(usd);
-  if (match === null) throw new RangeError("not a plain amount in USD");
-  const [, whole, fraction = ""] = match;
+  const [whole, fraction] = digits(usd);
   const kept = fraction.slice(0, MICRO_DIGITS).padEnd(MICRO_DIGITS, "0");
   const roundUp = /[1-9]/.test(fraction.slice(MICRO_DIGITS)) ? 1n : 0n;
   const micro = BigInt(whole + kept) + roundUp;
   if (micro > MAX_MICRO) throw new RangeError("amount in USD too large");
   return Number(micro);
+}
+
+// The whole and fraction digits of a plain unsigned decimal; anything else throws a RangeError.
+function digits(usd: string): [string, string] {
+  const match = PLAIN_USD.exec(usd);
+  if (match === null) throw new RangeError("not a plain amount in USD");
+  return [match[1], match[2] ?? ""];
+}
+
+// The most fraction digits in PRICES, so each price is a whole number of units at this scale.
+const COST_DIGITS = Math.max(...Object.values(PRICES).map((price) => digits(price)[1].length));
+
+// What `usage` costs at PRICES, in USD, exact: spend.py's cost_of. It counts in BigInt units of
+// 10^-COST_DIGITS USD, never on a float, and doesn't round; recordSpend's toMicro rounds up, as
+// record_spend's to_micro does. The result is what recordSpend takes.
+export function costOf(usage: Usage): string {
+  let units = 0n;
+  for (const [name, price] of Object.entries(PRICE_OF) as [keyof Usage, keyof typeof PRICES][]) {
+    const count = usage[name] ?? 0;
+    if (!Number.isInteger(count) || count < 0) throw new RangeError(`${name} must be a whole number of zero or more`);
+    const [whole, fraction] = digits(PRICES[price]);
+    units += BigInt(count) * BigInt(whole + fraction.padEnd(COST_DIGITS, "0"));
+  }
+  const text = units.toString().padStart(COST_DIGITS + 1, "0");
+  const fraction = text.slice(-COST_DIGITS).replace(/0+$/, "");
+  return fraction === "" ? text.slice(0, -COST_DIGITS) : `${text.slice(0, -COST_DIGITS)}.${fraction}`;
 }
 
 function toUsd(micro: number): number {

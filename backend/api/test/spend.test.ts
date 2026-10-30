@@ -4,7 +4,18 @@ import { DynamoDBDocumentClient, GetCommand, UpdateCommand, type UpdateCommandIn
 import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LimitDeps } from "../src/limits";
-import { PRICES, recordSpend, SPEND_ATTR, SPEND_PK, SPEND_SEEDED_ATTR, SpendUnseeded, spendTotal, toMicro } from "../src/spend";
+import {
+  costOf,
+  PRICES,
+  recordSpend,
+  SPEND_ATTR,
+  SPEND_PK,
+  SPEND_SEEDED_ATTR,
+  SpendUnseeded,
+  spendTotal,
+  toMicro,
+  type Usage,
+} from "../src/spend";
 
 // MS4's contract file, which spend.py's tests read too, so the two languages count the same way.
 const CONTRACT: { key: string; attribute: string; seeded_attr: string; cases: [string, number][] } = JSON.parse(
@@ -85,6 +96,59 @@ describe("PRICES", () => {
       spark_output_token: "0.00000425",
       audio_second: "0.00005",
     });
+  });
+});
+
+// Usage, spend.py's cost_of of it (normalized) and to_micro of that, from running spend.py on Oct 30, 2026.
+// spend_contract.json has no cost cases, so these pin the two sides together. Floats get some wrong:
+// the level case comes to 19,601 micro-dollars, and the probe's total to 0.12431525000000002.
+const COSTS: [Usage, string, number][] = [
+  [{ spark_input_tokens: 1 }, "0.00000125", 2], // one Spark input token
+  [{ spark_output_tokens: 1 }, "0.00000425", 5],
+  [{ spark_input_tokens: 1250 }, "0.0015625", 1563],
+  [{ spark_input_tokens: 1234, spark_output_tokens: 567 }, "0.00395225", 3953], // a mixed call
+  [{ sam_images: 7, spark_input_tokens: 1000, spark_output_tokens: 200 }, "0.0196", 19600], // test_spend.py's level case
+  [{ audio_seconds: 7, spark_input_tokens: 3, spark_output_tokens: 3 }, "0.0003665", 367],
+  // The most one question can use: 3 turns of 2,000 input and 800 output tokens. max_output_tokens
+  // covers reasoning, which Meta bills as output, so reasoning has no price of its own.
+  [{ spark_input_tokens: 6000, spark_output_tokens: 2400 }, "0.0177", 17700],
+  // Task 2's probe: 65,918 in and 9,863 out (6,021 of them reasoning); the counter went up $0.124316.
+  [{ spark_input_tokens: 65918, spark_output_tokens: 9863 }, "0.12431525", 124316],
+];
+
+describe("costOf", () => {
+  it("gives what spend.py's cost_of gives, as test_spend.py checks it", () => {
+    expect(costOf({ sam_images: 1 })).toBe("0.0025");
+    expect(costOf({ spark_input_tokens: 1_000_000 })).toBe("1.25");
+    expect(costOf({ spark_output_tokens: 1_000_000 })).toBe("4.25");
+    expect(costOf({ audio_seconds: 3600 })).toBe("0.18");
+    expect(costOf({ audio_seconds: 1 })).toBe("0.00005");
+    expect(costOf({})).toBe("0");
+    // The unreported judge (spend.py's SPARK_TOKENS_IF_UNREPORTED).
+    expect(costOf({ spark_input_tokens: 20_000, spark_output_tokens: 4_000 })).toBe("0.042");
+  });
+
+  it("prices the cases floats get wrong exactly, and toMicro rounds them up as to_micro does", () => {
+    for (const [usage, usd, micro] of COSTS) {
+      expect(costOf(usage), JSON.stringify(usage)).toBe(usd);
+      expect(toMicro(costOf(usage)), JSON.stringify(usage)).toBe(micro);
+    }
+  });
+
+  it("refuses a count that isn't a whole number of zero or more", () => {
+    for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => costOf({ spark_input_tokens: bad }), String(bad)).toThrow(RangeError);
+    }
+  });
+
+  it("with recordSpend, adds exactly cost_of's micro-dollars, rounded up, to the counter", async () => {
+    let sum = 0;
+    for (const [usage, , micro] of COSTS) {
+      sum += micro;
+      expect(await recordSpend(costOf(usage), "ask", deps())).toBe(sum / 1_000_000);
+    }
+    expect(sent()).toEqual(COSTS.map(([, , micro]) => ADD(micro)));
+    expect(total).toBe(sum);
   });
 });
 
