@@ -270,6 +270,7 @@ def sealed_runs():
     return [
         (demo_pins, ["seed", "--until", "2026-12-20", "--ids", "S001"]),
         (samples, ["seed", "--ids", "OL001"]),
+        (samples, ["relabel"]),
         (eval_runs, ["duplicate", "--position", "0"]),
     ]
 

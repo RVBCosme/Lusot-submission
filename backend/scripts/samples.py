@@ -19,7 +19,16 @@
   and entered in samples/manifest.json with its seed's saved result (MS4-Q8 (b)). A
   refused seed is skipped under refused, a failed one under failed, and one without a
   copy under no_copy. Its last line gives how many candidates it was given and how
-  many qualified. Set A photos never become samples.
+  many qualified. Set A photos never become samples. The entry's credit ends with the
+  sample note (guards.SAMPLE_CHANGE_NOTE: the photo has no outlines), and its place and
+  event are display words, not the open manifest's slugs (PLACE_WORDS, EVENT_WORDS). A
+  slug with no words is refused before any run, under unmapped_slug.
+- `relabel`: rewrites the listed samples' credit note and place and event as the seed
+  now writes them, with no re-seed and no Meta call. Each entry is recomputed from its
+  source, found through lusot-data's source notes and the allow-list; one with no source
+  has only its credit's trailing note changed. It refuses (exit 2) before any write if a
+  slug in the manifest or a source has no words, writes the manifest only if something
+  changed, and prints how many entries it read, changed and left unchanged.
 - `remove [sampleId]`: one sample's manifest entry, photo and source note, as when a
   donor withdraws (MS10's P6), or with no id every samples/ object, the manifest
   included, and every source note.
@@ -33,10 +42,11 @@ never to S3 or the repo. Each seed's Meta calls run on the credits, about $0.03 
 photo. Output: counts, outcomes and ids, through guards.say.
 
 Usage: uv run backend/scripts/samples.py seed --ids OL022 S001
+       uv run backend/scripts/samples.py relabel
        uv run backend/scripts/samples.py remove [sampleId]
        uv run backend/scripts/samples.py check [--run]
 Exit codes: 0 done (seed: at least one qualified); 1 a check failed, none qualified,
-or not found; 2 refused by a guard.
+or not found; 2 refused by a guard (relabel: a slug with no words).
 """
 
 from __future__ import annotations
@@ -57,6 +67,8 @@ import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from eval_runs import api_client, eval_item, item_outcome, new_report_id, wait_item
 from guards import (
+    CHANGE_NOTE,
+    SAMPLE_CHANGE_NOTE,
     Source,
     allowed_sources,
     approved_m9_versions,
@@ -83,6 +95,43 @@ LEVEL_FIELDS = {
     "passability": "S",
     "levelIsFloor": "BOOL",
 }
+# The words a sample shows for the open manifest's place and event slugs (M20, reviewed
+# by Rene). "unknown" has none: the field is left out. A new slug needs its words here
+# first, so none is ever shown as a slug.
+PLACE_WORDS = {
+    "baliuag-bulacan": "Baliuag, Bulacan",
+    "calumpit-bulacan": "Calumpit, Bulacan",
+    "marilao-bulacan": "Marilao, Bulacan",
+    "manila": "Manila",
+}
+EVENT_WORDS = {
+    "ondoy": "Typhoon Ondoy",
+    "rain": "Rain",
+    "flood": "Flood",
+    "high-tide": "High tide",
+}
+WORDS = {"place": PLACE_WORDS, "event": EVENT_WORDS}
+SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+
+
+class UnmappedSlug(Exception):
+    """A place or event slug with no approved display words; its message is the slug."""
+
+
+def display_words(words: dict[str, str], value: str) -> str:
+    """The words a place or event is shown as, or "" to leave the field out.
+
+    A slug becomes its words; "unknown" becomes "". A value that isn't slug-shaped, a
+    consented photo's place text or words already shown, passes through, so running
+    this twice changes nothing. A slug outside the table raises UnmappedSlug.
+    """
+    if value == "unknown":
+        return ""
+    if value in words:
+        return words[value]
+    if SLUG.fullmatch(value):
+        raise UnmappedSlug(value)
+    return value
 
 
 def sample_id(source_id: str) -> str:
@@ -108,6 +157,9 @@ def main(
     remove.add_argument("sample_id", nargs="?")
     check = commands.add_parser("check", help="check the samples as the app sees them")
     check.add_argument("--run", action="store_true", help="run the first sample")
+    commands.add_parser(
+        "relabel", help="correct the listed samples' credit note and place names"
+    )
 
     def command() -> int:
         args = parser.parse_args(argv)
@@ -115,6 +167,8 @@ def main(
             return seed_samples(args, session, clock, sleep)
         if args.command == "remove":
             return remove_samples(args, session)
+        if args.command == "relabel":
+            return relabel_samples(session)
         return check_samples(args, session, http, clock, sleep)
 
     return guarded(
@@ -138,6 +192,11 @@ def seed_samples(args, session, clock, sleep) -> int:
     for source in sources.values():
         if not source.date:
             refused["no_date"] += 1
+            continue
+        try:
+            shown_words(source)  # a slug with no approved words, before any spend
+        except UnmappedSlug:
+            refused["unmapped_slug"] += 1
             continue
         try:
             jpeg = as_app_jpeg(source.photo)  # before any write
@@ -200,15 +259,33 @@ def skipped(name: str, reasons: Counter) -> str:
     return f"{name} {total} ({counts(reasons)})" if total else f"{name} 0"
 
 
+def shown_words(source: Source) -> tuple[str, str]:
+    """The source's place and event as a sample shows them; "" leaves a field out.
+    UnmappedSlug if either is a slug with no approved words."""
+    return (
+        display_words(PLACE_WORDS, source.place),
+        display_words(EVENT_WORDS, source.event),
+    )
+
+
 def manifest_entry(sid: str, source: Source, final: dict, saved_at: str) -> dict:
     """The sample's manifest entry: its six public fields, then its seed's saved
-    result, under GET /reports' names and on its rule (Task 6's SampleEntry)."""
-    entry = {"sampleId": sid, "credit": source.credit, "license": source.license}
-    if source.place:
-        entry["place"] = source.place
+    result, under GET /reports' names and on its rule (Task 6's SampleEntry).
+
+    The credit ends with the sample note, and the place and event are display words
+    (M20): the photo is the blurred copy, with no outlines.
+    """
+    place, event = shown_words(source)
+    entry = {
+        "sampleId": sid,
+        "credit": source.credited(SAMPLE_CHANGE_NOTE),
+        "license": source.license,
+    }
+    if place:
+        entry["place"] = place
     entry["date"] = source.date
-    if source.event:
-        entry["event"] = source.event
+    if event:
+        entry["event"] = event
     no_flood = "level" not in final
     entry |= {"savedAt": saved_at, "status": "done", "noFloodSeen": no_flood}
     if not no_flood:
@@ -315,6 +392,91 @@ def remove_samples(args, session) -> int:
     among = ", the manifest among them" if MANIFEST_KEY in keys else ""
     say(f"removed {len(keys)} samples/ objects{among}")
     return 0
+
+
+def relabel_samples(session) -> int:
+    refuse_sealed(data_dir())  # its source notes are in lusot-data
+    session = session or lusot_session()
+    stack = load_stack(session)
+    s3 = session.client("s3")
+    entries = read_manifest(s3, stack.bucket)["samples"]
+    sources = listed_sources(entries)
+    unmapped: set[tuple[str, str]] = set()
+    relabelled = [
+        relabelled_entry(entry, sources.get(entry.get("sampleId")), unmapped)
+        for entry in entries
+    ]
+    if unmapped:
+        for name, slug in sorted(unmapped):
+            say(f"refused: {name} slug outside the table: {slug}")
+        return 2  # before any write
+    changed = sum(new != old for new, old in zip(relabelled, entries, strict=True))
+    if changed:
+        write_manifest(s3, stack.bucket, {"version": 1, "samples": relabelled})
+    say(
+        f"relabel: {len(entries)} entries read, {changed} changed,"
+        f" {len(entries) - changed} unchanged"
+    )
+    without = sum(entry.get("sampleId") not in sources for entry in entries)
+    if without:
+        say(
+            f"relabel: {without} entries have no source on the allow-list; only their"
+            " change note is rewritten"
+        )
+    return 0
+
+
+def listed_sources(entries: list[dict]) -> dict[str, Source]:
+    """The allowed source of each listed sample, by sample id, found through its row in
+    lusot-data's source notes. A sample with no row, or whose source is no longer
+    allowed, is left out."""
+    notes = read_notes(notes_path())
+    wanted = {
+        entry["sampleId"]: notes[entry["sampleId"]]["source_id"]
+        for entry in entries
+        if entry.get("sampleId") in notes
+    }
+    found, _ = allowed_sources(wanted.values(), approved_m9_versions())
+    return {sid: found[src] for sid, src in wanted.items() if src in found}
+
+
+def relabelled_entry(
+    entry: dict, source: Source | None, unmapped: set[tuple[str, str]]
+) -> dict:
+    """The entry with the sample note, and its place and event as display words.
+
+    Recomputed from its source when it has one. Without one only the credit's trailing
+    note changes. A slug with no words, in the entry or its source, is added to
+    `unmapped`, and the value is left as it is.
+    """
+
+    def shown(name: str, value: str) -> str:
+        try:
+            return display_words(WORDS[name], value)
+        except UnmappedSlug:
+            unmapped.add((name, value))
+            return value
+
+    for name in WORDS:
+        if name in entry:
+            shown(name, entry[name])  # the manifest's own value is checked too
+    credit = entry.get("credit", "")
+    if credit.endswith(CHANGE_NOTE):
+        credit = credit.removesuffix(CHANGE_NOTE) + SAMPLE_CHANGE_NOTE
+    words = {}
+    if source is not None:
+        credit = source.credited(SAMPLE_CHANGE_NOTE)
+        words = {name: shown(name, getattr(source, name)) for name in WORDS}
+    relabelled = {}
+    for name, value in entry.items():
+        if name == "credit":
+            relabelled[name] = credit
+        elif name in words:
+            if words[name]:  # "unknown" leaves the field out
+                relabelled[name] = words[name]
+        else:
+            relabelled[name] = value
+    return relabelled
 
 
 def check_samples(args, session, http, clock, sleep) -> int:
