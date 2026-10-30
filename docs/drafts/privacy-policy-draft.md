@@ -91,7 +91,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 
 - **The map's images.** When you open the map, your phone loads the map's images from OpenStreetMap's servers, which see your IP address, as any website does. When you place a photo's pin, the map opens around your own position, so those servers also see which area is on your screen, within about 300 m of you (PRIV-Q5).
 - **Your IP address.** When you upload a photo, the notice of your upload that reaches Lusot's queue carries your IP address. If the analysis fails, that notice is kept for up to 7 days so the failure can be checked, then deleted. Service logs keep no photos, locations or IP addresses.
-- **The website.** The website is served from Amazon S3 through Amazon CloudFront with access logging off, so the website keeps no visitor's IP address. What the API does with IP addresses stays as described above, kept no longer than 7 days. This takes effect with the deploy that carries it (MS4 Task 15; PRIV-Q9).
+- **The website.** The website is served from Amazon S3 through Amazon CloudFront with access logging off, so the website keeps no visitor's IP address. What the API does with IP addresses stays as described above, kept no longer than 7 days. This takes effect with the deploy that carries it.
 - **An AI assistant.** Lusot's developer may use an AI assistant (Claude, by Anthropic) to check Lusot's logs, flagged reports, privacy requests and the demo video's frames, which can include a report's blurred photo and its pin, or what a privacy request says. Anthropic keeps what it receives for 30 days, or up to 2 years if its systems flag it for a usage-policy check (PRIV-Q10).
 
 ### How long Lusot keeps data
@@ -106,7 +106,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | service logs: timings, model names and the reasons for "can't tell" (never photos, locations or IP addresses) | 14 days |
 | your typed questions | not stored |
 | OpenStreetMap's answers for place names (a hashed name, the place's name and map position) | 7 days, or 1 day for a place not found |
-| the website's access logs | none kept: access logging is off (PRIV-Q9) |
+| the website's access logs | none kept: access logging is off |
 
 These limits cover only Lusot's own copies. What Meta keeps is set by Meta's terms.
 
@@ -206,7 +206,7 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* Anthropic: isang AI assistant (Claude) na puwedeng gamitin ng developer ng Lusot para suriin ang logs, ang mga na-flag na report, ang mga privacy request at ang demo video. [Mga lokasyon ng Anthropic.]
 - *Taglish draft (M20):* **Ang mga larawan ng mapa.** Kapag binuksan mo ang mapa, kinukuha ng phone mo ang mga larawan ng mapa mula sa mga server ng OpenStreetMap, na nakakakita ng IP address mo, gaya ng anumang website. Kapag inilalagay mo ang pin ng photo mo, bumubukas ang mapa sa paligid ng posisyon mo, kaya nakikita rin ng mga server na iyon kung aling lugar ang nasa screen mo, mga 300 m mula sa iyo (PRIV-Q5).
 - *Taglish draft (M20):* **Ang IP address mo.** Kapag nag-upload ka ng photo, may dalang IP address mo ang notice ng upload na dumarating sa queue ng Lusot. Kapag nabigo ang analysis, sine-save ang notice na iyon nang hanggang 7 araw para masuri ang problema, saka binubura. Walang photo, lokasyon o IP address sa service logs.
-- *Taglish draft (M20):* **Ang website.** Inihahatid ang website mula sa Amazon S3 sa pamamagitan ng Amazon CloudFront na naka-off ang access logging, kaya walang IP address ng bisita ang sine-save ng website. Ang ginagawa ng API sa mga IP address ay nananatiling gaya ng nasa itaas, hanggang 7 araw lang. Magkakabisa ito sa deploy na may dala nito (MS4 Task 15; PRIV-Q9).
+- *Taglish draft (M20):* **Ang website.** Inihahatid ang website mula sa Amazon S3 sa pamamagitan ng Amazon CloudFront na naka-off ang access logging, kaya walang IP address ng bisita ang sine-save ng website. Ang ginagawa ng API sa mga IP address ay nananatiling gaya ng nasa itaas, hanggang 7 araw lang. Magkakabisa ito sa deploy na may dala nito.
 - *Taglish draft (M20):* **Isang AI assistant.** Puwedeng gumamit ang developer ng Lusot ng AI assistant (Claude, ng Anthropic) para suriin ang logs ng Lusot, ang mga na-flag na report, ang mga privacy request at ang mga frame ng demo video, na puwedeng may kasamang naka-blur na photo ng report at ang pin nito, o ang sinasabi ng privacy request. Itinatago ng Anthropic ang natatanggap nito nang 30 araw, o hanggang 2 taon kung ma-flag ito ng mga sistema nito para sa usage-policy check (PRIV-Q10).
 
 ### How long Lusot keeps data
@@ -219,7 +219,7 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* Ang service logs (timing, pangalan ng model, at ang mga dahilan ng "can't tell"; hindi kailanman photo, lokasyon o IP address): 14 araw.
 - *Taglish draft (M20):* Ang typed na tanong mo: hindi sine-save.
 - *Taglish draft (M20):* Ang mga sagot ng OpenStreetMap para sa mga pangalan ng lugar (naka-hash na pangalan, pangalan at posisyon ng lugar sa mapa): 7 araw, o 1 araw para sa lugar na hindi nahanap.
-- *Taglish draft (M20):* Ang access logs ng website: walang sine-save, naka-off ang access logging (PRIV-Q9).
+- *Taglish draft (M20):* Ang access logs ng website: walang sine-save, naka-off ang access logging.
 - *Taglish draft (M20):* Sakop lang ng mga limit na ito ang sariling kopya ng Lusot. Ang sine-save ng Meta ay nasa ilalim ng terms ng Meta.
 
 ### Why Lusot may use this data
