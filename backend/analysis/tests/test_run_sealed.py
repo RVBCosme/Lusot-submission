@@ -1103,7 +1103,7 @@ def test_service_failures_in_a_row_stop_the_run(tmp_path, capsys):
     results = tmp_path / "results"
     down = judged(*(meta_error(503) for _ in range(3)))
     assert run(sealed, results, made=[down])[0] == 3
-    assert "stopped: Meta's service failed on 3 photos in a row" in (
+    assert "stopped: Meta's service failed on 3 sends in a row" in (
         capsys.readouterr().out
     )
     state = read_json(sealed.outputs() / "state.json")
@@ -1250,7 +1250,7 @@ def test_item_service_failures_in_a_row_stop_the_run(tmp_path, capsys):
     down = SamAloneFails(photos=3, status=503)
     assert run(sealed, results, made=[down])[0] == 3
     assert len(down.sends) == 3
-    assert "stopped: Meta's service failed on 3 photos in a row" in (
+    assert "stopped: Meta's service failed on 3 sends in a row" in (
         capsys.readouterr().out
     )
     state = read_json(sealed.outputs() / "state.json")

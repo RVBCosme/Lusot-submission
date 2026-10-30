@@ -419,7 +419,7 @@ def _locked_run(
         if stop is not None:
             _stop(outputs, state, stop)
             say(
-                f"stopped: Meta's service failed on {SERVICE_STREAK} photos in a row;"
+                f"stopped: Meta's service failed on {SERVICE_STREAK} sends in a row;"
                 f" resume with --resume {run_name}"
             )
             return 3
