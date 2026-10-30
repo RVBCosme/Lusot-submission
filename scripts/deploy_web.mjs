@@ -5,21 +5,39 @@
 //    licences.txt and the bundle check runs. Vite reads VITE_PRIVACY_CONTACT from the git-ignored app/.env.local
 //    itself (an environment variable already set wins over the file), so this script never reads the contact.
 // 3. runs the bundle check again on its own, so a change to the build script can't let an unchecked bundle out
-// 4. uploads assets/ (content-hashed names) cached for a year, then everything else as no-cache, deleting what the
-//    build no longer has outside assets/
-// 5. invalidates the no-cache paths and waits for it
-// 6. only then deletes old assets, so a visitor who loaded the old index.html a moment earlier still gets its files
+// 4. lists app/dist and stops if any file's type has no Content-Type in CONTENT_TYPES
+// 5. uploads assets/ (content-hashed names) cached for a year, then everything else as no-cache, deleting what the
+//    build no longer has outside assets/. Each type goes in its own sync with its own --content-type.
+// 6. invalidates the no-cache paths and waits for it
+// 7. only then deletes old assets, so a visitor who loaded the old index.html a moment earlier still gets its files
 // It stops at the first step that fails, with that step's exit code. It prints each step's status and the web URL.
 // A command's output is kept back and shown only when its step fails, masked: ARNs, email addresses and runs of
 // 12 digits (account IDs), as deploy.mjs masks them.
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const AWS_FLAGS = ["--region", "ap-southeast-1", "--profile", "lusot", "--no-cli-pager"];
 const IMMUTABLE = "public, max-age=31536000, immutable";
+// Every type the build emits, and the Content-Type it is served as (S5-R26; .woff added, as the build emits it too).
+// Left to itself, the AWS CLI guesses types with Python's mimetypes, which on Windows reads the registry; and the
+// distribution's SecurityHeadersPolicy sends nosniff, so a script or stylesheet served as text/plain blanks the page.
+// A file of any other type, compared case by case, stops the deploy before the first upload.
+const CONTENT_TYPES = new Map([
+  [".js", "text/javascript"],
+  [".mjs", "text/javascript"],
+  [".css", "text/css"],
+  [".html", "text/html; charset=utf-8"],
+  [".json", "application/manifest+json"],
+  [".webmanifest", "application/manifest+json"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".svg", "image/svg+xml"],
+  [".png", "image/png"],
+  [".woff2", "font/woff2"],
+  [".woff", "font/woff"],
+]);
 // app/dist outside assets/: the page (also cached as the root object), the manifest, the licences text and the icons.
 const NO_CACHE_PATHS = ["/", "/index.html", "/manifest.webmanifest", "/licences.txt", "/icons/*"];
 const OUTPUT_KEYS = ["ApiUrl", "WebBucketName", "WebDistributionId", "WebUrl"];
@@ -40,9 +58,10 @@ class Stop extends Error {
   }
 }
 
-// run(argv, { env }) gives { code, stdout, stderr }; readText(path) reads a file under the repo root; out and err
-// each write one line. Returns the exit code.
-export async function deployWeb({ run, env, readText, out, err }) {
+// run(argv, { env }) gives { code, stdout, stderr }; readText(path) reads a file under the repo root; listFiles(dir)
+// gives the paths of every file under a folder of the repo, relative to it, with `/`; out and err each write one
+// line. Returns the exit code.
+export async function deployWeb({ run, env, readText, listFiles, out, err }) {
   const say = (line) => out(scrub(line));
   const step = async (name, argv, options) => {
     const result = await run(argv, options);
@@ -81,14 +100,40 @@ export async function deployWeb({ run, env, readText, out, err }) {
     await step("bundle check", ["node", "app/scripts/check-bundle.mjs", "app/dist"]);
     say("bundle check: ok");
 
+    const files = listFiles("app/dist");
+    const unknown = files.filter((file) => !CONTENT_TYPES.has(posix.extname(file))).sort();
+    if (unknown.length > 0) {
+      const named = unknown.map((file) => `app/dist/${file}`).join(", ");
+      throw new Stop(`no Content-Type is set for the type of ${named}: add it to CONTENT_TYPES in scripts/deploy_web.mjs`);
+    }
+    // The types present in assets/ (or outside it), in the table's order.
+    const typesIn = (inAssets) =>
+      [...CONTENT_TYPES.keys()].filter((ext) =>
+        files.some((file) => file.startsWith("assets/") === inAssets && posix.extname(file) === ext));
+    const assetTypes = typesIn(true);
+    const pageTypes = typesIn(false);
+
+    // The CLI's filters: the last pattern that matches a path decides, and "files excluded by filters are excluded
+    // from deletion". So a sync that lets in one type uploads only that type, with its own --content-type, and its
+    // --delete reaches only stale files of that type. A clean-up sync excludes every type present, so it uploads
+    // nothing (step 4 saw every file's type) and deletes stale files of every other type.
+    const only = (ext) => ["--exclude", "*", "--include", `*${ext}`];
+    const typed = (ext, cacheControl) =>
+      ["--content-type", CONTENT_TYPES.get(ext), "--cache-control", cacheControl, "--only-show-errors"];
+    const cleanUp = (types) => [...types.flatMap((ext) => ["--exclude", `*${ext}`]), "--only-show-errors"];
     const assets = ["app/dist/assets", `s3://${bucket}/assets`];
-    await step("assets upload", aws("s3", "sync", ...assets, "--cache-control", IMMUTABLE, "--only-show-errors"));
+    const pages = ["app/dist", `s3://${bucket}`];
+    const assetsSync = (ext, ...del) => aws("s3", "sync", ...assets, ...del, ...only(ext), ...typed(ext, IMMUTABLE));
+
+    for (const ext of assetTypes) await step(`assets upload (${ext})`, assetsSync(ext));
     say("assets upload: ok");
-    await step(
-      "pages upload",
-      aws("s3", "sync", "app/dist", `s3://${bucket}`, "--delete", "--exclude", "assets/*",
-        "--cache-control", "no-cache", "--only-show-errors"),
-    );
+    for (const ext of pageTypes) {
+      await step(
+        `pages upload (${ext})`,
+        aws("s3", "sync", ...pages, "--delete", ...only(ext), "--exclude", "assets/*", ...typed(ext, "no-cache")),
+      );
+    }
+    await step("pages clean-up", aws("s3", "sync", ...pages, "--delete", "--exclude", "assets/*", ...cleanUp(pageTypes)));
     say("pages upload: ok");
 
     const created = await step(
@@ -102,10 +147,9 @@ export async function deployWeb({ run, env, readText, out, err }) {
     );
     say("invalidation: done");
 
-    await step(
-      "old assets removal (the new site is already live)",
-      aws("s3", "sync", ...assets, "--delete", "--cache-control", IMMUTABLE, "--only-show-errors"),
-    );
+    const removal = "old assets removal (the new site is already live)";
+    for (const ext of assetTypes) await step(removal, assetsSync(ext, "--delete"));
+    await step(removal, aws("s3", "sync", ...assets, "--delete", ...cleanUp(assetTypes)));
     say("old assets: removed");
     say(`web: ${webUrl}`);
     return 0;
@@ -125,10 +169,20 @@ if (import.meta.main) {
     run,
     env: process.env,
     readText: (path) => readFileSync(join(root, path), "utf8"),
+    listFiles,
     out: (line) => process.stdout.write(`${line}\n`),
     err: (line) => process.stderr.write(`${line}\n`),
   });
   process.exit(code);
+}
+
+// Everything under a folder of the repo that isn't a folder, links included, so the type check sees all that sync
+// would upload.
+function listFiles(dir) {
+  const base = join(root, dir);
+  return readdirSync(base, { recursive: true, withFileTypes: true })
+    .filter((entry) => !entry.isDirectory())
+    .map((entry) => relative(base, join(entry.parentPath, entry.name)).split(sep).join("/"));
 }
 
 // From the repo root, output kept for the caller. npm is a .cmd file on Windows, which Node starts only through a

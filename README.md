@@ -54,6 +54,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) map tiles | The map's background, loaded from OpenStreetMap's own tile server under its [tile usage policy](https://operations.osmfoundation.org/policies/tiles/), with the credit "© OpenStreetMap contributors" linked on the map | Map data © OpenStreetMap contributors, under the Open Database Licence (ODbL) 1.0; the tiles' cartography is CC BY-SA 2.0 |
 | [Gradle](https://github.com/gradle/gradle) wrapper | Runs the Android build; part of Capacitor's Android template | Apache-2.0 |
 | [AWS SAM CLI](https://github.com/aws/aws-sam-cli) | Builds and deploys `backend/template.yaml` | Apache-2.0 |
+| [AWS CLI v2](https://github.com/aws/aws-cli/tree/v2) | Uploads the web app to its bucket and invalidates CloudFront's copy of its pages (`npm run deploy:web`) | Apache-2.0 |
 | [AWS SDK for JavaScript v3](https://github.com/aws/aws-sdk-js-v3) | The API Lambda's calls to DynamoDB, S3 and SSM, its upload links and its 5-minute photo links | Apache-2.0 |
 | [ngeohash](https://github.com/sunng87/node-geohash) | Geohash keys for reports | MIT |
 | [boto3](https://github.com/boto/boto3), with its [CRT](https://github.com/awslabs/aws-crt-python) extra in the scripts | AWS calls from the analysis Lambda and the scripts in `backend/scripts/` | Apache-2.0 |

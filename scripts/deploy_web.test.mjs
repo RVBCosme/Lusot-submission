@@ -1,6 +1,7 @@
 // Tests for deploy_web.mjs with a fake command runner: nothing is built and nothing reaches AWS.
 // Run: node --test scripts/deploy_web.test.mjs
 import assert from "node:assert/strict";
+import { posix } from "node:path";
 import { test } from "node:test";
 import { deployWeb } from "./deploy_web.mjs";
 
@@ -31,16 +32,89 @@ const SAMCONFIG = [
   `parameter_overrides = "AlarmEmail=${CONTACT} BucketSuffix=abc123"`,
 ].join("\n");
 
+// app/dist as the build leaves it today, in kind: the page, the licences, the manifest and the icons, and under
+// assets/ the bundle, a lazy chunk, the styles and both font formats (the CSS lists .woff after each .woff2).
+const DIST = [
+  "index.html",
+  "licences.txt",
+  "manifest.webmanifest",
+  "icons/icon-192.png",
+  "icons/icon.svg",
+  "assets/index-NEW.js",
+  "assets/web-NEW.js",
+  "assets/index-NEW.css",
+  "assets/font-NEW.woff2",
+  "assets/font-NEW.woff",
+];
+// The Content-Type each type is served as (S5-R26, plus .woff, which the build emits too).
+const SERVED_AS = {
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".css": "text/css",
+  ".html": "text/html; charset=utf-8",
+  ".json": "application/manifest+json",
+  ".webmanifest": "application/manifest+json",
+  ".txt": "text/plain; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+};
+
 const is = (word) => (argv) => argv.includes(word);
 const isBuild = (argv) => argv[0] === "npm";
 const isBundleCheck = (argv) => argv[0] === "node";
 const isAssetsSync = (argv) => argv.includes("sync") && argv.includes("app/dist/assets");
 const isRestSync = (argv) => argv.includes("sync") && argv.includes("app/dist");
+const valueOf = (argv, flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined);
+
+// The AWS CLI's filters ("Use of Exclude and Include Filters" in its s3 reference): a path starts included, and the
+// last --exclude or --include whose pattern matches it decides. `*` matches anything, slashes included. The script
+// uses no other pattern symbol, so this model covers `*` only.
+function included(argv, path) {
+  let keep = true;
+  argv.forEach((word, i) => {
+    if (word !== "--exclude" && word !== "--include") return;
+    const pattern = argv[i + 1];
+    assert.doesNotMatch(pattern, /[?[]/, "the filter model covers * only");
+    const glob = pattern.split("*").map((part) => part.replace(/[.+^$|(){}\]\\]/g, "\\$&")).join(".*");
+    if (new RegExp(`^${glob}$`).test(path)) keep = word === "--include";
+  });
+  return keep;
+}
+
+// What each `aws s3 sync` in a run could upload, and what it would delete from a bucket holding `remote`. A file
+// under the sync's source that its filters let in may go up. With --delete, an object under its destination that has
+// no file behind it and that its filters let in is deleted ("files excluded by filters are excluded from deletion").
+function syncEffects(argvs, files, remote) {
+  const uploads = [];
+  const deletes = [];
+  const under = (base) => (base === "" ? "" : `${base}/`);
+  argvs.forEach((argv, at) => {
+    if (argv[0] !== "aws" || argv[1] !== "s3" || argv[2] !== "sync") return;
+    const source = under(argv[3].replace(/^app\/dist\/?/, ""));
+    const target = under(argv[4].replace(/^s3:\/\/[^/]+\/?/, ""));
+    for (const file of files.filter((file) => file.startsWith(source))) {
+      const path = file.slice(source.length);
+      if (included(argv, path)) {
+        uploads.push({ at, key: target + path, type: valueOf(argv, "--content-type"), cache: valueOf(argv, "--cache-control") });
+      }
+    }
+    if (!argv.includes("--delete")) return;
+    for (const key of remote.filter((key) => key.startsWith(target))) {
+      const path = key.slice(target.length);
+      if (!files.includes(source + path) && included(argv, path)) deletes.push({ at, key });
+    }
+  });
+  return { uploads, deletes };
+}
 
 // Runs deployWeb with a fake runner. `answer(argv)` may return a result for a call; any other call succeeds,
-// with the stack's outputs for describe-stacks and an invalidation id for create-invalidation.
-async function deploy({ answer = () => undefined, samconfig = SAMCONFIG, env = { PATH: "test-path" } } = {}) {
+// with the stack's outputs for describe-stacks and an invalidation id for create-invalidation. `files` is what
+// listing app/dist gives.
+async function deploy({ answer = () => undefined, samconfig = SAMCONFIG, env = { PATH: "test-path" }, files = DIST } = {}) {
   const calls = [];
+  const listed = [];
   const out = [];
   const err = [];
   const run = async (argv, options = {}) => {
@@ -55,18 +129,34 @@ async function deploy({ answer = () => undefined, samconfig = SAMCONFIG, env = {
     if (path === "backend/samconfig.toml" && samconfig !== null) return samconfig;
     throw Object.assign(new Error(`ENOENT: ${path}`), { code: "ENOENT" });
   };
+  const listFiles = (dir) => {
+    listed.push({ dir, after: calls.length });
+    return files;
+  };
   const code = await deployWeb({
     run,
     env,
     readText,
+    listFiles,
     out: (line) => out.push(line),
     err: (line) => err.push(line),
   });
-  return { code, calls, argvs: calls.map((call) => call.argv), out: out.join("\n"), err: err.join("\n") };
+  return { code, calls, listed, argvs: calls.map((call) => call.argv), out: out.join("\n"), err: err.join("\n") };
 }
 
+const ASSETS = ["app/dist/assets", `s3://${BUCKET}/assets`];
+const PAGES = ["app/dist", `s3://${BUCKET}`];
+const asset = (ext, type, ...del) => [
+  "aws", "s3", "sync", ...ASSETS, ...del, "--exclude", "*", "--include", `*${ext}`,
+  "--content-type", type, "--cache-control", IMMUTABLE, "--only-show-errors", ...FLAGS,
+];
+const page = (ext, type) => [
+  "aws", "s3", "sync", ...PAGES, "--delete", "--exclude", "*", "--include", `*${ext}`, "--exclude", "assets/*",
+  "--content-type", type, "--cache-control", "no-cache", "--only-show-errors", ...FLAGS,
+];
+
 test("the calls come in order, with the flags", async () => {
-  const { code, calls, argvs, out } = await deploy();
+  const { code, calls, listed, argvs, out } = await deploy();
   assert.equal(code, 0);
   assert.deepEqual(argvs, [
     [
@@ -75,13 +165,22 @@ test("the calls come in order, with the flags", async () => {
     ],
     ["npm", "run", "build", "-w", "app"],
     ["node", "app/scripts/check-bundle.mjs", "app/dist"],
+    // assets/, one type at a time, deleting nothing yet
+    asset(".js", "text/javascript"),
+    asset(".css", "text/css"),
+    asset(".woff2", "font/woff2"),
+    asset(".woff", "font/woff"),
+    // everything else, one type at a time, each deleting only its own type's stale files outside assets/
+    page(".html", "text/html; charset=utf-8"),
+    page(".webmanifest", "application/manifest+json"),
+    page(".txt", "text/plain; charset=utf-8"),
+    page(".svg", "image/svg+xml"),
+    page(".png", "image/png"),
+    // uploads nothing; deletes stale files of the other types outside assets/
     [
-      "aws", "s3", "sync", "app/dist/assets", `s3://${BUCKET}/assets`,
-      "--cache-control", IMMUTABLE, "--only-show-errors", ...FLAGS,
-    ],
-    [
-      "aws", "s3", "sync", "app/dist", `s3://${BUCKET}`, "--delete", "--exclude", "assets/*",
-      "--cache-control", "no-cache", "--only-show-errors", ...FLAGS,
+      "aws", "s3", "sync", ...PAGES, "--delete", "--exclude", "assets/*", "--exclude", "*.html",
+      "--exclude", "*.webmanifest", "--exclude", "*.txt", "--exclude", "*.svg", "--exclude", "*.png",
+      "--only-show-errors", ...FLAGS,
     ],
     [
       "aws", "cloudfront", "create-invalidation", "--distribution-id", "E2EXAMPLE",
@@ -92,11 +191,18 @@ test("the calls come in order, with the flags", async () => {
       "aws", "cloudfront", "wait", "invalidation-completed", "--distribution-id", "E2EXAMPLE",
       "--id", "I2EXAMPLE", ...FLAGS,
     ],
+    // old assets, type by type, then those of any other type
+    asset(".js", "text/javascript", "--delete"),
+    asset(".css", "text/css", "--delete"),
+    asset(".woff2", "font/woff2", "--delete"),
+    asset(".woff", "font/woff", "--delete"),
     [
-      "aws", "s3", "sync", "app/dist/assets", `s3://${BUCKET}/assets`, "--delete",
-      "--cache-control", IMMUTABLE, "--only-show-errors", ...FLAGS,
+      "aws", "s3", "sync", ...ASSETS, "--delete", "--exclude", "*.js", "--exclude", "*.css",
+      "--exclude", "*.woff2", "--exclude", "*.woff", "--only-show-errors", ...FLAGS,
     ],
   ]);
+  // app/dist is listed once, after the build and the bundle check and before the first upload.
+  assert.deepEqual(listed, [{ dir: "app/dist", after: 3 }]);
   // Every AWS call ends with the region, the profile and --no-cli-pager.
   for (const argv of argvs.filter((argv) => argv[0] === "aws")) assert.deepEqual(argv.slice(-FLAGS.length), FLAGS);
   // The build gets the stack's API and keeps the rest of the environment.
@@ -106,31 +212,75 @@ test("the calls come in order, with the flags", async () => {
   assert.match(out, new RegExp(`${WEB_URL}$`));
 });
 
-test("the cache headers per path: assets for a year, everything else no-cache", async () => {
-  const { argvs } = await deploy();
-  const cacheControl = (argv) => argv[argv.indexOf("--cache-control") + 1];
-  const assets = argvs.filter(isAssetsSync);
-  assert.equal(assets.length, 2);
-  for (const argv of assets) assert.equal(cacheControl(argv), IMMUTABLE);
-  // index.html, manifest.webmanifest, licences.txt and icons/ are all of app/dist outside assets/.
-  const rest = argvs.filter(isRestSync);
-  assert.equal(rest.length, 1);
-  assert.equal(cacheControl(rest[0]), "no-cache");
-  assert.equal(rest[0][rest[0].indexOf("--exclude") + 1], "assets/*");
+test("the cache headers per path: each file goes up with its type's Content-Type, assets for a year, the rest no-cache", async () => {
+  // One file of every type in the table, some in both places.
+  const files = [
+    "index.html", "manifest.webmanifest", "manifest.json", "licences.txt", "icons/icon.svg", "icons/icon-192.png",
+    "assets/index-NEW.js", "assets/chunk-NEW.mjs", "assets/index-NEW.css", "assets/logo-NEW.svg",
+    "assets/tile-NEW.png", "assets/font-NEW.woff2", "assets/font-NEW.woff",
+  ];
+  const { code, argvs } = await deploy({ files });
+  assert.equal(code, 0);
+  const { uploads } = syncEffects(argvs, files, []);
+  const invalidation = argvs.findIndex(is("create-invalidation"));
+  for (const file of files) {
+    const mine = uploads.filter((upload) => upload.key === file);
+    assert.ok(mine.some((upload) => upload.at < invalidation), `${file} goes up before the invalidation`);
+    // Every sync that could upload the file sets its type and its cache header, so none leaves either to a guess.
+    for (const upload of mine) {
+      assert.equal(upload.type, SERVED_AS[posix.extname(file)], file);
+      assert.equal(upload.cache, file.startsWith("assets/") ? IMMUTABLE : "no-cache", file);
+    }
+  }
+  // No sync could upload anything that isn't one of the build's files under its own key.
+  assert.ok(uploads.every((upload) => files.includes(upload.key)));
   // The invalidation covers the no-cache paths, the root object included, and never assets/.
-  const invalidation = argvs.find(is("create-invalidation"));
-  const paths = invalidation.slice(invalidation.indexOf("--paths") + 1, invalidation.indexOf("--query"));
+  const paths = argvs[invalidation].slice(argvs[invalidation].indexOf("--paths") + 1, argvs[invalidation].indexOf("--query"));
   assert.deepEqual(paths, ["/", "/index.html", "/manifest.webmanifest", "/licences.txt", "/icons/*"]);
 });
 
-test("old assets are deleted only after the invalidation has finished", async () => {
+test("stale files of every type go, and old assets only after the invalidation has finished", async () => {
+  // What an earlier deploy may have left: types the build still has, types it no longer has, in both places.
+  const stale = [
+    "old.html", "robots.txt", "sw.js", "icons/icon-old.png", "icons/old.ico",
+    "assets/index-OLD.js", "assets/index-OLD.css", "assets/font-OLD.woff2", "assets/font-OLD.ttf",
+    "assets/index-OLD.js.map", "assets/logo-OLD.svg",
+  ];
   const { argvs } = await deploy();
+  const { deletes } = syncEffects(argvs, DIST, [...DIST, ...stale]);
+  // Every stale file goes, and nothing else does.
+  assert.deepEqual([...new Set(deletes.map((d) => d.key))].sort(), [...stale].sort());
   const waited = argvs.findIndex(is("invalidation-completed"));
-  const deletes = argvs.map((argv, i) => [argv, i]).filter(([argv]) => isAssetsSync(argv) && argv.includes("--delete"));
-  assert.equal(deletes.length, 1);
-  assert.ok(deletes[0][1] > waited);
-  // The first upload of assets/ deletes nothing, so the old page's files stay while it is still served.
-  assert.ok(!argvs.find(isAssetsSync).includes("--delete"));
+  for (const { key, at } of deletes) if (key.startsWith("assets/")) assert.ok(at > waited, `${key} goes after the wait`);
+  // The first uploads of assets/ delete nothing, so the old page's files stay while it is still served.
+  assert.ok(argvs.slice(0, waited).every((argv) => !(isAssetsSync(argv) && argv.includes("--delete"))));
+});
+
+for (const unknown of ["assets/index-NEW.js.map", "assets/INDEX-NEW.JS", "icons/LICENSE"]) {
+  test(`a file of a type with no set Content-Type (${unknown}) stops the run before any upload`, async () => {
+    const { code, argvs, listed, err } = await deploy({ files: [...DIST, unknown] });
+    assert.equal(code, 1);
+    assert.equal(listed.length, 1);
+    assert.equal(argvs.length, 3);
+    assert.ok(!argvs.some(is("s3")) && !argvs.some(is("cloudfront")));
+    assert.ok(err.includes(`app/dist/${unknown}`), err);
+  });
+}
+
+test("a failed describe-stacks stops the run with its own code, masked, before any other call", async () => {
+  const { code, argvs, out, err } = await deploy({
+    answer: (argv) =>
+      argv.includes("describe-stacks")
+        ? { code: 255, stderr: `An error occurred (ExpiredToken) when calling the DescribeStacks operation: ${ARN}\n` }
+        : undefined,
+  });
+  assert.equal(code, 255);
+  assert.equal(argvs.length, 1);
+  assert.equal(out, "");
+  assert.match(err, /ExpiredToken/);
+  assert.match(err, /<arn>/);
+  assert.ok(!err.includes("arn:") && !/[0-9]{12}/.test(err), err);
+  assert.match(err, /reading the stack's outputs exited with 255/);
 });
 
 test("a failed build stops the run before any upload", async () => {
