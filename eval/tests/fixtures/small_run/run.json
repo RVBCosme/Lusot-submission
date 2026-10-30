@@ -18,6 +18,7 @@
   "self_check": "off",
   "self_check_decided": "2026-10-29",
   "geometry_default": "on",
+  "service_retries": 0,
   "stops": [{"at": "21:10", "cause": "lost connection", "resumed": "21:40"}],
   "baseline_level": "knee",
   "baseline_class": "NPLV"

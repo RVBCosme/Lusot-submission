@@ -344,6 +344,7 @@ RUNS: dict[str, Callable[[Path], tuple[Run, Run | None]]] = {
         None,
     ),
     "synthetic": lambda folder: (full_run(folder, synthetic=True), None),
+    "retried": lambda folder: (full_run(folder, service_retries=2), None),
     "replay": lambda folder: (load(folder, run_json(), set_a=replay_rows()), None),
 }
 
@@ -1078,6 +1079,7 @@ def test_summary_json(tmp_path):
         "set_b",
         "baseline_level",
         "baseline_class",
+        "service_retries",
     }
     assert [summary[key] for key in ("kind", "date", "rules_version")] == [
         "sealed",
@@ -1133,6 +1135,52 @@ def test_summary_marks_synthetic_data_and_the_rerun(tmp_path):
     assert marks(full_run(tmp_path / "final")) == (False, False)
     assert marks(full_run(tmp_path / "synthetic", synthetic=True)) == (True, False)
     assert marks(*rerun_pair(tmp_path / "rerun")) == (False, True)
+
+
+def retries_line(count: int) -> str:
+    return f"Photos retried once after a Meta service failure (MS6E-Q6): {count}."
+
+
+def test_service_retries_line(tmp_path):
+    # MS6E-Q6 (a): a sealed report always discloses how many photos were retried, and
+    # a development report only when there were some. The line states the count.
+    for number, (kind, count) in enumerate((("sealed", 0), ("sealed", 3))):
+        run = full_run(tmp_path / f"run{number}", kind=kind, service_retries=count)
+        lines = section(report_of(run), "Set A: every metric")
+        assert lines.count(retries_line(count)) == 1, (kind, count)
+    development = full_run(tmp_path / "development", kind="development")
+    two = full_run(tmp_path / "two", kind="development", service_retries=2)
+    assert retries_line(2) in section(report_of(two), "Set A: every metric")
+    for name, run in (
+        ("an absent count", development),
+        (
+            "a count of 0",
+            full_run(tmp_path / "zero", kind="development", service_retries=0),
+        ),
+    ):
+        assert "retried once" not in report_of(run), name
+    # Set A not run: the count still shows, under the section's own note.
+    set_b_only = load(
+        tmp_path / "set_b_only",
+        run_json(service_retries=2),
+        set_b=wheel_rows("B"),
+    )
+    assert section(report_of(set_b_only), "Set A: every metric") == [
+        NOT_RUN,
+        retries_line(2),
+    ]
+
+
+def test_service_retries_in_the_summary(tmp_path):
+    def summarised(folder: Path, **overrides: object) -> object:
+        files = build_report(full_run(folder, **overrides))
+        return json.loads(files["summary.json"])["service_retries"]
+
+    assert summarised(tmp_path / "final", service_retries=3) == 3
+    assert summarised(tmp_path / "zero", service_retries=0) == 0
+    development = summarised(tmp_path / "development", kind="development")
+    assert development == 0 and type(development) is int
+    assert summarised(tmp_path / "two", kind="development", service_retries=2) == 2
 
 
 def test_exclusions_listed(tmp_path):

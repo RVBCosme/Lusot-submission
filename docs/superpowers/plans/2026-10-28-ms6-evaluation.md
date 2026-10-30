@@ -836,6 +836,32 @@ Done on `w4-independent` just before its merge, at the tracker's call (Oct 30, 7
   - **Evidence:** `test_review_sheet` failed first, then passed; `uv run --locked --script eval/tests/run_tests.py -W error` gave 325 passed. No fixture holds a `review.csv`, since the rebuild check skips it, so nothing needed rebuilding.
 - [ ] Record the changes on the board and in the day's log.
 
+## Follow-up (Oct 30): `service_retries`
+
+Asked by Window 3 through the tracker (Oct 30, 7:45 AM), from MS3b's Task 19 (`run_sealed.py`, `ea45ede`). MS6E-Q6 (a) retries once each photo whose analysis failed because Meta's service failed, and discloses how many were retried. The run.json contract had no field for that count, and the loader refuses any field outside the contract, so the entry point couldn't record it and the report couldn't show it. This lands on `w4-independent`, after MS6's merge (`a30bd07`), and merges into `main` after the tracker's OK. One commit: `feat(eval): record and report service_retries in run.json (MS6E-Q6)`.
+
+- [x] **Step 1: Write the failing tests** (`test_rows.py`, `test_report.py`, `test_run_eval.py`): `service_retries` 0 and 3 load on a sealed and on a development run; `-1`, `"2"`, `True`, `2.5` (and `2.0`) are refused on both; a sealed run.json without it is refused; a development one without it reads as 0; report.md shows `Photos retried once after a Meta service failure (MS6E-Q6): N.` for a sealed run with 0 and for a development run with 2, and not for a development run with 0; summary.json carries the value; and the committed fixture rebuilds byte for byte.
+  - **Evidence:** the new cases failed first, each at its own assertion: the loader's accepting cases on `the manifest holds a field outside the contract`, its refusals on `assert 'run.json:0: ... the contract' == 'run.json:0: ... whole number'` (and `... be 0 or more`), and the sealed case on `Failed: the loader accepted final`. With the loader in place, the report's cases failed on `assert 0 == 1` (the line counted in the section), `KeyError: 'service_retries'` and `test_summary_json`'s extra item `'service_retries'`; the fixture's tests failed on `the manifest lacks service_retries` until its run.json gained the field.
+- [x] **Step 2: The loader.** `service_retries` is checked by `_count` in `_RUN_FIELDS` (a whole number of 0 or more, so a boolean, a string, a fraction and a negative are refused), is left out of `_SEALED_OPTIONAL` and put in `_DEVELOPMENT_OPTIONAL`, and `Run.service_retries` carries it, 0 when absent. The tests' `run_json` builder gains `"service_retries": 0`, so it still holds every key a sealed run needs.
+- [x] **Step 3: The report.** report.md's "Set A: every metric" section, which shows coverage and processing failures, ends with the line `Photos retried once after a Meta service failure (MS6E-Q6): N.` for a sealed run, and for a development run only when N is above 0. It states the count and nothing else. summary.json gains `service_retries`, an integer, for every run.
+- [x] **Step 4: The fixture.** `eval/tests/fixtures/small_run/run.json` gains `"service_retries": 0`, and its report was regenerated with the harness's own tool.
+  - **Evidence:** `python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` gave `report: differs: report.md, summary.json` before; `--write` gave `report: 5 files written`; then it gave `report: 5 files identical`, also under `uv run --no-project --python 3.9`. The fixture's report changed by the one line and the one summary key.
+- [x] **Step 5: `--rules-version`**, added at the controller's request for Window 3. `python eval/run_eval.py --rules-version` prints `RULES_VERSION` (`eval/scoring/__init__.py`) and a newline and nothing else, then exits 0. It needs no `--results` and reads nothing from disk, as `--label-words` does. MS3b's `run_sealed.py` doesn't import `eval/`, so it will run this by subprocess before it pays for the sealed run, and compare the output with its own `rules_version`.
+  - **Evidence:** the two new tests failed first on `assert 2 == 0` (`invalid: unrecognized arguments: --rules-version`), then passed. One checks the output in-process with the loader and the file-reading `Path` methods made to fail, the other under `python -I` from an empty folder.
+- [x] **Step 6: Checks.**
+  - **Evidence:** `uv run --locked --script eval/tests/run_tests.py -W error` gave 344 passed (325 before; 19 new). Eight swapped-in wrong implementations were each caught: the count checked as a plain integer, the count optional in a sealed run, an absent count read as nothing, the line shown for a development run with 0, the line hidden for a sealed run with 0, a summary without the count, a trailing space after the version, and the flag reading the results folder first. Ruff format is clean on the seven changed files, and ruff check is clean on them with `--target-version py39`. With the project's default target (3.13) it also reports two UP047 in `rows.py`'s `_read` and `_no_repeats`, which this change doesn't touch and which its fix would break: they need Python 3.12 syntax, and the rebuild must run on 3.9. `npm run check` exit 0 in 307 s, its `check:py` ending `344 passed` for this harness; `uv run --no-project --python 3.9 python eval/run_eval.py --from-saved --results eval/tests/fixtures/small_run` gave `report: 5 files identical`.
+
+### The freeze checklist: the sealed entry point's flags
+
+The plan has no freeze checklist, so the entry point's flags are recorded here, in the section nearest the freeze (spec §4.5 item 5, §4.6). `run_sealed.py` (MS3b Task 19, `ea45ede`) takes:
+- `--baseline SUMMARY`: the last development report's `summary.json`, which supplies `baseline_level`, `baseline_class` and `rules_version`
+- `--self-check-decided`, which is required
+- `--geometry-default`, `--dropped-reason` and `--datasets`, as `dev_eval` has them
+
+It also has to write `service_retries` into the sealed run.json, since a sealed run without it is refused. MS3b's `export.results_manifest` doesn't carry it yet. Before it pays for the run, it can compare its `rules_version` with `python eval/run_eval.py --rules-version`, run by subprocess.
+
+The freeze tags (`freeze-1`) only once those flags are in `main` with their tests.
+
 ## When `eval/rules.md` becomes v0.7 (the same commit as the rules change)
 
 Still open: v0.7 isn't approved yet (Oct 29, 9:07 PM).

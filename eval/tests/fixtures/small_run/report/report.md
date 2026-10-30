@@ -53,6 +53,8 @@ Each configuration's Set A figures over the photos that rules ยง9 keeps (rules ย
 | "No flood seen" readings | 1 of 8 (12.5%) | 1 of 8 (12.5%) |
 | Floor readings ("at least" a level) | 1 of 8 (12.5%) | 1 of 8 (12.5%) |
 
+Photos retried once after a Meta service failure (MS6E-Q6): 0.
+
 ## Baseline
 
 The baseline gives every photo the same answers: the level knee and the class NPLV. Both come from run.json.

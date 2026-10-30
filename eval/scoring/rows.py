@@ -172,6 +172,7 @@ class Run:
     self_check: bool
     geometry_dropped: bool
     rerun_reason: str | None
+    service_retries: int
     baseline_level: str | None
     baseline_class: str | None
     set_a: tuple[PhotoRow, ...] | None
@@ -213,6 +214,7 @@ def load_run(folder: Path) -> Run:
         self_check=self_check,
         geometry_dropped=dropped,
         rerun_reason=meta.get("rerun_reason"),
+        service_retries=meta.get("service_retries", 0),
         baseline_level=meta.get("baseline_level"),
         baseline_class=meta.get("baseline_class"),
         set_a=_photos(
@@ -476,14 +478,17 @@ _RUN_FIELDS: dict[str, _Check] = {
     "stops": _list_of(_object_of({"at": _short, "cause": _short, "resumed": _short})),
     "rerun_reason": _reason,
     "synthetic": _bool,
+    "service_retries": _count,
     "baseline_level": _among(LEVELS, "one of the 9 levels"),
     "baseline_class": _among(CLASS_NAMES, "PATV, NPLV or NPATV"),
 }
 # A sealed run needs every field but these; a development run may also leave out the
-# rest, and then computes its baseline from its own rows (C424).
+# rest, and then computes its baseline from its own rows (C424) and reads
+# service_retries as 0 (MS6E-Q6).
 _SEALED_OPTIONAL = ("geometry_dropped_reason", "stops", "rerun_reason", "synthetic")
 _DEVELOPMENT_OPTIONAL = (
     *_SEALED_OPTIONAL,
+    "service_retries",
     "rules_version",
     "freeze_commit",
     "self_check_decided",

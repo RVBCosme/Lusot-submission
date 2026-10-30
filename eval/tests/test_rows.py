@@ -417,6 +417,46 @@ def test_synthetic_flag(tmp_path):
     assert "synthetic" in refusal(tmp_path / "in_words", "run.json", 0, words)
 
 
+SEALED_SETS = {"set_a": [set_a_row("A001")], "a_neg": [a_neg_row("N001")]}
+
+
+@pytest.mark.parametrize("count", [0, 3])
+@pytest.mark.parametrize("kind", ["sealed", "development"])
+def test_service_retries_takes_a_count(tmp_path, kind, count):
+    # MS6E-Q6: the photos retried once after a Meta service failure.
+    sets = SEALED_SETS if kind == "sealed" else {}
+    run = load(tmp_path, run_json(kind=kind, service_retries=count), **sets)
+    assert run.service_retries == count
+    assert run.meta["service_retries"] == count
+
+
+@pytest.mark.parametrize(
+    ("value", "rule"),
+    [
+        (-1, "service_retries must be 0 or more"),
+        ("2", "service_retries must be a whole number"),
+        (True, "service_retries must be a whole number"),
+        (2.5, "service_retries must be a whole number"),
+        (2.0, "service_retries must be a whole number"),
+    ],
+    ids=["negative", "string", "boolean", "fraction", "whole fraction"],
+)
+@pytest.mark.parametrize("kind", ["sealed", "development"])
+def test_service_retries_refuses_other_values(tmp_path, kind, value, rule):
+    sets = SEALED_SETS if kind == "sealed" else {}
+    run = run_json(kind=kind, service_retries=value)
+    assert refusal(tmp_path, "run.json", 0, run, **sets) == f"run.json:0: {rule}"
+
+
+def test_service_retries_is_required_only_in_a_sealed_run(tmp_path):
+    no_count = without(sealed(), "service_retries")
+    message = refusal(tmp_path / "final", "run.json", 0, no_count, **SEALED_SETS)
+    assert message == "run.json:0: the manifest lacks service_retries"
+    # A development run reads an absent count as 0.
+    run = load(tmp_path / "development", without(run_json(), "service_retries"))
+    assert run.service_retries == 0
+
+
 def test_replay_and_baseline_fields(tmp_path):
     replayed = {
         "landmark": level("knee"),

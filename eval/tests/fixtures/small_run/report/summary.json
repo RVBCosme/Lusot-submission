@@ -57,6 +57,7 @@
   "kind": "sealed",
   "rerun": false,
   "rules_version": "0.6",
+  "service_retries": 0,
   "set_b": {
     "envelope": {
       "k": 4,
