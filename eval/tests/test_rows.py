@@ -423,7 +423,7 @@ SEALED_SETS = {"set_a": [set_a_row("A001")], "a_neg": [a_neg_row("N001")]}
 @pytest.mark.parametrize("count", [0, 3])
 @pytest.mark.parametrize("kind", ["sealed", "development"])
 def test_service_retries_takes_a_count(tmp_path, kind, count):
-    # MS6E-Q6: the photos retried once after a Meta service failure.
+    # MS6E-Q6: the photos and crops retried once after a Meta service failure.
     sets = SEALED_SETS if kind == "sealed" else {}
     run = load(tmp_path, run_json(kind=kind, service_retries=count), **sets)
     assert run.service_retries == count

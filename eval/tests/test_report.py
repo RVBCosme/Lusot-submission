@@ -13,6 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import scoring
 from builders import (
     a_neg_row,
     level,
@@ -533,9 +534,52 @@ def test_opening_paragraph(tmp_path):
     assert lines[2] == (
         "The frozen pipeline ran once on the sealed sets, on 2026-10-30. Its figures"
         " are agreement with the labels MMDA and the cities posted, mapped by"
-        " eval/rules.md §2 (v0.6) before any result was seen. With samples this small,"
+        " eval/rules.md §2 (v0.7) before any result was seen. With samples this small,"
         " every figure is indicative and carries its n."
     )
+
+
+A_NEG_LEAD = (
+    "The A-neg photos are openly licensed Wikimedia Commons photos"
+    " (CC0, public domain or CC BY)."
+    ' Flood-free photos that got a level instead of "no flood seen" or a refusal,'
+    " over the A-neg photos kept. A processing failure counts in the n, never as a"
+    " false flood."
+)
+
+
+def test_a_neg_lead_names_its_source(tmp_path):
+    # Rules §4 (v0.7's item 4.5): A-neg comes from Wikimedia Commons, and the report's
+    # A-neg section says so, in a sealed and in a development report alike.
+    for kind in ("sealed", "development"):
+        run = full_run(tmp_path / f"{kind}-run", kind=kind)
+        lead = section(report_of(run), "A-neg: flood-free photos")[0]
+        assert lead == A_NEG_LEAD, kind
+        # The copy rules: the source and its licences, and nothing of any photo's
+        # credit (it stays in the private manifest), file or link; never ShareAlike;
+        # and no "accuracy". The report's banned-word guard covers the rest.
+        for word in ("credit", "http", "by-sa", "sharealike", "accuracy"):
+            assert word not in lead.lower(), (kind, word)
+    # With no A-neg rows the section still says only that it wasn't run.
+    empty = load(tmp_path / "empty", run_json(), set_a=HAND_SET)
+    assert section(report_of(empty), "A-neg: flood-free photos") == [NOT_RUN]
+
+
+def test_latency_says_upload_to_the_final_result(tmp_path):
+    # Rules §7 (v0.7's item 7.8, C416): the live tests use samples, and uploads placed
+    # outside Metro Manila never pin, so the report can't call the figure "upload to
+    # pin". The docstrings say so too.
+    lines = section(report_of(full_run(tmp_path)), "Latency")
+    assert lines[:2] == [
+        (
+            "Live tests' seconds from upload, or a sample's start, to the final result"
+            " (C416)."
+        ),
+        "| Measure | Upload, or a sample's start, to the final result |",
+    ]
+    assert "pin" not in " ".join(lines).lower()
+    for path in Path(scoring.__file__).parent.glob("*.py"):
+        assert "upload to pin" not in path.read_text(encoding="utf-8").lower(), path
 
 
 def test_baseline_section(tmp_path):
@@ -1086,7 +1130,7 @@ def test_summary_json(tmp_path):
     assert [summary[key] for key in ("kind", "date", "rules_version")] == [
         "sealed",
         "2026-10-30",
-        "0.6",
+        "0.7",
     ]
     assert (summary["synthetic"], summary["rerun"]) == (False, False)
     assert (summary["shipped"], summary["geometry_stays"], summary["inches_shown"]) == (
@@ -1180,8 +1224,8 @@ FROZEN = "Frozen versions and data"
 
 def retries_line(count: int) -> str:
     return (
-        "Photos retried once after a Meta service failure in this run (MS6E-Q6):"
-        f" {count}."
+        "Photos and crops retried once after a Meta service failure in this run"
+        f" (MS6E-Q6): {count}."
     )
 
 
@@ -1200,10 +1244,10 @@ def run_without_retries(folder: Path, **overrides: object) -> Run:
 
 
 def test_service_retries_line(tmp_path):
-    # MS6E-Q6 (a): a sealed report always discloses how many photos were retried, and
-    # a development report only when there were some. The count covers the whole run
-    # (Set A, Set B and Set D), so the line sits with the run's other events, beside
-    # the stops table, and not in a set's section.
+    # MS6E-Q6 (a): a sealed report always discloses how many photos and crops were
+    # retried, and a development report only when there were some. The count covers
+    # the whole run (Set A's photos, and Set B's and Set D's items), so the line sits
+    # with the run's other events, beside the stops table, and not in a set's section.
     for number, (kind, count) in enumerate((("sealed", 0), ("sealed", 3))):
         run = full_run(tmp_path / f"run{number}", kind=kind, service_retries=count)
         report = report_of(run)
@@ -1380,7 +1424,7 @@ def test_frozen_versions_and_data(tmp_path):
     lines = section(report_of(full_run(tmp_path)), "Frozen versions and data")
     # The freeze commit and geometry's live default come before the lists.
     assert lines[:4] == [
-        "Scored by eval/rules.md v0.6.",
+        "Scored by eval/rules.md v0.7.",
         f"Freeze commit: `{'ab' * 20}`.",
         "Geometry's live default before the run (C309): on.",
         "| Frozen | Version |",
