@@ -114,8 +114,11 @@ def run_pipeline(
     copy, whatever its outcome: no flood seen, a refusal or an error after SAM. A run
     that ends before SAM has returned gets none. The copy is made once the outcome is
     settled, so the outcome, the log and the evidence are the same with and without
-    it. A copy that fails to be made leaves the run without one, and isn't logged.
-    Off, C61 holds: a copy for a level result only.
+    it. A copy that fails to be made leaves the run without one, and isn't logged;
+    a level run's copy that fails is tried once more with it, then ends failed,
+    pipeline_error, as without it. The handler, not the pipeline, decides what is
+    stored: a seed's copy only for a level or no flood seen (the tracker's ruling,
+    Oct 30, 10:31 AM). Off, C61 holds: a copy for a level result only.
 
     `geometry_in_level` puts rim geometry in the level path (C309). Off is MS3a's
     rules plus step 3, so vans and `unknown` are dropped by type and no geometry is

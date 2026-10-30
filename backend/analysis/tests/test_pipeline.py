@@ -1019,3 +1019,4 @@ def test_a_failed_kept_copy_keeps_the_outcome(prompt, monkeypatch):
     assert level.outcome == Outcome.failed("pipeline_error")
     assert level.publish_jpeg is None
     assert level.log["error"] == "ValueError"
+    assert len(tried) == 3  # the level copy, then its one retry under keep_photo
