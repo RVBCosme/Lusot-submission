@@ -8,7 +8,9 @@ const ssm = new SSMClient({ region: "ap-southeast-1" });
 const ssmMock = mockClient(ssm);
 const NAME = "/lusot/test/model-key";
 const KEY = "sentinel-model-key-00000000000000000000";
-const SHORT = "sentinel-short-key"; // 18 characters
+// 19 characters. Each 4-character run holds a capital letter, so none can occur in the fixed, lowercase message
+// by chance.
+const SHORT = "QXZJ0WVK9PQY8RTB7MN";
 
 const reads = () => ssmMock.commandCalls(GetParameterCommand);
 
@@ -42,18 +44,31 @@ describe("the model key", () => {
     expect(reads()).toHaveLength(2);
   });
 
-  it("a short key throws MissingApiKey without its value, and isn't kept", async () => {
+  it.each(Array.from({ length: 20 }, (_, n) => n))(
+    "a key of %i characters throws MissingApiKey, and its error holds no 4 characters of it",
+    async (n) => {
+      const value = SHORT.slice(0, n);
+      ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: value } });
+
+      const err = await createModelKey(ssm, NAME)
+        .get()
+        .then(
+          () => undefined,
+          (e: unknown) => e,
+        );
+
+      expect(err).toBeInstanceOf(MissingApiKey);
+      expect((err as Error).name).toBe("MissingApiKey");
+      const shown = `${(err as Error).message} ${String(err)} ${JSON.stringify(err)} ${(err as Error).stack}`;
+      for (let i = 0; i + 4 <= value.length; i++) expect(shown).not.toContain(value.slice(i, i + 4));
+    },
+  );
+
+  it("a short key isn't kept, so the next get reads again", async () => {
     ssmMock.on(GetParameterCommand).resolvesOnce({ Parameter: { Value: SHORT } }).resolves({ Parameter: { Value: KEY } });
     const key = createModelKey(ssm, NAME);
 
-    const err = await key.get().then(
-      () => undefined,
-      (e: unknown) => e,
-    );
-    expect(err).toBeInstanceOf(MissingApiKey);
-    expect((err as Error).name).toBe("MissingApiKey");
-    expect(`${String(err)} ${JSON.stringify(err)} ${(err as Error).stack}`).not.toContain(SHORT);
-
+    await expect(key.get()).rejects.toBeInstanceOf(MissingApiKey);
     expect(await key.get()).toBe(KEY);
     expect(reads()).toHaveLength(2);
   });

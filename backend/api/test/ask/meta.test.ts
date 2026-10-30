@@ -254,6 +254,43 @@ describe("retries", () => {
     expect(sleeps).toEqual([]);
   });
 
+  // A retry needs 1,500 ms (MIN_TRY_MS) left before the mark once its wait ends. random 0.5 makes a 1,000 ms wait.
+  it("503 then a retry with too little time left: one call and MetaError(503)", async () => {
+    replies = [fail(503), ok("ask_call")];
+    const meta = createMeta(deps());
+
+    const err = await failure(meta.respond(body(), deadline(2499), BUDGET.modelBy)); // 1,499 ms left after the wait
+
+    expect(err.status).toBe(503);
+    expect(sent).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect(meta.calls.map((c) => c.status)).toEqual([503]);
+  });
+
+  it("exactly 1,500 ms left after the wait still retries", async () => {
+    replies = [fail(503), ok("ask_call")];
+    const meta = createMeta(deps());
+
+    await meta.respond(body(), deadline(2500), BUDGET.modelBy);
+
+    expect(sent).toHaveLength(2);
+    expect(sleeps).toEqual([1000]);
+    expect(meta.calls.map((c) => c.status)).toEqual([503, 200]);
+  });
+
+  it.each([
+    { statuses: [429, 503], leftMs: 3900, thrown: 503 }, // the 503's 1,500 ms wait would leave 1,400 ms
+    { statuses: [429, 503, 500], leftMs: BUDGET.modelBy, thrown: 500 },
+  ])("tries that fail with $statuses throw the last try's status, $thrown", async ({ statuses, leftMs, thrown }) => {
+    replies = statuses.map((status) => fail(status));
+    const meta = createMeta(deps());
+
+    const err = await failure(meta.respond(body(), deadline(leftMs), BUDGET.modelBy));
+
+    expect(err.status).toBe(thrown);
+    expect(meta.calls.map((c) => c.status)).toEqual(statuses);
+  });
+
   it.each([400, 504])("a %i isn't retried", async (status) => {
     replies = [fail(status)];
     const meta = createMeta(deps());
@@ -348,6 +385,17 @@ describe("what it keeps", () => {
       for (const sentinel of [KEY, QUESTION, ANSWER, "Sentinel Street"]) expect(text).not.toContain(sentinel);
     }
     for (const err of errors) expect((err as Error).cause).toBeUndefined();
+  });
+
+  it("a fresh Meta starts with no calls, so each question's calls are its own", async () => {
+    replies = [fail(429), ok("ask_call")];
+    const first = createMeta(deps());
+    await first.respond(body(), deadline(), BUDGET.modelBy);
+
+    const second = createMeta(deps());
+
+    expect(first.calls.map((c) => c.status)).toEqual([429, 200]);
+    expect(second.calls).toEqual([]);
   });
 
   it("the SDK logs nothing of its own, even when OPENAI_LOG asks for debug", async () => {

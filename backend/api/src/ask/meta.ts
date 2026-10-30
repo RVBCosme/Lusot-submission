@@ -9,6 +9,10 @@ const RETRY_STATUSES = new Set([429, 500, 503]);
 const MAX_TRIES = 3;
 const BACKOFF_MS = 500; // before try n + 1: 500 ms × 2^(n − 1), plus jitter
 const JITTER_MS = 1000;
+// A retry is sent only if this much is left before the mark once its wait ends, so it can finish (spec §4.1).
+// Task 2's probe timed a `low` turn at about 1.5 s at the median (turn 1 1.559 s, the final turn 1.147 s;
+// docs/research/2026-10-30-ask-probe.md).
+const MIN_TRY_MS = 1500;
 
 export class MetaError extends Error {
   // The HTTP status; null for a timeout, an abort, a lost connection or an answer that couldn't be read.
@@ -32,9 +36,11 @@ export type MetaDeps = {
   now: () => number;
 };
 
+// A Meta belongs to one question: the handler (Task 12) creates one per question, so `calls` holds only that
+// question's tries.
 export type Meta = {
   respond(body: ResponseCreateParamsNonStreaming, deadline: Deadline, byMs: number): Promise<Response>;
-  // One entry per HTTP try, for the log line's meta_calls and meta_status.
+  // One entry per HTTP try, across every respond on this instance, for the log line's meta_calls and meta_status.
   readonly calls: MetaCall[];
 };
 
@@ -72,8 +78,8 @@ export function createMeta(deps: MetaDeps): Meta {
           if (status === null || !RETRY_STATUSES.has(status) || tries >= MAX_TRIES) throw last;
           const backoffMs = BACKOFF_MS * 2 ** (tries - 1) + deps.random() * JITTER_MS;
           const waitMs = Math.max(backoffMs, retryAfterMs((err as APIError).headers, deps.now()));
-          // A wait that would end at or past the mark isn't taken.
-          if (waitMs >= deadline.remainingMs(byMs)) throw last;
+          // A retry that couldn't finish before the mark isn't made: the status that called for it is thrown.
+          if (deadline.remainingMs(byMs) - waitMs < MIN_TRY_MS) throw last;
           await deps.sleep(waitMs);
         }
       }
