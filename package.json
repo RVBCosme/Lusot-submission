@@ -8,7 +8,7 @@
   "scripts": {
     "setup": "git config core.hooksPath .githooks",
     "check": "npm run check:node && npm run check:py && npm run check:secrets",
-    "check:node": "npm run typecheck --workspaces && npm run lint -w app && npm run test --workspaces && node --test \"scripts/*.test.mjs\"",
+    "check:node": "npm run typecheck --workspaces && npm run lint -w app && npm run test --workspaces && node --test \"scripts/*.test.mjs\" \"app/scripts/*.test.mjs\"",
     "check:py": "uv run --locked --directory backend/analysis ruff check . && uv run --locked --directory backend/analysis pytest -q && uv run --python 3.13 --with pytest --with boto3 --with httpx --with numpy --with \"opencv-python-headless<5\" pytest backend/scripts scripts && uv run --locked --script eval/data/tests/run_tests.py",
     "check:secrets": "gitleaks git --redact --no-banner && uv run --python 3.13 scripts/check_no_plan_leak.py && node scripts/check_account_ids.mjs",
     "deploy": "node scripts/deploy.mjs"

@@ -57,7 +57,8 @@ export async function pollReport(
   apiUrl: string,
   reportId: string,
   {
-    fetchFn = fetch,
+    // Left out, getReport applies its own default: apiFetch.
+    fetchFn,
     sleep = abortableSleep,
     now = Date.now,
     random = Math.random,

@@ -1,6 +1,7 @@
 // The app's only route to the backend: MS4's HTTP API, the presigned S3 upload, and the layers file a
 // report links to. Field names and error codes are MS4's committed ones (plan "Notes").
 import { type Level, LEVELS, PASSABILITY, type Passability } from '../copy/levels'
+import { apiFetch } from './apiFetch'
 
 const REQUEST_TIMEOUT_MS = 15_000 // one API call
 const UPLOAD_TIMEOUT_MS = 60_000 // the photo: a few hundred KB, maybe over a slow mobile connection
@@ -242,7 +243,7 @@ export async function requestUpload(
   apiUrl: string,
   req: UploadRequest & { nudgeM: number; consentVersion: string },
   deviceId: string,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = apiFetch,
 ): Promise<{ reportId: string; upload: PresignedPost }> {
   const { lat, lng, gpsAccuracyM, capturedAt, nudgeM, consentVersion } = req
   return withTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
@@ -259,7 +260,7 @@ export async function requestUpload(
   })
 }
 
-export async function postToS3(upload: PresignedPost, jpeg: Blob, fetchFn: typeof fetch = fetch): Promise<void> {
+export async function postToS3(upload: PresignedPost, jpeg: Blob, fetchFn: typeof fetch = apiFetch): Promise<void> {
   // The policy's fields (Content-Type: image/jpeg among them) go first: S3 ignores fields after the file.
   const form = new FormData()
   for (const [name, value] of Object.entries(upload.fields)) form.append(name, value)
@@ -276,7 +277,7 @@ export async function postToS3(upload: PresignedPost, jpeg: Blob, fetchFn: typeo
 export async function getReport(
   apiUrl: string,
   id: string,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = apiFetch,
   stop?: AbortSignal,
 ): Promise<ReportResult | undefined> {
   return withTimeout(
@@ -295,7 +296,7 @@ export async function getReport(
 // The layers file a level result links to (layersUrl), or undefined on any failure: an expired link, a bucket
 // without GET in its CORS rule (N14), a timeout, or a file that doesn't parse as C524's shape. The overlay
 // JPEG stands in for it.
-export async function getLayers(layersUrl: string, fetchFn: typeof fetch = fetch): Promise<OverlayData | undefined> {
+export async function getLayers(layersUrl: string, fetchFn: typeof fetch = apiFetch): Promise<OverlayData | undefined> {
   try {
     return await withTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
       const res = await fetchFn(layersUrl, { signal })
@@ -311,14 +312,14 @@ export async function getLayers(layersUrl: string, fetchFn: typeof fetch = fetch
 // GET /map/pins (MS4's C519): every visible published pin, live and demo. A pin without an id or a position
 // can't be placed, one outside the 9 levels or 3 classes can't be worded, and a demo pin without its credit is
 // never shown (N2).
-export async function getPins(apiUrl: string, fetchFn: typeof fetch = fetch): Promise<Pin[]> {
+export async function getPins(apiUrl: string, fetchFn: typeof fetch = apiFetch): Promise<Pin[]> {
   const { pins } = await getJson(`${apiUrl}/map/pins`, fetchFn)
   if (!Array.isArray(pins)) throw new MalformedAnswerError('GET /map/pins')
   return pins.filter(isUsablePin).map((pin) => pick(pin, PIN_FIELDS) as unknown as Pin)
 }
 
 // GET /samples (MS4's C512). A sample is kept only with a credit and a licence on the allow-list (C617).
-export async function getSamples(apiUrl: string, fetchFn: typeof fetch = fetch): Promise<Sample[]> {
+export async function getSamples(apiUrl: string, fetchFn: typeof fetch = apiFetch): Promise<Sample[]> {
   const { samples } = await getJson(`${apiUrl}/samples`, fetchFn)
   if (!Array.isArray(samples)) throw new MalformedAnswerError('GET /samples')
   return samples.filter(isUsableSample).map((sample) => pick(sample, SAMPLE_FIELDS) as unknown as Sample)
@@ -331,7 +332,7 @@ export async function runSample(
   apiUrl: string,
   sampleId: string,
   deviceId: string,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = apiFetch,
 ): Promise<{ reportId: string } | SavedSample> {
   return withTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
     const res = await fetchFn(`${apiUrl}/samples/${encodeURIComponent(sampleId)}`, {
@@ -355,7 +356,7 @@ export async function flagPin(
   apiUrl: string,
   id: string,
   deviceId: string,
-  fetchFn: typeof fetch = fetch,
+  fetchFn: typeof fetch = apiFetch,
 ): Promise<{ flags: number }> {
   return withTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
     const res = await fetchFn(`${apiUrl}/reports/${encodeURIComponent(id)}/flag`, {
