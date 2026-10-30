@@ -55,11 +55,13 @@ const LEVEL = {
   basis: { vehicles: 1, people: 1 },
   photoKey: `blurred/${ID}.jpg`,
 };
-// readings as Task 14 stores them (C507): a dropped reference's level and inches are null.
+// readings as Task 14 stores them (C507): a dropped reference's level, levelIsFloor and inches are null.
+// Reading 4 is a floor (C54), "this level or deeper".
 const READINGS = [
-  { id: 1, kind: "body", landmark: "not_visible", level: null, inches: null, used: false, dropped: null },
-  { id: 2, kind: "wheel", landmark: "rim_three_quarters", level: "knee", inches: [17.3, 19.1], used: true, dropped: null },
-  { id: 3, kind: "wheel", landmark: "hub", level: null, inches: null, used: false, dropped: "wheel_methods_disagree" },
+  { id: 1, kind: "body", landmark: "not_visible", level: null, levelIsFloor: null, inches: null, used: false, dropped: null },
+  { id: 2, kind: "wheel", landmark: "rim_three_quarters", level: "knee", levelIsFloor: false, inches: [17.3, 19.1], used: true, dropped: null },
+  { id: 3, kind: "wheel", landmark: "hub", level: null, levelIsFloor: null, inches: null, used: false, dropped: "wheel_methods_disagree" },
+  { id: 4, kind: "body", landmark: "window", level: "tire", levelIsFloor: true, inches: null, used: true, dropped: null },
 ];
 const READINGS_HIDDEN = READINGS.map(({ inches: _inches, ...rest }) => rest);
 // What MS3b and Task 14 add to a level result. Until they merge, only these fixtures hold them.
@@ -266,7 +268,7 @@ describe("GET /reports/{id}", () => {
       "depthInMax",
     ];
     // Every field an item can hold, on a demo pin so that credit, place and event come back too.
-    // basis holds a count beyond its two, and each reading a field beyond its six.
+    // basis holds a count beyond its two, and each reading a field beyond its seven.
     const stored = {
       ...UPLOADED,
       ...CLAIM,
@@ -296,7 +298,9 @@ describe("GET /reports/{id}", () => {
     expect(Object.keys(body).filter((key) => !allowed.includes(key))).toEqual([]);
     expect(body.basis).toEqual({ vehicles: 1, people: 1 });
     expect(body.readings).toHaveLength(READINGS.length);
-    for (const reading of body.readings) expect(Object.keys(reading).sort()).toEqual(["dropped", "id", "kind", "landmark", "level", "used"]);
+    for (const reading of body.readings) {
+      expect(Object.keys(reading).sort()).toEqual(["dropped", "id", "kind", "landmark", "level", "levelIsFloor", "used"]);
+    }
     // Matched as quoted JSON names, so a value that only contains one (as "plate" contains "lat") can't trip it.
     for (const name of [...forbidden, "inches", "deciding", "wheels"]) expect(res.body).not.toContain(`"${name}"`);
   });
@@ -348,6 +352,20 @@ describe("GET /reports/{id}", () => {
     expect(body.readings).toEqual(READINGS_HIDDEN);
     expect(body.gpsAccuracyM).toBe(12);
     for (const [field, key] of LINKS) expectLink(body[field], stored[key]);
+  });
+
+  it("returns each stored reading's levelIsFloor unchanged: true, false or null", async () => {
+    // C54: a floor reading is "this level or deeper"; a dropped or unread reference has no level, so null.
+    ddbMock.on(QueryCommand).resolves({ Items: [{ ...UPLOADED, ...CLAIM, ...LEVEL, ...EVIDENCE }] });
+
+    const body = JSON.parse((await getReport(ID, deps)).body);
+
+    expect(body.readings.map((r: { id: number; levelIsFloor: unknown }) => [r.id, r.levelIsFloor])).toEqual([
+      [1, null],
+      [2, false],
+      [3, null],
+      [4, true],
+    ]);
   });
 
   it("issues a live or demo report's links while visibleUntil > now, and other modes' until expiresAt", async () => {

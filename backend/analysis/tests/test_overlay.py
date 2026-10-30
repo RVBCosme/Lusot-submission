@@ -94,6 +94,16 @@ def people_record(prompt) -> Evidence:
     return record(prompt, (photo, sam, given))
 
 
+@pytest.fixture(scope="module")
+def floor_record(prompt) -> Evidence:
+    """Vehicle 1 read at its window and wheel 2 covered: two tire floors (C54)."""
+    photo, sam, _ = geometry_case()
+    given = answer(
+        vehicles=[vehicle(1, body="window")], wheels=[wheel(2, "wheel_covered")]
+    )
+    return record(prompt, (photo, sam, given))
+
+
 def swapped(evidence: Evidence, id: int, **changes) -> Evidence:
     """`evidence` with entry `id` changed."""
     return dataclasses.replace(
@@ -174,6 +184,7 @@ def test_layers_follow_c524(level_record):
             "landmark",
             "level",
             "level_from",
+            "level_is_floor",
             "used",
             "dropped",
             "rechecked",
@@ -312,6 +323,69 @@ def test_words_follow_the_copy_rules():
             assert not re.search(pattern, word, re.IGNORECASE), (pattern, word)
     # No two levels read alike.
     assert len(set(overlay.LEVEL_WORDS.values())) == len(rules.LEVELS)
+    # A floor's words (C54) follow the same rules, for every level. FLOOR_WORDS is a
+    # placeholder until Rene's M20 review, so this holds whatever he writes.
+    assert overlay.FLOOR_WORDS.count("{level}") == 1
+    for level in overlay.LEVEL_WORDS.values():
+        floor = overlay.FLOOR_WORDS.format(level=level)
+        assert floor.isascii() and not re.search(r"\d", floor), floor
+        for pattern in COPY_PATTERNS:
+            assert not re.search(pattern, floor, re.IGNORECASE), (pattern, floor)
+
+
+def test_a_floor_reading_says_so(
+    floor_record, level_record, geometry_record, people_record
+):
+    # C54, the final review's I1: a floor is "this level or deeper", so its label, its
+    # layer and its reading say so. The flag is the entry's own, never the landmark's.
+    body, covered = floor_record.references
+    assert (body.landmark, body.level, body.level_is_floor) == ("window", "tire", True)
+    assert (covered.landmark, covered.level_is_floor) == ("wheel_covered", True)
+    layers = overlay.layers(floor_record, SIZE)
+    assert [ref["level_is_floor"] for ref in layers["refs"]] == [True, True]
+    assert [r["levelIsFloor"] for r in overlay.readings(floor_record)] == [True, True]
+    tire = overlay.LEVEL_WORDS["tire"]
+    floor = overlay.FLOOR_WORDS.format(level=tire)
+    assert floor != tire
+    assert overlay.label(body) == f"1 window: {floor}"
+    assert overlay.label(covered) == f"2 wheel covered: {floor}"
+    assert json.loads(json.dumps(layers)) == layers
+    # An exact landmark reading and a geometry reading are not floors, and read as before.
+    for evidence, id, text in (
+        (level_record, 2, "2 rim three-quarters: Knee deep"),
+        (geometry_record, 2, "2 Half-knee deep"),
+    ):
+        ref = next(r for r in overlay.layers(evidence, SIZE)["refs"] if r["id"] == id)
+        found = next(r for r in overlay.readings(evidence) if r["id"] == id)
+        assert (ref["level_is_floor"], found["levelIsFloor"]) == (False, False)
+        assert overlay.label(entry_of(evidence, id)) == text
+    # The flag is the entry's, not derived from the landmark: it moves the words alone.
+    exact = entry_of(level_record, 2)
+    assert exact.level_is_floor is False
+    assert overlay.label(dataclasses.replace(exact, level_is_floor=True)) == (
+        f"2 rim three-quarters: {overlay.FLOOR_WORDS.format(level='Knee deep')}"
+    )
+    assert overlay.label(dataclasses.replace(covered, level_is_floor=False)) == (
+        f"2 wheel covered: {tire}"
+    )
+    # No reading: null with the level it goes with, and the label is as before.
+    unread = entry_of(level_record, 1)
+    assert (unread.level, unread.level_is_floor) == (None, False)
+    ref, found = (
+        overlay.layers(level_record, SIZE)["refs"][0],
+        overlay.readings(level_record)[0],
+    )
+    assert (ref["level_is_floor"], found["levelIsFloor"]) == (None, None)
+    assert overlay.label(unread) == "1 not visible"
+    # A dropped entry shows no level, so no flag, even when the record kept one.
+    dry = entry_of(people_record, 3)
+    assert (dry.level, dry.dropped) == ("knee", "no_water_contact")
+    for flag in (dry.level_is_floor, True):
+        evidence = swapped(people_record, 3, level_is_floor=flag)
+        ref = next(r for r in overlay.layers(evidence, SIZE)["refs"] if r["id"] == 3)
+        found = next(r for r in overlay.readings(evidence) if r["id"] == 3)
+        assert (ref["level_is_floor"], found["levelIsFloor"]) == (None, None)
+        assert overlay.label(entry_of(evidence, 3)) == "3 knee"
 
 
 # The readings (C507)
@@ -325,6 +399,7 @@ def test_readings_come_from_the_record_alone(level_record, geometry_record):
             "kind": "body",
             "landmark": "not_visible",
             "level": None,
+            "levelIsFloor": None,
             "inches": None,
             "used": False,
             "dropped": None,
@@ -334,6 +409,7 @@ def test_readings_come_from_the_record_alone(level_record, geometry_record):
             "kind": "wheel",
             "landmark": "rim_three_quarters",
             "level": "knee",
+            "levelIsFloor": False,
             "inches": None,
             "used": True,
             "dropped": None,

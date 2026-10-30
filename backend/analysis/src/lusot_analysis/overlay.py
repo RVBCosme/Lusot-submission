@@ -48,6 +48,11 @@ LEVEL_WORDS: Mapping[str, str] = {
     "above_chest": "Above chest deep",
 }
 
+# A floor reading (C54) is "this level or deeper", so its label says so. PLACEHOLDER for
+# Rene's own wording, which he reviews with the rest of the copy (M20), with its Taglish
+# to come. `{level}` takes the level's words from LEVEL_WORDS.
+FLOOR_WORDS = "{level} or deeper"
+
 # Muse Spark's categories, as they read after a box number: where the water is on the
 # wheel, the person or the vehicle's body. One table, since "not_visible" is in three.
 LANDMARK_WORDS: Mapping[str, str] = {
@@ -141,13 +146,16 @@ def layers(evidence: Evidence, size: tuple[int, int]) -> dict:
 
     The coordinates are the stored photo's pixels, whole ones except the fitted rim's,
     which are rounded to 0.1. Each reference is as the record holds it, in id order. A
-    dropped reference carries no level (§4.2), so its `level` and `level_from` are
-    null, and `dropped` is the dimmed state. No inches and no face or plate are in it.
+    dropped reference carries no level (§4.2), so its `level`, `level_from` and
+    `level_is_floor` are null, and `dropped` is the dimmed state. `level_is_floor` is the
+    record's own flag (C54): "this level or deeper", null with no level. No inches and no
+    face or plate are in it.
     """
     width, height = size
     refs = []
     for entry in _entries(evidence):
         dropped = entry.dropped is not None
+        has_level = not dropped and entry.level is not None
         refs.append(
             {
                 "id": entry.id,
@@ -160,6 +168,7 @@ def layers(evidence: Evidence, size: tuple[int, int]) -> dict:
                 "landmark": entry.landmark,
                 "level": None if dropped else entry.level,
                 "level_from": None if dropped else entry.level_from,
+                "level_is_floor": entry.level_is_floor if has_level else None,
                 "used": entry.used,
                 "dropped": entry.dropped,
                 "rechecked": entry.rechecked,
@@ -189,20 +198,23 @@ def layers(evidence: Evidence, size: tuple[int, int]) -> dict:
 
 
 def readings(evidence: Evidence) -> list[dict]:
-    """One `{id, kind, landmark, level, inches, used, dropped}` per entry (C507).
+    """One reading per entry (C507): `id`, `kind`, `landmark`, `level`, `levelIsFloor`,
+    `inches`, `used` and `dropped`.
 
-    It reads the record alone. `inches` is the rounded pair (rules.round_out) only on
-    a deciding entry whose level came from geometry: the record sets inches on every
-    wheel geometry measured, so any other wheel can hold inches the result doesn't rest
-    on. A dropped entry's level and inches are None, and `dropped` keeps its cause; the
-    record keeps the raw level. An inch value that isn't finite raises ValueError, on
-    whichever entry holds it.
+    It reads the record alone. `levelIsFloor` is the record's flag (C54), None where
+    `level` is None. `inches` is the rounded pair (rules.round_out) only on a deciding
+    entry whose level came from geometry: the record sets inches on every wheel
+    geometry measured, so any other wheel can hold inches the result doesn't rest on.
+    A dropped entry's level, levelIsFloor and inches are None, and `dropped` keeps its
+    cause; the record keeps the raw level. An inch value that isn't finite raises
+    ValueError, on whichever entry holds it.
     """
     found = []
     for entry in _entries(evidence):
         if entry.inches is not None and not all(map(math.isfinite, entry.inches)):
             raise ValueError("the evidence record holds inches that aren't finite")
         dropped = entry.dropped is not None
+        has_level = not dropped and entry.level is not None
         from_geometry = (
             entry.deciding
             and entry.level_from == "geometry"
@@ -215,6 +227,7 @@ def readings(evidence: Evidence) -> list[dict]:
                 "kind": entry.kind,
                 "landmark": entry.landmark,
                 "level": None if dropped else entry.level,
+                "levelIsFloor": entry.level_is_floor if has_level else None,
                 "inches": list(rules.round_out(*entry.inches))
                 if from_geometry
                 else None,
@@ -230,12 +243,16 @@ def label(entry: EvidenceEntry) -> str:
 
     - a landmark reading: `2 rim three-quarters: Knee deep`
     - a geometry reading: `2 Half-knee deep`
+    - a floor reading (the entry's `level_is_floor`, C54): its level's words take
+      FLOOR_WORDS, as `1 window: Tire deep or deeper`
     - dropped or unread: `3 knee`, or just `3` without a landmark. A dropped
       reference carries no level, even one the record kept.
     """
     words = None if entry.landmark is None else LANDMARK_WORDS[entry.landmark]
     if entry.dropped is None and entry.level is not None:
         level = LEVEL_WORDS[entry.level]
+        if entry.level_is_floor:
+            level = FLOOR_WORDS.format(level=level)
         if entry.level_from == "geometry" or words is None:
             return f"{entry.id} {level}"
         return f"{entry.id} {words}: {level}"

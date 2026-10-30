@@ -94,7 +94,8 @@ ITEM = {
 }
 KEY = {"pk": ITEM["pk"], "sk": ITEM["sk"]}
 # The level case's readings as stored (C507): the vehicle's body, read as nothing, and
-# wheel 2, read as knee from its landmark. Neither holds inches.
+# wheel 2, read as knee from its landmark. Neither holds inches. The body reads no level,
+# so its levelIsFloor is null; wheel 2's exact reading is not a floor (C54).
 KNEE_READINGS = {
     "L": [
         {
@@ -103,6 +104,7 @@ KNEE_READINGS = {
                 "kind": {"S": "body"},
                 "landmark": {"S": "not_visible"},
                 "level": {"NULL": True},
+                "levelIsFloor": {"NULL": True},
                 "inches": {"NULL": True},
                 "used": {"BOOL": False},
                 "dropped": {"NULL": True},
@@ -114,6 +116,7 @@ KNEE_READINGS = {
                 "kind": {"S": "wheel"},
                 "landmark": {"S": "rim_three_quarters"},
                 "level": {"S": "knee"},
+                "levelIsFloor": {"BOOL": False},
                 "inches": {"NULL": True},
                 "used": {"BOOL": True},
                 "dropped": {"NULL": True},
@@ -621,6 +624,7 @@ def test_geometry_result_is_stored_with_its_source_and_inches(aws, geometry_fake
                         "kind": {"S": "wheel"},
                         "landmark": {"S": "rim_quarter"},
                         "level": {"S": expected["level"]},
+                        "levelIsFloor": {"BOOL": False},
                         "inches": {
                             "L": [
                                 {"N": str(expected["depthInMin"])},
@@ -2567,12 +2571,13 @@ def test_log_line_holds_no_evidence(aws, geometry_fake, monkeypatch, caplog):
     item = report(aws)
     readings = item.pop("readings")
     assert not EVIDENCE_KEYS & all_keys(item)
-    # A reading holds its seven fields and nothing of the record's drawing.
+    # A reading holds its eight fields and nothing of the record's drawing.
     assert all_keys(readings) - {"L", "M", "S", "N", "NULL", "BOOL"} == {
         "id",
         "kind",
         "landmark",
         "level",
+        "levelIsFloor",
         "inches",
         "used",
         "dropped",

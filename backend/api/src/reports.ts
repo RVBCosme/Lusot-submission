@@ -89,9 +89,10 @@ export async function getReport(id: string | undefined, deps: ReportDeps): Promi
 }
 
 // C507: one reading, field by field, so nothing else stored on it gets out. Its inches only past the gate (C515).
+// levelIsFloor is the reading's own C54 floor: true, false, or null where it has no level.
 function reading(stored: ReportItem, inchesShown: boolean): Record<string, unknown> {
-  const { id, kind, landmark, level, used, dropped } = stored;
-  return { id, kind, landmark, level, used, dropped, ...(inchesShown && { inches: stored.inches }) };
+  const { id, kind, landmark, level, levelIsFloor, used, dropped } = stored;
+  return { id, kind, landmark, level, levelIsFloor, used, dropped, ...(inchesShown && { inches: stored.inches }) };
 }
 
 // C503: a pin's links are issued while it is visible (linksIssued, below), and each lasts 300 s. Each is
