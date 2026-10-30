@@ -1338,8 +1338,11 @@ The steps run in this order: the drawing first, if it is still open, then Set B 
 - [x] **Step 4:** Run `uv run pytest -q`, then `uv run ruff check .` and `uv run ruff format --check .`, then `node scripts/check_account_ids.mjs` from the repo root. Expected: PASS, clean, clean and clean. Evidence: on `e1b1e65`, 1008 passed and 1 skipped; ruff, format and both scans clean.
 - [x] **Step 5:** Commit `feat(analysis): add the sealed-run entry point (MS6 C412)`. Evidence: `ea45ede`.
 - [x] **Step 6:** Run `security-review`, since the entry point reads sealed paths and builds a Meta client from the key, then `superpowers:requesting-code-review`. Fix anything confirmed, and re-run Step 4. Evidence (R162: one review per task, so one Opus 5.5 `xhigh` review covered code and security): `task-19-review.md` found 2 Important and 7 Minor issues, and nothing at confidence 7 or above. All of them were fixed, apart from the `rules_version` half, which landed in `e1b1e65`. The combined review of the fixes and Task 20 marked every finding addressed. Ubuntu CI passed on `871f6d3`.
-- [ ] **Step 7:** Tick D11 in the spec's §6 with its evidence. Then use `superpowers:finishing-a-development-branch` to merge into `main`, and push to the private repo (D16).
-- [ ] **Step 8:** Tell the tracker that the entry point is built and tested on synthetic data only, for Window 4's freeze checklist (MS6's §4.5 step 4). Never run it on the real `sealed` folder.
+- [x] **Step 7:** Tick D11 in the spec's §6 with its evidence. Then use `superpowers:finishing-a-development-branch` to merge into `main`, and push to the private repo (D16). Evidence:
+  - The branch's CI 40989932084 on `a67de3a` passed, and the tracker gave the merge OK at 10:14 AM.
+  - Merged into `main` as `d51676f` (`--no-ff`). `npm run check` exited 0 in 385 s.
+  - Pushed at 10:20 AM, and `main`'s CI 40991092712 passed at 10:24 AM. D11 is ticked.
+- [x] **Step 8:** Tell the tracker that the entry point is built and tested on synthetic data only, for Window 4's freeze checklist (MS6's §4.5 step 4). Never run it on the real `sealed` folder. Evidence: the tracker was told at 10:13 and 10:21 AM, Oct 30: built and tested on synthetic data only, never run on real data. Its freeze notes (rerun the development report under v0.7; escape the `--datasets` JSON in Windows PowerShell 5.1) are on the freeze checklist.
 
 ### Task 20: M5's floors and M11's tire codes (added Oct 30)
 
