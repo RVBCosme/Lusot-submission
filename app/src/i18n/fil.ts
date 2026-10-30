@@ -63,6 +63,46 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'camera.capture': { text: 'Hindi nakuha ng Lusot ang photo. Subukan ulit.', reviewed: false },
   'camera.inApp': { text: 'Buksan ang page na ito sa Chrome o Safari para makakuha ng photo.', reviewed: false },
+  'place.title': { text: 'Tingnan ang pin', reviewed: false },
+  'place.hint': {
+    text: 'Nasa pin kung nasaan ka ayon sa phone mo. I-drag ito, o i-tap ang mapa, para ilagay sa spot sa photo mo. Hanggang 100 m lang ang puwede nitong gumalaw.',
+    reviewed: false,
+  },
+  'place.legend': {
+    text: 'Ipinapakita ng bilog kung gaano katumpak ang pagtukoy ng phone mo sa lugar mo.',
+    reviewed: false,
+  },
+  'place.map': { text: 'Mapa na may pin', reviewed: false },
+  'place.pin': { text: 'Pin. Gamitin ang mga arrow key para igalaw ito nang 10 m bawat pindot.', reviewed: false },
+  'place.moved': { text: 'Inilipat mo ang pin nang {metres} m mula sa kung saan ka inilagay ng phone mo.', reviewed: false },
+  'place.atLimit': {
+    text: 'Hindi puwedeng lumayo ang pin nang higit sa 100 m mula sa kung saan ka inilagay ng phone mo.',
+    reviewed: false,
+  },
+  'place.reset': { text: 'Ibalik ang pin', reviewed: false },
+  'place.send': { text: 'Ipadala', reviewed: false },
+  'location.retry': { text: 'Subukan ulit ang location', reviewed: false },
+  'location.poor': {
+    text: 'Hindi nakakuha ang Lusot ng sapat na tumpak na location mo. Pumunta sa lugar na kita ang langit, saka subukan ulit ang location. Sa Android 12 o mas bago, payagan din ang precise location, hindi lang approximate, sa settings ng page o app na ito.',
+    reviewed: false,
+  },
+  'location.denied': {
+    text: 'Hindi magamit ng Lusot ang location mo. Payagan ang location para sa page o app na ito sa settings ng browser o phone mo, saka subukan ulit.',
+    reviewed: false,
+  },
+  'location.servicesOff': {
+    text: 'Naka-off ang location sa phone na ito. I-on ito sa settings ng phone, saka subukan ulit.',
+    reviewed: false,
+  },
+  'location.enableDenied': {
+    text: 'Kailangan ng Lusot na naka-on ang location para mailagay ang pin. I-on ito kapag nagtanong ang phone mo, saka subukan ulit.',
+    reviewed: false,
+  },
+  'location.allOff': {
+    text: 'Hindi mahanap ng Lusot ang location mo dahil naka-off ang location at ang network. I-on ang location, saka subukan ulit.',
+    reviewed: false,
+  },
+  'location.unavailable': { text: 'Hindi nakuha ng Lusot ang location mo. Subukan ulit.', reviewed: false },
   'about.what': {
     text: 'Tinatantya ng Lusot ang lalim ng baha sa isang spot mula sa photo na kinunan mo. Binabasa nito ang lalim ayon sa flood gauge ng MMDA at ipinapakita ang ebidensya, o sinasabi nitong hindi nito masabi.',
     reviewed: false,

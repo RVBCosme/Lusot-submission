@@ -67,6 +67,47 @@ export const EN = {
   },
   'camera.capture': { text: "Lusot couldn't take the photo. Try again.", reviewed: false },
   'camera.inApp': { text: 'Open this page in Chrome or Safari to take a photo.', reviewed: false },
+  // The place step (C603): the pin on a small map, with the circle of the fix's accuracy. The pin may move up to
+  // 100 m from the fix. A position is never written out as numbers, only the distance moved.
+  'place.title': { text: 'Check the pin', reviewed: false },
+  'place.hint': {
+    text: 'The pin is where your phone says you are. Drag it, or tap the map, to put it on the spot in your photo. It can move up to 100 m.',
+    reviewed: false,
+  },
+  'place.legend': { text: 'The circle shows how closely your phone placed you.', reviewed: false },
+  'place.map': { text: 'Map with the pin', reviewed: false },
+  'place.pin': { text: 'Pin. Use the arrow keys to move it 10 m at a time.', reviewed: false },
+  'place.moved': { text: 'You moved the pin {metres} m from where your phone placed you.', reviewed: false },
+  'place.atLimit': {
+    text: "The pin can't go further than 100 m from where your phone placed you.",
+    reviewed: false,
+  },
+  'place.reset': { text: 'Put the pin back', reviewed: false },
+  'place.send': { text: 'Send', reviewed: false },
+  // The location's own problem lines (locationLine in lib/geo.ts picks one). The flow shows them with
+  // 'location.retry' and keeps the photo for a new try. Not screen-line keys, so their Taglish drafts show.
+  'location.retry': { text: 'Try the location again', reviewed: false },
+  'location.poor': {
+    text: "Lusot couldn't get a good enough fix on your spot. Move to where you have a clear view of the sky, then try the location again. On Android 12 or later, also allow precise location, not only approximate, in the settings for this page or app.",
+    reviewed: false,
+  },
+  'location.denied': {
+    text: "Lusot can't use your location. Allow location for this page or app in your browser or phone settings, then try again.",
+    reviewed: false,
+  },
+  'location.servicesOff': {
+    text: 'Location is turned off on this phone. Turn it on in your phone settings, then try again.',
+    reviewed: false,
+  },
+  'location.enableDenied': {
+    text: 'Lusot needs location turned on to place the pin. Turn it on when your phone asks, then try again.',
+    reviewed: false,
+  },
+  'location.allOff': {
+    text: "Lusot couldn't find your location because location and the network are both turned off. Turn location on, then try again.",
+    reviewed: false,
+  },
+  'location.unavailable': { text: "Lusot couldn't get your location. Try again.", reviewed: false },
   // About (C619, C633, C636). Its links to the policy and the licences use those screens' titles.
   'about.what': {
     text: "Lusot estimates the depth of a flood at one spot from a photo you take. It reads the depth against MMDA's flood gauge and shows the evidence, or it says it can't tell.",

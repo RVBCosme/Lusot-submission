@@ -67,6 +67,81 @@
   padding-left: calc(var(--lusot-gutter) + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
 }
 
+/*
+ * Leaflet's maps (Task 11). Leaflet's own stylesheet brings its greys, its blue links and 12 px type; these rules put a
+ * map in the tokens instead. Each starts with :root so it wins over Leaflet's whatever the load order. Every colour is
+ * a token, so both themes follow. The attribution stays: it is a 48 px target, a plate on the map's corner, on top
+ * of the map's own panes (the map's frame closes their stacking, so the screen-line bar stays above all of it).
+ */
+:root .leaflet-container {
+  background: var(--lusot-surface);
+  font-family: var(--lusot-font);
+  font-size: var(--lusot-type-small);
+  line-height: var(--lusot-leading-small);
+}
+
+:root .leaflet-container .leaflet-control-attribution {
+  padding: 0;
+  border-top: 1px solid var(--lusot-outline);
+  border-left: 1px solid var(--lusot-outline);
+  background: var(--lusot-surface);
+  color: var(--lusot-text);
+}
+
+:root .leaflet-container .leaflet-control-attribution a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--lusot-tap);
+  padding: 0 0.5rem;
+  color: var(--lusot-action);
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+/* OpenStreetMap's tiles are light in both themes. In the dark theme they are inverted, so the map sits in the dark page
+   and the circle and the pin keep their contrast against it. The two selectors are the dark theme's two ways in. */
+:root[data-theme="dark"] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+  }
+}
+
+/* The place step's circle (how closely the phone placed the person) and pin (a 48 px target, drawn as a ring in
+   the page's colour inside one in the ink, so it shows on any tile). */
+:root .place-accuracy {
+  stroke: var(--lusot-action);
+  stroke-width: 2px;
+  fill: var(--lusot-action);
+  fill-opacity: 0.18;
+}
+
+:root .place-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--lusot-tap);
+  height: var(--lusot-tap);
+  margin-top: calc(var(--lusot-tap) / -2);
+  margin-left: calc(var(--lusot-tap) / -2);
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;
+}
+
+:root .place-pin-dot {
+  box-sizing: border-box;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 3px solid var(--lusot-surface);
+  border-radius: 50%;
+  background: var(--lusot-action);
+  box-shadow: 0 0 0 2px var(--lusot-text);
+}
+
 /* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). */
 @media (prefers-reduced-motion: reduce) {
   *,
