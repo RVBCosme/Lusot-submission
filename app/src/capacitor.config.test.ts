@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import buildGradle from '../android/app/build.gradle?raw'
 import manifestXml from '../android/app/src/main/AndroidManifest.xml?raw'
 import config from '../capacitor.config.ts'
 import pkg from '../package.json' with { type: 'json' }
@@ -31,6 +32,14 @@ describe('capacitor.config.ts', () => {
   it('names the app in the WebView user agent, with the version of package.json', () => {
     expect(config.appendUserAgent).toBe(`Lusot/${pkg.version}`)
     expect(config.appendUserAgent?.startsWith('Lusot/0.5')).toBe(true)
+  })
+})
+
+describe('android/app/build.gradle', () => {
+  it('names the app version 0.5.0, the version of package.json, and numbers this first build 1', () => {
+    expect(buildGradle).toMatch(/^\s*versionName\s+"0\.5\.0"\s*$/m)
+    expect(buildGradle).toContain(`versionName "${pkg.version}"`)
+    expect(buildGradle).toMatch(/^\s*versionCode\s+1\s*$/m)
   })
 })
 
