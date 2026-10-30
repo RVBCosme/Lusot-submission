@@ -5,7 +5,8 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "ask:eval": "vitest run test/ask-eval"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1157.0",
