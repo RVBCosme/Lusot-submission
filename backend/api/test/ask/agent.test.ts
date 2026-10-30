@@ -776,6 +776,31 @@ describe("privacy", () => {
   });
 });
 
+describe("who turned the crossing line on, for the log line (spec §4.9)", () => {
+  const CROSSING_QUESTION = "Kaya bang tumawid sa Araneta Avenue cor. E. Rodriguez?";
+
+  it.each([
+    ["the model's call", QUESTION, { kind: "crossing" }, {}, "model"],
+    ["the final answer alone", QUESTION, {}, { kind: "crossing" }, "model"],
+    ["the question's words", CROSSING_QUESTION, {}, {}, "words"],
+    ["both", CROSSING_QUESTION, { kind: "crossing" }, {}, "both"],
+    ["neither", QUESTION, {}, {}, null],
+  ] as const)("%s", async (_name, text, call, verdict, crossingFrom) => {
+    const s = setup([step(callReply(call)), step(verdictReply(verdict))]);
+
+    const outcome = answerOf(await run(s, undefined, { text }));
+
+    expect(outcome.crossingFrom).toBe(crossingFrom);
+    expect(outcome.answer.crossing).toBe(crossingFrom !== null);
+  });
+
+  it("an off_topic answer takes it from the question's words", async () => {
+    const s = setup([step(fixture("ask_offtopic"))]);
+
+    expect(answerOf(await run(s, undefined, { text: "Tumawid ba ang manok?" })).crossingFrom).toBe("words");
+  });
+});
+
 // --- reply shapes ----------------------------------------------------------------------------------------------
 
 // A completed response whose message is a refusal.

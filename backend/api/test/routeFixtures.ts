@@ -1,10 +1,13 @@
-// The handler's eight routes over class mocks, for handler.test.ts and copy.test.ts (Task 10): the
+// The handler's nine routes over class mocks, for handler.test.ts and copy.test.ts (Task 10): the
 // environment it builds from, a new container per call, each route's event, and a success answer for
-// every AWS call the routes make.
+// every AWS call the routes make, Ask Lusot's Muse Spark calls included.
+import { readFileSync } from "node:fs";
 import { CopyObjectCommand, GetObjectCommand, type GetObjectCommandOutput, S3Client } from "@aws-sdk/client-s3";
-import { GetParameterCommand, type GetParameterCommandInput, SSMClient } from "@aws-sdk/client-ssm";
+import { GetParameterCommand, type GetParameterCommandInput, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import {
   DynamoDBDocumentClient,
+  GetCommand,
+  type GetCommandInput,
   PutCommand,
   QueryCommand,
   type QueryCommandInput,
@@ -21,7 +24,7 @@ export const ddbMock = mockClient(DynamoDBDocumentClient);
 export const s3Mock = mockClient(S3Client);
 export const ssmMock = mockClient(SSMClient);
 
-// index.ts's route() and test_template.py's test_routes_match_the_api_router hold these eight.
+// index.ts's route() and test_template.py's test_routes_match_the_api_router hold these nine.
 export const ROUTE_KEYS = [
   "POST /uploads",
   "GET /reports/{id}",
@@ -31,10 +34,12 @@ export const ROUTE_KEYS = [
   "POST /reports/{id}/flag",
   "GET /samples",
   "POST /samples/{sampleId}",
+  "POST /ask",
 ] as const;
 export type RouteKey = (typeof ROUTE_KEYS)[number];
 
-// The seven names env() reads. NODE_OPTIONS is only set by the template.
+// The seven names env() reads for every route. NODE_OPTIONS is only set by the template, and Ask Lusot's two
+// (MODEL_KEY_PARAM, NOMINATIM_USER_AGENT) are read on its own route only.
 export const ENV_NAMES = [
   "TABLE_NAME",
   "INDEX_NAME",
@@ -134,6 +139,10 @@ export const MANIFEST = {
 
 export const UPLOAD = { lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedAt: CAPTURED_AT };
 
+// Ask Lusot's: the model key's parameter, and a location at PIN's spot.
+export const MODEL_KEY_PARAM = "/lusot/meta/model-api-key";
+export const ASK_HERE = { lat: 14.6095, lng: 120.9894, accuracyM: 20 };
+
 // Each route's request, which the success answers below take to a 200 or a 201.
 const ROUTE_EVENTS: Record<RouteKey, Partial<APIGatewayProxyEventV2>> = {
   "POST /uploads": { body: JSON.stringify(UPLOAD) },
@@ -144,6 +153,7 @@ const ROUTE_EVENTS: Record<RouteKey, Partial<APIGatewayProxyEventV2>> = {
   "POST /reports/{id}/flag": { pathParameters: { id: ID } },
   "GET /samples": {},
   "POST /samples/{sampleId}": { pathParameters: { sampleId: SAMPLE_ID } },
+  "POST /ask": { body: JSON.stringify({ question: "May baha ba dito?", here: ASK_HERE }) },
 };
 
 // An HTTP API payload 2.0 event, as API Gateway sends it to the handler.
@@ -176,6 +186,8 @@ export function stubApiEnv(): void {
   vi.stubEnv("LIMITS_TABLE_NAME", "limits");
   vi.stubEnv("FEED_INDEX_NAME", "feed-index");
   vi.stubEnv("INCHES_SHOWN", "false");
+  vi.stubEnv("MODEL_KEY_PARAM", MODEL_KEY_PARAM);
+  vi.stubEnv("NOMINATIM_USER_AGENT", "Lusot/1.0 (test)");
 }
 
 // The handler of a new container, so no switch cache or memo carries over from an earlier call.
@@ -188,6 +200,7 @@ export function resetMocks(): void {
   ddbMock.reset();
   s3Mock.reset();
   ssmMock.reset();
+  vi.unstubAllGlobals();
 }
 
 // GetObject's Body is a stream with the SDK's transformToString, the one method the code reads.
@@ -205,11 +218,20 @@ export interface Serve {
   before?: () => void;
 }
 
-// A success answer for every AWS call the eight routes make.
+// A success answer for every AWS call the nine routes make, and Muse Spark's for Ask.
 export function serve({ stored = [PIN, DEMO_PIN], stopped = [], before = () => {} }: Serve = {}): void {
-  ssmMock.on(GetParameterCommand).callsFake((input: GetParameterCommandInput) => ({
-    Parameter: { Value: stopped.some((name) => input.Name === `/lusot/stop/${name}`) ? "on" : "off" },
-  }));
+  ssmMock.on(GetParameterCommand).callsFake((input: GetParameterCommandInput) => {
+    if (input.Name === MODEL_KEY_PARAM) return { Parameter: { Value: "test-model-key-0000000000000000000000" } };
+    if (input.Name === "/lusot/spend/stop-usd") return { Parameter: { Value: "60" } };
+    return { Parameter: { Value: stopped.some((name) => input.Name === `/lusot/stop/${name}`) ? "on" : "off" } };
+  });
+  ssmMock.on(PutParameterCommand).resolves({});
+  // The spend counter, seeded and under its stop; any other item (a cached place, the Nominatim slot) is absent.
+  ddbMock.on(GetCommand).callsFake((input: GetCommandInput) => {
+    before();
+    return input.Key?.pk === "spend#meta" ? { Item: { pk: "spend#meta", micro_usd: 3_000_000, seeded: true } } : {};
+  });
+  vi.stubGlobal("fetch", museSpark);
   ddbMock.on(QueryCommand).callsFake((input: QueryCommandInput) => {
     before();
     const values = input.ExpressionAttributeValues ?? {};
@@ -229,4 +251,32 @@ export function serve({ stored = [PIN, DEMO_PIN], stopped = [], before = () => {
     return { Body: objectBody(MANIFEST) };
   });
   s3Mock.on(CopyObjectCommand).callsFake(written);
+}
+
+const metaFixture = (name: string): { output: Record<string, unknown>[] } & Record<string, unknown> =>
+  JSON.parse(readFileSync(new URL(`./fixtures/meta/${name}.json`, import.meta.url), "utf8"));
+
+// Muse Spark as the OpenAI SDK reaches it, through fetch. Turn 1 calls get_reports: about "here" for a question
+// with "dito", else about the question itself as the place; a question about "ulam" is off topic. The final turn
+// cites r1 when the tool found live reports. Any other address fails: no test reaches the network.
+async function museSpark(url: string | URL | Request, init?: RequestInit): Promise<Response> {
+  if (!String(url).startsWith("https://api.meta.ai/v1/")) throw new Error(`no network in tests: ${String(url)}`);
+  const body = JSON.parse(String(init?.body)) as { input: { type?: string; content?: { text: string }[]; output?: string }[] };
+  const output = body.input.find((item) => item.type === "function_call_output")?.output;
+  let reply: Record<string, unknown> & { output: Record<string, unknown>[] };
+  if (output !== undefined) {
+    reply = metaFixture("ask_answer");
+    const cited = (JSON.parse(output) as { reports: unknown[] }).reports.length > 0 ? ["r1"] : [];
+    (reply.output[1] as { content: { text: string }[] }).content[0].text = JSON.stringify({ kind: "depth", vehicle: "none", cited });
+  } else {
+    const question = body.input[0].content?.[1].text ?? "";
+    if (question.includes("ulam")) {
+      reply = metaFixture("ask_offtopic");
+    } else {
+      reply = metaFixture("ask_call");
+      const here = /\bdito\b/i.test(question);
+      reply.output[1].arguments = JSON.stringify({ place: here ? "" : question, here, since_minutes: 180, kind: "depth", vehicle: "none" });
+    }
+  }
+  return new Response(JSON.stringify(reply), { status: 200, headers: { "content-type": "application/json" } });
 }

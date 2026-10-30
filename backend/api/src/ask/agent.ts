@@ -7,7 +7,7 @@ import type {
   ResponseReasoningItem,
 } from "openai/resources/responses/responses";
 import { sparkUsage, UNREPORTED_USAGE } from "../spend";
-import { type Answer, checkVerdict, classify, type Fallback, type ModelVerdict, modelAnswer } from "./answer";
+import { type Answer, checkVerdict, classify, type Fallback, type ModelVerdict, modelAnswer, type Reading as CodeReading } from "./answer";
 import { BUDGET, type Deadline } from "./deadline";
 import { type Meta, MetaError } from "./meta";
 import type { AskPrompts } from "./prompts";
@@ -34,7 +34,8 @@ export type AgentUsage = { input: number; output: number; reasoning: number };
 
 export type AgentResult = {
   outcome:
-    | { type: "answer"; answer: Answer; final: "ok" | "skipped" | "failed" | null }
+    // `crossingFrom` is classify's, for the log line's `crossing` (spec §4.9).
+    | { type: "answer"; answer: Answer; final: "ok" | "skipped" | "failed" | null; crossingFrom: CodeReading["crossingFrom"] }
     // A fallback only comes from turn 1, before any tool ran, so it never carries a tool result: once the tool has
     // run, every ending is an answer (spec §4.3). The field is the interface's, for the handler's one `fallback` type.
     | { type: "fallback"; fallback: Fallback; tool?: ToolResult };
@@ -177,7 +178,11 @@ export async function runAgent(
   );
   if (!first.ok) return fallback(first.why);
 
-  const offTopic = () => done({ type: "answer", answer: modelAnswer(undefined, classify({ calls: [], question: q.text }), null, "off_topic"), final: null });
+  const offTopic = () => {
+    const reading = classify({ calls: [], question: q.text });
+    const answer = modelAnswer(undefined, reading, null, "off_topic");
+    return done({ type: "answer", answer, final: null, crossingFrom: reading.crossingFrom });
+  };
   const [firstCall] = first.reading.calls;
   if (first.reading.calls.length > 1) return fallback("invalid_answer"); // parallel_tool_calls is false
   if (firstCall === undefined) {
@@ -192,12 +197,11 @@ export async function runAgent(
 
   // --- The turns after the tool: the final turn, and one more if the model calls the tool a second time ----------
 
-  const answered = (cited: string[] | null, final: "ok" | "skipped" | "failed", verdict?: ModelVerdict): AgentResult =>
-    done({
-      type: "answer",
-      answer: modelAnswer(tool, classify({ calls: asked, verdict, question: q.text }), cited, firstArgs.kind),
-      final,
-    });
+  const answered = (cited: string[] | null, final: "ok" | "skipped" | "failed", verdict?: ModelVerdict): AgentResult => {
+    const reading = classify({ calls: asked, verdict, question: q.text });
+    const answer = modelAnswer(tool, reading, cited, firstArgs.kind);
+    return done({ type: "answer", answer, final, crossingFrom: reading.crossingFrom });
+  };
 
   for (;;) {
     if (deadline.remainingMs(BUDGET.modelBy) < BUDGET.minTurn) return answered(null, "skipped");
