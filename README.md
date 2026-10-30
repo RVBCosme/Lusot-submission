@@ -32,6 +32,8 @@ npm run check                         # tests, linters and secret scans; CI runs
 
 `npm run check` runs three parts in order and stops at the first failure: `check:node`, `check:py` and `check:secrets`. Each also runs on its own. Deploying, the smoke test, the probe and the Android build are in the "Commands" section of [CLAUDE.md](CLAUDE.md).
 
+Building the app (`npm run build -w app`) first runs `prebuild`, which writes `app/public/licences.txt`: the name, version and full licence text of every production package, and of the build-time code that ends up in the page (`app/scripts/shipped-extra.json`). The app's Licences page shows that file. It is generated and git-ignored, and the build stops if a package has no licence file.
+
 ## Credits
 
 Every third-party starter, model and dataset, and every library that Lusot depends on directly, is listed here with its licence. Those libraries' own dependencies aren't listed one by one; the note under the table says where they are pinned. Some carry other licences, such as certifi (MPL-2.0), tqdm (MPL-2.0 and MIT) and typing-extensions (PSF-2.0). Versions are pinned in the lockfiles.

@@ -180,6 +180,19 @@ export const EN = {
     reviewed: true,
   },
   'about.legalTitle': { text: 'Privacy and licences', reviewed: true },
+  // The licences page (C636): the build writes the packages' texts to licences.txt; these lines frame them and name the
+  // sources that aren't packages.
+  'licences.intro': { text: 'The code and fonts Lusot is built from, each with the full text of its licence.', reviewed: false },
+  'licences.loading': { text: 'Loading the licence texts.', reviewed: false },
+  'licences.unavailable': { text: 'The licence texts could not be loaded.', reviewed: false },
+  'licences.textLabel': { text: 'Licence texts', reviewed: false },
+  'licences.otherTitle': { text: 'Other sources', reviewed: false },
+  'licences.osm': {
+    text: 'Map tiles and map data are © OpenStreetMap contributors, under the Open Database Licence (ODbL).',
+    reviewed: false,
+  },
+  'licences.osmLink': { text: 'OpenStreetMap copyright and licence', reviewed: false },
+  'licences.samples': { text: 'Each sample photo carries its own credit, shown with that sample.', reviewed: false },
   // D19's refusal, which Rene confirmed in English.
   'refusal.d19': {
     text: "I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road.",

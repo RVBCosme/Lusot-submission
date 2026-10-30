@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Written by scripts/licences.mjs when the app is built (C636)
+public/licences.txt
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -168,6 +168,20 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: true,
   },
   'about.legalTitle': { text: 'Privacy at mga lisensya', reviewed: true },
+  'licences.intro': {
+    text: 'Ang code at mga font na pinagmulan ng Lusot, kasama ang buong teksto ng lisensya ng bawat isa.',
+    reviewed: false,
+  },
+  'licences.loading': { text: 'Kinukuha ang mga teksto ng lisensya.', reviewed: false },
+  'licences.unavailable': { text: 'Hindi makuha ang mga teksto ng lisensya.', reviewed: false },
+  'licences.textLabel': { text: 'Mga teksto ng lisensya', reviewed: false },
+  'licences.otherTitle': { text: 'Iba pang pinagmulan', reviewed: false },
+  'licences.osm': {
+    text: 'Ang mga map tile at map data ay © OpenStreetMap contributors, sa ilalim ng Open Database Licence (ODbL).',
+    reviewed: false,
+  },
+  'licences.osmLink': { text: 'Copyright at lisensya ng OpenStreetMap', reviewed: false },
+  'licences.samples': { text: 'May sariling credit ang bawat sample na photo, na makikita kasama ng sample.', reviewed: false },
   // The draft of D19's line from the Oct 28 log.
   'refusal.d19': {
     text: 'Hindi ko masabi mula sa photo na ito. Kunan ulit mula sa tuyong lugar, kita ang gulong ng nakaparadang sasakyan o isang taong nakatayo. Huwag lumusong sa baha o pumunta sa kalsada.',

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/licences.mjs",
     "build": "tsc -b && vite build && node scripts/check-bundle.mjs dist",
     "copy:review": "vitest run src/i18n/review.test.ts",
     "copy:table": "vitest run src/copy/table.test.ts",
