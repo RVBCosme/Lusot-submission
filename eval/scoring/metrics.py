@@ -554,9 +554,9 @@ def measured_errors(rows: Sequence[WheelRow], variant: str) -> tuple[Decimal, ..
 
 @dataclass(frozen=True)
 class LatencyScores:
-    """Live tests' seconds from upload to pin (C416): their median, and their 95th
-    percentile by nearest rank, the ceil(0.95 n)-th smallest of the n samples. Both
-    are None without samples."""
+    """Live tests' seconds from upload, or a sample's start, to the final result
+    (C416): their median, and their 95th percentile by nearest rank, the
+    ceil(0.95 n)-th smallest of the n samples. Both are None without samples."""
 
     n: int
     median: Decimal | None

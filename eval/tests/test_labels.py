@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import rules_md
+from scoring import labels as code
 from scoring.labels import (
     LABEL_WORDS,
     OTHER_WORDS,
@@ -16,8 +17,12 @@ from scoring.labels import (
     map_passability,
 )
 
-# The two notes in §2's first column that aren't part of any label.
-ANNOTATIONS = (" (off-scale)", " (over a person's head)")
+# The notes in §2's first column that aren't part of any label.
+ANNOTATIONS = (
+    " (off-scale)",
+    " (over a person's head)",
+    ' (as in Quezon City\'s "Head+")',
+)
 UNIT_WORDS = {
     "in",
     "inch",
@@ -28,9 +33,9 @@ UNIT_WORDS = {
     "centimetre",
     "centimetres",
 }
-# Words real alerts write that v0.6's §2 doesn't list: "ankle" beside inches, and
-# "head" as "lagpas tao" (MS6E-Q1, items 15 and 16).
-ALERT_WORDS = {"ankle", "head"}
+# The one label §2 gives as an example of words that aren't a phrase (item 2.6). "ankle"
+# is in no table, so its words are read from this example in rules.md.
+ALERT_EXAMPLE = '"ANKLE DEEP (9 inches)"'
 UNMAPPED = LevelLabel("unmapped", None)
 
 
@@ -59,11 +64,48 @@ def assert_levels(cases: dict[str, LevelLabel]) -> None:
 
 def test_label_table_matches_rules_md():
     rows = level_rows()
-    assert len(rows) == 11
+    assert len(rows) == 12
     for label, name in rows:
         # Without a trailing note such as "(off-scale)", and without the quotes.
         words = label.split(" (")[0].strip('"')
         assert map_level_label(words) == level(name), label
+    # v0.7's item 2.7: "head" maps as "lagpas tao" does.
+    assert [label.split(" (")[0].strip('"') for label, _ in rows[-2:]] == [
+        "lagpas tao",
+        "head",
+    ]
+    assert [name for _, name in rows[-2:]] == ["above_chest", "above_chest"]
+
+
+def phrase_of(label: str) -> str:
+    """A §2 label as the code's phrase: without its note, the quotes and a closing
+    `deep` or `level`, and with hyphens as spaces (item 2.2)."""
+    words = without_annotations(label).strip('"').lower().replace("-", " ")
+    return re.sub(r" (deep|level)$", "", words)
+
+
+def test_phrases_are_the_same_both_ways():
+    # C408: the table's rows map in the code (test_label_table_matches_rules_md), and
+    # the code's phrases are the table's, so a phrase that §2 doesn't list fails.
+    listed = {phrase_of(label): name for label, name in level_rows()}
+    assert len(listed) == len(level_rows())
+    assert code._PHRASE_LEVELS == listed
+    # Every form the code maps is one of the phrase, "<phrase> deep" and "<phrase> level".
+    assert set(code._WORDS_LEVELS) == {
+        f"{phrase}{suffix}" for phrase in listed for suffix in ("", " deep", " level")
+    }
+    # The passability phrases and codes the same way: each row's variants, with and
+    # without the optional "(types of)" and "(sedan)".
+    codes, phrases = {}, {}
+    for variants, cls in passability_rows():
+        for variant in variants.split(", "):
+            kept = variant.replace("(", "").replace(")", "")
+            dropped = re.sub(r" \([^()]*\)", "", variant)
+            for form in {kept, dropped}:
+                key = " ".join(form.lower().split())
+                (codes if key == cls.lower() else phrases)[key] = cls
+    assert code._CODES == codes
+    assert code._PHRASE_CLASSES == phrases
 
 
 def test_listed_variants():
@@ -267,11 +309,13 @@ def test_label_words():
     ]
     for raw in refused:
         assert not label_words_ok(raw), raw
-    first_column = " ".join([*labels, *passability_cells])
+    # "ankle" is no phrase, so its words come from the example §2 gives (item 2.6).
+    assert ALERT_EXAMPLE in rules_md.section(2)
+    first_column = " ".join([*labels, *passability_cells, ALERT_EXAMPLE])
     rules_words = set(re.findall(r"[a-z]+", first_column.lower()))
-    # Every word of §2's labels, and nothing but those, the units, "to", the statuses
-    # and the alerts' own words.
-    assert LABEL_WORDS == rules_words | UNIT_WORDS | {"to"} | STATUS_WORDS | ALERT_WORDS
+    # Every word of §2's labels and its example, and nothing but those, the units, "to"
+    # and the statuses.
+    assert LABEL_WORDS == rules_words | UNIT_WORDS | {"to"} | STATUS_WORDS
 
 
 def test_label_words_take_ankle_head_and_plus():
