@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROMPT_VERSION, loadPrompts, promptDir } from "../../src/ask/prompts";
@@ -89,6 +89,7 @@ describe("Ask Lusot's prompt files", () => {
     expect(properties.kind.enum).toEqual(["depth", "crossing", "off_topic"]);
     expect(properties.vehicle.enum).toEqual(["light", "heavy", "on_foot", "none"]);
     expect(properties.cited.type).toBe("array");
+    expect((properties.cited as { items?: unknown }).items).toEqual({ type: "string" });
     expect(prompts.answerSchema.required).toEqual(["kind", "vehicle", "cited"]);
   });
 
@@ -118,6 +119,31 @@ describe("Ask Lusot's prompt files", () => {
     expect(matches(prompts.time, "ngayon")).toBe(false);
   });
 
+  it("the crossing list also catches the common Tagalog and English phrasings", () => {
+    for (const sample of [
+      "Pwede bang tumawid sa España?",
+      "Kaya bang dumaan ng sedan?",
+      "Lusot pa ba ang kotse?",
+      "Dadaan ako sa Taft",
+      "Makakadaan ba ang jeep?",
+      "Is it risky to drive there?",
+      "Mapanganib ba sa Maceda?",
+      "Pwede bang lumusong?",
+    ]) {
+      expect(matches(prompts.crossing, sample), sample).toBe(true);
+    }
+    for (const sample of ["Lusot, gaano kalalim sa España?", "gaano kalalim sa España"]) {
+      expect(matches(prompts.crossing, sample), sample).toBe(false);
+    }
+  });
+
+  it("the here list also catches rito, nandito and samin, and not a street that starts with dito", () => {
+    for (const sample of ["May baha ba rito?", "nandito ako sa Cubao", "baha ba samin"]) {
+      expect(matches(prompts.here, sample), sample).toBe(true);
+    }
+    expect(matches(prompts.here, "Ditona St")).toBe(false);
+  });
+
   it("loads once per folder, and finds the folder under LAMBDA_TASK_ROOT in Lambda", () => {
     expect(loadPrompts()).toBe(prompts);
     expect(promptDir()).toBe(join(process.cwd(), "prompts"));
@@ -127,7 +153,13 @@ describe("Ask Lusot's prompt files", () => {
 
   it("the build copies the prompts", () => {
     execFileSync(process.execPath, ["build.mjs"], { cwd: process.cwd(), stdio: "pipe" });
-    const copied = readFileSync(join(process.cwd(), "dist", "prompts", "ask_v1.md"), "utf8");
-    expect(copied).toBe(readFileSync(join(process.cwd(), "prompts", "ask_v1.md"), "utf8"));
+    const source = join(process.cwd(), "prompts");
+    const copy = join(process.cwd(), "dist", "prompts");
+    const names = readdirSync(source).sort();
+    expect(names).toHaveLength(5);
+    expect(readdirSync(copy).sort()).toEqual(names);
+    for (const name of names) {
+      expect(readFileSync(join(copy, name), "utf8"), name).toBe(readFileSync(join(source, name), "utf8"));
+    }
   }, 60_000);
 });
