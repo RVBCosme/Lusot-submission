@@ -215,7 +215,7 @@ function toolCtx(q: Question): ToolCtx {
   const { deps, deadline } = q;
   return {
     here: q.here,
-    geocoder: deps.geocoder,
+    geocoder: byModelMark(deps.geocoder),
     nearbyPins: (lat, lng, radiusM) => byAnswerMark(deps.nearbyPins(lat, lng, radiusM), deadline),
     inMetroManila: deps.inMetroManila,
     spots: deps.spots,
@@ -224,7 +224,8 @@ function toolCtx(q: Question): ToolCtx {
   };
 }
 
-// --- the marks: the pins read by 8.5 s (spec §4.1), the spend write by 12 s and the pause by 14 s (C736) ---------
+// --- the marks: the geocode by 7.5 s and the pins read by 8.5 s (spec §4.1), the spend write by 12 s and the pause
+// by 14 s (C736) ---------------------------------------------------------------------------------------------------
 
 // A call that hadn't returned by its mark. Its name is what the log lines show.
 class MarkPassed extends Error {
@@ -247,6 +248,24 @@ async function byMark<T>(work: Promise<T>, deadline: Deadline, byMs: number): Pr
   } finally {
     clearTimeout(timer);
   }
+}
+
+// The geocoder, bounded by the model mark. It runs after turn 1 is paid, and its cache, slot and switch reads have no
+// request timeout of their own, so a stalled one would hold the question until Lambda's timeout, where the paid turn
+// is never recorded (C736). A geocode still out at the mark is a failed one, so the tool answers lookup_unavailable
+// (spec §4.2). Any other throw is a bug, and goes on to the handler with the usage.
+function byModelMark(geocoder: Geocoder): Geocoder {
+  return {
+    async geocode(place, deadline) {
+      try {
+        return await byMark(geocoder.geocode(place, deadline), deadline, BUDGET.modelBy);
+      } catch (err) {
+        if (!(err instanceof MarkPassed)) throw err;
+        logError("geocode_late", err);
+        return { trace: "failed" };
+      }
+    },
+  };
 }
 
 // The pins read failed, or hadn't returned by the answer mark: a 503 ask_unavailable (spec §5.4).

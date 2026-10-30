@@ -34,6 +34,8 @@ const QUESTION = "Gaano kalalim ang baha sa España cor. Maceda?";
 const ESPANA = SPOTS.find((spot) => spot.id === "espana-maceda");
 if (ESPANA === undefined) throw new Error("the spot list has no España cor. Maceda");
 const HERE = { lat: 14.6095, lng: 120.9894, accuracyM: 20 };
+// Not on the spot list, so a call for it goes to the geocoder.
+const UNLISTED = "Maginhawa Street";
 
 // --- the Meta replies ------------------------------------------------------------------------------------------
 
@@ -597,6 +599,30 @@ describe("the pins read (spec §5.4)", () => {
   });
 });
 
+describe("the place lookup (spec §4.2, C736)", () => {
+  it("a geocode that hasn't returned by the model mark gives lookup_unavailable, and still records the paid turn", async () => {
+    // The geocoder's AWS calls have no request timeout of their own. This geocode never settles; it moves the
+    // manual clock to 10 ms before the model mark, so the mark is a few real milliseconds away.
+    w.geocode.mockImplementation(() => {
+      clock = START + BUDGET.modelBy - 10;
+      return new Promise(() => {});
+    });
+    w.steps.splice(0, w.steps.length, step(callReply({ place: UNLISTED })));
+    const started = performance.now();
+
+    const res = await ask({ question: `Baha ba sa ${UNLISTED}?` });
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(res.statusCode).toBe(200);
+    expect(parsed(res).answer).toMatchObject({ source: "model", kind: "lookup_unavailable" });
+    expect(w.nearbyPins).not.toHaveBeenCalled();
+    expect(lastAskLine()).toMatchObject({ status: 200, nominatim: "failed", final: "skipped", tool_calls: 1, meta_calls: 1 });
+    expect(linesWith("geocode_late")).toEqual([{ msg: "geocode_late", error: "MarkPassed" }]);
+    // Turn 1 only, since the final turn had no time: 1,285 in and 445 out, 3,498 micro-dollars.
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([3498]);
+  });
+});
+
 describe("spend (spec C736)", () => {
   it("pauses at the spend threshold before any Meta call", async () => {
     spendMock.on(GetCommand).resolves({ Item: { pk: "spend#meta", micro_usd: 60_000_000, seeded: true } });
@@ -832,6 +858,34 @@ describe("spend (spec C736)", () => {
     expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([2 * 42000]);
     expect(lastAskLine()).toMatchObject({ status: 500, code: "internal", error: "TypeError", meta_calls: 3 });
     expect(w.lines.join("\n")).not.toContain("unreadable answer");
+  });
+
+  it("a tool that throws anything but the pins read after a paid turn records the turn, then answers 500 internal", async () => {
+    // A bug in the place lookup, after turn 1 was paid.
+    w.geocode.mockRejectedValue(new TypeError("x"));
+    w.steps.splice(0, w.steps.length, step(callReply({ place: UNLISTED })));
+
+    const res = await ask({ question: `Baha ba sa ${UNLISTED}?` });
+
+    expect(res.statusCode).toBe(500);
+    expect(parsed(res)).toEqual({ error: "internal" });
+    // ask_call.json: 1,285 in and 445 out, 3,498 micro-dollars.
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([3498]);
+    expect(lastAskLine()).toMatchObject({ status: 500, code: "internal", error: "TypeError", tool_calls: 1, meta_calls: 1, input_tokens: 1285 });
+  });
+
+  it("a tool that throws on its second call records both paid turns", async () => {
+    // Turn 2 calls get_reports again (Task 10's M5), and that call's pins read fails.
+    w.steps.splice(0, w.steps.length, step(callReply()), step(callReply()));
+    w.nearbyPins.mockResolvedValueOnce(w.pins).mockRejectedValueOnce(awsError("ProvisionedThroughputExceededException", 400));
+
+    const res = await ask({ question: QUESTION });
+
+    expect(res.statusCode).toBe(503);
+    expect(parsed(res)).toEqual({ error: "ask_unavailable" });
+    // Two ask_call.json turns: 2,570 in and 890 out, $0.006995: 6,995 micro-dollars.
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([6995]);
+    expect(lastAskLine()).toMatchObject({ status: 503, tool_calls: 2, meta_calls: 2, input_tokens: 2 * 1285, output_tokens: 2 * 445 });
   });
 
   it("a counter that fails answers 500 internal, logged by the error's name", async () => {
