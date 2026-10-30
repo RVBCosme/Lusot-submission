@@ -46,6 +46,9 @@ OPEN_LICENCES = re.compile(r"(CC0( 1\.0)?|CC BY \d(\.\d)?)")
 FOUR_USE_VERSIONS = frozenset({"M9-v4"})
 # Every credit ends with CC BY's change note (C523). Rene reviews both lines (M20).
 CHANGE_NOTE = "Faces and plates blurred, and outlines drawn, by Lusot."
+# A sample's photo is only the pipeline's blurred stored copy and carries no outlines,
+# so its credit says only what was done to it; CC BY's change note must be accurate.
+SAMPLE_CHANGE_NOTE = "Faces and plates blurred by Lusot."
 CONSENT_CREDIT = "Photo used with its owner's permission."
 CONSENT_LICENSE = "used with permission"  # the exact value MS5's getSamples keeps
 _ACCOUNT_ID = re.compile(r"[0-9]{12}")
@@ -154,8 +157,12 @@ class Source:
     @property
     def credit(self) -> str:
         """The credit line, or the consent line, ending with CHANGE_NOTE."""
+        return self.credited(CHANGE_NOTE)
+
+    def credited(self, note: str) -> str:
+        """The credit line, or the consent line, ending with `note`."""
         line = self._field("credit_line") if self.kind == "open" else CONSENT_CREDIT
-        return f"{line if line.endswith('.') else line + '.'} {CHANGE_NOTE}"
+        return f"{line if line.endswith('.') else line + '.'} {note}"
 
     @property
     def license(self) -> str:
