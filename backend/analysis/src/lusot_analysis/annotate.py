@@ -20,7 +20,7 @@ from typing import Literal
 
 import cv2
 
-from lusot_analysis.face_blur import BlurredImage, FaceBox, detect_faces
+from lusot_analysis.face_blur import BlurredImage, blur_area, detect_faces
 from lusot_analysis.meta_client import SamResult
 
 Kind = Literal["vehicle", "wheel", "person"]
@@ -38,7 +38,6 @@ _LINE_THICKNESS = 2  # OpenCV draws it 3 px wide, centred on the line it is give
 # The drawings of the boxes' outlines (C325, §D6). outline_corners says where each goes.
 DRAWINGS = ("boxes-v1", "boxes-v2")
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
-_FACE_MARGIN = 0.25  # blur_faces' default margin, which derive blurs with
 
 
 @dataclass(frozen=True)
@@ -112,7 +111,7 @@ def draw_numbered_boxes(
     """
     bgr = img.bgr()
     height, width = bgr.shape[:2]
-    faces = [_blur_area(face) for face in detect_faces(bgr)]
+    faces = [blur_area(face) for face in detect_faces(bgr)]  # where derive blurs
     scale = max(0.5, max(width, height) / 1600)  # digits about 11 px tall, or more
     thickness = 1 if scale < 1 else 2
     pad = thickness + 2
@@ -189,12 +188,6 @@ def check_ids_per_item(
                 kept.append(item)
         checked[name] = kept
     return checked, drops
-
-
-def _blur_area(face: FaceBox) -> tuple[int, int, int, int]:
-    """Where derive blurs `face`: its box grown by the margin, half-open like a box."""
-    dx, dy = math.ceil(face.w * _FACE_MARGIN), math.ceil(face.h * _FACE_MARGIN)
-    return face.x - dx, face.y - dy, face.x + face.w + dx, face.y + face.h + dy
 
 
 def _label_area(

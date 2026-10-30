@@ -207,3 +207,25 @@ C309 sets the live default from the final ablation, after Set B's k and the tuni
 - **Carried into Task 13 or 17, whichever runs first (R159):** range checks on `Tuning` (C310's 0.50 and 1.55, k > 0), and a count of replays that end `pipeline_error`, with any such export refused.
 - **Carried into Task 19's brief:** catch `InputError` on sealed crops and print a fixed message or the row number, never a cell. Wherever Task 19 reads a manifest through `parse_manifest`, it gets that function's bare-name check (M6). Any other ids or file names it reads need the same check.
 - **Carried into Task 17:** the other tests in `test_prepare_boxes.py` still read the live 40 px and cap-of-6 constants, and the live-TUNING hubcap test runs at brightness 128 and score 0.9, so it should pass 255.0 and 1.0 before daylight or the rim score is tuned.
+
+## 15. After the merge: Task 19 and Task 20 (Oct 30)
+
+- **Task 19, the sealed-run entry point (D11).** `probes/run_sealed.py` is built and tested on synthetic data only, and it was never run on real sealed data. It:
+  - reads only inside a `sealed` folder (MS2's guard, on the path as written and resolved)
+  - starts only from Rene's console, after his confirmation, at the freeze tag
+  - checks every label, and the harness's rules version against `--baseline`'s, before paying
+  - pays once per photo and resumes as the same run, with a lock against a second window
+  - retries a photo or item once on a Meta service failure (MS6E-Q6 (a)), and writes `service_retries`
+  - exports only MS6's row fields
+- **Its reviews:** one Opus 5.5 `xhigh` review (code and security) found 2 Important and 7 Minor issues, and none at confidence 7 or above. All were fixed. The combined review marked every one addressed. Ubuntu CI passed.
+- **Task 20, M5 and M11** (Rene approved them under his delegation):
+  - Every answered wheel of a van, `unknown` or pickup now holds its sedan row as a floor that never decides.
+  - `tire-codes-v2` adds four Hilux codes and the Tamaraw AT's.
+  - **Effects:**
+    - `unknown`'s largest tire radius grows from 13.93 to 15.28 in, so its readings can land up to about 1.35 in deeper.
+    - Check 9's lower bound for `unknown` loosens from 0.4883 to 0.4728.
+    - Geometry-only wheels answered `rim_top` or `wheel_covered` can now only refuse, so van and `unknown` refusals may rise in development.
+  - **Jeepney stays without codes (R170).** M11's one Fuso code, at 28.11 in, would read traditional, Hino and Isuzu jeepneys (29.6 to 32.2 in) too shallow.
+- **For the freeze:** `tire-codes-v2` is a frozen value. Once v0.7 makes `RULES_VERSION` 0.7, `run_sealed` refuses a `--baseline` from a 0.6 development report, so the development report must be rerun on the freeze first.
+- **Meta spend for these tasks:** $0.
+

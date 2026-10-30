@@ -39,7 +39,9 @@ SUV_CODES = [
     "205/60R17",
     "215/55R17",
 ]
-VAN_CODES = ["215/70R16C"]
+VAN_CODES = ["215/70R16C", "215/65R16"]  # Hiace, then M11's Tamaraw
+# M11 Table 1, rows 1 to 4 and row 6, Rene approved Oct 30.
+PICKUP_CODES = ["205/70R15", "225/70R17", "265/65R17", "265/60R18"]
 
 
 def exact(level: str) -> Reading:
@@ -224,11 +226,15 @@ def test_tire_codes_match_the_spec():
     assert [c.code for c in tire_codes("sedan_hatch")] == SEDAN_CODES
     assert [c.code for c in tire_codes("suv_mpv")] == SUV_CODES
     assert [c.code for c in tire_codes("van")] == VAN_CODES
+    assert [c.code for c in tire_codes("pickup")] == PICKUP_CODES
     every = tire_codes("unknown")
-    assert [c.code for c in every] == SEDAN_CODES + SUV_CODES + VAN_CODES
-    assert len(every) == 12
+    assert [c.code for c in every] == (
+        SEDAN_CODES + SUV_CODES + VAN_CODES + PICKUP_CODES
+    )
+    assert len(every) == 17
     assert every == tuple(TireCode.parse(c.code) for c in every)
-    for vehicle_type in ("pickup", "jeepney", "tricycle", "motorcycle", "bus_truck"):
+    # One code can't stand for every jeepney (R170), so jeepney has none yet.
+    for vehicle_type in ("jeepney", "tricycle", "motorcycle", "bus_truck"):
         assert tire_codes(vehicle_type) == ()
 
 
@@ -239,12 +245,23 @@ def test_tire_sizes_match_table_7():
     diameters = {
         "sedan_hatch": (23.0, 24.4),
         "suv_mpv": (24.5, 26.7),
-        "van": (27.9, 27.9),
-        "unknown": (23.0, 27.9),
+        "van": (27.0, 27.9),
+        "pickup": (26.3, 30.6),
+        "unknown": (23.0, 30.6),
     }
     for vehicle_type, expected in diameters.items():
         sizes = [2 * c.radius_in for c in tire_codes(vehicle_type)]
         assert (round(min(sizes), 1), round(max(sizes), 1)) == expected
+    # M11's diameters, to 0.01 in.
+    m11 = {
+        "205/70R15": 26.30,
+        "225/70R17": 29.40,
+        "265/65R17": 30.56,
+        "265/60R18": 30.52,
+        "215/65R16": 27.00,
+    }
+    for code, diameter in m11.items():
+        assert 2 * TireCode.parse(code).radius_in == pytest.approx(diameter, abs=0.005)
     for code in (
         "265/60R18X",
         "7.50-16",
@@ -260,8 +277,8 @@ def test_every_code_names_its_source():
     # The data file as the package ships it, read the way rules.py reads it.
     text = files("lusot_analysis").joinpath("tire_codes.json").read_text("utf-8")
     data = json.loads(text)
-    assert data["version"] == TIRE_CODES_VERSION == "tire-codes-v1"
-    assert list(data["types"]) == ["sedan_hatch", "suv_mpv", "van"]
+    assert data["version"] == TIRE_CODES_VERSION == "tire-codes-v2"
+    assert list(data["types"]) == ["sedan_hatch", "suv_mpv", "van", "pickup"]
     for entries in data["types"].values():
         for entry in entries:
             assert set(entry) == {"code", "vehicle", "source"}
@@ -270,8 +287,9 @@ def test_every_code_names_its_source():
 
 
 def test_geometry_only_types():
-    # The types with codes, less the ones Table 8's wheel rows read (C318).
-    assert GEOMETRY_ONLY_TYPES == {"van", "unknown"}
+    # The types with codes, less the ones Table 8's wheel rows read (C318). M11's
+    # codes add pickup; jeepney waits for codes that cover its chassis (R170).
+    assert GEOMETRY_ONLY_TYPES == {"van", "unknown", "pickup"}
     assert isinstance(GEOMETRY_ONLY_TYPES, frozenset)
 
 

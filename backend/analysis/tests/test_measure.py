@@ -1,8 +1,8 @@
 """Tests for step 5: each kept vehicle and adult gives at most one deciding reading.
 
 Spec §3.3, and MS3b's C317 and G4. measure takes Kept after the drops, so every
-vehicle stands still and is a sedan_hatch or suv_mpv, or with geometry on a van or
-unknown (C318), and every person is an adult. Box ids follow number_boxes: vehicles
+vehicle stands still and is a sedan_hatch or suv_mpv, or with geometry on a type kept
+for geometry (C318), and every person is an adult. Box ids follow number_boxes: vehicles
 first, then wheels, then people.
 """
 
@@ -28,11 +28,17 @@ from lusot_analysis.rules import (
     GEOMETRY_ONLY_TYPES,
     HIDDEN_WHEEL,
     PEOPLE_ROWS,
+    READING_TYPES,
     WHEEL_ROWS,
     Reading,
 )
 
 TIRE_FLOOR = Reading("tire", floor=True)  # tire or deeper (C54)
+HUB_FLOOR = Reading("half_tire", floor=True)  # a hub's sedan row, as a floor (M5)
+
+# The types kept for geometry: van and unknown, and pickup since M11's tire codes
+# (C318). Jeepney has none yet (R170).
+GEOMETRY_TYPES = sorted(GEOMETRY_ONLY_TYPES)
 
 # The marks that give a reading, shallowest first. not_visible gives none.
 WHEEL_MARKS = (
@@ -336,25 +342,28 @@ KNEE = Reading("knee", floor=False)
 KNEE_GEOMETRY = GeometryReading(13.47, 13.47, "knee")  # 13.47 in is knee (§1)
 
 
-@pytest.mark.parametrize("type_", ["van", "unknown"])
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
 def test_geometry_only_types_read_from_geometry(type_):
     # C318: Table 8's wheel rows don't cover these types, so their wheels read from
-    # geometry alone. The landmark is still Muse Spark's category (C320).
+    # geometry alone. The landmark is still Muse Spark's category (C320). The hub's
+    # sedan row is held as a floor that can't decide (M5).
     van = KeptVehicle(
         1, "not_visible", ((5, "hub"),), wheels_hidden=False, vehicle_type=type_
     )
+    hub_floor = Reference("wheel", 5, "hub", HUB_FLOOR, decides=False)
     assert measured(van, geometry={5: KNEE_GEOMETRY}) == (
         [
             Reference(
                 "wheel", 5, "hub", KNEE, level_from="geometry", depth_in=(13.47, 13.47)
-            )
+            ),
+            hub_floor,
         ],
         {},
     )
-    assert measured(van) == ([], {"vehicle_no_reading": 1})
-    # With no landmark reading, a wheel step 3 dropped leaves nothing to keep (C317).
+    assert measured(van) == ([hub_floor], {"vehicle_no_reading": 1})
+    # A wheel step 3 dropped still holds its floor (M5, C317).
     assert measured(van, step3_drops={5: "no_water_contact"}) == (
-        [],
+        [hub_floor],
         {"no_water_contact": 1, "vehicle_no_reading": 1},
     )
     # C53's body rule is for sedans and SUVs only.
@@ -470,12 +479,14 @@ def test_a_c43_dropped_vehicle_gives_nothing():
     )
 
 
-# Wheel 3 at hub, read by geometry at knee, and covered wheel 2's tire floor, which a
-# geometry-only type holds without letting it decide (R143).
+# Wheel 3 at hub, read by geometry at knee, and the floors that a geometry-only type
+# holds without letting them decide: covered wheel 2's tire (R143) and wheel 3's hub
+# row (M5).
 KNEE_AT_3 = Reference(
     "wheel", 3, "hub", KNEE, level_from="geometry", depth_in=(13.47, 13.47)
 )
 COVERED_FLOOR_AT_2 = Reference("wheel", 2, "wheel_covered", TIRE_FLOOR, decides=False)
+HUB_FLOOR_AT_3 = Reference("wheel", 3, "hub", HUB_FLOOR, decides=False)
 
 
 @pytest.mark.parametrize(
@@ -484,11 +495,11 @@ COVERED_FLOOR_AT_2 = Reference("wheel", 2, "wheel_covered", TIRE_FLOOR, decides=
         *(
             pytest.param(
                 type_,
-                ([KNEE_AT_3, COVERED_FLOOR_AT_2], {}),
+                ([KNEE_AT_3, COVERED_FLOOR_AT_2, HUB_FLOOR_AT_3], {}),
                 Outcome.refused("references_disagree"),
                 id=type_,
             )
-            for type_ in ("van", "unknown")
+            for type_ in GEOMETRY_TYPES
         ),
         *(
             pytest.param(
@@ -533,7 +544,7 @@ HALF_TIRE_GEOMETRY = GeometryReading(11.2, 12.6, "half_tire")  # 12.6 in is half
 WAIST_GEOMETRY = GeometryReading(30.2, 31.6, "waist")  # 31.6 in is waist
 
 
-@pytest.mark.parametrize("type_", ["van", "unknown"])
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
 def test_a_covered_geometry_only_wheel_gives_a_floor_that_cannot_decide(type_):
     # R143: Table 8's covered row is a sedan's, and a larger wheel that is covered is
     # at least as deep, so a geometry-only type's covered wheel holds tire as a
@@ -545,7 +556,7 @@ def test_a_covered_geometry_only_wheel_gives_a_floor_that_cannot_decide(type_):
 
     covered = (2, "wheel_covered")
     assert measured(van(covered, (3, "hub")), geometry={3: KNEE_GEOMETRY}) == (
-        [KNEE_AT_3, COVERED_FLOOR_AT_2],
+        [KNEE_AT_3, COVERED_FLOOR_AT_2, HUB_FLOOR_AT_3],
         {},
     )
     assert measured(van(covered)) == ([COVERED_FLOOR_AT_2], {"vehicle_no_reading": 1})
@@ -560,7 +571,7 @@ def test_a_covered_geometry_only_wheel_gives_a_floor_that_cannot_decide(type_):
         depth_in=(11.2, 12.6),
     )
     assert measured(van(covered, (3, "hub")), geometry={3: HALF_TIRE_GEOMETRY}) == (
-        [half_tire, COVERED_FLOOR_AT_2],
+        [half_tire, COVERED_FLOOR_AT_2, HUB_FLOOR_AT_3],
         {},
     )
     # A C43 drop of its vehicle takes the floor with it.
@@ -577,7 +588,7 @@ def test_a_covered_geometry_only_wheel_gives_a_floor_that_cannot_decide(type_):
     )
 
 
-@pytest.mark.parametrize("type_", ["van", "unknown"])
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
 def test_a_covered_geometry_only_wheel_refuses_a_shallower_reading(type_):
     # R143 through combine: the same answers on a sedan give tire or deeper, so the
     # van can't publish an exact shallower level beside its covered wheel.
@@ -628,6 +639,161 @@ def test_a_covered_geometry_only_wheel_refuses_a_shallower_reading(type_):
         depth_in=(30.2, 31.6),
     )
     assert combined(WAIST_GEOMETRY) == (result, waist)
+
+
+REFUSED = (Outcome.refused("references_disagree"), None)
+BELOW_GUTTER_GEOMETRY = GeometryReading(3.2, 4.1, "below_gutter")  # 4.1 in
+TIRE_GEOMETRY = GeometryReading(20.4, 21.3, "tire")  # 21.3 in is tire
+
+
+def geometry_result(level: str, landmark: str, depth: GeometryReading) -> Outcome:
+    """combine's result when one geometry reading on a vehicle decides (C307)."""
+    return Outcome.level_result(
+        level,
+        landmark,
+        False,
+        {"vehicles": 1, "people": 0},
+        level_from="geometry",
+        depth_in=(depth.depth_in_min, depth.depth_in_max),
+    )
+
+
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
+def test_m5_another_wheels_floor_refuses_a_shallower_reading(type_):
+    # M5 (Rene, Oct 30): a sedan's Table 8 row bounds any larger wheel from below, so
+    # each answered wheel of a geometry-only type holds its row as a floor that never
+    # decides. Wheel 2's hub has no geometry, yet its half_tire floor refuses wheel
+    # 3's exact below_gutter through combine (C317). tire_only's own floor is
+    # below_gutter, so the refusal is wheel 2's.
+    van = KeptVehicle(
+        1,
+        "not_visible",
+        ((2, "hub"), (3, "tire_only")),
+        wheels_hidden=False,
+        vehicle_type=type_,
+    )
+    hub_floor = Reference("wheel", 2, "hub", HUB_FLOOR, decides=False)
+    tire_only_floor = Reference(
+        "wheel", 3, "tire_only", Reading("below_gutter", floor=True), decides=False
+    )
+
+    def at_3(depth: GeometryReading) -> Reference:
+        return Reference(
+            "wheel",
+            3,
+            "tire_only",
+            Reading(depth.level, floor=False),
+            level_from="geometry",
+            depth_in=(depth.depth_in_min, depth.depth_in_max),
+        )
+
+    references, drops = measured(van, geometry={3: BELOW_GUTTER_GEOMETRY})
+    assert (references, drops) == (
+        [at_3(BELOW_GUTTER_GEOMETRY), hub_floor, tire_only_floor],
+        {},
+    )
+    assert combine(references) == REFUSED
+    # Knee is at or above every held floor, so geometry's result stands, with its
+    # inches.
+    references, drops = measured(van, geometry={3: KNEE_GEOMETRY})
+    assert (references, drops) == (
+        [at_3(KNEE_GEOMETRY), hub_floor, tire_only_floor],
+        {},
+    )
+    assert combine(references) == (
+        geometry_result("knee", "tire_only", KNEE_GEOMETRY),
+        at_3(KNEE_GEOMETRY),
+    )
+    # The evidence record gives the floor, or the geometry reading over it (R147).
+    m = measure_boxes(Kept(vehicles=(van,), people=()), geometry={3: KNEE_GEOMETRY})
+    assert m.readings == {
+        2: KeptReading(HUB_FLOOR, "landmark", None),
+        3: KeptReading(KNEE, "geometry", (13.47, 13.47)),
+    }
+
+
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
+def test_m5_a_wheels_floor_refuses_its_own_shallower_reading(type_):
+    # M5: rim_top's sedan row is tire, so the van wheel holds tire as a floor, and its
+    # own geometry must read tire or deeper to stand. combine refuses any exact level
+    # below a held floor, knee too, as R143's covered wheel does (C317).
+    van = KeptVehicle(
+        1, "not_visible", ((2, "rim_top"),), wheels_hidden=False, vehicle_type=type_
+    )
+    floor = Reference("wheel", 2, "rim_top", TIRE_FLOOR, decides=False)
+
+    def combined(depth: GeometryReading) -> tuple[Outcome, Reference | None]:
+        references, drops = measured(van, geometry={2: depth})
+        assert drops == {}
+        assert references[1:] == [floor]
+        return combine(references)
+
+    assert combined(HALF_TIRE_GEOMETRY) == REFUSED
+    assert combined(KNEE_GEOMETRY) == REFUSED
+    # Check 8 keeps a real wheel's depth within its tire's radius, so a tire-deep
+    # reading is synthetic.
+    deciding = Reference(
+        "wheel",
+        2,
+        "rim_top",
+        Reading("tire", floor=False),
+        level_from="geometry",
+        depth_in=(20.4, 21.3),
+    )
+    assert combined(TIRE_GEOMETRY) == (
+        geometry_result("tire", "rim_top", TIRE_GEOMETRY),
+        deciding,
+    )
+
+
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
+def test_m5_a_step3_dropped_wheel_still_holds_its_floor(type_):
+    # M5, C317: step 3's drop takes away the wheel's geometry, not its floor, and its
+    # cause still counts.
+    van = KeptVehicle(
+        1, "not_visible", ((2, "rim_quarter"),), wheels_hidden=False, vehicle_type=type_
+    )
+    half_knee_floor = Reading("half_knee", floor=True)
+    kept = Kept(vehicles=(van,), people=())
+    m = measure_boxes(
+        kept, step3_drops={2: "no_water_contact"}, geometry={2: KNEE_GEOMETRY}
+    )
+    assert m.references == [
+        Reference("wheel", 2, "rim_quarter", half_knee_floor, decides=False)
+    ]
+    assert dict(m.drops) == {"no_water_contact": 1, "vehicle_no_reading": 1}
+    assert m.causes == {2: "no_water_contact", 1: "vehicle_no_reading"}
+    assert m.readings == {2: KeptReading(half_knee_floor, "landmark", None)}
+
+
+@pytest.mark.parametrize("type_", GEOMETRY_TYPES)
+def test_m5_an_unseen_wheel_holds_nothing(type_):
+    # not_visible has no Table 8 row, so it gives no floor (M5).
+    van = KeptVehicle(
+        1, "not_visible", ((2, "not_visible"),), wheels_hidden=True, vehicle_type=type_
+    )
+    assert measured(van) == ([], {"vehicle_no_reading": 1})
+    assert measure_boxes(Kept(vehicles=(van,), people=())).readings == {}
+
+
+@pytest.mark.parametrize("type_", sorted(READING_TYPES))
+@pytest.mark.parametrize("mark", WHEEL_MARKS)
+def test_m5_leaves_sedans_and_suvs_as_they_were(type_, mark):
+    # M5 is for types kept for geometry. A sedan's or SUV's landmark row still decides
+    # (C45), and step 3's drop leaves it as it was, not as a floor (C317).
+    car = KeptVehicle(
+        1,
+        "not_visible",
+        ((2, mark),),
+        wheels_hidden=mark in HIDDEN_WHEEL,
+        vehicle_type=type_,
+    )
+    row = WHEEL_ROWS[mark]
+    assert measured(car) == ([Reference("wheel", 2, mark, row)], {})
+    assert measured(car, step3_drops={2: "no_water_contact"}) == (
+        [Reference("wheel", 2, mark, row, decides=False)],
+        {"no_water_contact": 1, "vehicle_no_reading": 1},
+    )
 
 
 def test_a_dropped_vehicle_counts_a_g4_drop_once():

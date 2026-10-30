@@ -25,7 +25,6 @@ import argparse
 import io
 import json
 import logging
-import math
 import os
 import random
 import statistics
@@ -48,6 +47,7 @@ from lusot_analysis.face_blur import (
     FACE_BLUR_VERSION,
     BlurredImage,
     FaceBox,
+    blur_area,
     blur_for_meta,
     decode_image,
     detect_faces,
@@ -69,7 +69,6 @@ DATA = Path(os.environ.get("LUSOT_DATA_DIR") or r"C:\Systems\Lusot\lusot-data")
 STURM = DATA / "set_c" / "sturm_flooddepth" / "extracted" / "upscaled_images"
 TEST_CLIP = "test_question.wav"  # written by probes/make_test_wav.ps1
 MAX_SIDE = 1600  # blur_for_meta's default
-FACE_MARGIN = 0.25  # blur_faces' default
 BLUE, YELLOW = (255, 0, 0), (0, 255, 255)  # BGR
 # Prices from docs/research/2026-10-26-verification-notes.md (dev.meta.ai, Oct 26).
 # Token counting isn't priced there; it is counted as free, and the note bounds it.
@@ -133,9 +132,7 @@ def faces_over_wheels(faces: list[FaceBox], wheels: SamResult) -> list[list[int]
     """Each face box whose blur area, the box grown by the margin, meets a wheel box."""
     hits = []
     for face in faces:
-        dx, dy = math.ceil(face.w * FACE_MARGIN), math.ceil(face.h * FACE_MARGIN)
-        x0, y0 = face.x - dx, face.y - dy
-        x1, y1 = face.x + face.w + dx, face.y + face.h + dy
+        x0, y0, x1, y1 = blur_area(face)
         for wheel in wheels.instances:
             wx0, wy0, wx1, wy1 = wheel.box  # half-open, like the blur area
             if x0 < wx1 and wx0 < x1 and y0 < wy1 and wy0 < y1:
