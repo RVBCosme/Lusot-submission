@@ -1,5 +1,7 @@
 import { expect, it } from 'vitest'
 import rulesPy from '../../../backend/analysis/src/lusot_analysis/rules.py?raw'
+import { EN } from '../i18n/en'
+import geometryPy from '../../../backend/analysis/src/lusot_analysis/pipeline/geometry.py?raw'
 import measurePy from '../../../backend/analysis/src/lusot_analysis/pipeline/measure.py?raw'
 import referencesPy from '../../../backend/analysis/src/lusot_analysis/pipeline/references.py?raw'
 import typesPy from '../../../backend/analysis/src/lusot_analysis/pipeline/types.py?raw'
@@ -89,11 +91,61 @@ it("the reasons are MS3a's refused and failed lists, with MS1's pipeline_not_bui
   expect(FAILED_REASONS).toHaveLength(6)
 })
 
-it("the drop causes are the ones the pipeline writes into a dropped reference's `dropped` (references.py, measure.py, waterline.py)", () => {
-  expect(DROP_CAUSES).toHaveLength(12)
+// The causes the pipeline writes into a reference's `dropped`: evidence.py's `causes`, which pipeline/__init__.py builds
+// from `apply_drops` (references.py), `measure_boxes` (measure.py, with `keep_reading`'s `wheel_methods_disagree` from
+// geometry.py) and step 3's waterlines (waterline.py). Each is read as the literal one of those functions assigns, so a
+// cause added to the Python without a line in the app, or a line for a cause that isn't written, fails the test below.
+// Step 2's caps (`causes.append("vehicle_cap")`) drop boxes before they are numbered, so they never reach `dropped`
+// and the patterns don't match them.
+const CAUSE_ASSIGNMENTS = [
+  /\bcause = "(\w+)"/g, // cause = "vehicle_moving"
+  /\bcauses\[\w+\] = "(\w+)"/g, // causes[person_id] = "person_wading"
+  /\.fromkeys\(\w+, "(\w+)"\)/g, // causes |= dict.fromkeys(own, "wheel_vehicle_dropped")
+  /\bcounted(?:\.append\(| \+= \[)\([\w.]+, "(\w+)"\)/g, // counted.append((person.id, "person_no_reading"))
+  /\bLiteral\["(\w+)"\]/g, // keep_reading's -> ... | Literal["wheel_methods_disagree"]
+]
+
+function pipelineCauses(sources: string[]): string[] {
+  const found = sources.flatMap((source) =>
+    CAUSE_ASSIGNMENTS.flatMap((pattern) => [...source.matchAll(pattern)].map((match) => match[1])),
+  )
+  return [...new Set(found)].sort()
+}
+
+it('the cause reader finds each way the pipeline assigns a cause, and leaves out what never reaches `dropped`', () => {
+  const python = [
+    'cause = "vehicle_moving"',
+    'causes[person_id] = "person_wading"',
+    'causes |= dict.fromkeys(own, "wheel_vehicle_dropped")',
+    'counted.append((person.id, "person_no_reading"))',
+    'counted += [(w, "wheel_x") for w, _ in vehicle.wheels]',
+    '-> KeptReading | Literal["wheel_methods_disagree"] | None:',
+    'level_from: Literal["landmark", "geometry"]',
+    'causes.append("vehicle_cap")',
+    'causes += ["person_cap"] * 2',
+    'counted.append((vehicle.id, cause))',
+    'cause = None',
+  ].join('\n')
+  expect(pipelineCauses([python])).toEqual([
+    'person_no_reading',
+    'person_wading',
+    'vehicle_moving',
+    'wheel_methods_disagree',
+    'wheel_vehicle_dropped',
+    'wheel_x',
+  ])
+})
+
+it("the drop causes are the ones the pipeline writes into a dropped reference's `dropped`, and each has a line", () => {
+  const written = pipelineCauses([referencesPy, measurePy, waterlinePy, geometryPy])
+  expect(written).toHaveLength(15)
   expect(new Set(DROP_CAUSES).size).toBe(DROP_CAUSES.length)
-  const sources = [referencesPy, measurePy, waterlinePy].join('\n')
-  for (const cause of DROP_CAUSES) {
-    expect(sources, cause).toContain(`"${cause}"`)
-  }
+  // Every cause the pipeline writes is in the app's list, and every cause in the list is written.
+  expect([...DROP_CAUSES].sort()).toEqual(written)
+  // Every line is one of those causes, or the general line for a cause the app doesn't know.
+  const lines = Object.keys(EN)
+    .filter((key) => key.startsWith('dropped.'))
+    .map((key) => key.slice('dropped.'.length))
+    .sort()
+  expect(lines).toEqual([...written, 'other'].sort())
 })

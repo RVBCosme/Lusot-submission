@@ -219,12 +219,20 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Hindi ginamit, dahil magkaiba ang reading ng mga gulong ng sasakyang ito.',
     reviewed: false,
   },
+  'dropped.vehicle_no_reading': {
+    text: 'Hindi ginamit, dahil walang reading ng lalim mula sa sasakyang ito.',
+    reviewed: false,
+  },
   'dropped.wheel_vehicle_dropped': {
     text: 'Hindi ginamit, dahil hindi ginamit ang sasakyan ng gulong na ito.',
     reviewed: false,
   },
   'dropped.wheel_unanswered': {
     text: 'Hindi ginamit, dahil walang sagot ang reading model para sa gulong na ito.',
+    reviewed: false,
+  },
+  'dropped.wheel_methods_disagree': {
+    text: 'Hindi ginamit, dahil magkaiba ang lalim na nabasa sa dalawang paraan para sa gulong na ito.',
     reviewed: false,
   },
   'dropped.person_unanswered': {
@@ -234,6 +242,10 @@ export const FIL: Record<StringKey, Entry> = {
   'dropped.person_not_adult': { text: 'Hindi ginamit, dahil maaaring hindi adult ang taong ito.', reviewed: false },
   'dropped.person_wading': {
     text: 'Hindi ginamit, dahil maaaring hindi nakatigil ang taong ito.',
+    reviewed: false,
+  },
+  'dropped.person_no_reading': {
+    text: 'Hindi ginamit, dahil walang reading ng lalim mula sa taong ito.',
     reviewed: false,
   },
   'dropped.no_water_contact': {

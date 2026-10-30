@@ -12,6 +12,7 @@ import { Line, T, useLanguage, useT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import type { Pin, ReportResult, Sample } from '../lib/api'
 import { OFFICIAL_SITES } from '../lib/officialSites'
+import { routeHash } from '../router'
 import { ageText, formatDate, photoDateLine } from '../lib/time'
 import { Badge } from './Badge'
 import { Details } from './Details'
@@ -119,8 +120,8 @@ function Note({ value, className = '' }: { value: Text | undefined; className?: 
 
 type PausedLink = 'map' | 'tested'
 const PAUSED_LINKS: Record<PausedLink, { href: string; label: StringKey }> = {
-  map: { href: '#/map', label: 'nav.map' },
-  tested: { href: '#/tested', label: 'nav.tested' },
+  map: { href: routeHash({ name: 'map' }), label: 'nav.map' },
+  tested: { href: routeHash({ name: 'tested' }), label: 'nav.tested' },
 }
 
 // The paused line, with links to the map and the Tested page, leaving out the one it is on (C638). A paused screen has
@@ -179,10 +180,13 @@ export function ResultCard({
   // The level and what goes with it.
   const level = result.level
   const landmark = result.landmark === undefined ? undefined : landmarkLine(t, result.landmark)
-  const hasInches = Number.isFinite(result.depthInMin) && Number.isFinite(result.depthInMax)
+  // A saved sample answer carries no basis, inches or readings (amendment 10), and the card doesn't rely on the API
+  // client having dropped them: it leaves them out whatever it is handed.
+  const live = savedAt === undefined
+  const hasInches = live && Number.isFinite(result.depthInMin) && Number.isFinite(result.depthInMax)
   const inches = hasInches ? inchesLine(t, result.depthInMin as number, result.depthInMax as number) : undefined
-  const counted = result.basis
-  const basis = counted !== undefined && counted.vehicles + counted.people > 0 ? basisLine(t, counted) : undefined
+  const count = result.basis
+  const basis = live && count !== undefined && count.vehicles + count.people > 0 ? basisLine(t, count) : undefined
 
   // Your own report and a live pin: how long ago, and how near. The API's accuracy wins over the phone's own fix.
   const capturedAt = result.capturedAt
@@ -265,7 +269,7 @@ export function ResultCard({
             <Gauge level={level} isFloor={result.levelIsFloor === true} />
             <div className="min-w-0 flex-1 basis-48 space-y-2">
               <Note value={landmark} />
-              <Note value={levelFromLine(t, report?.levelFrom)} />
+              <Note value={live ? levelFromLine(t, report?.levelFrom) : undefined} />
               <Note value={inches} />
               <Note value={classLine(t, level)} />
               <Note value={isExample ? undefined : whenAndWhere} className="text-ink-2" />
@@ -387,7 +391,7 @@ export function ResultCard({
       <Details
         reasonCode={report?.refusalReason}
         photoTime={isExample ? undefined : capturedAt}
-        references={outcome === 'level' ? report?.readings : undefined}
+        references={outcome === 'level' && live ? report?.readings : undefined}
       />
 
       {/* New tab, so a result that is only in memory isn't lost when someone follows a link. */}

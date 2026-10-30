@@ -220,9 +220,14 @@ export const EN = {
     text: "Not used, since this vehicle's wheels gave different readings.",
     reviewed: false,
   },
+  'dropped.vehicle_no_reading': { text: 'Not used, since this vehicle gave no depth reading.', reviewed: false },
   'dropped.wheel_vehicle_dropped': { text: "Not used, since this wheel's vehicle wasn't used.", reviewed: false },
   'dropped.wheel_unanswered': {
     text: 'Not used, since the reading model gave no answer for this wheel.',
+    reviewed: false,
+  },
+  'dropped.wheel_methods_disagree': {
+    text: 'Not used, since the two ways of reading this wheel gave different depths.',
     reviewed: false,
   },
   'dropped.person_unanswered': {
@@ -231,6 +236,7 @@ export const EN = {
   },
   'dropped.person_not_adult': { text: 'Not used, since this person may not be an adult.', reviewed: false },
   'dropped.person_wading': { text: 'Not used, since this person may not be standing still.', reviewed: false },
+  'dropped.person_no_reading': { text: 'Not used, since this person gave no depth reading.', reviewed: false },
   'dropped.no_water_contact': {
     text: "Not used, since the water doesn't clearly touch this reference.",
     reviewed: false,

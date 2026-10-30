@@ -437,6 +437,31 @@ describe('a pause', () => {
     expect(screen.queryByRole('link', { name: 'Tested' })).toBeNull()
   })
 
+  it('keeps a saved card bare itself: no inches, geometry line, basis or references, even from a full live result', async () => {
+    // The API client drops these fields from a saved answer, but the card doesn't rely on that (amendment 10).
+    const live = await takePhoto()
+    expect(live).toMatchObject({ levelFrom: 'geometry', depthInMin: 15, basis: { vehicles: 1, people: 1 } })
+    expect(live.readings).toHaveLength(3)
+    const { container } = renderCard({
+      result: { ...live, mode: 'sample' },
+      source: 'sample',
+      savedAt: '2026-10-29T14:20:00Z',
+    })
+
+    expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
+    expect(screen.getByText('MMDA lists this level as not passable to light vehicles (NPLV).')).toBeTruthy()
+    expect(screen.getByText('This is a saved reading of a credited photo, not a test result.')).toBeTruthy()
+    expect(text()).not.toMatch(/Estimated|Measured from|reference object|Reference \d|Reference objects|Not used/)
+    expect(container.querySelector('details')).toBeNull()
+    cleanup()
+
+    // A live card with the same result keeps all of them.
+    renderCard({ result: live, source: 'own' })
+    expect(text()).toMatch(/Estimated 15 to 18 in\./)
+    expect(text()).toContain('Measured from the size of the wheel rim.')
+    expect(text()).toContain('From 2 reference objects.')
+  })
+
   it('a saved sample that was refused gets the sample frame, and one with no flood says so', async () => {
     const refused: ReportResult = {
       reportId: '',
@@ -713,10 +738,22 @@ describe('the words on the card', () => {
     const started = (await runSample(API, samples[0].sampleId, DEVICE, fetchFn)) as { reportId: string }
     const result = await pollReport(API, started.reportId, { fetchFn, sleep: c.sleep, now: c.now })
     const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    // What a sample run answers while analysis is paused (amendment 10): a level, no basis, inches or readings.
+    const saved: ReportResult = {
+      reportId: '',
+      status: 'done',
+      mode: 'sample',
+      published: false,
+      noFloodSeen: false,
+      level: 'knee',
+      landmark: 'rim_three_quarters',
+      passability: 'NPLV',
+      levelIsFloor: false,
+    }
     const cards: Props[] = [
       { result, source: 'sample', sample: samples[0] },
       { result: demo, source: 'pin' },
-      { result: { ...result, basis: undefined }, source: 'sample', sample: samples[0], savedAt: '2026-10-29T14:20:00Z' },
+      { result: saved, source: 'sample', sample: samples[0], savedAt: '2026-10-29T14:20:00Z' },
       { result: await takePhoto('failed_model_calls_paused') },
     ]
     for (const props of cards) {

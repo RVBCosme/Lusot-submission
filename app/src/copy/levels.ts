@@ -42,20 +42,24 @@ export const BODY_FLOORS = ['mid_door', 'window'] as const
 
 export type Landmark = (typeof WHEEL_LANDMARKS)[number] | (typeof PEOPLE_LANDMARKS)[number] | (typeof BODY_FLOORS)[number]
 
-// The causes a numbered reference can carry in `dropped` (MS3b's evidence record: references.py, measure.py and
-// waterline.py), which MS4 passes on in a reading and in the layers file (amendment 2). A reference with a cause has no
-// level. levels.test.ts checks each one against those files. A cause the app doesn't know reads as a general line.
+// The causes a numbered reference can carry in `dropped` (MS3b's evidence record: references.py, measure.py,
+// waterline.py and geometry.py), which MS4 passes on in a reading and in the layers file (amendment 2). A reference with
+// a cause has no level. levels.test.ts reads the causes those files write and checks this list against them both ways.
+// A cause the app doesn't know reads as a general line.
 export const DROP_CAUSES = [
   'vehicle_unanswered',
   'vehicle_moving',
   'vehicle_type',
   'vehicle_body_below_covered_wheel',
   'vehicle_wheels_disagree',
+  'vehicle_no_reading',
   'wheel_vehicle_dropped',
   'wheel_unanswered',
+  'wheel_methods_disagree',
   'person_unanswered',
   'person_not_adult',
   'person_wading',
+  'person_no_reading',
   'no_water_contact',
   'ragged_waterline',
 ] as const
