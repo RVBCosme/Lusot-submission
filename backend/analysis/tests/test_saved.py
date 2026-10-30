@@ -8,6 +8,7 @@ FakeClient, so no Meta call is made.
 import dataclasses
 import hashlib
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -318,6 +319,25 @@ def test_a_run_folder_is_written_once(tmp_path, prompt):
     with pytest.raises(FileExistsError):
         recorder.save(run_dir, photo=tmp_path / "street.jpg", prompt=prompt, run=run)
     assert read_json(run_dir / "run.json")["outcome"] == dataclasses.asdict(KNEE)
+
+
+def test_a_record_cut_short_is_never_left_as_run_json(tmp_path, prompt, monkeypatch):
+    # A stop mid-write (Ctrl+C, a kill, a closed window) must not leave a cut-short
+    # run.json, which a resume would read as a saved run: it is written beside, then
+    # renamed, so it is whole or absent.
+    _, sam, given = level_case()
+    write_text = Path.write_text
+
+    def cut_short(path, data, *args, **kwargs):
+        if path.name.startswith("run.json"):
+            write_text(path, data[: len(data) // 2], *args, **kwargs)
+            raise KeyboardInterrupt
+        return write_text(path, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", cut_short)
+    with pytest.raises(KeyboardInterrupt):
+        record(tmp_path, FakeClient(sam, given), prompt)
+    assert not (tmp_path / "run" / "run.json").exists()
 
 
 def test_replay_refuses_another_photo(tmp_path, prompt):

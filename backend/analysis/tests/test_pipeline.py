@@ -587,7 +587,8 @@ def test_geometry_off_is_ms3a_plus_step3(prompt):
         photo, FakeClient(sam, given), prompt, geometry_in_level=True, tuning=START
     )
     assert (on.outcome.level, on.outcome.level_from) == ("half_knee", "geometry")
-    assert on.outcome.depth_in_min == pytest.approx(9.887, abs=0.02)
+    # The Tamaraw's depth, then the Hiace's (M11).
+    assert on.outcome.depth_in_min == pytest.approx(9.464, abs=0.02)
     assert on.outcome.depth_in_max == pytest.approx(9.887, abs=0.02)
     assert on.log["wheels_measured"] == 1
 

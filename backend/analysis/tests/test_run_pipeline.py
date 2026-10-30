@@ -473,7 +473,7 @@ def test_live_records_the_geometry_config(tmp_path, monkeypatch):
     assert {key: saved[key] for key in CONFIG_KEYS} == {
         "geometry_in_level": True,
         "tuning": {**dataclasses.asdict(START), "untuned": sorted(START.untuned)},
-        "tire_codes_version": "tire-codes-v1",
+        "tire_codes_version": "tire-codes-v2",
         "reasoning_effort": None,
         "drawing_version": "boxes-v1",
         "sam_from": False,
