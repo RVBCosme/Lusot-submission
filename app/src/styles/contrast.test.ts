@@ -59,3 +59,47 @@ describe('the token pairs', () => {
     }
   })
 })
+
+// The depth fills (C624; Task 3's review, S5-R6). The gauge is the one place that uses them, and it can't lean on a
+// fill alone, so these pairs record what the ramp can and can't hold. If a token moves, the lists below fail, and the
+// gauge's design is looked at again before they are changed.
+describe('the depth fills', () => {
+  const STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  const fill = (tokens: Record<string, string>, step: number) => tokens[`--lusot-depth-${step}`]
+  const stepsBelow = (tokens: Record<string, string>, against: string, min: number) =>
+    STEPS.filter((step) => contrastRatio(fill(tokens, step), tokens[against]) < min)
+  // The best a level name can do on a fill: ink or the page's own colour, whichever is stronger.
+  const bestText = (tokens: Record<string, string>, step: number) =>
+    Math.max(
+      contrastRatio(tokens['--lusot-text'], fill(tokens, step)),
+      contrastRatio(tokens['--lusot-surface'], fill(tokens, step)),
+    )
+
+  it('in light, steps 1 to 4 fall below 3:1 against the surface and 7 to 9 against the outline', () => {
+    expect(stepsBelow(themes.light, '--lusot-surface', 3)).toEqual([1, 2, 3, 4])
+    expect(stepsBelow(themes.light, '--lusot-outline', 3)).toEqual([7, 8, 9])
+  })
+
+  it('in dark, steps 1 to 3 fall below 3:1 against the surface and 6 to 9 against the outline', () => {
+    expect(stepsBelow(themes.dark, '--lusot-surface', 3)).toEqual([1, 2, 3])
+    expect(stepsBelow(themes.dark, '--lusot-outline', 3)).toEqual([6, 7, 8, 9])
+  })
+
+  it('so a cell is told from the page by its edge, which holds 3:1 against the surface, and never by its fill alone', () => {
+    for (const [theme, tokens] of Object.entries(themes)) {
+      expect(contrastRatio(tokens['--lusot-outline'], tokens['--lusot-surface']), theme).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('and the mark on the reading sits on the surface, in the text colour, which holds 4.5:1 there', () => {
+    for (const [theme, tokens] of Object.entries(themes)) {
+      expect(contrastRatio(tokens['--lusot-text'], tokens['--lusot-surface']), theme).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('only the dark theme\'s step 4 can\'t hold 4.5:1 text, in ink or in the surface colour', () => {
+    const failing = (tokens: Record<string, string>) => STEPS.filter((step) => bestText(tokens, step) < 4.5)
+    expect(failing(themes.light)).toEqual([])
+    expect(failing(themes.dark)).toEqual([4])
+  })
+})

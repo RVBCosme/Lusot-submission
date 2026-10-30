@@ -64,6 +64,12 @@ export const FIL: Record<StringKey, Entry> = {
   },
   // The wording of results (MS5 Task 4). Claude's drafts, all waiting for Rene's review (M20). MMDA's own level
   // names stay in English, as people say them. The reason lines show their English text until reviewed (C619).
+  // C637's two lines, drafted for Rene. Refusal keys show English on a Taglish screen until reviewed (C619).
+  'refusal.sample.cantTell': { text: 'Hindi masabi ng Lusot mula sa photo na ito.', reviewed: false },
+  'refusal.sample.someoneWouldSee': {
+    text: 'Ito ang makikita ng sinumang magre-report sa spot na ito:',
+    reviewed: false,
+  },
   'result.levelName.below_gutter': { text: 'mas mababa sa gutter', reviewed: false },
   'result.levelName.gutter': { text: 'gutter', reviewed: false },
   'result.levelName.half_knee': { text: 'half-knee', reviewed: false },
@@ -156,6 +162,22 @@ export const FIL: Record<StringKey, Entry> = {
   'result.noResult': { text: 'Wala pang result. Mas matagal kaysa dati ang analysis.', reviewed: false },
   'result.checkAgain': { text: 'Tingnan ulit', reviewed: false },
   'result.tryAgain': { text: 'Subukan ulit', reviewed: false },
+  // Spec C638's own draft.
+  'result.paused': {
+    text: 'Naka-pause ngayon ang mga bagong analysis. Gumagana pa rin ang mapa at ang Tested page.',
+    reviewed: false,
+  },
+  'result.photoTaken': { text: 'Kinunan ang photo {age}.', reviewed: false },
+  'result.accuracy': { text: 'Nasa loob ng {m} m ang lokasyon.', reviewed: false },
+  'result.age.justNow': { text: 'ngayon lang', reviewed: false },
+  'result.age.minutes': { text: '{min} min na ang nakalipas', reviewed: false },
+  'result.age.hours': { text: '{h} h na ang nakalipas', reviewed: false },
+  'result.age.hoursMinutes': { text: '{h} h {min} min na ang nakalipas', reviewed: false },
+  'result.details': { text: 'Mga detalye', reviewed: false },
+  'result.details.reason': { text: 'Reason code: {code}', reviewed: false },
+  'result.details.photoTime': { text: 'Oras ng photo: {time}', reviewed: false },
+  'result.details.references': { text: 'Mga reference object', reviewed: false },
+  'result.reference': { text: 'Reference {id}:', reviewed: false },
   'reason.too_dark': { text: 'Masyadong madilim ang photo para mabasa.', reviewed: false },
   'reason.too_blurry': { text: 'Masyadong malabo ang photo para mabasa.', reviewed: false },
   'reason.photo_unusable': { text: 'Hindi mababasa ng Lusot ang spot sa photo na ito.', reviewed: false },
@@ -180,4 +202,66 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: false,
   },
   'reason.other': { text: 'Wala nang ibang dahilan na maibibigay.', reviewed: false },
+  'dropped.vehicle_unanswered': {
+    text: 'Hindi ginamit, dahil walang sagot ang reading model para sa sasakyang ito.',
+    reviewed: false,
+  },
+  'dropped.vehicle_moving': { text: 'Hindi ginamit, dahil maaaring gumagalaw ang sasakyan.', reviewed: false },
+  'dropped.vehicle_type': {
+    text: 'Hindi ginamit, dahil hindi makapagbibigay ng reading ang ganitong uri ng sasakyan.',
+    reviewed: false,
+  },
+  'dropped.vehicle_body_below_covered_wheel': {
+    text: 'Hindi ginamit, dahil hindi magkatugma ang reading sa katawan at sa mga gulong ng sasakyang ito.',
+    reviewed: false,
+  },
+  'dropped.vehicle_wheels_disagree': {
+    text: 'Hindi ginamit, dahil magkaiba ang reading ng mga gulong ng sasakyang ito.',
+    reviewed: false,
+  },
+  'dropped.wheel_vehicle_dropped': {
+    text: 'Hindi ginamit, dahil hindi ginamit ang sasakyan ng gulong na ito.',
+    reviewed: false,
+  },
+  'dropped.wheel_unanswered': {
+    text: 'Hindi ginamit, dahil walang sagot ang reading model para sa gulong na ito.',
+    reviewed: false,
+  },
+  'dropped.person_unanswered': {
+    text: 'Hindi ginamit, dahil walang sagot ang reading model para sa taong ito.',
+    reviewed: false,
+  },
+  'dropped.person_not_adult': { text: 'Hindi ginamit, dahil maaaring hindi adult ang taong ito.', reviewed: false },
+  'dropped.person_wading': {
+    text: 'Hindi ginamit, dahil maaaring hindi nakatigil ang taong ito.',
+    reviewed: false,
+  },
+  'dropped.no_water_contact': {
+    text: 'Hindi ginamit, dahil hindi malinaw na dumadampi ang tubig sa reference na ito.',
+    reviewed: false,
+  },
+  'dropped.ragged_waterline': {
+    text: 'Hindi ginamit, dahil hindi malinaw ang waterline sa reference na ito.',
+    reviewed: false,
+  },
+  'dropped.other': { text: 'Hindi ginamit sa reading na ito.', reviewed: false },
+  'badge.sample': { text: 'Sample', reviewed: false },
+  'badge.demo': { text: 'Demo', reviewed: false },
+  'sample.photoAlt': { text: 'Ang photo, na may blur ang mga mukha at plaka.', reviewed: false },
+  'sample.photoFrom': { text: 'Photo mula sa {parts}', reviewed: false },
+  'sample.edited': {
+    text: 'Binlur ng Lusot ang mga mukha at plaka sa photo na ito at iginuhit ang mga outline nito.',
+    reviewed: false,
+  },
+  'sample.liveReading': {
+    text: 'Ito ay live na reading ng photo na may credit, hindi test result.',
+    reviewed: false,
+  },
+  'sample.savedReading': {
+    text: 'Ito ay naka-save na reading ng photo na may credit, hindi test result.',
+    reviewed: false,
+  },
+  'sample.savedFrom': { text: 'Naka-save na result noong {date}', reviewed: false },
+  'gauge.outside': { text: 'Labas sa gauge ng MMDA', reviewed: false },
+  'gauge.orDeeper': { text: 'o mas malalim', reviewed: false },
 }

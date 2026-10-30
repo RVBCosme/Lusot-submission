@@ -1,8 +1,12 @@
 import { expect, it } from 'vitest'
 import rulesPy from '../../../backend/analysis/src/lusot_analysis/rules.py?raw'
+import measurePy from '../../../backend/analysis/src/lusot_analysis/pipeline/measure.py?raw'
+import referencesPy from '../../../backend/analysis/src/lusot_analysis/pipeline/references.py?raw'
 import typesPy from '../../../backend/analysis/src/lusot_analysis/pipeline/types.py?raw'
+import waterlinePy from '../../../backend/analysis/src/lusot_analysis/pipeline/waterline.py?raw'
 import {
   BODY_FLOORS,
+  DROP_CAUSES,
   FAILED_REASONS,
   LEVELS,
   OFF_GAUGE,
@@ -83,4 +87,13 @@ it("the reasons are MS3a's refused and failed lists, with MS1's pipeline_not_bui
   expect(FAILED_REASONS).toEqual([...tupleOf(typesPy, 'FAILED_REASONS'), 'pipeline_not_built'])
   expect(REFUSED_REASONS).toHaveLength(8)
   expect(FAILED_REASONS).toHaveLength(6)
+})
+
+it("the drop causes are the ones the pipeline writes into a dropped reference's `dropped` (references.py, measure.py, waterline.py)", () => {
+  expect(DROP_CAUSES).toHaveLength(12)
+  expect(new Set(DROP_CAUSES).size).toBe(DROP_CAUSES.length)
+  const sources = [referencesPy, measurePy, waterlinePy].join('\n')
+  for (const cause of DROP_CAUSES) {
+    expect(sources, cause).toContain(`"${cause}"`)
+  }
 })

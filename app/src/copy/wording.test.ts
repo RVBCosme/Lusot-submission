@@ -4,6 +4,7 @@ import { FIL } from '../i18n/fil'
 import { makeT, type Lang } from '../i18n'
 import {
   BODY_FLOORS,
+  DROP_CAUSES,
   FAILED_REASONS,
   LEVELS,
   OFF_GAUGE,
@@ -12,7 +13,17 @@ import {
   REFUSED_REASONS,
   WHEEL_LANDMARKS,
 } from './levels'
-import { basisLine, classLine, inchesLine, landmarkLine, levelFromLine, levelLine, reasonLine } from './wording'
+import {
+  basisLine,
+  classLine,
+  dropLine,
+  inchesLine,
+  landmarkLine,
+  levelFromLine,
+  levelLine,
+  reasonLine,
+  referenceLine,
+} from './wording'
 
 const en = makeT('en')
 const fil = makeT('fil')
@@ -306,4 +317,57 @@ it("C81's English lines and D19's start reviewed; every other new line and every
 
 it('the two tables hold the same keys', () => {
   expect(Object.keys(FIL).sort()).toEqual(Object.keys(EN).sort())
+})
+
+// The line for a reference the reading left out (amendment 2). It names the cause in plain words, and a cause the
+// app doesn't know gets a general line, never the code.
+it('every drop cause has a line in both tables, starting "Not used", and none shows its code', () => {
+  for (const cause of DROP_CAUSES) {
+    const key = `dropped.${cause}`
+    expect(Object.hasOwn(EN, key), `en ${key}`).toBe(true)
+    expect(Object.hasOwn(FIL, key), `fil ${key}`).toBe(true)
+    const line = dropLine(en, cause)
+    expect(line.lang).toBe('en')
+    expect(line.text, cause).toMatch(/^Not used\b.*\.$/)
+    expect(line.text, cause).not.toMatch(/_/)
+    expect(dropLine(fil, cause).lang).toBe('fil')
+    expect(dropLine(fil, cause).text, cause).toMatch(/^Hindi ginamit\b.*\.$/)
+  }
+  expect(dropLine(en, 'person_not_adult').text).toBe('Not used, since this person may not be an adult.')
+  expect(dropLine(en, 'vehicle_moving').text).toBe('Not used, since the vehicle may be moving.')
+})
+
+it('a drop cause the app does not know gets "Not used for this reading.", never the raw code', () => {
+  for (const word of ['a_new_cause', '', 'constructor', '__proto__', 'toString']) {
+    expect(dropLine(en, word), word).toEqual(en('dropped.other'))
+  }
+  expect(en('dropped.other').text).toBe('Not used for this reading.')
+  expect(dropLine(en, 'a_new_cause').text).not.toContain('a_new_cause')
+})
+
+it('a drop line speaks of no road, route or approach, and no level or class', () => {
+  for (const table of [EN, FIL]) {
+    for (const key of Object.keys(table).filter((name) => name.startsWith('dropped.'))) {
+      const { text } = (table as Record<string, { text: string }>)[key]
+      expect(text, key).not.toMatch(WHOLE_ROAD)
+      expect(text, key).not.toMatch(APPROACH)
+      expect(text, key).not.toMatch(/\b(PATV|NPLV|NPATV|MMDA)\b/)
+    }
+  }
+})
+
+it('the drop lines are new lines, so they wait for review in both tables', () => {
+  for (const key of [...DROP_CAUSES.map((cause) => `dropped.${cause}`), 'dropped.other'] as const) {
+    expect(EN[key as keyof typeof EN].reviewed, `en ${key}`).toBe(false)
+    expect(FIL[key as keyof typeof FIL].reviewed, `fil ${key}`).toBe(false)
+  }
+})
+
+it('a reference line is its drop cause when it was dropped, else where the water meets it, else nothing', () => {
+  expect(referenceLine(en, { dropped: 'person_not_adult', landmark: null })).toEqual(dropLine(en, 'person_not_adult'))
+  // A dropped reference has no level, and whatever landmark it holds is not shown: the cause is.
+  expect(referenceLine(en, { dropped: 'vehicle_moving', landmark: 'hub' })).toEqual(dropLine(en, 'vehicle_moving'))
+  expect(referenceLine(en, { dropped: null, landmark: 'hub' })).toEqual(landmarkLine(en, 'hub'))
+  expect(referenceLine(en, { dropped: null, landmark: null })).toBeUndefined()
+  expect(referenceLine(en, { dropped: null, landmark: 'not_a_landmark' })).toBeUndefined()
 })

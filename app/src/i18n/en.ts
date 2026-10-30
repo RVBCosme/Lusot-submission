@@ -71,6 +71,9 @@ export const EN = {
   // The wording of results (MS5 Task 4; copy/wording.ts builds each line). A level's line is its name in one of
   // four templates. MS3a's C81 fixed the pattern and these four names (knee, tire, below gutter, above chest);
   // the other names, the lines for a floor on an added level and every other line below wait for Rene's review.
+  // C637: a sample's refusal doesn't ask a judge to retake a photo they didn't take, so D19's line sits inside a frame.
+  'refusal.sample.cantTell': { text: "Lusot can't tell from this photo.", reviewed: false },
+  'refusal.sample.someoneWouldSee': { text: 'Someone reporting this spot would see:', reviewed: false },
   'result.levelName.below_gutter': { text: 'below gutter', reviewed: true },
   'result.levelName.gutter': { text: 'gutter', reviewed: false },
   'result.levelName.half_knee': { text: 'half-knee', reviewed: false },
@@ -152,6 +155,25 @@ export const EN = {
   'result.noResult': { text: 'No result yet. The analysis is taking longer than usual.', reviewed: false },
   'result.checkAgain': { text: 'Check again', reviewed: false },
   'result.tryAgain': { text: 'Try again', reviewed: false },
+  // A pause reads as a pause, never as "Processing failed" (C638, amendment 7). It is shown whatever set the switch,
+  // so it names no cause. Its Taglish is spec C638's draft, and it isn't a screen-line key, so it shows in Taglish.
+  'result.paused': {
+    text: 'New analyses are paused right now. The map and the Tested page still work.',
+    reviewed: false,
+  },
+  // "Photo taken 25 min ago. Location within 12 m." (plan Table 6): the age is one of the four lines below.
+  'result.photoTaken': { text: 'Photo taken {age}.', reviewed: false },
+  'result.accuracy': { text: 'Location within {m} m.', reviewed: false },
+  'result.age.justNow': { text: 'just now', reviewed: false },
+  'result.age.minutes': { text: '{min} min ago', reviewed: false },
+  'result.age.hours': { text: '{h} h ago', reviewed: false },
+  'result.age.hoursMinutes': { text: '{h} h {min} min ago', reviewed: false },
+  // The "Details" disclosure: the reason code and the photo's time, never a report id or an error message (C610).
+  'result.details': { text: 'Details', reviewed: false },
+  'result.details.reason': { text: 'Reason code: {code}', reviewed: false },
+  'result.details.photoTime': { text: 'Photo time: {time}', reviewed: false },
+  'result.details.references': { text: 'Reference objects', reviewed: false },
+  'result.reference': { text: 'Reference {id}:', reviewed: false },
   // One plain line for each refusalReason of MS3a's §3.4, and MS1's pipeline_not_built. None tells anyone to go
   // near water or traffic (plan §13). 'reason.other' stands in for any code the app doesn't know, so no raw code
   // is ever shown.
@@ -182,6 +204,63 @@ export const EN = {
     reviewed: false,
   },
   'reason.other': { text: 'No further reason is available.', reviewed: false },
+  // Why a numbered reference wasn't used (amendment 2): one line per cause the pipeline writes (copy/levels.ts), each
+  // starting "Not used". 'dropped.other' stands in for any cause the app doesn't know, so no code is ever shown.
+  'dropped.vehicle_unanswered': {
+    text: 'Not used, since the reading model gave no answer for this vehicle.',
+    reviewed: false,
+  },
+  'dropped.vehicle_moving': { text: 'Not used, since the vehicle may be moving.', reviewed: false },
+  'dropped.vehicle_type': { text: "Not used, since this type of vehicle can't give a reading.", reviewed: false },
+  'dropped.vehicle_body_below_covered_wheel': {
+    text: "Not used, since the readings from this vehicle's body and wheels don't match.",
+    reviewed: false,
+  },
+  'dropped.vehicle_wheels_disagree': {
+    text: "Not used, since this vehicle's wheels gave different readings.",
+    reviewed: false,
+  },
+  'dropped.wheel_vehicle_dropped': { text: "Not used, since this wheel's vehicle wasn't used.", reviewed: false },
+  'dropped.wheel_unanswered': {
+    text: 'Not used, since the reading model gave no answer for this wheel.',
+    reviewed: false,
+  },
+  'dropped.person_unanswered': {
+    text: 'Not used, since the reading model gave no answer for this person.',
+    reviewed: false,
+  },
+  'dropped.person_not_adult': { text: 'Not used, since this person may not be an adult.', reviewed: false },
+  'dropped.person_wading': { text: 'Not used, since this person may not be standing still.', reviewed: false },
+  'dropped.no_water_contact': {
+    text: "Not used, since the water doesn't clearly touch this reference.",
+    reviewed: false,
+  },
+  'dropped.ragged_waterline': {
+    text: "Not used, since the waterline against this reference isn't clear.",
+    reviewed: false,
+  },
+  'dropped.other': { text: 'Not used for this reading.', reviewed: false },
+  // A sample or a demo pin (C617, C618, C637): a credited photo that Lusot blurred and drew on, read live or saved.
+  'badge.sample': { text: 'Sample', reviewed: false },
+  'badge.demo': { text: 'Demo', reviewed: false },
+  'sample.photoAlt': { text: 'The photo, with faces and plates blurred.', reviewed: false },
+  'sample.photoFrom': { text: 'Photo from {parts}', reviewed: false },
+  'sample.edited': {
+    text: 'Lusot blurred the faces and plates in this photo and drew its outlines.',
+    reviewed: false,
+  },
+  'sample.liveReading': {
+    text: 'This is a live reading of a credited photo, not a test result.',
+    reviewed: false,
+  },
+  'sample.savedReading': {
+    text: 'This is a saved reading of a credited photo, not a test result.',
+    reviewed: false,
+  },
+  'sample.savedFrom': { text: 'Saved result from {date}', reviewed: false },
+  // The gauge's captions, beside its cells (the gauge is hidden from screen readers; the level line says it all).
+  'gauge.outside': { text: "Outside MMDA's gauge", reviewed: false },
+  'gauge.orDeeper': { text: 'or deeper', reviewed: false },
 } satisfies Record<string, Entry>
 
 export type StringKey = keyof typeof EN

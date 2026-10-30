@@ -8,8 +8,11 @@
  *
  * Depth is one hue, silt, the brown of Manila floodwater. It grows stronger with depth: darker in the light
  * theme, brighter in the dark one. It is never a traffic-light colour. The shallowest fill is only 1.2:1
- * against the page, so a gauge cell carries an --lusot-outline edge, and a level's name sits beside the gauge,
- * never on a fill, because the middle steps can't hold 4.5:1 text in either colour (C624).
+ * against the page, so a gauge cell carries an --lusot-outline edge, and a level's name and the mark on the
+ * reading sit beside the gauge on the page, never on a fill (C624). A fill alone can't carry a meaning: in
+ * light, steps 1 to 4 fall below 3:1 against the page and 7 to 9 against the outline; in dark, steps 1 to 3
+ * and 6 to 9. Only dark step 4 can't hold 4.5:1 text, in ink or in the page's colour; contrast.test.ts pins
+ * all of it.
  *
  * Light is the default. The system's dark setting applies unless the person chose light on About, and a choice
  * of either sets data-theme on <html>. The two dark blocks must stay identical (the tests check it).

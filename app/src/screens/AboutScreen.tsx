@@ -2,18 +2,13 @@ import { useId, useState, type ReactNode } from 'react'
 import { T } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { LanguageSwitch } from '../layout/LanguageSwitch'
+import { OFFICIAL_SITES } from '../lib/officialSites'
 import { chooseTheme, currentTheme, type Theme } from '../lib/theme'
 
 const THEMES: { theme: Theme; label: StringKey }[] = [
   { theme: 'system', label: 'about.theme.system' },
   { theme: 'light', label: 'about.theme.light' },
   { theme: 'dark', label: 'about.theme.dark' },
-]
-
-// MMDA's and PAGASA's own sites, each checked when it was added (C633).
-const OFFICIAL: { href: string; label: StringKey }[] = [
-  { href: 'https://mmda.gov.ph/', label: 'about.mmda' },
-  { href: 'https://www.pagasa.dost.gov.ph/', label: 'about.pagasa' },
 ]
 
 const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
@@ -90,7 +85,7 @@ export function AboutScreen() {
 
       <Section title="about.officialTitle">
         <ul className="mt-1">
-          {OFFICIAL.map(({ href, label }) => (
+          {OFFICIAL_SITES.map(({ href, label }) => (
             <li key={href}>
               <a href={href} className={LINK}>
                 <T k={label} />

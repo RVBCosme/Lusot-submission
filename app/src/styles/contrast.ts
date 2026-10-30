@@ -26,9 +26,10 @@ export type ContrastPair = {
   min: 4.5 | 3
 }
 
-// Text is always on the surface, because the depth fills can't hold 4.5:1 text in either colour (C624); the
-// outline, not the fill, carries a gauge cell. The action colour is both link text and a button's fill, so it is
-// held to both.
+// Text is always on the surface, because dark step 4 of the depth fills can't hold 4.5:1 text in either colour
+// (C624), and a fill alone falls under 3:1 against the page or the outline for some steps; the outline, not the fill,
+// carries a gauge cell, and contrast.test.ts pins which steps (the depth fills). The action colour is both link text
+// and a button's fill, so it is held to both.
 export const CONTRAST_PAIRS: readonly ContrastPair[] = [
   { name: 'text on the surface', fg: '--lusot-text', bg: '--lusot-surface', min: 4.5 },
   { name: 'secondary text on the surface', fg: '--lusot-text-2', bg: '--lusot-surface', min: 4.5 },

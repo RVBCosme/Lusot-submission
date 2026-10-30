@@ -42,6 +42,26 @@ export const BODY_FLOORS = ['mid_door', 'window'] as const
 
 export type Landmark = (typeof WHEEL_LANDMARKS)[number] | (typeof PEOPLE_LANDMARKS)[number] | (typeof BODY_FLOORS)[number]
 
+// The causes a numbered reference can carry in `dropped` (MS3b's evidence record: references.py, measure.py and
+// waterline.py), which MS4 passes on in a reading and in the layers file (amendment 2). A reference with a cause has no
+// level. levels.test.ts checks each one against those files. A cause the app doesn't know reads as a general line.
+export const DROP_CAUSES = [
+  'vehicle_unanswered',
+  'vehicle_moving',
+  'vehicle_type',
+  'vehicle_body_below_covered_wheel',
+  'vehicle_wheels_disagree',
+  'wheel_vehicle_dropped',
+  'wheel_unanswered',
+  'person_unanswered',
+  'person_not_adult',
+  'person_wading',
+  'no_water_contact',
+  'ragged_waterline',
+] as const
+
+export type DropCause = (typeof DROP_CAUSES)[number]
+
 // MS3a's refusalReason values (§3.4), which `status` tells apart (C50).
 export const REFUSED_REASONS = [
   'too_dark',

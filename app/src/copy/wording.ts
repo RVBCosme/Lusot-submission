@@ -5,12 +5,14 @@
 import type { makeT, Text } from '../i18n'
 import {
   BODY_FLOORS,
+  DROP_CAUSES,
   FAILED_REASONS,
   OFF_GAUGE,
   PASSABILITY,
   PEOPLE_LANDMARKS,
   REFUSED_REASONS,
   WHEEL_LANDMARKS,
+  type DropCause,
   type Landmark,
   type Level,
   type Reason,
@@ -20,9 +22,11 @@ export type Translate = ReturnType<typeof makeT>
 
 const LANDMARKS: readonly string[] = [...WHEEL_LANDMARKS, ...PEOPLE_LANDMARKS, ...BODY_FLOORS]
 const REASONS: readonly string[] = [...REFUSED_REASONS, ...FAILED_REASONS]
+const CAUSES: readonly string[] = DROP_CAUSES
 
 const isLandmark = (word: string): word is Landmark => LANDMARKS.includes(word)
 const isReason = (word: string): word is Reason => REASONS.includes(word)
+const isDropCause = (word: string): word is DropCause => CAUSES.includes(word)
 
 const capitalise = (words: string) => words.charAt(0).toUpperCase() + words.slice(1)
 
@@ -52,6 +56,18 @@ export function landmarkLine(t: Translate, landmark: string): Text | undefined {
 // A plain line for a refusal or failure reason. A code the app doesn't know gets a general line, never the code.
 export function reasonLine(t: Translate, reason: string): Text {
   return t(isReason(reason) ? `reason.${reason}` : 'reason.other')
+}
+
+// Why a numbered reference wasn't used. A cause the app doesn't know gets a general line, never the code (amendment 2).
+export function dropLine(t: Translate, cause: string): Text {
+  return t(isDropCause(cause) ? `dropped.${cause}` : 'dropped.other')
+}
+
+// One reference of a reading. A dropped one gives its cause and no level, since its level and inches are null
+// (amendments 2 and 2a); any other gives where the water meets it, or nothing when its category reads no line.
+export function referenceLine(t: Translate, reading: { dropped: string | null; landmark: string | null }): Text | undefined {
+  if (reading.dropped !== null) return dropLine(t, reading.dropped)
+  return reading.landmark === null ? undefined : landmarkLine(t, reading.landmark)
 }
 
 // The count is vehicles and people together, as MS3a's `basis` gives them.
