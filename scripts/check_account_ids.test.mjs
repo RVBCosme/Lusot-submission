@@ -1,7 +1,7 @@
 // Tests for the account-ID scan in check_account_ids.mjs. Run: node --test "scripts/*.test.mjs"
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -14,12 +14,14 @@ const ID = "1234567" + "89012";
 // Runs the scan in a throwaway git repo holding `files` (path to text or bytes). The paths
 // in `tracked` are added to git's index (the rest stay untracked), the paths in `deleted`
 // are then removed from the working tree, and each folder in `repos` is a nested repo.
+// A calling git hook sets GIT_DIR, GIT_INDEX_FILE and the like, which would point these
+// git commands at the real repo, so every child gets the environment without them.
+function cleanGitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+}
+
 function scan(files, { tracked = [], deleted = [], repos = [] } = {}) {
-  // A calling git hook sets GIT_DIR, GIT_INDEX_FILE and the like, which would point these
-  // git commands at the real repo, so every child gets the environment without them.
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
+  const env = cleanGitEnv();
   const dir = mkdtempSync(join(tmpdir(), "lusot-scan-"));
   const git = (args, cwd = dir) => execFileSync("git", args, { cwd, env, stdio: "ignore" });
   try {
@@ -165,19 +167,47 @@ test("scans UTF-16 text", () => {
 });
 
 test("flags a 12-digit file name without printing it", () => {
-  const { code, out } = scan({
-    [`exports/billing-${ID}.csv`]: "clean\n",
-    [`exports/notes-${ID}.md`]: `also ${ID}\n`,
-    [`exports/photo-${ID}.jpg`]: Buffer.from([0xff, 0xd8, 0xff, 0x00, 0xc3]),
-    "exports/ok.md": "fine\n",
-  });
+  const { code, out } = scan(
+    {
+      [`exports/billing-${ID}.csv`]: "clean\n",
+      [`exports/notes-${ID}.md`]: `also ${ID}\n`,
+      [`exports/photo-${ID}.jpg`]: Buffer.from([0xff, 0xd8, 0xff, 0x00, 0xc3]),
+      [`${ID}/twice-${ID}.md`]: "clean\n",
+      [`backend/scripts/x-${ID}.py.lock`]: "clean\n",
+      [`gone-${ID}.md`]: "clean\n",
+      [`repo-${ID}/inner.txt`]: "clean\n",
+      "exports/ok.md": "fine\n",
+    },
+    { tracked: [`gone-${ID}.md`], deleted: [`gone-${ID}.md`], repos: [`repo-${ID}`] },
+  );
   assert.equal(code, 1);
   assert.match(out, /^exports\/billing-<account>\.csv \(file name\)$/m);
   assert.match(out, /^exports\/photo-<account>\.jpg \(file name\)$/m);
   assert.match(out, /^exports\/notes-<account>\.md \(file name\)$/m);
   assert.match(out, /^exports\/notes-<account>\.md:1$/m);
-  assert.match(out, /: 1 line\(s\) with a 12-digit run, 3 path\(s\) with one in the name$/m);
+  assert.match(out, /^<account>\/twice-<account>\.md \(file name\)$/m);
+  assert.match(out, /^backend\/scripts\/x-<account>\.py\.lock \(file name\)$/m);
+  assert.match(out, /^gone-<account>\.md \(file name\)$/m);
+  assert.match(out, /^repo-<account>\/ \(file name\)$/m);
+  assert.match(out, /: 1 line\(s\) with a 12-digit run, 7 path\(s\) with one in the name$/m);
   assert.doesNotMatch(out, /[0-9]{12}/);
+});
+
+test("a path that can't be read is reported by its error code alone", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "lusot-loop-"));
+  try {
+    // A symlink to itself: stat fails with ELOOP, whose message names the path.
+    execFileSync("git", ["init", "--quiet"], { cwd: dir, stdio: "ignore", env: cleanGitEnv() });
+    symlinkSync(`loop-${ID}`, join(dir, `loop-${ID}`));
+    const run = spawnSync(process.execPath, [script], { cwd: dir, env: cleanGitEnv(), encoding: "utf8" });
+    const out = run.stdout + run.stderr;
+    assert.equal(run.status, 1, out);
+    assert.match(out, /^loop-<account>: unreadable \(ELOOP\)$/m);
+    assert.match(out, /1 unreadable path\(s\)$/m);
+    assert.doesNotMatch(out, /[0-9]{12}/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a file name's hex token of 32 or more characters is not flagged", () => {
@@ -208,7 +238,7 @@ test("importing runs nothing", () => {
       `  exitCode: process.exitCode ?? null,`,
       `  twelve: m.TWELVE_DIGITS.test("x" + id + "y"),`,
       `  hex: ("a".repeat(20) + id).replace(m.LONG_HEX, "") === "",`,
-      `  masked: m.maskDigits("a" + id + "-b" + id + "1-c" + id.slice(1)),`,
+      `  masked: m.maskDigits("a" + id + "-b" + id + "1-c" + id.slice(1) + "/" + id),`,
       `}));`,
     ].join("\n");
     const run = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
@@ -220,7 +250,7 @@ test("importing runs nothing", () => {
       exitCode: null,
       twelve: true,
       hex: true,
-      masked: `a<account>-b${ID}1-c${ID.slice(1)}`,
+      masked: `a<account>-b${ID}1-c${ID.slice(1)}/<account>`,
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });

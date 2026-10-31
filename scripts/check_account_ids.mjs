@@ -6,12 +6,13 @@
 // text, and directory entries such as a nested repo or worktree. Text is UTF-8, or UTF-16
 // with a byte-order mark (MS7's D-h). It prints path:line and a count, never the digits,
 // and masks any 12-digit run in a printed path, so the check itself can't leak what it
-// finds. Exit codes: 0 clean, 1 a run found.
+// finds. Exit codes: 0 clean, 1 a run found or a path that can't be read.
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 
-// Shared with the history scan (scripts/check_history.mjs, MS7's Task 7a).
+// Shared with the history scan (scripts/check_history.mjs, MS7's Task 7a). LONG_HEX carries
+// the `g` flag, so use it only with `replace`, never with `test` or `exec`.
 export const LONG_HEX = /(?<![0-9a-f])[0-9a-f]{32,}(?![0-9a-f])/gi;
 export const TWELVE_DIGITS = /(?<![0-9])[0-9]{12}(?![0-9])/;
 
@@ -26,6 +27,12 @@ export function hasTwelveDigits(text) {
 }
 
 const LOCKFILES = new Set(["uv.lock", "package-lock.json", "requirements.lock.txt"]);
+
+// Lockfiles are skipped (R15): their hashes hold digit runs that aren't IDs.
+export function isLockfile(path) {
+  const name = basename(path);
+  return LOCKFILES.has(name) || name.endsWith(".py.lock");
+}
 
 // Decodes UTF-8 (a UTF-8 BOM is dropped), or UTF-16 when the bytes start with its BOM.
 // Returns null for anything else, such as a binary file.
@@ -57,24 +64,33 @@ if (import.meta.main) {
   let directories = 0;
   let hits = 0;
   let names = 0;
+  let unreadable = 0;
   for (const path of paths) {
     const shown = maskDigits(path);
     if (hasTwelveDigits(path)) {
       console.log(`${shown} (file name)`);
       names++;
     }
-    const name = basename(path);
-    if (LOCKFILES.has(name) || name.endsWith(".py.lock")) {
+    if (isLockfile(path)) {
       lockfiles++;
       continue;
     }
-    const stat = statSync(path, { throwIfNoEntry: false });
-    if (!stat) continue; // tracked, but deleted in the working tree
-    if (stat.isDirectory()) {
-      directories++; // git lists a nested repo or worktree as one entry
+    // A file system error names the path in its message, so it is reported by its code only.
+    let bytes;
+    try {
+      const stat = statSync(path, { throwIfNoEntry: false });
+      if (!stat) continue; // tracked, but deleted in the working tree
+      if (stat.isDirectory()) {
+        directories++; // git lists a nested repo or worktree as one entry
+        continue;
+      }
+      bytes = readFileSync(path);
+    } catch (err) {
+      console.log(`${shown}: unreadable (${err.code ?? "error"})`);
+      unreadable++;
       continue;
     }
-    const text = decodeText(readFileSync(path));
+    const text = decodeText(bytes);
     if (text === null) {
       notText++;
       continue;
@@ -91,8 +107,9 @@ if (import.meta.main) {
   const found = [];
   if (hits) found.push(`${hits} line(s) with a 12-digit run`);
   if (names) found.push(`${names} path(s) with one in the name`);
+  if (unreadable) found.push(`${unreadable} unreadable path(s)`);
   console.log(
     `account-ID scan: checked ${checked} files (skipped ${lockfiles} lockfiles, ${notText} non-text files and ${directories} directories): ${found.join(", ") || "clean"}`,
   );
-  process.exitCode = hits || names ? 1 : 0;
+  process.exitCode = hits || names || unreadable ? 1 : 0;
 }
