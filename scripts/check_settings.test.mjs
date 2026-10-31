@@ -4,7 +4,6 @@
 // never reads backend/samconfig.toml or a sealed path (C823).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { posix } from "node:path";
 import { test } from "node:test";
 
 const settings = JSON.parse(readFileSync(new URL("../.claude/settings.json", import.meta.url), "utf8"));
@@ -41,49 +40,84 @@ function parseRule(rule) {
   return m ? { tool: m[1], spec: m[2] } : null;
 }
 
-// Concrete paths a pattern covers: `**` as no folder and as one, `*` as a name.
-function samples(spec) {
-  const forms = new Set([spec.replace(/\/\*\*\//g, "/"), spec.replace(/\/\*\*\//g, "/x/")]);
-  return [...forms].map((s) => s.replace(/\/\*\*$/, "/x").replace(/\*/g, "x"));
+// A rule's pattern as a regular expression, in gitignore's syntax: `**` spans folders, `*` and
+// `?` stay inside one name, and both match a name that starts with a dot. Case is ignored, as
+// the laptop's file system ignores it.
+function globToRegex(glob) {
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const rest = glob.slice(i);
+    if (rest.startsWith("**/")) {
+      re += "(?:.*/)?";
+      i += 2;
+    } else if (rest.startsWith("/**") && i + 3 === glob.length) {
+      re += "(?:/.*)?";
+      i += 2;
+    } else if (rest.startsWith("**")) {
+      re += ".*";
+      i += 1;
+    } else if (glob[i] === "*") re += "[^/]*";
+    else if (glob[i] === "?") re += "[^/]";
+    else re += glob[i].replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`, "i");
 }
 
-// Rules follow gitignore's syntax, where `*` and `**` match a name that starts with a dot too;
-// Node's matchesGlob doesn't, so such a name's dot is swapped for a plain letter on both sides.
-const bare = (spec) =>
-  spec
-    .replace(/^\.\//, "")
-    .replace(/^\/\//, "/")
-    .split("/")
-    .map((part) => (part.startsWith(".") && part !== "." && part !== ".." ? `_dot_${part.slice(1)}` : part))
-    .join("/");
-const covers = (glob, path) => posix.matchesGlob(bare(path), bare(glob));
+// One place for every path: `P:/` and a project path (from `./x`, `/x`, a bare pattern, or
+// the main worktree's absolute path), or `A:/` and an absolute one (from `//x`). A bare
+// pattern with no slash matches at any depth, as in gitignore.
+const ROOT = "//c/Systems/Lusot/lusot/";
+function place(spec) {
+  if (spec.toLowerCase().startsWith(ROOT.toLowerCase())) return `P:/${spec.slice(ROOT.length)}`;
+  if (spec.startsWith("//")) return `A:/${spec.slice(2)}`;
+  if (spec.startsWith("/")) return `P:/${spec.slice(1)}`;
+  if (spec.startsWith("./")) return `P:/${spec.slice(2)}`;
+  if (spec.startsWith("~/")) return `H:/${spec.slice(2)}`;
+  return spec.includes("/") ? `P:/${spec}` : `P:/**/${spec}`;
+}
 
-// Whether an allow rule would grant any path a deny rule refuses: a bare tool name, the same
-// pattern, or a pattern either side's sample paths fall under (with the deny's tail tried
-// under the allow's folder, for a deny that starts `./**/`).
-export function allowMatches(allowRule, denyRule) {
+const covers = (spec, path) => globToRegex(place(spec)).test(place(path));
+
+// The real files the deny rules protect, by the family of tools that would reach them.
+const SEALED = ["sealed", "sealed.", "sealed ", "sealed::$INDEX_ALLOCATION"].map((s) => `./eval/${s}/answers.json`);
+const DATA = ["//c/Systems/Lusot/lusot-data/set_b/sealed/car.jpg", "//c/Systems/Lusot/lusot-data/set_a/raw/post.jpg", "//c/Systems/Lusot/lusot-data/a_neg/raw/post.jpg"];
+const PROTECTED = {
+  Read: ["./backend/samconfig.toml", "./.env", "./app/.env", "./app/.env.local", "./app/.env.development.local", ...SEALED, ...DATA],
+  Edit: [
+    "./package-lock.json",
+    "./app/package-lock.json",
+    "./backend/analysis/uv.lock",
+    "./backend/scripts/smoke_upload.py.lock",
+    "./eval/data/intake.py.lock",
+    "./backend/analysis/requirements.lock.txt",
+    ...SEALED,
+    ...DATA,
+  ],
+};
+
+// Whether an allow rule would grant one of the protected files: a bare tool name of a family,
+// or a pattern that covers one of that family's files, whatever its anchor.
+export function allowGrantsProtected(allowRule) {
   const a = parseRule(allowRule);
-  const d = parseRule(denyRule);
-  if (!a || !d || (FAMILY[a.tool] ?? a.tool) !== (FAMILY[d.tool] ?? d.tool)) return false;
-  if (a.spec === undefined || a.spec === "" || a.spec === d.spec) return true;
-  const tried = [...samples(d.spec)];
-  const folder = a.spec.replace(/\/\*\*?$/, "");
-  if (d.spec.startsWith("./**/") && folder !== a.spec) tried.push(...samples(`${folder}/${d.spec.slice(5)}`));
-  return tried.some((path) => covers(a.spec, path)) || samples(a.spec).some((path) => covers(d.spec, path));
+  const family = a && FAMILY[a.tool];
+  if (!family) return false;
+  if (a.spec === undefined || a.spec === "") return true;
+  return PROTECTED[family].some((path) => covers(a.spec, path));
 }
 
 test("keeps every deny rule", () => {
   for (const rule of [...EXISTING, ...ADDED]) assert.ok(deny.includes(rule), `missing deny rule ${rule}`);
-  for (const rule of [...EXISTING, ...ADDED]) {
-    for (const entry of allow) assert.ok(!allowMatches(entry, rule), `allow rule ${entry} matches deny rule ${rule}`);
-  }
+  // Exactly these, once each: a rule added here, such as a broad Edit(./**), changes this test too.
+  assert.deepEqual([...new Set(deny)].sort(), [...EXISTING, ...ADDED].sort());
+  assert.equal(deny.length, new Set(deny).size, "a deny rule is listed twice");
+  for (const entry of allow) assert.ok(!allowGrantsProtected(entry), `allow rule ${entry} would grant a file a deny rule protects`);
 });
 
-test("every deny rule is a Read or Edit rule on a project or absolute path", () => {
+test("every Read or Edit deny rule names an anchored path", () => {
   for (const rule of deny) {
     const parsed = parseRule(rule);
-    assert.ok(parsed && ["Read", "Edit"].includes(parsed.tool), `${rule} is not a Read or Edit rule`);
-    assert.match(parsed.spec, /^(\.\/|\/\/)/, `${rule} names neither a project path (./) nor an absolute one (//)`);
+    if (!parsed || !["Read", "Edit"].includes(parsed.tool)) continue;
+    assert.match(parsed.spec ?? "", /^(\.\/|\/)/, `${rule} names no ./, / or // path`);
   }
   // Each sealed or raw folder is closed to both reading and editing.
   for (const rule of deny.filter((r) => /sealed|\/raw\//.test(r))) {
@@ -108,14 +142,25 @@ test("each added rule covers the files it is for", () => {
   assert.ok(!covers("./**/.env", "./app/.env.example"), "the env rule must leave .env.example readable");
 });
 
-test("the allow check finds an allow that would grant a denied path", () => {
-  assert.ok(allowMatches("Read", "Read(./**/.env)"));
-  assert.ok(allowMatches("Read(./**)", "Read(./backend/samconfig.toml)"));
-  assert.ok(allowMatches("Read(./app/**)", "Read(./**/.env.local)"));
-  assert.ok(allowMatches("Write(./**/*.json)", "Edit(./**/package-lock.json)"));
-  assert.ok(allowMatches("Grep(./eval/**)", "Read(./eval/sealed/**)"));
-  assert.ok(!allowMatches("Read(./docs/**)", "Read(./backend/samconfig.toml)"));
-  assert.ok(allowMatches("Edit(./app/src/**)", "Edit(./**/uv.lock)")); // it would grant app/src/uv.lock
-  assert.ok(!allowMatches("Edit(./app/src/*.ts)", "Edit(./**/uv.lock)"));
-  assert.ok(!allowMatches("Bash(npm run check)", "Read(./**/.env)"));
+test("the allow check finds an allow that would grant a protected file", () => {
+  for (const rule of [
+    "Read",
+    "Edit",
+    "Read(./**)",
+    "Read(./app/.env*)",
+    "Read(*.env)",
+    "Read(/backend/**)",
+    "Read(//c/Systems/Lusot/lusot/**)",
+    "Read(./BACKEND/**)",
+    "Read(./**/*.json)",
+    "Grep(./eval/**)",
+    "Edit(./backend/analysis/*.lock)",
+    "Write(./**/*.json)",
+    "Read(//c/Systems/Lusot/lusot-data/**)",
+  ]) {
+    assert.ok(allowGrantsProtected(rule), `${rule} should count as granting a protected file`);
+  }
+  for (const rule of ["Read(./docs/**)", "Edit(./docs/**)", "Edit(./app/src/*.ts)", "Read(./app/.env.example)", "Bash(npm run check)", "Read(~/notes/**)"]) {
+    assert.ok(!allowGrantsProtected(rule), `${rule} grants no protected file`);
+  }
 });
