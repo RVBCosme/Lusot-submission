@@ -1,6 +1,6 @@
 # The spot list: sources and licence
 
-`spots.json` is Ask Lusot's list of named places (spec C715, C733; AskL-Q8). The API reads it to turn a place in a question into one point, and its display names go to the voice transcription as keywords. `spots_sources.csv` is the input, and `backend/scripts/build_spots.py` builds the output from it and an OpenStreetMap extract. Rerun on the same two files, it writes the same `spots.json`.
+`spots.json` is Ask Lusot's list of named places (spec C715, C733; AskL-Q8). The API reads it to turn a place in a question into one point, and its display names of at most 30 characters, then its roads, go to the voice transcription as keywords (spec C740). `spots_sources.csv` is the input, and `backend/scripts/build_spots.py` builds the output from it and an OpenStreetMap extract. Rerun on the same two files, it writes the same `spots.json`.
 
 © OpenStreetMap contributors. `spots.json` is derived from OpenStreetMap data, which is available under the [Open Data Commons Open Database License (ODbL) 1.0](https://opendatacommons.org/licenses/odbl/1-0/) (see [openstreetmap.org/copyright](https://www.openstreetmap.org/copyright)). `spots.json` is shared under the same licence. Lusot is not affiliated with MMDA.
 
