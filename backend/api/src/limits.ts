@@ -8,7 +8,7 @@ export type Bucket = "upload" | "sample" | "question";
 export const LIMITS: Record<Bucket, { device: number; all: number }> = {
   upload: { device: 10, all: 300 },
   sample: { device: 5, all: 30 },
-  question: { device: 20, all: 300 },
+  question: { device: 20, all: 60 },
 };
 
 // The refusal codes, in one place: C522's for uploads and samples, Ask Lusot's for questions.

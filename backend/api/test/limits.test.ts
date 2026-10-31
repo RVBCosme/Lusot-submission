@@ -190,7 +190,7 @@ describe("take for questions", () => {
   const body = (res: Awaited<ReturnType<typeof take>>) => JSON.parse(res?.body ?? "");
 
   it("the 20th question in an hour passes, the 21st is refused with question_limit and a Retry-After, and the next hour passes", async () => {
-    expect(LIMITS.question).toEqual({ device: 20, all: 300 });
+    expect(LIMITS.question).toEqual({ device: 20, all: 60 });
     for (let i = 0; i < 20; i++) expect(await take("question", DEVICE, AT_10_59, deps())).toBeNull();
 
     const res = await take("question", DEVICE, AT_10_59, deps());
@@ -211,7 +211,7 @@ describe("take for questions", () => {
     ]);
     expect([all.Key, all.ExpressionAttributeValues]).toEqual([
       { pk: "question#ALL#2026-10-30T10" },
-      { ":one": 1, ":limit": 300, ":expiresAt": expiresAt },
+      { ":one": 1, ":limit": 60, ":expiresAt": expiresAt },
     ]);
     for (const input of updates()) expect(JSON.stringify(input)).not.toContain(DEVICE);
 
@@ -219,19 +219,19 @@ describe("take for questions", () => {
     expect(counts.get(`question#${sha256(DEVICE)}#2026-10-30T11`)).toBe(1);
   });
 
-  it("the 300th question in all passes, and the 301st is refused with question_cap and gives the device's count back", async () => {
-    // 15 devices at their limit of 20 make the hour's 300; the last take of the loop is the 300th.
-    for (let d = 0; d < 15; d++) {
+  it("the 60th question in all passes, and the 61st is refused with question_cap and gives the device's count back", async () => {
+    // 3 devices at their limit of 20 make the hour's 60; the last take of the loop is the 60th.
+    for (let d = 0; d < 3; d++) {
       for (let i = 0; i < 20; i++) expect(await take("question", `device-${d}-padding`, AT_10_59, deps())).toBeNull();
     }
-    expect(counts.get("question#ALL#2026-10-30T10")).toBe(300);
+    expect(counts.get("question#ALL#2026-10-30T10")).toBe(60);
 
     const res = await take("question", DEVICE, AT_10_59, deps());
 
     expect(res?.statusCode).toBe(429);
     expect(body(res)).toEqual({ error: "question_cap" });
     expect(res?.headers["retry-after"]).toBe("60");
-    expect(counts.get("question#ALL#2026-10-30T10")).toBe(300);
+    expect(counts.get("question#ALL#2026-10-30T10")).toBe(60);
     expect(counts.get(`question#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
     // Uploads keep their own counters.
     expect(await take("upload", DEVICE, AT_10_59, deps())).toBeNull();
@@ -267,7 +267,7 @@ describe("take for questions", () => {
     ] as const) {
       expect(String(retryAfterS(nowS))).toBe(seconds);
       counts.set(`question#${sha256(DEVICE)}#2026-10-30T11`, 20);
-      counts.set("question#ALL#2026-10-30T11", 300);
+      counts.set("question#ALL#2026-10-30T11", 60);
 
       const byDevice = await take("question", DEVICE, nowS, deps());
       const byHour = await take("question", "device-another-one", nowS, deps());

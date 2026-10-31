@@ -694,7 +694,7 @@ Resources:
         - !Ref AlarmTopic
 
   # The feed's and the map's calls count too. Ask Lusot's spec sets the 5,000 an hour
-  # (C735), with at most 300 counted questions an hour from Ask.
+  # (C735), with at most 60 counted questions an hour from Ask.
   ApiInvocationsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -798,7 +798,7 @@ Resources:
   AskCapAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: Ask Lusot refused a question at its cap of 300 an hour.
+      AlarmDescription: Ask Lusot refused a question at its cap of 60 an hour.
       Namespace: Lusot
       MetricName: AskCapRefusals
       Statistic: Sum
