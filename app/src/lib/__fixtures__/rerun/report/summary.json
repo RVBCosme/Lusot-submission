@@ -1,0 +1,57 @@
+{
+  "baseline_class": "NPLV",
+  "baseline_level": "knee",
+  "configurations": {
+    "landmark": {
+      "coverage": {
+        "k": 90,
+        "n": 100
+      },
+      "exact": {
+        "k": 45,
+        "n": 90
+      },
+      "failed": 0,
+      "passability": {
+        "k": 72,
+        "n": 90
+      },
+      "refused": 10,
+      "underestimation": {
+        "k": 9,
+        "n": 90
+      },
+      "within_one": {
+        "k": 81,
+        "n": 90
+      }
+    }
+  },
+  "date": "2000-01-02",
+  "geometry_stays": false,
+  "inches_shown": false,
+  "kind": "sealed",
+  "rerun": true,
+  "rules_version": "0.7",
+  "service_retries": 0,
+  "set_b": {
+    "envelope": {
+      "k": 20,
+      "n": 50
+    },
+    "measured": {
+      "k": 50,
+      "n": 60
+    },
+    "median_error_in": "2.00",
+    "no_answer": 0,
+    "sam_water_found": {
+      "k": 50,
+      "n": 60
+    },
+    "wheels": 60,
+    "worst_error_in": "9.00"
+  },
+  "shipped": "landmark",
+  "synthetic": false
+}

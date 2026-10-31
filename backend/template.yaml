@@ -17,7 +17,7 @@ Parameters:
   AppOrigins:
     Type: CommaDelimitedList
     Default: "https://localhost,http://localhost:5173,http://localhost:4173"
-    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers).
+    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers). The template adds the website's origin.
 
 Resources:
   UploadBucket:
@@ -39,7 +39,13 @@ Resources:
         CorsRules:
           # GET lets the app fetch a report's layersUrl (MS5's N14).
           - AllowedMethods: [GET, POST]
-            AllowedOrigins: !Ref AppOrigins
+            # AppOrigins and the website's origin (C622), the same list as the API's.
+            AllowedOrigins: !Split
+              - ","
+              - !Sub
+                - "${Origins},https://${WebDomain}"
+                - Origins: !Join [",", !Ref AppOrigins]
+                  WebDomain: !GetAtt WebDistribution.DomainName
       LifecycleConfiguration:
         Rules:
           - Id: raw-1-day
@@ -218,7 +224,13 @@ Resources:
           version: "1.0"
         paths: {}
         x-amazon-apigateway-cors:
-          allowOrigins: !Ref AppOrigins
+          # AppOrigins and the website's origin (C622), as a list, the same as the bucket's.
+          allowOrigins: !Split
+            - ","
+            - !Sub
+              - "${Origins},https://${WebDomain}"
+              - Origins: !Join [",", !Ref AppOrigins]
+                WebDomain: !GetAtt WebDistribution.DomainName
           allowMethods: [GET, POST]
           # The app's random device id (C508), and a 429's Retry-After (C522).
           allowHeaders: [content-type, x-lusot-device]
@@ -801,6 +813,84 @@ Resources:
       OKActions:
         - !Ref AlarmTopic
 
+  # The website (MS5-Q4 (c), C622): the built app in a private bucket, served only through CloudFront.
+  # `npm run deploy:web` fills it. Neither the bucket nor the distribution logs requests, so no
+  # visitor's IP address is kept (PRIV-Q9, the 7-day rule). Like the upload bucket, these four take
+  # CloudFormation's default Delete policies; the bucket must be emptied before the stack is deleted.
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # Origin access control needs it (CloudFront's guide), and it turns ACLs off.
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  WebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-web"
+        Description: CloudFront signs every request it sends to the web bucket.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: Lusot web app
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        # North America, Europe, Asia (the Philippines included), India, Africa and the Middle East.
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: web-bucket
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt WebOriginAccessControl.Id
+            # Empty: access goes through the origin access control, not a legacy identity.
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: web-bucket
+          ViewerProtocolPolicy: redirect-to-https
+          # Managed CachingOptimized: no cookies or query strings in the cache key.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          # Managed SecurityHeadersPolicy. Its Referrer-Policy, strict-origin-when-cross-origin,
+          # still sends OpenStreetMap's tile servers the referrer their policy asks for (C612).
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+          # S3 serves the bundle uncompressed; CloudFront gzips or Brotli-compresses it.
+          Compress: true
+        # No Logging and no real-time logs (PRIV-Q9). No custom error pages: the app's routes are
+        # hash routes, so no route asks for a path the bucket lacks.
+
+  # CloudFront may read the bucket, for this distribution only.
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution.Id}"
+
 Outputs:
   ApiUrl:
     Value: !GetAtt HttpApi.ApiEndpoint
@@ -816,3 +906,10 @@ Outputs:
     Value: !GetAtt UploadQueue.QueueName
   DeadLetterQueueName:
     Value: !GetAtt DeadLetterQueue.QueueName
+  # The website, and what `npm run deploy:web` uploads to and invalidates.
+  WebUrl:
+    Value: !Sub "https://${WebDistribution.DomainName}"
+  WebBucketName:
+    Value: !Ref WebBucket
+  WebDistributionId:
+    Value: !Ref WebDistribution

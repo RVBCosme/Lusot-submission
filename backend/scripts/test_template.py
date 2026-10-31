@@ -24,8 +24,18 @@ ASK_DEADLINE = TEMPLATE.parent / "api" / "src" / "ask" / "deadline.ts"
 ASK_HANDLER = TEMPLATE.parent / "api" / "src" / "ask" / "handler.ts"
 ASK_NOMINATIM = TEMPLATE.parent / "api" / "src" / "ask" / "nominatim.ts"
 ALARM_TOPIC = [{"Ref": "AlarmTopic"}]
-APP_ORIGINS = {"Ref": "AppOrigins"}
 SSM_ARN = "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter"
+# The website's resources (MS5 Task 19, C622) and the managed CloudFront policies they use.
+WEB_RESOURCES = (
+    "WebBucket",
+    "WebOriginAccessControl",
+    "WebDistribution",
+    "WebBucketPolicy",
+)
+CACHING_OPTIMIZED = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+SECURITY_HEADERS = "67f7725c-6f97-4210-82d7-5512b31e9d03"
+# A sample distribution domain, as CloudFormation's docs give it, to resolve the CORS lists with.
+WEB_DOMAIN = "d111111abcdef8.cloudfront.net"
 
 
 def resource(name):
@@ -88,6 +98,56 @@ def granted(role, action):
 
 def bucket_paths(*prefixes):
     return {f"${{UploadBucket.Arn}}/{prefix}/*" for prefix in prefixes}
+
+
+def resolve(value, params, attrs):
+    """What CloudFormation makes of Ref, Fn::GetAtt, Fn::Join, Fn::Split and Fn::Sub
+    in `value`, given parameter values and resource attributes: enough for the CORS lists."""
+    if isinstance(value, list):
+        return [resolve(item, params, attrs) for item in value]
+    if not (isinstance(value, dict) and len(value) == 1):
+        return value
+    ((fn, arg),) = value.items()
+    if fn == "Ref":
+        return params[arg]
+    if fn == "Fn::GetAtt":
+        return attrs[tuple(arg)]
+    if fn == "Fn::Join":
+        return arg[0].join(resolve(arg[1], params, attrs))
+    if fn == "Fn::Split":
+        return resolve(arg[1], params, attrs).split(arg[0])
+    if fn == "Fn::Sub":
+        text, names = arg if isinstance(arg, list) else (arg, {})
+        names = {k: resolve(v, params, attrs) for k, v in names.items()}
+        return re.sub(r"\$\{([^}]+)\}", lambda m: names[m.group(1)], text)
+    return value
+
+
+def cors_origins(value, app_origins):
+    return resolve(
+        value,
+        {"AppOrigins": app_origins},
+        {("WebDistribution", "DomainName"): WEB_DOMAIN},
+    )
+
+
+def references(value):
+    """The template's resources that `value` names through Ref, Fn::GetAtt or Fn::Sub."""
+    found = set()
+    if isinstance(value, list):
+        for item in value:
+            found |= references(item)
+    elif isinstance(value, dict):
+        for key, arg in value.items():
+            if key == "Ref" and isinstance(arg, str):
+                found.add(arg)
+            elif key == "Fn::GetAtt":
+                found.add(arg[0])
+            elif key == "Fn::Sub":
+                text = arg[0] if isinstance(arg, list) else arg
+                found.update(re.findall(r"\$\{([A-Za-z0-9]+)", text))
+            found |= references(arg)
+    return found & set(RES)
 
 
 def test_routes():
@@ -264,7 +324,6 @@ def test_feed_index():
 
 def test_cors():
     cors = props("HttpApi")["DefinitionBody"]["x-amazon-apigateway-cors"]
-    assert cors["allowOrigins"] == APP_ORIGINS
     assert sorted(cors["allowMethods"]) == ["GET", "POST"]
     assert sorted(cors["allowHeaders"]) == ["content-type", "x-lusot-device"]
     assert cors["exposeHeaders"] == ["retry-after"]
@@ -276,7 +335,165 @@ def test_cors():
     rules = props("UploadBucket")["CorsConfiguration"]["CorsRules"]
     assert len(rules) == 1
     assert sorted(rules[0]["AllowedMethods"]) == ["GET", "POST"]
-    assert rules[0]["AllowedOrigins"] == APP_ORIGINS
+
+
+def test_cors_origins_add_the_website():
+    """C622: the API and the photo bucket allow AppOrigins and the website's origin."""
+    api = props("HttpApi")["DefinitionBody"]["x-amazon-apigateway-cors"]["allowOrigins"]
+    (rule,) = props("UploadBucket")["CorsConfiguration"]["CorsRules"]
+    bucket = rule["AllowedOrigins"]
+    assert api == bucket
+    default = T["Parameters"]["AppOrigins"]["Default"].split(",")
+    # The Capacitor app and the local dev and preview servers keep working.
+    assert default == [
+        "https://localhost",
+        "http://localhost:5173",
+        "http://localhost:4173",
+    ]
+    web = f"https://{WEB_DOMAIN}"
+    for origins in (api, bucket):
+        assert cors_origins(origins, default) == [*default, web]
+        # AppOrigins stays a list: a deploy that passes other origins keeps each one.
+        other = ["https://a.example", "https://b.example"]
+        assert cors_origins(origins, other) == [*other, web]
+
+
+def test_web_bucket():
+    """Private, owner-enforced, SSE-S3; no website hosting, versioning, logging or CORS."""
+    assert resource("WebBucket")["Type"] == "AWS::S3::Bucket"
+    p = props("WebBucket")
+    assert p == {
+        "PublicAccessBlockConfiguration": {
+            "BlockPublicAcls": True,
+            "BlockPublicPolicy": True,
+            "IgnorePublicAcls": True,
+            "RestrictPublicBuckets": True,
+        },
+        "OwnershipControls": {"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+        "BucketEncryption": {
+            "ServerSideEncryptionConfiguration": [
+                {"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}
+            ]
+        },
+    }
+
+
+def test_web_resources_delete_like_the_upload_bucket():
+    """The brief: the photo bucket's DeletionPolicy and UpdateReplacePolicy, which it
+    leaves to CloudFormation's default (Delete)."""
+    upload = resource("UploadBucket")
+    assert "DeletionPolicy" not in upload and "UpdateReplacePolicy" not in upload
+    for name in WEB_RESOURCES:
+        for attribute in ("DeletionPolicy", "UpdateReplacePolicy"):
+            assert resource(name).get(attribute) == upload.get(attribute), name
+
+
+def test_web_origin_access_control():
+    assert (
+        resource("WebOriginAccessControl")["Type"]
+        == "AWS::CloudFront::OriginAccessControl"
+    )
+    config = props("WebOriginAccessControl")["OriginAccessControlConfig"]
+    assert config["OriginAccessControlOriginType"] == "s3"
+    assert config["SigningBehavior"] == "always"
+    assert config["SigningProtocol"] == "sigv4"
+    assert config["Name"] == {"Fn::Sub": "${AWS::StackName}-web"}
+
+
+def test_web_distribution():
+    assert resource("WebDistribution")["Type"] == "AWS::CloudFront::Distribution"
+    config = props("WebDistribution")["DistributionConfig"]
+    assert config["Enabled"] is True
+    assert config["DefaultRootObject"] == "index.html"
+    assert config["HttpVersion"] == "http2and3"
+    assert config["PriceClass"] == "PriceClass_200"
+    assert config["Origins"] == [
+        {
+            "Id": "web-bucket",
+            "DomainName": {"Fn::GetAtt": ["WebBucket", "RegionalDomainName"]},
+            "OriginAccessControlId": {"Fn::GetAtt": ["WebOriginAccessControl", "Id"]},
+            "S3OriginConfig": {"OriginAccessIdentity": ""},
+        }
+    ]
+    # Whole, so nothing else (real-time logs, other methods, forwarded values) rides along.
+    assert config["DefaultCacheBehavior"] == {
+        "TargetOriginId": "web-bucket",
+        "ViewerProtocolPolicy": "redirect-to-https",
+        "CachePolicyId": CACHING_OPTIMIZED,
+        "ResponseHeadersPolicyId": SECURITY_HEADERS,
+        "Compress": True,
+    }
+    # Hash routes need no error page that turns a missing file into the app.
+    assert "CustomErrorResponses" not in config
+    assert "CacheBehaviors" not in config
+    # The managed SecurityHeadersPolicy sends Referrer-Policy strict-origin-when-cross-origin.
+    # OpenStreetMap's tiles need a referrer, so no policy of the template's own may replace it.
+    assert not of_type("AWS::CloudFront::ResponseHeadersPolicy")
+
+
+def test_web_logging_stays_off():
+    """C622, PRIV-Q9: neither the distribution nor the web bucket logs a visitor."""
+    config = props("WebDistribution")["DistributionConfig"]
+    assert "Logging" not in config
+    assert "RealtimeLogConfigArn" not in config["DefaultCacheBehavior"]
+    assert not of_type("AWS::CloudFront::RealtimeLogConfig")
+    # CloudFront's newer standard logging is a CloudWatch log delivery: none is made.
+    kinds = {r["Type"] for r in RES.values()}
+    assert not [kind for kind in kinds if kind.startswith("AWS::Logs::Delivery")]
+    assert "LoggingConfiguration" not in props("WebBucket")
+
+
+def test_web_bucket_policy():
+    """CloudFront reads the bucket for this distribution only; no account ID is written."""
+    assert resource("WebBucketPolicy")["Type"] == "AWS::S3::BucketPolicy"
+    p = props("WebBucketPolicy")
+    assert p["Bucket"] == {"Ref": "WebBucket"}
+    assert p["PolicyDocument"]["Statement"] == [
+        {
+            "Effect": "Allow",
+            "Principal": {"Service": "cloudfront.amazonaws.com"},
+            "Action": "s3:GetObject",
+            "Resource": {"Fn::Sub": "${WebBucket.Arn}/*"},
+            "Condition": {
+                "StringEquals": {
+                    "AWS:SourceArn": {
+                        "Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}"
+                        ":distribution/${WebDistribution.Id}"
+                    }
+                }
+            },
+        }
+    ]
+
+
+def test_web_outputs():
+    outputs = T["Outputs"]
+    assert outputs["WebUrl"]["Value"] == {
+        "Fn::Sub": "https://${WebDistribution.DomainName}"
+    }
+    assert outputs["WebBucketName"]["Value"] == {"Ref": "WebBucket"}
+    assert outputs["WebDistributionId"]["Value"] == {"Ref": "WebDistribution"}
+
+
+def test_no_dependency_cycle():
+    """The CORS lists name the distribution, so nothing it needs may need them."""
+    graph = {
+        name: references(r.get("Properties", {})) | set(as_list(r.get("DependsOn", [])))
+        for name, r in RES.items()
+    }
+    assert "WebDistribution" in graph["UploadBucket"]
+    assert "WebDistribution" in graph["HttpApi"]
+    done = set()
+
+    def visit(name, path):
+        assert name not in path, " -> ".join([*path, name])
+        if name not in done:
+            for other in sorted(graph[name]):
+                visit(other, [*path, name])
+            done.add(name)
+
+    for name in sorted(graph):
+        visit(name, [])
 
 
 def test_throttles():

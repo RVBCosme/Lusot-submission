@@ -1,0 +1,15 @@
+[
+  {
+    "package": "vite",
+    "ships": "the modulepreload polyfill and the preload helper that the build adds to the page",
+    "stopAt": "# Licenses of bundled dependencies"
+  },
+  {
+    "package": "rolldown",
+    "ships": "the helpers at the top of the page's script, which are esbuild's code, shipped through rolldown"
+  },
+  {
+    "package": "tailwindcss",
+    "ships": "Preflight, the base styles every page starts from"
+  }
+]

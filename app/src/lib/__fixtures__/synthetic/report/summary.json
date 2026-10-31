@@ -1,0 +1,81 @@
+{
+  "baseline_class": "NPLV",
+  "baseline_level": "knee",
+  "configurations": {
+    "geometry": {
+      "coverage": {
+        "k": 10,
+        "n": 10
+      },
+      "exact": {
+        "k": 10,
+        "n": 10
+      },
+      "failed": 0,
+      "passability": {
+        "k": 10,
+        "n": 10
+      },
+      "refused": 0,
+      "underestimation": {
+        "k": 0,
+        "n": 10
+      },
+      "within_one": {
+        "k": 10,
+        "n": 10
+      }
+    },
+    "landmark": {
+      "coverage": {
+        "k": 10,
+        "n": 10
+      },
+      "exact": {
+        "k": 10,
+        "n": 10
+      },
+      "failed": 0,
+      "passability": {
+        "k": 10,
+        "n": 10
+      },
+      "refused": 0,
+      "underestimation": {
+        "k": 0,
+        "n": 10
+      },
+      "within_one": {
+        "k": 10,
+        "n": 10
+      }
+    }
+  },
+  "date": "2000-01-03",
+  "geometry_stays": true,
+  "inches_shown": true,
+  "kind": "sealed",
+  "rerun": false,
+  "rules_version": "0.7",
+  "service_retries": 0,
+  "set_b": {
+    "envelope": {
+      "k": 10,
+      "n": 10
+    },
+    "measured": {
+      "k": 10,
+      "n": 10
+    },
+    "median_error_in": "0.10",
+    "no_answer": 0,
+    "sam_water_found": {
+      "k": 10,
+      "n": 10
+    },
+    "wheels": 10,
+    "worst_error_in": "0.10"
+  },
+  "shipped": "geometry",
+  "synthetic": true
+}
