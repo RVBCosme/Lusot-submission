@@ -32,7 +32,7 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |
-| Your typed question, and your phone's location for a question about "dito" | when you ask | to answer from nearby reports |
+| Your typed question, or your spoken question as a voice clip of up to 15 seconds, and your phone's location for a question about "dito" | when you ask | to answer from nearby reports |
 | A flag you put on a wrong or fake pin | when you flag | to check or hide that pin |
 | Your IP address, which comes with every upload | with each report | kept only in a failed upload's queue record, so the failure can be checked (up to 7 days) |
 
@@ -72,7 +72,8 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 ### Ask Lusot
 
 - **Typed questions** go to Meta's AI service, which answers them from the nearby reports Lusot finds: their level, place and time, which are public pins anyway. Lusot doesn't store your typed questions.
-- **Questions** go to Meta on the same terms as photos: while the hackathon credits last, Meta may use them to improve its products. Meta may keep them with no fixed period. Lusot asks Meta not to store the requests that answer a question, and Meta accepts that.
+- **Spoken questions.** When you speak a question, the app records a voice clip of up to 15 seconds and sends it to Lusot's server. The server sends the clip to Meta's speech-to-text service, with Lusot's list of spot names so that they're heard right. The text that comes back is shown to you and answered like a typed question. Lusot doesn't store the clip or its text: the clip stays only in the server's memory until the answer is sent.
+- **Questions** go to Meta on the same terms as photos: while the hackathon credits last, Meta may use them to improve its products. Meta may keep them with no fixed period. Lusot asks Meta not to store the requests that answer a question, and Meta accepts that. Meta's speech-to-text service has no such setting, so Meta receives a spoken question's voice clip and may keep it under its own terms.
 - **Place names.** When your question names a place that isn't on Lusot's list of MMDA flood-prone spots, Lusot sends the place name, and nothing about you, to OpenStreetMap's Nominatim service to find it on the map. Lusot keeps OpenStreetMap's answers (a place's name and map position) for 7 days, or 1 day for a place it didn't find, filed under a one-way hash of the name, never the words you typed or who asked.
 - **"Dito" questions.** A question about "dito" uses your phone's location to find reports near you. That location stays on Lusot's server: Meta receives only the distances to nearby reports, never your position, and Lusot doesn't store it.
 
@@ -81,7 +82,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | Who | What they do | Where |
 |---|---|---|
 | Amazon Web Services | Lusot's servers, storage, queue, logs and website | Singapore; the website is also served through AWS's worldwide network |
-| Meta | AI analysis: outlining and reading photos, and answering questions | [Meta's locations] |
+| Meta | AI analysis: outlining and reading photos, turning spoken questions into text, and answering questions | [Meta's locations] |
 | OpenStreetMap Foundation | place-name lookups (Nominatim) and the map's images | [OpenStreetMap's locations] |
 | Anthropic | an AI assistant (Claude) that Lusot's developer may use to check logs, flagged reports, privacy requests and the demo video | [Anthropic's locations] |
 
@@ -101,6 +102,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | a pin on the map | fades after 1 hour; gone after 3 hours |
 | service logs: timings, model names and the reasons for "can't tell" (never photos, locations or IP addresses) | 14 days |
 | your typed questions | not stored |
+| your spoken questions: the voice clip and its text | not stored (the clip stays only in the server's memory until the answer is sent) |
 | OpenStreetMap's answers for place names (a hashed name, the place's name and map position) | 7 days, or 1 day for a place not found |
 | the website's access logs | none kept: access logging is off |
 
@@ -153,7 +155,7 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* Ang lokasyon (GPS) ng phone mo, gaano ito katumpak, at gaano kalayo mo inilipat ang pin. Sa bawat report. Para mailagay ang pin sa spot.
 - *Taglish draft (M20):* Ang oras na kinunan ang photo, at ang oras na dumating ito sa Lusot. Sa bawat report. Para makita kung gaano kabago ang reading, at para tanggihan ang lumang photo.
 - *Taglish draft (M20):* Isang random na device id, ginagawa sa unang pagbukas mo ng Lusot, sa phone o sa browser. Sa bawat report, tanong o flag. Para limitahan kung ilang report at tanong ang maipapadala ng isang device kada oras, at para isang flag lang ang mabilang mula sa bawat device sa isang pin.
-- *Taglish draft (M20):* Ang typed na tanong mo, at ang lokasyon ng phone mo para sa tanong tungkol sa "dito". Kapag nagtanong ka. Para sumagot mula sa mga kalapit na report.
+- *Taglish draft (M20):* Ang typed na tanong mo, o ang sinabi mong tanong bilang voice clip na hanggang 15 segundo, at ang lokasyon ng phone mo para sa tanong tungkol sa "dito". Kapag nagtanong ka. Para sumagot mula sa mga kalapit na report.
 - *Taglish draft (M20):* Ang flag na inilagay mo sa mali o pekeng pin. Kapag nag-flag ka. Para tingnan o itago ang pin na iyon.
 - *Taglish draft (M20):* Ang IP address mo, na kasama ng bawat upload. Sa bawat report. Sine-save lang sa queue record ng upload na nabigo, para masuri ang problema (hanggang 7 araw).
 - *Taglish draft (M20):* Walang account ang Lusot. Hindi nito kailanman hinihingi ang pangalan, email o phone number mo.
@@ -187,14 +189,15 @@ Not affiliated with MMDA.
 ### Ask Lusot
 
 - *Taglish draft (M20):* **Ang typed na tanong** ay mapupunta sa AI service ng Meta, na sumasagot mula sa mga kalapit na report na nahanap ng Lusot: ang level, lugar at oras nila, na mga public pin naman. Hindi sine-save ng Lusot ang typed na tanong mo.
-- *Taglish draft (M20):* **Ang mga tanong** ay napupunta sa Meta sa parehong terms ng mga photo: habang may hackathon credits pa, puwedeng gamitin ng Meta ang mga ito para pagandahin ang mga produkto nito. Puwedeng i-save ng Meta ang mga ito nang walang takdang tagal. Hinihiling ng Lusot sa Meta na huwag i-store ang mga request na sumasagot sa tanong, at pumapayag ang Meta.
+- *Taglish draft (M20):* **Mga tanong na sinabi mo.** Kapag sinabi mo ang tanong mo, nire-record ng app ang voice clip na hanggang 15 segundo at ipinapadala ito sa server ng Lusot. Ipinapadala ng server ang clip sa speech-to-text service ng Meta, kasama ang listahan ng Lusot ng mga pangalan ng spot para marinig nang tama ang mga ito. Ipinapakita sa iyo ang text na bumabalik, at sinasagot ito gaya ng typed na tanong. Hindi sine-save ng Lusot ang clip o ang text nito: nasa memory lang ng server ang clip hanggang maipadala ang sagot.
+- *Taglish draft (M20):* **Ang mga tanong** ay napupunta sa Meta sa parehong terms ng mga photo: habang may hackathon credits pa, puwedeng gamitin ng Meta ang mga ito para pagandahin ang mga produkto nito. Puwedeng i-save ng Meta ang mga ito nang walang takdang tagal. Hinihiling ng Lusot sa Meta na huwag i-store ang mga request na sumasagot sa tanong, at pumapayag ang Meta. Walang ganitong setting ang speech-to-text service ng Meta, kaya natatanggap ng Meta ang voice clip ng sinabi mong tanong at puwede nitong i-save ito ayon sa sarili nitong terms.
 - *Taglish draft (M20):* **Mga pangalan ng lugar.** Kapag may lugar sa tanong mo na wala sa listahan ng Lusot ng mga flood-prone spot ng MMDA, ipinapadala ng Lusot ang pangalan ng lugar, at walang anumang tungkol sa iyo, sa Nominatim service ng OpenStreetMap para mahanap ito sa mapa. Sine-save ng Lusot ang sagot ng OpenStreetMap (ang pangalan at posisyon ng lugar sa mapa) nang 7 araw, o 1 araw para sa lugar na hindi nito nahanap, sa ilalim ng one-way hash ng pangalan, hindi kailanman ang mga salitang tinype mo o kung sino ang nagtanong.
 - *Taglish draft (M20):* **Mga tanong na "dito".** Ginagamit ng tanong tungkol sa "dito" ang lokasyon ng phone mo para maghanap ng report na malapit sa iyo. Nananatili ang lokasyong iyon sa server ng Lusot: ang layo lang sa mga kalapit na report ang natatanggap ng Meta, hindi kailanman ang posisyon mo, at hindi ito sine-save ng Lusot.
 
 ### Who processes data, and where
 
 - *Taglish draft (M20):* Amazon Web Services: ang mga server, storage, queue, logs at website ng Lusot. Sa Singapore, at dumadaan din ang website sa worldwide network ng AWS.
-- *Taglish draft (M20):* Meta: AI analysis, ibig sabihin ang pag-outline at pagbasa ng photo, at ang pagsagot sa tanong. [Mga lokasyon ng Meta.]
+- *Taglish draft (M20):* Meta: AI analysis, ibig sabihin ang pag-outline at pagbasa ng photo, ang paggawang text ng sinabing tanong, at ang pagsagot sa tanong. [Mga lokasyon ng Meta.]
 - *Taglish draft (M20):* OpenStreetMap Foundation: ang paghahanap ng pangalan ng lugar (Nominatim) at ang mga larawan ng mapa. [Mga lokasyon ng OpenStreetMap.]
 - *Taglish draft (M20):* Anthropic: isang AI assistant (Claude) na puwedeng gamitin ng developer ng Lusot para suriin ang logs, ang mga na-flag na report, ang mga privacy request at ang demo video. [Mga lokasyon ng Anthropic.]
 - *Taglish draft (M20):* **Ang mga larawan ng mapa.** Kapag binuksan mo ang mapa, kinukuha ng phone mo ang mga larawan ng mapa mula sa mga server ng OpenStreetMap, na nakakakita ng IP address mo, gaya ng anumang website. Kapag inilalagay mo ang pin ng photo mo, bumubukas ang mapa sa paligid ng posisyon mo, kaya nakikita rin ng mga server na iyon kung aling lugar ang nasa screen mo, mga 300 m mula sa iyo.
@@ -211,6 +214,7 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* Ang pin sa mapa: lumalabo pagkalipas ng 1 oras, at nawawala pagkalipas ng 3 oras.
 - *Taglish draft (M20):* Ang service logs (timing, pangalan ng model, at ang mga dahilan ng "can't tell"; hindi kailanman photo, lokasyon o IP address): 14 araw.
 - *Taglish draft (M20):* Ang typed na tanong mo: hindi sine-save.
+- *Taglish draft (M20):* Ang sinabi mong tanong, ang voice clip at ang text nito: hindi sine-save (nasa memory lang ng server ang clip hanggang maipadala ang sagot).
 - *Taglish draft (M20):* Ang mga sagot ng OpenStreetMap para sa mga pangalan ng lugar (naka-hash na pangalan, pangalan at posisyon ng lugar sa mapa): 7 araw, o 1 araw para sa lugar na hindi nahanap.
 - *Taglish draft (M20):* Ang access logs ng website: walang sine-save, naka-off ang access logging.
 - *Taglish draft (M20):* Sakop lang ng mga limit na ito ang sariling kopya ng Lusot. Ang sine-save ng Meta ay nasa ilalim ng terms ng Meta.
@@ -248,7 +252,7 @@ The full questions, with options and defaults, are in Window 4's handoff note.
   - whether a pin's photo link still opens until day 7
   - **MS4's defaults** (spec draft 4, for Rene with these): "no flood seen" isn't a pin (MS4-Q2 (b), C506). A pin's detail shows the blurred photo and its overlay through 5-minute links, issued to anyone holding the pin's id while the pin is on the map (3 hours); an unpublished result's links are issued to the holder of its id for its 7 days (MS4-Q10 (a), C503). Past day 7 the report answers "not found" (C526). The page's brackets change to the chosen rule once Rene picks.
   - **Proposed Oct 31 (Window 4, for Rene's review; not merged until he approves):** the page now states MS4's defaults as built: no "no flood seen" pin (C506), the photo with its outlines on a pin (MS5-Q3 (a)), and a pin's photo opened only while the pin is on the map, through 5-minute links (C503); the "Meta's file storage" bracket is gone, since the pipeline sends each photo inline and never uses Meta's file storage.
-- **PRIV-Q3: Ask Lusot. Approved on its default (a)** by Claude under Rene's delegation (Oct 29, the tracker's check): no stored questions, `store: false` on Muse Spark, a place cache keyed by a hash (7 days, 1 day for a miss), a "dito" location that never leaves the server, and the 18+ check and notice before the first question. The page's brackets are filled to match (Ask Lusot's spec C720 and AskL-Q3). Ask Lusot is typed only since Oct 30 (7:28 AM), when its voice tasks were dropped: both drafts now describe typed questions only.
+- **PRIV-Q3: Ask Lusot. Approved on its default (a)** by Claude under Rene's delegation (Oct 29, the tracker's check): no stored questions, `store: false` on Muse Spark, a place cache keyed by a hash (7 days, 1 day for a miss), a "dito" location that never leaves the server, and the 18+ check and notice before the first question. The page's brackets are filled to match (Ask Lusot's spec C720 and AskL-Q3). Ask Lusot was typed only from Oct 30 (7:28 AM), when its voice tasks were dropped. Voice came back on Oct 31 (Rene, 12:50 PM, through the tracker; built on `ask-app`), so both drafts now describe spoken questions too (Ask's spec N8, §4.9). The clip goes to Meta's speech-to-text service with the spot names as keywords, and Lusot keeps neither the clip nor its text. Transcription has no `store` setting (F5), so the texts say that Meta receives the clip and may keep it. Voice doesn't ship before these lines reach the app.
 - **PRIV-Q4:** the contact for privacy requests. Held for Rene. No email address may be committed (CLAUDE.md; MS8's C903 scans the history), so the address reaches the page at build time from a git-ignored config, as the alarm email reaches the template from `samconfig.toml`, and never enters a committed file. Window 2 builds MS5's side.
 - **PRIV-Q5:** whether to name OpenStreetMap's map servers. **Approved as drafted** (OpenStreetMap named), Oct 29. On Oct 30 (Window 2, MS5 Task 11, through the tracker at 1:51 PM), the line gained the place step: it loads the map's images around the person's own position, so OpenStreetMap also sees the area on screen, within about 300 m of them. The consent notice gained a line to match.
 - **PRIV-Q6, settled by MS3a's C85 check** (run Oct 28, 8:37 to 8:40 PM; recorded in MS3a's C88). The "What Meta keeps" lines now state its result, and the brackets are gone.

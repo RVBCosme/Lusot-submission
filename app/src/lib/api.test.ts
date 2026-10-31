@@ -1,6 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import {
   apiBaseUrl,
+  ask,
+  type AskAnswer,
+  askVoice,
   flagPin,
   getLayers,
   getPins,
@@ -553,4 +556,197 @@ it('getLayers gives undefined on a stalled link', async () => {
   await vi.advanceTimersByTimeAsync(15_000)
 
   expect(layers).toEqual({ settled: true })
+})
+
+// ---- Ask Lusot (its spec §4.8, §5) ----
+
+const ASK_PIN = {
+  id: ID,
+  lat: 14.6095,
+  lng: 120.9894,
+  capturedAt: '2026-10-30T10:05:12Z',
+  mode: 'live',
+  flags: 0,
+  gpsAccuracyM: 12,
+  level: 'knee',
+  landmark: 'rim_three_quarters',
+  passability: 'NPLV',
+  levelIsFloor: false,
+  basis: { vehicles: 1, people: 0 },
+  distanceM: 120,
+}
+const ASK_DEMO = {
+  ...ASK_PIN,
+  id: 'r_fedcba9876543210fedcba9876543210',
+  mode: 'demo',
+  capturedAt: '2009-09-26T01:30:00Z',
+  gpsAccuracyM: null,
+  level: 'above_chest',
+  passability: 'NPATV',
+  credit: 'Photo: Example Contributor (mock), CC BY 4.0',
+  place: 'Marikina',
+  event: 'Typhoon Ondoy',
+  distanceM: 210,
+}
+const ANSWER: AskAnswer = {
+  source: 'model',
+  fallback: null,
+  kind: 'reports',
+  crossing: false,
+  vehicle: 'light',
+  place: { name: 'España Blvd cor. Maceda St', source: 'spots' },
+  windowMin: 180,
+  radiusM: 300,
+  count: 1,
+  reports: [ASK_PIN],
+  demo: [ASK_DEMO],
+  deepestId: ID,
+  cited: [ID],
+  suggestions: [],
+} as AskAnswer
+const HERE = { lat: 14.6095, lng: 120.9894, accuracyM: 20 }
+const WAV = Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0x00, 0xff, 0x10, 0x80])
+
+it('ask posts the question and here with the device id, and gives the answer', async () => {
+  const fetchFn = fetchReplying(json(200, { answer: ANSWER }))
+
+  const { answer } = await ask(API, { question: 'Baha ba sa España cor. Maceda?', here: HERE }, DEVICE, fetchFn)
+
+  expect(answer).toEqual(ANSWER)
+  const [url, init] = fetchFn.mock.calls[0]
+  expect(url).toBe(`${API}/ask`)
+  expect(init?.method).toBe('POST')
+  expect(headersOf(fetchFn).get('X-Lusot-Device')).toBe(DEVICE)
+  expect(headersOf(fetchFn).get('content-type')).toBe('application/json')
+  expect(JSON.parse(String(init?.body))).toEqual({ question: 'Baha ba sa España cor. Maceda?', here: HERE })
+  // Only here's three fields are sent.
+  const richer = fetchReplying(json(200, { answer: ANSWER }))
+  await ask(API, { question: 'Baha?', here: { ...HERE, at: 1_700_000_000_000 } as typeof HERE }, DEVICE, richer)
+  expect(JSON.parse(String(richer.mock.calls[0][1]?.body)).here).toEqual(HERE)
+  // Without a location, no here is sent.
+  const bare = fetchReplying(json(200, { answer: ANSWER }))
+  await ask(API, { question: 'May baha ba?' }, DEVICE, bare)
+  expect(JSON.parse(String(bare.mock.calls[0][1]?.body))).toEqual({ question: 'May baha ba?' })
+})
+
+it('askVoice sends the audio as base64 with here, and gives the answer and the transcript', async () => {
+  const fetchFn = fetchReplying(json(200, { answer: ANSWER, transcript: 'Baha ba sa España cor. Maceda?' }))
+
+  const result = await askVoice(API, { audio: WAV, here: HERE }, DEVICE, fetchFn)
+
+  expect(result).toEqual({ answer: ANSWER, transcript: 'Baha ba sa España cor. Maceda?' })
+  const [url, init] = fetchFn.mock.calls[0]
+  expect(url).toBe(`${API}/ask/voice`)
+  expect(headersOf(fetchFn).get('X-Lusot-Device')).toBe(DEVICE)
+  const body = JSON.parse(String(init?.body))
+  expect(body).toEqual({ audio: 'UklGRgD/EIA=', here: HERE })
+  expect(Uint8Array.from(atob(body.audio), (c) => c.charCodeAt(0))).toEqual(WAV)
+})
+
+it('ask keeps only the answer fields, and drops a report it can\'t word or a demo pin without a credit', async () => {
+  const odd = { ...ASK_PIN, id: 'r_0000000000000000000000000000000a', level: 'ankle_deep' }
+  const uncredited = { ...ASK_DEMO, id: 'r_0000000000000000000000000000000b', credit: undefined }
+  const liveInDemo = { ...ASK_PIN, id: 'r_0000000000000000000000000000000c' }
+  const undated = { ...ASK_PIN, id: 'r_0000000000000000000000000000000d', capturedAt: '' }
+  const reports = [ASK_PIN, odd, undated]
+  const body = { answer: { ...ANSWER, reports, demo: [ASK_DEMO, uncredited, liveInDemo], extra: 'x' }, extra: 'y' }
+
+  const { answer } = await ask(API, { question: 'Baha?' }, DEVICE, fetchReplying(json(200, body)))
+
+  expect(answer).toEqual(ANSWER)
+})
+
+it.each([
+  ['no answer', {}],
+  ['an unknown kind', { answer: { ...ANSWER, kind: 'something_new' } }],
+  ['an unknown source', { answer: { ...ANSWER, source: 'free_text' } }],
+  ['a crossing that isn\'t a boolean', { answer: { ...ANSWER, crossing: 'yes' } }],
+  ['an unknown vehicle', { answer: { ...ANSWER, vehicle: 'suv' } }],
+  ['a deepest report it can\'t show', { answer: { ...ANSWER, reports: [{ ...ASK_PIN, level: 'ankle_deep' }] } }],
+  ['reports that aren\'t a list', { answer: { ...ANSWER, reports: 'r1' } }],
+  ['a place without a name', { answer: { ...ANSWER, place: { source: 'spots' } } }],
+  ['reports about no place', { answer: { ...ANSWER, place: null } }],
+  ['a deepest report whose time doesn\'t parse', { answer: { ...ANSWER, reports: [{ ...ASK_PIN, capturedAt: 'soon' }] } }],
+  ['a deepest report with no floor mark', { answer: { ...ANSWER, reports: [{ ...ASK_PIN, levelIsFloor: undefined }] } }],
+  ['a demo pin listed as the deepest report', { answer: { ...ANSWER, reports: [{ ...ASK_DEMO, id: ID }] } }],
+])('ask refuses an answer with %s as malformed', async (_name, body) => {
+  await expect(ask(API, { question: 'Baha?' }, DEVICE, fetchReplying(json(200, body)))).rejects.toBeInstanceOf(
+    MalformedAnswerError,
+  )
+})
+
+it('askVoice refuses an answer without a transcript as malformed', async () => {
+  await expect(askVoice(API, { audio: WAV }, DEVICE, fetchReplying(json(200, { answer: ANSWER })))).rejects.toBeInstanceOf(
+    MalformedAnswerError,
+  )
+})
+
+it.each(['question_limit', 'question_cap'])('a %s is an HttpError with its code and Retry-After, never retried', async (code) => {
+  for (const call of [
+    (f: typeof fetch) => ask(API, { question: 'Baha?' }, DEVICE, f),
+    (f: typeof fetch) => askVoice(API, { audio: WAV }, DEVICE, f),
+  ]) {
+    const fetchFn = fetchReplying(json(429, { error: code }, { 'retry-after': '1234' }), json(200, { answer: ANSWER }))
+    await expect(call(fetchFn)).rejects.toMatchObject({ status: 429, code, isDeviceLimit: true, retryAfterMs: 1_234_000 })
+    expect(fetchFn).toHaveBeenCalledOnce()
+  }
+})
+
+it("a bare 429, API Gateway's throttle, is retried once after 2 s", async () => {
+  vi.useFakeTimers()
+  const fetchFn = fetchReplying(json(429, { message: 'Too Many Requests' }), json(200, { answer: ANSWER }))
+
+  const pending = ask(API, { question: 'Baha?' }, DEVICE, fetchFn)
+  const state = track(pending)
+  await vi.advanceTimersByTimeAsync(1999)
+  expect(fetchFn).toHaveBeenCalledOnce()
+  expect(state.settled).toBe(false)
+  await vi.advanceTimersByTimeAsync(1)
+
+  await expect(pending).resolves.toEqual({ answer: ANSWER })
+  expect(fetchFn).toHaveBeenCalledTimes(2)
+
+  // A second bare 429 is shown, not retried again.
+  const twice = fetchReplying(json(429, {}), json(429, {}), json(200, { answer: ANSWER }))
+  const refused = ask(API, { question: 'Baha?' }, DEVICE, twice)
+  const caught = refused.catch((err: unknown) => err)
+  await vi.advanceTimersByTimeAsync(2000)
+  expect(await caught).toMatchObject({ status: 429, code: undefined })
+  expect(twice).toHaveBeenCalledTimes(2)
+})
+
+it.each(['voice_failed', 'ask_unavailable', 'voice_paused'])('a 503 %s is never retried', async (code) => {
+  const fetchFn = fetchReplying(json(503, { error: code }), json(200, { answer: ANSWER, transcript: 'x' }))
+
+  await expect(askVoice(API, { audio: WAV }, DEVICE, fetchFn)).rejects.toMatchObject({ status: 503, code })
+  expect(fetchFn).toHaveBeenCalledOnce()
+})
+
+it('a network error after the request was sent is never retried', async () => {
+  const fetchFn = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  fetchFn.mockResolvedValueOnce(json(200, { answer: ANSWER }))
+
+  await expect(ask(API, { question: 'Baha?' }, DEVICE, fetchFn)).rejects.toBeInstanceOf(TypeError)
+  expect(fetchFn).toHaveBeenCalledOnce()
+})
+
+it("ask waits up to 30 s, API Gateway's own limit, then gives a RequestTimeoutError, never retried", async () => {
+  vi.useFakeTimers()
+  const fetchFn = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}))
+
+  const pending = ask(API, { question: 'Baha?' }, DEVICE, fetchFn)
+  const caught = pending.catch((err: unknown) => err)
+  const state = track(pending)
+  await vi.advanceTimersByTimeAsync(29_999)
+  expect(state.settled).toBe(false)
+  await vi.advanceTimersByTimeAsync(1)
+
+  expect(await caught).toBeInstanceOf(RequestTimeoutError)
+  expect(fetchFn).toHaveBeenCalledOnce()
+})
+
+it('isDeviceLimit covers Ask\'s two codes', () => {
+  expect(new HttpError(429, 'question_limit').isDeviceLimit).toBe(true)
+  expect(new HttpError(429, 'question_cap').isDeviceLimit).toBe(true)
+  expect(new HttpError(503, 'voice_failed').isDeviceLimit).toBe(false)
 })

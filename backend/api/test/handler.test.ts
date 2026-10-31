@@ -25,14 +25,17 @@ import {
   serve,
   ssmMock,
   stubApiEnv,
+  TRANSCRIPT,
   UPLOAD as UPLOAD_FIELDS,
+  VOICE_AUDIO,
 } from "./routeFixtures";
 
 const UPLOAD = JSON.stringify({ lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedAt: new Date().toISOString() });
 
 // Sentinels that must never reach a log (CLAUDE.md, spec §4.6): the caller's IP, its device id and
 // the id's SHA-256, and a point that only the upload body and the nearby query hold. Ask Lusot adds a
-// question's word and a "dito" point next to PIN, inside Metro Manila, so its pins are read (its spec AK7).
+// question's word and a "dito" point next to PIN, inside Metro Manila, so its pins are read (its spec AK7), and
+// the transcript's first word, which the fake transcription hears in every clip.
 const SENTINEL_IP = "203.0.113.7";
 const SENTINEL_DEVICE = "device-5e771ne1-0123456789";
 const SENTINEL_LAT = "14.123456";
@@ -49,6 +52,7 @@ const SENTINELS = [
   SENTINEL_WORD,
   SENTINEL_HERE_LAT,
   SENTINEL_HERE_LNG,
+  TRANSCRIPT.split(" ")[0],
 ];
 
 function sentinelRequest(routeKey: RouteKey): APIGatewayProxyEventV2 {
@@ -62,10 +66,9 @@ function sentinelRequest(routeKey: RouteKey): APIGatewayProxyEventV2 {
     fields.body = JSON.stringify({ ...UPLOAD_FIELDS, lat: Number(SENTINEL_LAT), lng: Number(SENTINEL_LNG) });
   }
   if (routeKey === "GET /reports") fields.queryStringParameters = { lat: SENTINEL_LAT, lng: SENTINEL_LNG };
-  if (routeKey === "POST /ask") {
-    const here = { lat: Number(SENTINEL_HERE_LAT), lng: Number(SENTINEL_HERE_LNG), accuracyM: 20 };
-    fields.body = JSON.stringify({ question: `${SENTINEL_WORD} may baha ba dito?`, here });
-  }
+  const here = { lat: Number(SENTINEL_HERE_LAT), lng: Number(SENTINEL_HERE_LNG), accuracyM: 20 };
+  if (routeKey === "POST /ask") fields.body = JSON.stringify({ question: `${SENTINEL_WORD} may baha ba dito?`, here });
+  if (routeKey === "POST /ask/voice") fields.body = JSON.stringify({ audio: VOICE_AUDIO, here });
   return request(routeKey, fields);
 }
 
@@ -73,8 +76,13 @@ function sentinelRequest(routeKey: RouteKey): APIGatewayProxyEventV2 {
 // routes give 500. POST /ask degrades instead (its spec §5.4, C736): its calls are the two question counters, the
 // spend counter's read, the nine cells of the pins read, then the spend write. A failed counter is a 500; an
 // unreadable spend counter pauses model calls and answers with the plain list; a failed pins read is a 503
-// ask_unavailable; a failed spend write keeps the answer.
+// ask_unavailable; a failed spend write keeps the answer. POST /ask/voice makes the same calls, but an unreadable
+// spend counter is its 503 voice_paused, with the count given back.
 function failedStatus(routeKey: RouteKey, failAt: number, calls: number): number {
+  if (routeKey === "POST /ask/voice") {
+    if (failAt <= 2) return 500;
+    return failAt === calls ? 200 : 503;
+  }
   if (routeKey !== "POST /ask") return 500;
   if (failAt <= 2) return 500;
   if (failAt === 3 || failAt === calls) return 200;
@@ -275,11 +283,17 @@ describe("handler, in a new container", () => {
         expect(res.statusCode, `${routeKey}, call ${failAt}`).toBe(failedStatus(routeKey, failAt, calls));
       }
     }
-    // Ask's success made the thirteen calls failedStatus names, in that order.
-    resetMocks();
-    serve();
-    await (await coldHandler())(sentinelRequest("POST /ask"));
-    expect(awsCalls()).toBe(13);
+    // Each Ask route's success made the thirteen calls failedStatus names, in that order, and the spoken one no S3
+    // call: its audio goes only to Meta (spec AK7).
+    for (const routeKey of ["POST /ask", "POST /ask/voice"] as const) {
+      resetMocks();
+      serve();
+      await (await coldHandler())(sentinelRequest(routeKey));
+      expect(awsCalls(), routeKey).toBe(13);
+      expect(s3Mock.calls(), routeKey).toHaveLength(0);
+    }
+    const voice = await (await coldHandler())(sentinelRequest("POST /ask/voice"));
+    expect(JSON.parse(voice.body).transcript).toBe(TRANSCRIPT);
 
     // The runs logged, so the capture works.
     expect(lines.some((line) => line.includes("request_failed"))).toBe(true);
@@ -394,34 +408,36 @@ describe("handler, in a new container", () => {
     for (const absent of ["cancelled", ID, ...SENTINELS]) expect(line).not.toContain(absent);
   });
 
-  // Ask Lusot's two variables are read on its own route only (its Task 12), so the test above keeps seven names.
-  it.each(["MODEL_KEY_PARAM", "NOMINATIM_USER_AGENT"])(
-    "without %s, POST /ask answers 500 internal and names it, and MS4's routes still answer",
-    async (name) => {
-      const lines = captureConsole();
-      vi.stubEnv(name, undefined);
-      const cold = await coldHandler();
+  // Ask Lusot's two variables are read on its own routes only (its Task 12), so the test above keeps seven names.
+  it.each([
+    ["MODEL_KEY_PARAM", "POST /ask", "ask"],
+    ["NOMINATIM_USER_AGENT", "POST /ask", "ask"],
+    ["MODEL_KEY_PARAM", "POST /ask/voice", "ask_voice"],
+    ["NOMINATIM_USER_AGENT", "POST /ask/voice", "ask_voice"],
+  ] as const)("without %s, %s answers 500 internal and names it, and MS4's routes still answer", async (name, routeKey, route) => {
+    const lines = captureConsole();
+    vi.stubEnv(name, undefined);
+    const cold = await coldHandler();
 
-      const res = await cold(request("POST /ask"));
+    const res = await cold(request(routeKey));
 
-      expect(res.statusCode).toBe(500);
-      expect(JSON.parse(res.body)).toEqual({ error: "internal" });
-      expect(lines.map((line) => JSON.parse(line))).toEqual([
-        { msg: "ask_unconfigured", variable: name },
-        { msg: "ask", route: "ask", status: 500, code: "internal", error: "MissingVariable" },
-      ]);
-      expect(awsCalls() + ssmMock.calls().length).toBe(0);
-      expect((await cold(request("GET /reports/{id}"))).statusCode).toBe(200);
-      // Set again, the next question builds Ask's deps and is answered.
-      stubApiEnv();
-      expect((await cold(request("POST /ask"))).statusCode).toBe(200);
-    },
-  );
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({ error: "internal" });
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      { msg: "ask_unconfigured", variable: name },
+      { msg: "ask", route, status: 500, code: "internal", error: "MissingVariable" },
+    ]);
+    expect(awsCalls() + ssmMock.calls().length).toBe(0);
+    expect((await cold(request("GET /reports/{id}"))).statusCode).toBe(200);
+    // Set again, the next question builds Ask's deps and is answered.
+    stubApiEnv();
+    expect((await cold(request(routeKey))).statusCode).toBe(200);
+  });
 
-  it("answers POST /ask through the real Meta client, and no other route reads the model key", async () => {
+  it("answers both Ask routes through the real Meta client, and no other route reads the model key", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const keyReads = () => ssmMock.commandCalls(GetParameterCommand).filter((call) => call.args[0].input.Name === MODEL_KEY_PARAM);
-    for (const routeKey of ROUTE_KEYS.filter((key) => key !== "POST /ask")) await (await coldHandler())(request(routeKey));
+    for (const routeKey of ROUTE_KEYS.filter((key) => !key.startsWith("POST /ask"))) await (await coldHandler())(request(routeKey));
     expect(keyReads()).toHaveLength(0);
 
     const res = await (await coldHandler())(request("POST /ask"));
@@ -429,5 +445,13 @@ describe("handler, in a new container", () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).answer).toMatchObject({ source: "model", kind: "reports", place: { source: "here" }, cited: [ID] });
     expect(keyReads().map((call) => call.args[0].input)).toEqual([{ Name: MODEL_KEY_PARAM, WithDecryption: true }]);
+
+    const spoken = await (await coldHandler())(request("POST /ask/voice"));
+
+    expect(spoken.statusCode).toBe(200);
+    expect(JSON.parse(spoken.body)).toMatchObject({
+      transcript: TRANSCRIPT,
+      answer: { source: "model", kind: "reports", place: { source: "here" }, cited: [ID] },
+    });
   });
 });

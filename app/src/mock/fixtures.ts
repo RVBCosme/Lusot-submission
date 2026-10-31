@@ -5,7 +5,7 @@
 // Which state the mock is in is picked by a scenario name (see `scenarioNames`). Shapes and names follow MS4's
 // committed answers (plan "Notes"): C507's readings, C524's layers file, §4.4's pins, C512's samples and C527's
 // saved sample.
-import { FAILED_REASONS, PASSABILITY, REFUSED_REASONS, type Level } from '../copy/levels'
+import { FAILED_REASONS, LEVELS as LEVEL_ORDER, PASSABILITY, REFUSED_REASONS, type Level } from '../copy/levels'
 import type { OverlayData, OverlayRef, Point, Polygon, Reading, SavedSample } from '../lib/api'
 
 // Sent as a response header value, so the string is in the code as a literal that a bundle check can search for.
@@ -637,4 +637,99 @@ export function savedSample(sample: SampleSpec): SavedSample {
 
 export function levelKeyOf(outcome: Outcome): LevelKey | undefined {
   return outcome.kind === 'level' ? outcome.key : undefined
+}
+
+// ---- Ask Lusot (its plan Task 14) ----
+
+// What the mock hears in every spoken question: it can't read audio, so one fixed question stands in.
+export const ASK_TRANSCRIPT = 'Gaano kalalim ang baha sa España cor. Maceda?'
+
+export type AskReply = { status: number; body: Record<string, unknown> }
+
+const ASK_SPOT = 'España Blvd cor. Maceda St'
+// Up to three listed spots on one road, as the API offers for a bare road (Ask's C733).
+const TAFT_SPOTS = ['Taft Ave in front of PGH', 'Taft Ave cor. Quirino Ave', 'UN Ave cor. Taft Ave']
+// Each live pin's distance from the place asked about, and the demo pin's.
+const ASK_DISTANCES: Record<string, number> = {
+  r_1a2b3c4d5e6f40718293a4b5c6d7e8f9: 40,
+  r_2b3c4d5e6f7a41829304b5c6d7e8f9a0: 120,
+  r_3c4d5e6f7a8b429304a5b6c7d8e9f0a1: 260,
+  r_5e6f7a8b9c0d44b506c7d8e9f0a1b2c3: 210,
+}
+
+// One mock answer per kind of Ask's answer (spec §5.3), picked by a word in the question, so every state of the screen
+// can be shown without the backend. A place word picks the kind, and a crossing, vehicle or walking word the reading:
+// "limit" and "cap" give the two 429s and "unavailable" the 503; "ulam" or "laro" is off topic, "Laguna" outside,
+// "busy" a lookup that can't run, "Nowhere" no place, a bare "Taft Avenue" too broad, "Marikina" no reports, "Quiapo"
+// a place found through Nominatim, "dito" the location sent (or no_location without one), and "plain" the plain list.
+// Anything else is a reports answer at España cor. Maceda.
+export function askReply(question: string, here: boolean, startedAt: number, nowMs: number): AskReply {
+  const q = question.toLowerCase()
+  const has = (pattern: RegExp) => pattern.test(q)
+  if (has(/\blimit\b/)) return { status: 429, body: { error: 'question_limit' } }
+  if (has(/\bcap\b/)) return { status: 429, body: { error: 'question_cap' } }
+  if (has(/\bunavailable\b/)) return { status: 503, body: { error: 'ask_unavailable' } }
+
+  const plain = has(/\bplain\b/)
+  const crossing = has(/\blusot ba\b|\bkaya ba\b|tawid|\bcross|\bdumaan\b|ligtas|safe/)
+  const vehicle = plain
+    ? null
+    : has(/\b(truck|trak|bus)\b/)
+      ? 'heavy'
+      : has(/\b(kotse|sedan|car|suv)\b/)
+        ? 'light'
+        : has(/lakad|\bwalk/)
+          ? 'on_foot'
+          : null
+  const answer = (kind: string, fields: Record<string, unknown> = {}): AskReply => ({
+    status: 200,
+    body: {
+      answer: {
+        source: plain ? 'plain_list' : 'model',
+        fallback: plain ? 'model_calls_paused' : null,
+        kind,
+        crossing,
+        vehicle,
+        place: null,
+        windowMin: 180,
+        radiusM: 300,
+        count: 0,
+        reports: [],
+        demo: [],
+        deepestId: null,
+        cited: [],
+        suggestions: [],
+        ...fields,
+      },
+    },
+  })
+  const pins = (place: { name: string; source: string }, withLive: boolean) => {
+    const bodies: Record<string, unknown>[] = pinSpecs()
+      .filter((spec) => ASK_DISTANCES[spec.id] !== undefined && (withLive || spec.mode === 'demo'))
+      .map((spec) => ({ ...pinBody({ ...spec, capturedAt: pinCapturedAt(spec, startedAt) }, spec.flags), distanceM: ASK_DISTANCES[spec.id] }))
+    // Live pins in the window, deepest first (the 9 levels in order), and the demo pin apart.
+    const live = bodies
+      .filter((pin) => pin.mode === 'live' && nowMs - Date.parse(String(pin.capturedAt)) <= 180 * 60_000)
+      .sort((a, b) => LEVEL_ORDER.indexOf(String(b.level) as Level) - LEVEL_ORDER.indexOf(String(a.level) as Level))
+    const demo = bodies.filter((pin) => pin.mode === 'demo')
+    const deepestId = (live[0]?.id as string | undefined) ?? null
+    return {
+      place,
+      count: live.length,
+      reports: live,
+      demo,
+      deepestId,
+      cited: plain || deepestId === null ? [] : [deepestId],
+    }
+  }
+
+  if (has(/\b(ulam|laro|score)\b/)) return answer('off_topic')
+  if (has(/\blaguna\b/)) return answer('outside_metro_manila')
+  if (has(/\bbusy\b/)) return answer('lookup_unavailable')
+  if (has(/\bnowhere\b/)) return answer('no_place')
+  if (has(/\btaft (avenue|ave)\b/) && !has(/\bpgh\b/)) return answer('place_too_broad', { suggestions: TAFT_SPOTS })
+  if (has(/\bmarikina\b/)) return answer('no_reports', pins({ name: 'Marikina Riverbanks', source: 'nominatim' }, false))
+  if (has(/\bquiapo\b/)) return answer('reports', pins({ name: 'Quiapo Church', source: 'nominatim' }, true))
+  if (has(/\b(dito|here|near me)\b/)) return here ? answer('reports', pins({ name: 'here', source: 'here' }, true)) : answer('no_location')
+  return answer('reports', pins({ name: ASK_SPOT, source: 'spots' }, true))
 }

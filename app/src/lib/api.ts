@@ -4,6 +4,11 @@ import { type Level, LEVELS, PASSABILITY, type Passability } from '../copy/level
 import { apiFetch } from './apiFetch'
 
 const REQUEST_TIMEOUT_MS = 15_000 // one API call
+// Ask Lusot's two calls wait as long as API Gateway's own 30 s limit: the Lambda answers by 15 s at the latest, and a
+// spoken question's upload comes first (Ask's spec §4.1). A question given up on may still be counted and paid.
+const ASK_TIMEOUT_MS = 30_000
+// API Gateway's throttling 429 refuses a question before the Lambda runs, so it is retried once, this much later.
+const ASK_THROTTLE_RETRY_MS = 2000
 const UPLOAD_TIMEOUT_MS = 60_000 // the photo: a few hundred KB, maybe over a slow mobile connection
 // MS4's C508: the random device id, sent with uploads, samples and flags only (C606).
 const DEVICE_HEADER = 'X-Lusot-Device'
@@ -117,6 +122,38 @@ export type Pin = {
   depthInMin?: number
   depthInMax?: number
 }
+
+// Ask Lusot's answer (its spec §5.3): data only, which ask/render.ts words. Each report is a public pin with its
+// distance from the place asked about, in whole metres.
+export type AskReport = Pin & { distanceM: number }
+export type AskKind =
+  | 'reports'
+  | 'no_reports'
+  | 'place_too_broad'
+  | 'no_place'
+  | 'lookup_unavailable'
+  | 'outside_metro_manila'
+  | 'no_location'
+  | 'off_topic'
+  | 'no_speech'
+export type AskAnswer = {
+  source: 'model' | 'plain_list'
+  fallback: 'model_calls_paused' | 'deadline' | 'model_error' | 'key_rejected' | 'invalid_answer' | 'no_tool_call' | null
+  kind: AskKind
+  crossing: boolean
+  vehicle: 'light' | 'heavy' | 'on_foot' | null
+  place: { name: string; source: 'spots' | 'nominatim' | 'here' } | null
+  windowMin: number
+  radiusM: number
+  count: number
+  reports: AskReport[]
+  demo: AskReport[]
+  deepestId: string | null
+  cited: string[]
+  suggestions: string[]
+}
+// "Use my location": a fix of 100 m or better (Ask's spec §5.1).
+export type Here = { lat: number; lng: number; accuracyM: number }
 
 // One entry of GET /samples (MS4's C512). photoUrl lasts 5 minutes.
 export type Sample = {
@@ -375,6 +412,157 @@ export async function flagPin(
     if (typeof flags !== 'number') throw new MalformedAnswerError('POST /reports/{id}/flag')
     return { flags }
   })
+}
+
+// POST /ask (Ask's spec §5.1). Not retried but for API Gateway's throttle (askPost).
+export async function ask(
+  apiUrl: string,
+  req: { question: string; here?: Here },
+  deviceId: string,
+  fetchFn: typeof fetch = apiFetch,
+): Promise<{ answer: AskAnswer }> {
+  const { question } = req
+  const body = await askPost(`${apiUrl}/ask`, JSON.stringify({ question, here: hereOf(req.here) }), deviceId, fetchFn)
+  return { answer: readAnswer(body.answer, 'POST /ask') }
+}
+
+// POST /ask/voice (Ask's spec §5.2): the WAV as base64 in JSON. The audio is only ever in this request's memory.
+export async function askVoice(
+  apiUrl: string,
+  req: { audio: Uint8Array; here?: Here },
+  deviceId: string,
+  fetchFn: typeof fetch = apiFetch,
+): Promise<{ answer: AskAnswer; transcript: string }> {
+  const { audio } = req
+  const body = await askPost(`${apiUrl}/ask/voice`, JSON.stringify({ audio: base64(audio), here: hereOf(req.here) }), deviceId, fetchFn)
+  if (typeof body.transcript !== 'string') throw new MalformedAnswerError('POST /ask/voice')
+  return { answer: readAnswer(body.answer, 'POST /ask/voice'), transcript: body.transcript }
+}
+
+// Only a location's three fields are sent, as requestUpload sends only its own.
+function hereOf(here: Here | undefined): Here | undefined {
+  return here === undefined ? undefined : { lat: here.lat, lng: here.lng, accuracyM: here.accuracyM }
+}
+
+// Ask's one retry (its spec §4.8): API Gateway's throttling 429, which carries no code, refused the question before it
+// was counted. Nothing else is retried, unlike retryOnce: a question_limit or question_cap is shown, a 503 may have
+// been counted and paid, and a request lost on the way may have reached the Lambda.
+async function askPost(url: string, body: string, deviceId: string, fetchFn: typeof fetch): Promise<Record<string, unknown>> {
+  const post = () =>
+    withTimeout(ASK_TIMEOUT_MS, async (signal) => {
+      const res = await fetchFn(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [DEVICE_HEADER]: deviceId },
+        body,
+        signal,
+      })
+      if (!res.ok) throw await httpError(res)
+      return ((await res.json()) ?? {}) as Record<string, unknown>
+    })
+  try {
+    return await post()
+  } catch (err) {
+    if (!(err instanceof HttpError && err.status === 429 && err.code === undefined)) throw err
+    await new Promise((resolve) => setTimeout(resolve, ASK_THROTTLE_RETRY_MS))
+    return post()
+  }
+}
+
+const ASK_SOURCES: ReadonlySet<unknown> = new Set(['model', 'plain_list'])
+const ASK_FALLBACKS: ReadonlySet<unknown> = new Set([
+  null,
+  'model_calls_paused',
+  'deadline',
+  'model_error',
+  'key_rejected',
+  'invalid_answer',
+  'no_tool_call',
+])
+const ASK_KINDS: ReadonlySet<unknown> = new Set([
+  'reports',
+  'no_reports',
+  'place_too_broad',
+  'no_place',
+  'lookup_unavailable',
+  'outside_metro_manila',
+  'no_location',
+  'off_topic',
+  'no_speech',
+])
+const ASK_VEHICLES: ReadonlySet<unknown> = new Set([null, 'light', 'heavy', 'on_foot'])
+const ASK_PLACE_SOURCES: ReadonlySet<unknown> = new Set(['spots', 'nominatim', 'here'])
+
+// The answer's fields, read strictly: anything outside spec §5.3's values is MalformedAnswerError, so no line is
+// worded from a value the app doesn't know. A report the app can't word, or a demo pin without its credit, is left
+// out, as getPins leaves it off the map (N2); but the deepest one must stay, since the summary is about it (C705).
+function readAnswer(value: unknown, route: string): AskAnswer {
+  const a = (value ?? {}) as Record<string, unknown>
+  const place = a.place as Record<string, unknown> | null | undefined
+  const placeOk = place === null || (isText(place?.name) && ASK_PLACE_SOURCES.has(place?.source))
+  // A list of reports is always about a place: its summary names it.
+  const placed = place !== null || (a.kind !== 'reports' && a.kind !== 'no_reports')
+  const lists = [a.reports, a.demo, a.cited, a.suggestions]
+  const counts = [a.windowMin, a.radiusM, a.count]
+  if (
+    !ASK_SOURCES.has(a.source) ||
+    !ASK_FALLBACKS.has(a.fallback) ||
+    !ASK_KINDS.has(a.kind) ||
+    typeof a.crossing !== 'boolean' ||
+    !ASK_VEHICLES.has(a.vehicle) ||
+    !placeOk ||
+    !placed ||
+    !lists.every(Array.isArray) ||
+    !counts.every((count) => Number.isInteger(count)) ||
+    !(a.deepestId === null || typeof a.deepestId === 'string') ||
+    !(a.cited as unknown[]).every((id) => typeof id === 'string') ||
+    !(a.suggestions as unknown[]).every((name) => typeof name === 'string')
+  ) {
+    throw new MalformedAnswerError(route)
+  }
+  const reports = (a.reports as unknown[]).filter((r) => isUsableReport(r, 'live')).map(askReport)
+  const demo = (a.demo as unknown[]).filter((r) => isUsableReport(r, 'demo')).map(askReport)
+  if (a.deepestId !== null && !reports.some((report) => report.id === a.deepestId)) throw new MalformedAnswerError(route)
+  return {
+    source: a.source,
+    fallback: a.fallback,
+    kind: a.kind,
+    crossing: a.crossing,
+    vehicle: a.vehicle,
+    place: place === null ? null : { name: place?.name, source: place?.source },
+    windowMin: a.windowMin,
+    radiusM: a.radiusM,
+    count: a.count,
+    reports,
+    demo,
+    deepestId: a.deepestId,
+    cited: a.cited,
+    suggestions: a.suggestions,
+  } as AskAnswer
+}
+
+// A pin the map could show, in its own list, with a distance, a time that parses (or "just now" would claim a fresh
+// photo) and a floor mark (or "At least" would be dropped).
+function isUsableReport(value: unknown, mode: 'live' | 'demo'): boolean {
+  const report = (value ?? {}) as Record<string, unknown>
+  return (
+    isUsablePin(value) &&
+    report.mode === mode &&
+    Number.isFinite(report.distanceM) &&
+    typeof report.capturedAt === 'string' &&
+    Number.isFinite(Date.parse(report.capturedAt)) &&
+    typeof report.levelIsFloor === 'boolean'
+  )
+}
+
+function askReport(value: unknown): AskReport {
+  return { ...pick(value, PIN_FIELDS), distanceM: (value as { distanceM: number }).distanceM } as unknown as AskReport
+}
+
+// The bytes as standard base64, in chunks, so a 15 s clip's 480 KB never meets the argument limit of a single call.
+function base64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
+  return btoa(binary)
 }
 
 // Runs one request, body included, with a time limit, so a stalled connection fails instead of

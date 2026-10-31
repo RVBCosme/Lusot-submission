@@ -3,6 +3,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FAILED_REASONS, PASSABILITY, REFUSED_REASONS } from '../copy/levels'
 import {
+  ask,
+  askVoice,
   flagPin,
   getLayers,
   getPins,
@@ -17,7 +19,7 @@ import {
 } from '../lib/api'
 import { pollReport, PollTimeoutError } from '../lib/poll'
 import { retryOnce } from '../lib/retry'
-import { MOCK_FILES_ORIGIN, MOCK_MARKER, scenarioNames, type Scenario } from './fixtures'
+import { ASK_TRANSCRIPT, MOCK_FILES_ORIGIN, MOCK_MARKER, scenarioNames, type Scenario } from './fixtures'
 import { createMockFetch, pickScenario } from './mockFetch'
 
 const API = 'https://mock.invalid'
@@ -672,5 +674,73 @@ describe('choosing a scenario', () => {
     const { fetchFn } = mockWith(scenario)
     expect((await fetchFn(`${API}/samples`)).status).toBe(200)
     expect((await fetchFn(`${API}/map/pins`)).status).toBe(200)
+  })
+})
+
+describe('Ask Lusot', () => {
+  const HERE = { lat: 14.6095, lng: 120.9894, accuracyM: 20 }
+  const mock = () => createMockFetch({ now: () => NOW })
+
+  it.each([
+    ['Gaano kalalim ang baha sa España cor. Maceda?', undefined, { kind: 'reports', source: 'model', place: { source: 'spots' } }],
+    ['May baha ba dito?', HERE, { kind: 'reports', place: { name: 'here', source: 'here' } }],
+    ['May baha ba dito?', undefined, { kind: 'no_location', place: null }],
+    ['Baha ba malapit sa Quiapo Church?', undefined, { kind: 'reports', place: { source: 'nominatim' } }],
+    ['Baha ba sa Marikina?', undefined, { kind: 'no_reports', reports: [], count: 0 }],
+    ['Lusot ba sedan ko sa Taft Avenue?', undefined, { kind: 'place_too_broad', crossing: true, vehicle: 'light' }],
+    ['Baha ba sa San Pablo, Laguna?', undefined, { kind: 'outside_metro_manila' }],
+    ['Baha ba sa Nowhere Street?', undefined, { kind: 'no_place' }],
+    ['Baha ba sa busy place?', undefined, { kind: 'lookup_unavailable' }],
+    ['Ano ang ulam mamaya?', undefined, { kind: 'off_topic' }],
+    ['Plain list sa España cor. Maceda', undefined, { kind: 'reports', source: 'plain_list', fallback: 'model_calls_paused', vehicle: null, cited: [] }],
+    ['Kaya ba ng truck ko sa España cor. Maceda?', undefined, { kind: 'reports', crossing: true, vehicle: 'heavy' }],
+    ['Maglalakad ako sa España cor. Maceda', undefined, { kind: 'reports', vehicle: 'on_foot' }],
+  ])('%s (here: %o) answers as the real client reads it: %o', async (question, here, expected) => {
+    const { answer } = await ask(API, { question, here }, DEVICE, mock())
+
+    expect(answer).toMatchObject(expected)
+  })
+
+  it('a reports answer has its deepest first, a demo pin apart, and cites the deepest', async () => {
+    const { answer } = await ask(API, { question: 'Baha ba sa España cor. Maceda?' }, DEVICE, mock())
+
+    expect(answer.reports.length).toBeGreaterThan(1)
+    expect(answer.deepestId).toBe(answer.reports[0].id)
+    expect(answer.cited).toContain(answer.reports[0].id)
+    expect(answer.count).toBe(answer.reports.length)
+    expect(answer.demo.map((pin) => pin.mode)).toEqual(['demo'])
+    expect(answer.place?.name).toBe('España Blvd cor. Maceda St')
+  })
+
+  it('too broad suggests listed spots', async () => {
+    const { answer } = await ask(API, { question: 'Gaano kalalim sa Taft Avenue?' }, DEVICE, mock())
+
+    expect(answer.suggestions).toEqual(['Taft Ave in front of PGH', 'Taft Ave cor. Quirino Ave', 'UN Ave cor. Taft Ave'])
+  })
+
+  it.each(['question_limit', 'question_cap'])('"%s" in a question gives that 429, with the seconds to the next hour', async (code) => {
+    const err = await ask(API, { question: `Show the ${code.split('_')[1]}` }, DEVICE, mock()).catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(HttpError)
+    expect(err).toMatchObject({ status: 429, code, isDeviceLimit: true, retryAfterMs: 40 * 60_000 })
+  })
+
+  it('"unavailable" in a question gives a 503 ask_unavailable', async () => {
+    await expect(ask(API, { question: 'Ask unavailable?' }, DEVICE, mock())).rejects.toMatchObject({ status: 503, code: 'ask_unavailable' })
+  })
+
+  it('a spoken question is heard as one fixed question, and answered with its transcript', async () => {
+    const audio = new Uint8Array(44 + 32_000)
+    const { answer, transcript } = await askVoice(API, { audio }, DEVICE, mock())
+
+    expect(transcript).toBe(ASK_TRANSCRIPT)
+    expect(answer).toMatchObject({ kind: 'reports', place: { source: 'spots' } })
+  })
+
+  it('a spoken question without audio is a 400 bad_audio', async () => {
+    const res = await mock()(`${API}/ask/voice`, { method: 'POST', body: JSON.stringify({}) })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'bad_audio' })
   })
 })

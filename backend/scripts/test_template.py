@@ -1,6 +1,6 @@
 """Tests for backend/template.yaml: MS4's routes, APIs, tables, CORS, throttles,
 lifecycle, retentions, alarms and role grants (MS4 spec §4.3 to §4.7; plan Task 1),
-and Ask Lusot's route, grants, switch and alarms (Ask plan Task 13, typed only).
+and Ask Lusot's two routes, grants, switch and alarms (Ask plan Task 13).
 
 They read the template through cfn_template.load_template, so nothing reaches AWS.
 check:py runs this file with the scripts' dependencies. Alone, from the repo root:
@@ -194,20 +194,24 @@ def test_routes():
         "GET /samples",
         "POST /samples/{sampleId}",
         "POST /ask",
+        "POST /ask/voice",
     }
     assert route_keys("FeedApi") == {"GET /pins.geojson"}
 
 
 def test_ask_routes():
-    """Ask ships typed only (Oct 30): one AskTyped event on HttpApi, and no voice route."""
+    """Ask's two routes on HttpApi: AskTyped and AskVoice, POST only, and no other."""
     events = props("ApiFunction")["Events"]
     assert events.get("AskTyped") == {
         "Type": "HttpApi",
         "Properties": {"ApiId": {"Ref": "HttpApi"}, "Method": "POST", "Path": "/ask"},
     }
-    assert "AskVoice" not in events
+    assert events.get("AskVoice") == {
+        "Type": "HttpApi",
+        "Properties": {"ApiId": {"Ref": "HttpApi"}, "Method": "POST", "Path": "/ask/voice"},
+    }
     deployed = route_keys("HttpApi") | route_keys("FeedApi")
-    assert {key for key in deployed if "/ask" in key} == {"POST /ask"}
+    assert {key for key in deployed if "/ask" in key} == {"POST /ask", "POST /ask/voice"}
 
 
 def test_routes_match_the_api_router():
@@ -217,7 +221,7 @@ def test_routes_match_the_api_router():
     assert router, "route() is missing from index.ts"
     cases = set(re.findall(r'^\s*case "([^"]+)":', router.group(0), re.MULTILINE))
     deployed = route_keys("HttpApi") | route_keys("FeedApi")
-    assert len(deployed) == 9
+    assert len(deployed) == 10
     assert cases == deployed
 
 
@@ -235,7 +239,7 @@ def test_api_environment():
         "MODEL_KEY_PARAM",
         "NOMINATIM_USER_AGENT",
     }
-    # Ask's two (C701), read only on POST /ask. The key's name, never the key; the
+    # Ask's two (C701), read only on its two routes. The key's name, never the key; the
     # analysis function reads the same parameter.
     assert env["MODEL_KEY_PARAM"] == "/lusot/meta/model-api-key"
     analysis = props("AnalysisFunction")["Environment"]["Variables"]

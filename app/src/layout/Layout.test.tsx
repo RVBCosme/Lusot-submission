@@ -24,8 +24,9 @@ const ROUTES: [hash: string, heading: StringKey][] = [
   ['#/privacy', 'privacy.title'],
   ['#/licences', 'licences.title'],
   [PIN, 'pin.title'],
+  ['#/ask', 'nav.ask'],
 ]
-const NAV: StringKey[] = ['nav.map', 'nav.report', 'nav.tested', 'nav.about']
+const NAV: StringKey[] = ['nav.map', 'nav.report', 'nav.tested', 'nav.about', 'nav.ask']
 
 afterEach(() => {
   cleanup()
@@ -71,12 +72,12 @@ describe.each(['en', 'fil'] as const)('in %s', (lang) => {
     expectOneScreenLine()
   })
 
-  it('the nav has 4 links named by the string table, each with an icon', () => {
+  it('the nav has 5 links named by the string table, each with an icon', () => {
     renderApp({ lang })
 
     const links = navLinks()
     expect(links.map((link) => link.textContent)).toEqual(NAV.map((key) => shown(lang, key)))
-    expect(links.map((link) => link.getAttribute('href'))).toEqual(['#/map', '#/report', '#/tested', '#/about'])
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['#/map', '#/report', '#/tested', '#/about', '#/ask'])
     for (const [i, key] of NAV.entries()) {
       expect(screen.getByRole('link', { name: shown(lang, key) })).toBe(links[i])
       expect(links[i].querySelector('svg')?.getAttribute('aria-hidden'), key).toBe('true')
@@ -94,6 +95,7 @@ it('the nav marks the section the route belongs to', () => {
     ['#/about', 'nav.about'],
     ['#/privacy', 'nav.about'],
     ['#/licences', 'nav.about'],
+    ['#/ask', 'nav.ask'],
   ]
   for (const [hash, section] of cases) {
     renderApp({ hash })
@@ -127,8 +129,8 @@ it('with no API address, the banner shows and Report is disabled', () => {
   expect(report.getAttribute('aria-disabled')).toBe('true')
   expect(report.hasAttribute('href')).toBe(false)
   expect(report.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
-  expect(navLinks()).toHaveLength(4)
-  for (const key of ['nav.map', 'nav.tested', 'nav.about'] as const) {
+  expect(navLinks()).toHaveLength(5)
+  for (const key of ['nav.map', 'nav.tested', 'nav.about', 'nav.ask'] as const) {
     const link = screen.getByRole('link', { name: EN[key].text })
     expect(link.hasAttribute('href'), key).toBe(true)
     expect(link.hasAttribute('aria-disabled'), key).toBe(false)

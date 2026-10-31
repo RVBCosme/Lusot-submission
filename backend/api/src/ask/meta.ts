@@ -3,8 +3,10 @@ import type { Response, ResponseCreateParamsNonStreaming } from "openai/resource
 import type { Deadline } from "./deadline";
 
 const BASE_URL = "https://api.meta.ai/v1";
-// Ask is typed only, so Muse Spark is the one model it calls, and never its contributor model.
-const MODEL = "muse-spark-1.3";
+// Ask's two models (CLAUDE.md), never Muse Spark's contributor model. respond takes only Muse Spark, and transcribe
+// names its own model.
+export const MODEL = "muse-spark-1.3";
+export const TRANSCRIBE_MODEL = "muse-voice-transcribe-1.0";
 const RETRY_STATUSES = new Set([429, 500, 503]);
 const MAX_TRIES = 3;
 const BACKOFF_MS = 500; // before try n + 1: 500 ms × 2^(n − 1), plus jitter
@@ -36,15 +38,39 @@ export type MetaDeps = {
   now: () => number;
 };
 
+export type TranscribeOptions = { keywords: string[]; languageBias: string[] };
+
 // A Meta belongs to one question: the handler (Task 12) creates one per question, so `calls` holds only that
 // question's tries.
 export type Meta = {
   respond(body: ResponseCreateParamsNonStreaming, deadline: Deadline, byMs: number): Promise<Response>;
-  // One entry per HTTP try, across every respond on this instance, for the log line's meta_calls and meta_status.
+  // One WAV clip, transcribed as one push-to-talk turn (spec §4.7, F5).
+  transcribe(
+    wav: Uint8Array,
+    opts: TranscribeOptions,
+    deadline: Deadline,
+    byMs: number,
+  ): Promise<{ transcript: string; audioDurationMs: number | null }>;
+  // One entry per HTTP try, across every call on this instance, for the log line's meta_calls and meta_status.
   readonly calls: MetaCall[];
 };
 
+// The transcription's own non-2xx answer, read like the SDK's APIError: its status and headers, never its body.
+class HttpFailure extends Error {
+  constructor(
+    readonly status: number,
+    readonly headers: Headers,
+  ) {
+    super(`Meta answered ${status}`);
+    this.name = "HttpFailure";
+  }
+}
+
+// What one try gave: its HTTP status, and its answer, or undefined for a 2xx whose body wasn't the documented shape.
+type Answered<T> = { status: number; value: T | undefined };
+
 export function createMeta(deps: MetaDeps): Meta {
+  const fetchFn = deps.fetchFn ?? globalThis.fetch;
   const client = new OpenAI({
     apiKey: deps.key,
     baseURL: BASE_URL,
@@ -54,37 +80,105 @@ export function createMeta(deps: MetaDeps): Meta {
   });
   const calls: MetaCall[] = [];
 
+  // Tries `attempt` until it answers, a status that isn't 429, 500 or 503 ends it, 3 tries are made, or the next
+  // try couldn't finish before the mark. Each try's signal aborts at the mark, and also stops reading the body.
+  async function withRetries<T>(
+    model: string,
+    deadline: Deadline,
+    byMs: number,
+    attempt: (signal: AbortSignal) => Promise<Answered<T>>,
+  ): Promise<T> {
+    let last: MetaError | undefined;
+    for (let tries = 1; ; tries++) {
+      const signal = deadline.signal(byMs);
+      if (signal.aborted) throw last ?? new MetaError(null); // nothing is sent once the mark has passed
+      const started = deps.now();
+      let answered: Answered<T>;
+      try {
+        answered = await attempt(signal);
+      } catch (err) {
+        const status = statusOf(err);
+        const ms = deps.now() - started;
+        calls.push({ model, status, ms });
+        console.error(JSON.stringify({ msg: "meta_call_failed", model, status, ms }));
+        last = new MetaError(status);
+        if (status === null || !RETRY_STATUSES.has(status) || tries >= MAX_TRIES) throw last;
+        const backoffMs = BACKOFF_MS * 2 ** (tries - 1) + deps.random() * JITTER_MS;
+        const waitMs = Math.max(backoffMs, retryAfterMs(headersOf(err), deps.now()));
+        // A retry that couldn't finish before the mark isn't made: the status that called for it is thrown.
+        if (deadline.remainingMs(byMs) - waitMs < MIN_TRY_MS) throw last;
+        await deps.sleep(waitMs);
+        continue;
+      }
+      const ms = deps.now() - started;
+      calls.push({ model, status: answered.status, ms });
+      if (answered.value !== undefined) return answered.value;
+      // A 2xx it couldn't read: recorded as the answer it was, which may be billed, and never retried.
+      console.error(JSON.stringify({ msg: "meta_answer_unreadable", model, status: answered.status, ms }));
+      throw new MetaError(null);
+    }
+  }
+
   return {
     calls,
     async respond(body, deadline, byMs) {
       if (body.model !== MODEL) throw new Error(`Ask calls only ${MODEL}`);
       const sent = { ...body, store: false }; // never stored at Meta
-      let last: MetaError | undefined;
-      for (let tries = 1; ; tries++) {
-        // Each try's signal aborts at the mark, and also stops reading the body.
-        const signal = deadline.signal(byMs);
-        if (signal.aborted) throw last ?? new MetaError(null); // nothing is sent once the mark has passed
-        const started = deps.now();
-        try {
-          const { data, response } = await client.responses.create(sent, { signal }).withResponse();
-          calls.push({ model: MODEL, status: response.status, ms: deps.now() - started });
-          return data;
-        } catch (err) {
-          const status = err instanceof APIError && typeof err.status === "number" ? err.status : null;
-          const ms = deps.now() - started;
-          calls.push({ model: MODEL, status, ms });
-          console.error(JSON.stringify({ msg: "meta_call_failed", model: MODEL, status, ms }));
-          last = new MetaError(status);
-          if (status === null || !RETRY_STATUSES.has(status) || tries >= MAX_TRIES) throw last;
-          const backoffMs = BACKOFF_MS * 2 ** (tries - 1) + deps.random() * JITTER_MS;
-          const waitMs = Math.max(backoffMs, retryAfterMs((err as APIError).headers, deps.now()));
-          // A retry that couldn't finish before the mark isn't made: the status that called for it is thrown.
-          if (deadline.remainingMs(byMs) - waitMs < MIN_TRY_MS) throw last;
-          await deps.sleep(waitMs);
+      return withRetries(MODEL, deadline, byMs, async (signal) => {
+        const { data, response } = await client.responses.create(sent, { signal }).withResponse();
+        return { status: response.status, value: data };
+      });
+    },
+
+    async transcribe(wav, opts, deadline, byMs) {
+      // F5's request part. Meta keeps no `store` setting for audio (spec §4.9).
+      const settings = JSON.stringify({
+        model: TRANSCRIBE_MODEL,
+        audioEncoding: "WAV",
+        mode: "PUSH_TO_TALK",
+        keywords: opts.keywords,
+        languageBias: opts.languageBias,
+      });
+      return withRetries(TRANSCRIBE_MODEL, deadline, byMs, async (signal) => {
+        const form = new FormData();
+        form.append("request", new Blob([settings], { type: "application/json" }));
+        form.append("audio", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), "clip.wav");
+        const res = await fetchFn(`${BASE_URL}/asr/transcribe`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${deps.key}`, accept: "application/json" },
+          body: form,
+          signal,
+        });
+        if (!res.ok) {
+          await res.body?.cancel().catch(() => {}); // the error's body is never read, so the connection is freed
+          throw new HttpFailure(res.status, res.headers);
         }
-      }
+        // A body that isn't JSON is a 2xx it can't read, as one without a transcript is.
+        const body: unknown = await res.json().catch(() => undefined);
+        return { status: res.status, value: readTranscript(body) };
+      });
     },
   };
+}
+
+// The documented answer (F5): its transcript, or undefined without one. Its duration is kept when it is a number, and
+// is null otherwise, since nothing bills or answers by it (the clip's own length is billed).
+function readTranscript(body: unknown): { transcript: string; audioDurationMs: number | null } | undefined {
+  const { transcript, audioDurationMs } = (body ?? {}) as Record<string, unknown>;
+  if (typeof transcript !== "string") return undefined;
+  const duration = typeof audioDurationMs === "number" && Number.isFinite(audioDurationMs) ? audioDurationMs : null;
+  return { transcript, audioDurationMs: duration };
+}
+
+// A failed try's HTTP status: the SDK's APIError's or the transcription's own; null for anything else.
+function statusOf(err: unknown): number | null {
+  if (err instanceof APIError && typeof err.status === "number") return err.status;
+  return err instanceof HttpFailure ? err.status : null;
+}
+
+function headersOf(err: unknown): Headers | undefined {
+  if (err instanceof APIError || err instanceof HttpFailure) return err.headers;
+  return undefined;
 }
 
 // The wait a Retry-After header asks for, given in seconds or as an HTTP date; 0 when there is none.

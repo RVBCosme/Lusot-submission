@@ -8,6 +8,8 @@
 import { expect, test as base, type BrowserContext, type Route } from '@playwright/test'
 import { crc32, deflateSync } from 'node:zlib'
 import {
+  ASK_TRANSCRIPT,
+  askReply,
   isoSeconds,
   levelLayers,
   MOCK_FILES_ORIGIN,
@@ -231,6 +233,20 @@ export class Mocks {
         photoUrl: `${FILES_ORIGIN}/samples/${sampleId}.png`,
       }))
       return this.reply(route, 200, { samples })
+    }
+
+    // Ask Lusot: the dev mock's answer for the question (fixtures.ts's askReply), and for a spoken one, its fixed
+    // transcript. The body is kept, so a test can read the question, the location and the clip it sent.
+    if (method === 'POST' && (pathname === '/ask' || pathname === '/ask/voice')) {
+      const json = (request.postDataJSON() ?? {}) as { question?: string; here?: unknown; audio?: unknown }
+      this.log(route, { json })
+      const spoken = pathname === '/ask/voice'
+      if (spoken && typeof json.audio !== 'string') return this.reply(route, 400, { error: 'bad_audio' })
+      const { status, body } = askReply(spoken ? ASK_TRANSCRIPT : String(json.question ?? ''), json.here !== undefined, this.startedAt, Date.now())
+      // A limit's 429 says how long until the next UTC hour, as the API's does.
+      const wait: Record<string, string> =
+        status === 429 ? { 'retry-after': String(Math.ceil((3_600_000 - (Date.now() % 3_600_000)) / 1000)) } : {}
+      return this.reply(route, status, status === 200 && spoken ? { ...body, transcript: ASK_TRANSCRIPT } : body, wait)
     }
 
     const read = /^\/reports\/([A-Za-z0-9_-]+)$/.exec(pathname)

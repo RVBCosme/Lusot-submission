@@ -15,7 +15,7 @@ it('parseHash reads an empty hash as the map', () => {
 })
 
 it('parseHash reads each page', () => {
-  for (const name of ['map', 'report', 'tested', 'about', 'privacy', 'licences'] as const) {
+  for (const name of ['map', 'report', 'tested', 'about', 'privacy', 'licences', 'ask'] as const) {
     expect(parseHash(`#/${name}`), name).toEqual({ name })
   }
 })
@@ -55,6 +55,7 @@ it('routeHash writes the hash that parseHash reads back', () => {
     { name: 'about' },
     { name: 'privacy' },
     { name: 'licences' },
+    { name: 'ask' },
     { name: 'pin', id: PIN_ID },
   ]
   expect(routes.map(routeHash)).toEqual([
@@ -64,6 +65,7 @@ it('routeHash writes the hash that parseHash reads back', () => {
     '#/about',
     '#/privacy',
     '#/licences',
+    '#/ask',
     `#/pin/${PIN_ID}`,
   ])
   for (const route of routes) expect(parseHash(routeHash(route))).toEqual(route)

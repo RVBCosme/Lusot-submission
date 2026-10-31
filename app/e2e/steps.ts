@@ -9,7 +9,7 @@ export type Lang = 'en' | 'fil'
 // The two lines that stay in English in both languages (C619), and the keys whose Taglish shows English until it is
 // reviewed. These are the rules in app/src/i18n/index.tsx (resolveText), which can't be imported here: it is a React module.
 const LOCKED: readonly StringKey[] = ['layout.screenLine', 'about.notAffiliated']
-const SCREEN_LINE_PREFIXES = ['refusal.', 'reason.', 'retake.', 'consent.', 'privacy.']
+const SCREEN_LINE_PREFIXES = ['refusal.', 'reason.', 'retake.', 'consent.', 'privacy.', 'ask.answer.']
 
 // The text a person sees for a key, with {name} filled from `vars`.
 export function label(lang: Lang, key: StringKey, vars: Record<string, string | number> = {}): string {

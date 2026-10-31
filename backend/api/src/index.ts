@@ -3,7 +3,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { SSMClient } from "@aws-sdk/client-ssm";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
-import { type AskDeps, askTyped, createSpendDdb, NCR_BOUNDS, SPEND_CLIENT_CONFIG } from "./ask/handler";
+import { type AskDeps, type AskRequest, askTyped, askVoice, createSpendDdb, NCR_BOUNDS, SPEND_CLIENT_CONFIG } from "./ask/handler";
 import { logAsk } from "./ask/log";
 import { createMeta } from "./ask/meta";
 import { createGeocoder } from "./ask/nominatim";
@@ -57,14 +57,21 @@ export async function route(event: RouteEvent, deps: Deps): Promise<JsonResponse
     case "POST /samples/{sampleId}":
       return runSample(event.pathParameters?.sampleId, deviceHeader(event), deps);
     case "POST /ask":
-      return askRoute(event, deps);
+      return askRoute(event, deps, "ask", askTyped);
+    case "POST /ask/voice":
+      return askRoute(event, deps, "ask_voice", askVoice);
     default:
       return json(404, { error: "not_found" });
   }
 }
 
 // A missing Ask variable answers MS1's 500 internal, and its line names the variable, never a value.
-async function askRoute(event: RouteEvent, deps: Deps): Promise<JsonResponse> {
+async function askRoute(
+  event: RouteEvent,
+  deps: Deps,
+  route: "ask" | "ask_voice",
+  answer: (req: AskRequest, deps: AskDeps) => Promise<JsonResponse>,
+): Promise<JsonResponse> {
   let askDeps: AskDeps;
   try {
     if (deps.ask === undefined) throw new Error("Ask Lusot's deps were not given");
@@ -72,10 +79,10 @@ async function askRoute(event: RouteEvent, deps: Deps): Promise<JsonResponse> {
   } catch (err) {
     if (!(err instanceof MissingVariable)) throw err;
     console.error(JSON.stringify({ msg: "ask_unconfigured", variable: err.variable }));
-    logAsk({ route: "ask", status: 500, code: "internal", error: err.name });
+    logAsk({ route, status: 500, code: "internal", error: err.name });
     return json(500, { error: "internal" });
   }
-  return askTyped({ body: readBody(event), device: deviceHeader(event) }, askDeps);
+  return answer({ body: readBody(event), device: deviceHeader(event) }, askDeps);
 }
 
 // HTTP APIs base64-encode bodies whose content type isn't text.
@@ -129,7 +136,7 @@ function liveDeps(): Deps {
   };
 }
 
-// Ask Lusot's deps. Its two variables are read here, on its own route only, so MS4's routes never need them.
+// Ask Lusot's deps. Its two variables are read here, on its own routes only, so MS4's routes never need them.
 function askDeps(base: PinDeps & { limitsTableName: string }): AskDeps {
   const modelKeyParam = env("MODEL_KEY_PARAM");
   const userAgent = env("NOMINATIM_USER_AGENT");
