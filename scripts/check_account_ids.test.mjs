@@ -1,7 +1,7 @@
 // Tests for the account-ID scan in check_account_ids.mjs. Run: node --test "scripts/*.test.mjs"
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -14,12 +14,14 @@ const ID = "1234567" + "89012";
 // Runs the scan in a throwaway git repo holding `files` (path to text or bytes). The paths
 // in `tracked` are added to git's index (the rest stay untracked), the paths in `deleted`
 // are then removed from the working tree, and each folder in `repos` is a nested repo.
+// A calling git hook sets GIT_DIR, GIT_INDEX_FILE and the like, which would point these
+// git commands at the real repo, so every child gets the environment without them.
+function cleanGitEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+}
+
 function scan(files, { tracked = [], deleted = [], repos = [] } = {}) {
-  // A calling git hook sets GIT_DIR, GIT_INDEX_FILE and the like, which would point these
-  // git commands at the real repo, so every child gets the environment without them.
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
+  const env = cleanGitEnv();
   const dir = mkdtempSync(join(tmpdir(), "lusot-scan-"));
   const git = (args, cwd = dir) => execFileSync("git", args, { cwd, env, stdio: "ignore" });
   try {
@@ -54,6 +56,21 @@ test("12-digit runs are reported by path and line, never by their digits", () =>
   assert.match(out, /^src\/a\.ts:1$/m);
   assert.match(out, /2 line\(s\) with a 12-digit run/);
   assert.doesNotMatch(out, /[0-9]{12}/);
+});
+
+test("an ID in the console's dashed groups of four is reported and masked", () => {
+  const dashed = `${ID.slice(0, 4)}-${ID.slice(4, 8)}-${ID.slice(8)}`;
+  const uuid = `0f${ID.slice(0, 6)}-${ID.slice(0, 4)}-${ID.slice(4, 8)}-${ID.slice(8)}-${ID}`;
+  const { code, out } = scan({
+    "docs/account.md": `account ${dashed}\n`,
+    [`notes-${dashed}.md`]: "clean\n",
+    "docs/other.md": `uuid ${uuid.replace(ID, "a".repeat(12))}\n${dashed}-1\n1${dashed}\n`,
+  });
+  assert.equal(code, 1);
+  assert.match(out, /^docs\/account\.md:1$/m);
+  assert.match(out, /^notes-<account>\.md \(file name\)$/m);
+  assert.doesNotMatch(out, /other\.md/);
+  assert.doesNotMatch(out, /[0-9]{4}-[0-9]{4}-[0-9]{4}/);
 });
 
 test("longer and shorter digit runs pass", () => {
@@ -99,7 +116,7 @@ test("files that aren't UTF-8 text are skipped; UTF-8 beyond ASCII is scanned", 
   assert.equal(code, 1);
   assert.match(out, /^docs\/plan-notes\.md:1$/m);
   assert.doesNotMatch(out, /photo\.jpg/);
-  assert.match(out, /1 non-UTF-8 files/);
+  assert.match(out, /1 non-text files/);
 });
 
 test("directory entries, such as a nested repo, are skipped and counted", () => {
@@ -140,5 +157,117 @@ test("GIT_* variables from a calling git hook never reach the throwaway repo's g
       else process.env[key] = value;
     }
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// UTF-16 with a byte-order mark: little-endian (FF FE) or big-endian (FE FF).
+function utf16(text, endian) {
+  const le = Buffer.from(text, "utf16le");
+  if (endian === "le") return Buffer.concat([Buffer.from([0xff, 0xfe]), le]);
+  const be = Buffer.from(le);
+  be.swap16();
+  return Buffer.concat([Buffer.from([0xfe, 0xff]), be]);
+}
+
+test("scans UTF-16 text", () => {
+  const { code, out } = scan({
+    "res/strings-le.txt": utf16(`first\r\nid ${ID}\r\n`, "le"),
+    "res/strings-be.txt": utf16(`first\nsecond\nid ${ID}\n`, "be"),
+  });
+  assert.equal(code, 1);
+  assert.match(out, /^res\/strings-le\.txt:2$/m);
+  assert.match(out, /^res\/strings-be\.txt:3$/m);
+  assert.match(out, /checked 2 files .*0 non-text files.*: 2 line\(s\) with a 12-digit run/);
+  assert.doesNotMatch(out, /[0-9]{12}/);
+});
+
+test("flags a 12-digit file name without printing it", () => {
+  const { code, out } = scan(
+    {
+      [`exports/billing-${ID}.csv`]: "clean\n",
+      [`exports/notes-${ID}.md`]: `also ${ID}\n`,
+      [`exports/photo-${ID}.jpg`]: Buffer.from([0xff, 0xd8, 0xff, 0x00, 0xc3]),
+      [`${ID}/twice-${ID}.md`]: "clean\n",
+      [`backend/scripts/x-${ID}.py.lock`]: "clean\n",
+      [`gone-${ID}.md`]: "clean\n",
+      [`repo-${ID}/inner.txt`]: "clean\n",
+      "exports/ok.md": "fine\n",
+    },
+    { tracked: [`gone-${ID}.md`], deleted: [`gone-${ID}.md`], repos: [`repo-${ID}`] },
+  );
+  assert.equal(code, 1);
+  assert.match(out, /^exports\/billing-<account>\.csv \(file name\)$/m);
+  assert.match(out, /^exports\/photo-<account>\.jpg \(file name\)$/m);
+  assert.match(out, /^exports\/notes-<account>\.md \(file name\)$/m);
+  assert.match(out, /^exports\/notes-<account>\.md:1$/m);
+  assert.match(out, /^<account>\/twice-<account>\.md \(file name\)$/m);
+  assert.match(out, /^backend\/scripts\/x-<account>\.py\.lock \(file name\)$/m);
+  assert.match(out, /^gone-<account>\.md \(file name\)$/m);
+  assert.match(out, /^repo-<account>\/ \(file name\)$/m);
+  assert.match(out, /: 1 line\(s\) with a 12-digit run, 7 path\(s\) with one in the name$/m);
+  assert.doesNotMatch(out, /[0-9]{12}/);
+});
+
+test("a path that can't be read is reported by its error code alone", { skip: process.platform === "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "lusot-loop-"));
+  try {
+    // A symlink to itself: stat fails with ELOOP, whose message names the path.
+    execFileSync("git", ["init", "--quiet"], { cwd: dir, stdio: "ignore", env: cleanGitEnv() });
+    symlinkSync(`loop-${ID}`, join(dir, `loop-${ID}`));
+    const run = spawnSync(process.execPath, [script], { cwd: dir, env: cleanGitEnv(), encoding: "utf8" });
+    const out = run.stdout + run.stderr;
+    assert.equal(run.status, 1, out);
+    assert.match(out, /^loop-<account>: unreadable \(ELOOP\)$/m);
+    assert.match(out, /1 unreadable path\(s\)$/m);
+    assert.doesNotMatch(out, /[0-9]{12}/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a file name's hex token of 32 or more characters is not flagged", () => {
+  const digest = "ab" + ID + "c".repeat(50); // 64 characters, like a SHA-256 digest
+  const { code, out } = scan({ [`cache/${digest}.bin`]: "ok\n" });
+  assert.equal(code, 0);
+  assert.match(out, /: clean$/m);
+});
+
+test("still skips binary files", () => {
+  const { code, out } = scan({
+    "blob.bin": Buffer.concat([Buffer.from([0x00, 0xc3, 0x28, 0xa0]), Buffer.from(ID)]),
+    "bad-utf16.txt": Buffer.from([0xff, 0xfe, 0x00, 0xd8, 0x41]), // odd length, lone surrogate
+  });
+  assert.equal(code, 0);
+  assert.match(out, /checked 0 files \(skipped 0 lockfiles, 2 non-text files and 0 directories\): clean$/m);
+});
+
+test("importing runs nothing", () => {
+  // From a folder that isn't a git repo, a scan run on import would fail on `git ls-files`
+  // and print its summary; a clean import prints only what the probe prints.
+  const dir = mkdtempSync(join(tmpdir(), "lusot-import-"));
+  try {
+    const probe = [
+      `const m = await import(${JSON.stringify(new URL("./check_account_ids.mjs", import.meta.url).href)});`,
+      `const id = "1234567" + "89012";`,
+      `console.log(JSON.stringify({`,
+      `  exitCode: process.exitCode ?? null,`,
+      `  twelve: m.TWELVE_DIGITS.test("x" + id + "y"),`,
+      `  hex: ("a".repeat(20) + id).replace(m.LONG_HEX, "") === "",`,
+      `  masked: m.maskDigits("a" + id + "-b" + id + "1-c" + id.slice(1) + "/" + id),`,
+      `}));`,
+    ].join("\n");
+    const run = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
+      cwd: dir,
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(JSON.parse(run.stdout.trim()), {
+      exitCode: null,
+      twelve: true,
+      hex: true,
+      masked: `a<account>-b${ID}1-c${ID.slice(1)}/<account>`,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

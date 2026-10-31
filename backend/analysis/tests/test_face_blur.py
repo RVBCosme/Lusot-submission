@@ -183,6 +183,33 @@ def test_blur_changes_only_the_expanded_box():
     assert np.array_equal(img, before)
 
 
+def test_blur_covers_each_box_with_its_margin():
+    # A one-pixel checkerboard of 0 and 255: any blur turns a pixel grey, so a pixel
+    # the blur reaches always changes, and an unchanged one was never reached.
+    ys, xs = np.indices((300, 400))
+    img = np.dstack([np.where((xs + ys) % 2, 255, 0).astype(np.uint8)] * 3)
+    faces = [
+        FaceBox(40, 50, 30, 42, 0.9),  # 25% is 7.5 px and 10.5 px, rounded up: 8 and 11
+        FaceBox(200, 120, 64, 41, 0.8),  # 16 px, and 10.25 px up to 11 (not to 10)
+        FaceBox(380, 285, 40, 40, 0.7),  # 10 px each way, clipped at the bottom right
+        FaceBox(-20, -30, 50, 50, 0.6),  # 12.5 px up to 13, clipped at the top left
+    ]
+    out = blur_faces(img, faces)
+    # The areas worked out by hand, not with blur_area, so the margin is pinned here.
+    areas = [
+        np.s_[39:103, 32:78],
+        np.s_[109:172, 184:280],
+        np.s_[275:300, 370:400],
+        np.s_[0:33, 0:43],
+    ]
+    inside = np.zeros(img.shape[:2], bool)
+    for area in areas:
+        inside[area] = True
+        changed = (out[area] != img[area]).any(axis=2)
+        assert changed.all(), f"{(~changed).sum()} pixel(s) of {area} kept their value"
+    assert np.array_equal(out[~inside], img[~inside])
+
+
 def test_box_at_image_edge_is_clipped():
     img = noise(400, 300)
     out = blur_faces(

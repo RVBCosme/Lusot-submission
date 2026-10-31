@@ -8,8 +8,8 @@
   "scripts": {
     "setup": "git config core.hooksPath .githooks",
     "check": "npm run check:node && npm run check:py && npm run check:secrets",
-    "check:node": "npm run typecheck --workspaces && npm run lint -w app && npm run test --workspaces && node --test \"scripts/*.test.mjs\" \"app/scripts/*.test.mjs\"",
-    "check:py": "uv run --locked --directory backend/analysis ruff check . && uv run --locked --directory backend/analysis pytest -q && uv run --python 3.13 --with pytest --with boto3 --with httpx --with numpy --with \"opencv-python-headless<5\" --with pyyaml --with \"moto[dynamodb,ssm]==5.2.4\" pytest backend/scripts scripts && uv run --locked --script eval/data/tests/run_tests.py && uv run --locked --script eval/tests/run_tests.py",
+    "check:node": "npm run typecheck --workspaces && npm run lint -w app && npm run test --workspaces && node --test \"scripts/*.test.mjs\" \"app/scripts/*.test.mjs\" && npm run build -w app && npm run build -w backend/api",
+    "check:py": "uv run --python 3.13 backend/scripts/check_locks.py && uv run --locked --directory backend/analysis ruff check . && uv run --locked --directory backend/analysis pytest -q && uv run --python 3.13 --with pytest==9.2.0 --with \"boto3[crt]==1.43.120\" --with httpx==0.28.1 --with numpy==2.5.4 --with opencv-python-headless==4.14.0.94 --with pyyaml==6.0.3 --with \"moto[dynamodb,ssm]==5.2.4\" pytest backend/scripts scripts && uv run --locked --script eval/data/tests/run_tests.py && uv run --locked --script eval/tests/run_tests.py",
     "check:secrets": "gitleaks git --redact --no-banner && uv run --python 3.13 scripts/check_no_plan_leak.py && node scripts/check_account_ids.mjs",
     "deploy": "node scripts/deploy.mjs",
     "deploy:web": "node scripts/deploy_web.mjs"

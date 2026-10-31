@@ -368,7 +368,7 @@ From the Oct 28 deferred table, R44 and R51. Each can't change a depth output. T
 
 | # | Item | Decision |
 |---|---|---|
-| D-a | Deny rules (R44's R6, first): `Read` on `backend/samconfig.toml` (it holds the alarm email) and on `.env`, `.env.local` and `.env.*.local` files; `Edit` and `Write` on lockfiles | Land, with a test that reads `.claude/settings.json` |
+| D-a | Deny rules (R44's R6, first): `Read` on `backend/samconfig.toml` (it holds the alarm email) and on `.env`, `.env.local` and `.env.*.local` files; `Edit` and `Write` on lockfiles. Rene, in Window 4 on Nov 1: all of them anchored at the filesystem root (`//**/`), so they hold from every worktree, plus `Read` on `keystore.properties` and `*.p12` | Land, with a test that reads `.claude/settings.json` |
 | D-e | A TLS-only bucket policy (R51) | Land, in the template |
 | D-h | The account-ID scan reads non-UTF-8 text (such as UTF-16) and file paths too, and `check:py`'s test packages get exact versions | Land |
 | D-l | A lock-drift guard (R51): `uv lock --check`, `requirements.lock.txt` equal to a fresh `uv export`, and each script lock checked | Land, in `npm run check` and CI |
