@@ -55,15 +55,41 @@ export type Meta = {
   readonly calls: MetaCall[];
 };
 
-// The transcription's own non-2xx answer, read like the SDK's APIError: its status and headers, never its body.
+// The transcription's own non-2xx answer, read like the SDK's APIError: its status, its headers and, for a 4xx only,
+// its body's `error` object, which only errorFields reads.
 class HttpFailure extends Error {
   constructor(
     readonly status: number,
     readonly headers: Headers,
+    readonly error: unknown,
   ) {
     super(`Meta answered ${status}`);
     this.name = "HttpFailure";
   }
+}
+
+// A 4xx's client-safe fields for its log line: Meta's error type, code and param, each only when it is a short
+// identifier that shares no 8 characters in a row with the key (so neither the key nor a masked piece of it), else
+// null. The message is never read: it can echo the key or the question.
+const SAFE_FIELD = /^[A-Za-z0-9_.:[\]-]{1,64}$/;
+const KEY_RUN = 8;
+
+function sharesKeyRun(value: string, key: string): boolean {
+  if (value.includes(key)) return true;
+  for (let i = 0; i + KEY_RUN <= value.length; i++) if (key.includes(value.slice(i, i + KEY_RUN))) return true;
+  return false;
+}
+
+function errorFields(err: unknown, key: string): Record<string, string | null> {
+  const status = statusOf(err);
+  if (status === null || status < 400 || status > 499) return {};
+  const error = (err instanceof APIError ? err : err instanceof HttpFailure ? err.error : undefined) as
+    | { type?: unknown; code?: unknown; param?: unknown }
+    | null
+    | undefined;
+  const safe = (value: unknown) =>
+    typeof value === "string" && SAFE_FIELD.test(value) && !sharesKeyRun(value, key) ? value : null;
+  return { error_type: safe(error?.type), error_code: safe(error?.code), error_param: safe(error?.param) };
 }
 
 // What one try gave: its HTTP status, and its answer, or undefined for a 2xx whose body wasn't the documented shape.
@@ -100,7 +126,7 @@ export function createMeta(deps: MetaDeps): Meta {
         const status = statusOf(err);
         const ms = deps.now() - started;
         calls.push({ model, status, ms });
-        console.error(JSON.stringify({ msg: "meta_call_failed", model, status, ms }));
+        console.error(JSON.stringify({ msg: "meta_call_failed", model, status, ms, ...errorFields(err, deps.key) }));
         last = new MetaError(status);
         if (status === null || !RETRY_STATUSES.has(status) || tries >= MAX_TRIES) throw last;
         const backoffMs = BACKOFF_MS * 2 ** (tries - 1) + deps.random() * JITTER_MS;
@@ -150,8 +176,17 @@ export function createMeta(deps: MetaDeps): Meta {
           signal,
         });
         if (!res.ok) {
-          await res.body?.cancel().catch(() => {}); // the error's body is never read, so the connection is freed
-          throw new HttpFailure(res.status, res.headers);
+          // A 4xx's body is read for errorFields alone; any other error's body is never read, so the connection is freed.
+          let error: unknown;
+          if (res.status >= 400 && res.status <= 499) {
+            // The body's `error` object, else the body itself when it is an object, as the SDK reads one.
+            const body: unknown = await res.json().catch(() => undefined);
+            const object = typeof body === "object" && body !== null ? (body as { error?: unknown }) : undefined;
+            error = object?.error ?? object;
+          } else {
+            await res.body?.cancel().catch(() => {});
+          }
+          throw new HttpFailure(res.status, res.headers, error);
         }
         // A body that isn't JSON is a 2xx it can't read, as one without a transcript is.
         const body: unknown = await res.json().catch(() => undefined);
