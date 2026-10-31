@@ -25,7 +25,7 @@ export const EN = {
   // MS1's banner for a build made without VITE_API_URL (R31).
   'layout.noApi': { text: 'This build has no API address, so it cannot upload.', reviewed: true },
   // Offline (C621, Task 16): the app's own files work, the rest needs the network.
-  'layout.offline': { text: "You're offline. The map, reports and samples need the network.", reviewed: false },
+  'layout.offline': { text: "You're offline. The map, reports, samples and Ask Lusot need an internet connection.", reviewed: true },
   'layout.noApiDetail': { text: 'VITE_API_URL is not set. Put it in app/.env.local, then build again.', reviewed: true },
   // The fallback where a screen that crashed would have been (S5-R5). The nav and the screen line stay.
   'layout.errorFallback': { text: 'This screen could not be shown. Choose another screen from the bar below.', reviewed: true },
@@ -122,19 +122,20 @@ export const EN = {
     reviewed: true,
   },
   // The phone's quality check (C604, Task 10): a warning only, with "Retake" first and "Send anyway" second. The tips
-  // are screen-line keys (retake.), so their Taglish shows English until it is reviewed (C619).
-  'report.checkTitle': { text: 'Check the photo', reviewed: false },
+  // are screen-line keys (retake.), so their Taglish shows English until it is reviewed (C619). Reviewed at M20 on
+  // Nov 1 (rows 1 to 6 of ms5-polish's list).
+  'report.checkTitle': { text: 'Check the photo', reviewed: true },
   'retake.too_dark': {
     text: "This photo looks too dark for Lusot to read. Retake it when there's more light, from a dry spot. Don't step into the water or the road.",
-    reviewed: false,
+    reviewed: true,
   },
   'retake.too_blurry': {
     text: "This photo looks blurry. Hold the phone still and retake it, from a dry spot. Don't step into the water or the road.",
-    reviewed: false,
+    reviewed: true,
   },
-  'report.checkNote': { text: 'Lusot checks the photo again when it arrives, so you can still send it.', reviewed: false },
-  'report.retake': { text: 'Retake', reviewed: false },
-  'report.sendAnyway': { text: 'Send anyway', reviewed: false },
+  'report.checkNote': { text: "You can still send this photo. Lusot will check it again once it's received.", reviewed: true },
+  'report.retake': { text: 'Retake', reviewed: true },
+  'report.sendAnyway': { text: 'Send anyway', reviewed: true },
   'report.newPhoto': { text: 'Take a new photo', reviewed: true },
   'report.tooOld': { text: 'This photo is more than 15 minutes old.', reviewed: true },
   'report.sendingTitle': { text: 'Sending your photo', reviewed: true },
