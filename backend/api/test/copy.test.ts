@@ -305,7 +305,9 @@ afterEach(() => {
 });
 
 describe("copy", () => {
-  it("keeps every route's bodies free of the banned words, crossing advice and whole-road wording", async () => {
+  // Its own timeout: every case imports a cold handler, so the module caches (switches, the key, the clients) never
+  // carry over, and the whole run takes about 4 s alone, close to vitest's 5 s default on a loaded machine.
+  it("keeps every route's bodies free of the banned words, crossing advice and whole-road wording", { timeout: 30_000 }, async () => {
     const seen = new Set<string>();
     const said: string[] = [];
     for (const { routeKey, fields, stopped, setup } of CASES) {
