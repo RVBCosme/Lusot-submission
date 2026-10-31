@@ -18,8 +18,15 @@ PACKAGE = "backend/analysis/src/lusot_analysis"
 # Built at run time, so no address sits in the repo (Global Constraints).
 EMAIL = "test" + "@" + "example." + "invalid"
 TAG = "freeze-1"
+SCRIPTS = TEMPLATE.parent / "scripts"
 FILES = {
     "backend/template.yaml": TEMPLATE.read_text(encoding="utf-8"),
+    # The guard's own files, as the frozen commit holds them.
+    **{
+        f"backend/scripts/{name}": (SCRIPTS / name).read_text(encoding="utf-8")
+        for name in ("check_freeze.py", "check_freeze.py.lock", "cfn_template.py")
+    },
+    "backend/analysis/tests/test_handler.py": "def test_b3(): pass\n",
     f"{PACKAGE}/pipeline/measure.py": "LEVEL = 1\n",
     f"{PACKAGE}/pipeline/publish.py": "BLUR = 1\n",
     f"{PACKAGE}/handler.py": "DEADLINE_MARGIN_S = 30\n",
@@ -109,13 +116,27 @@ def test_a_path_file_fails(repo, capsys):
 
 
 def test_publish_is_off_the_path(repo, capsys):
-    """The publish blur runs after the result (C801), as the overlay does."""
+    """The publish blur runs after the result (C801), as the overlay does. Its phrases
+    shape the reading's, and its error would end a level, so a reviewer reads it."""
     edit(repo, f"{PACKAGE}/pipeline/publish.py", "BLUR = 1", "BLUR = 2")
     edit(repo, f"{PACKAGE}/overlay.py", "'level'", "'antas'")
     commit(repo)
     code, out = run(repo, capsys, TAG)
     assert code == 0
     assert "path files: none changed" in out
+    assert "pipeline/publish.py: changed: a reviewer reads it" in out
+    assert "PUBLISH_PHRASES" in out
+    assert "tests/test_handler.py: unchanged" in out
+
+
+def test_the_b3_tests_are_flagged_for_review(repo, capsys):
+    edit(repo, "backend/analysis/tests/test_handler.py", "pass", "assert True")
+    commit(repo)
+    code, out = run(repo, capsys, TAG)
+    assert code == 0
+    assert (
+        "tests/test_handler.py: changed: a reviewer reads it against MS3a's B3" in out
+    )
 
 
 def test_a_file_moved_off_the_path_names_its_old_path(repo, capsys):
@@ -157,6 +178,125 @@ def test_a_change_elsewhere_in_the_template_passes(repo, capsys):
     code, out = run(repo, capsys, TAG)
     assert code == 0
     assert "AnalysisFunction: unchanged" in out
+
+
+def test_globals_count_as_the_analysis_function(repo, capsys):
+    """SAM merges Globals into every function, and Lambda's environment overrides the
+    image's, so a Globals pixel cap would reach the pipeline."""
+    edit(
+        repo,
+        "backend/template.yaml",
+        "Transform: AWS::Serverless-2016-10-31\n",
+        "Transform: AWS::Serverless-2016-10-31\nGlobals:\n  Function:\n"
+        "    Environment:\n      Variables:\n"
+        '        OPENCV_IO_MAX_IMAGE_PIXELS: "1000"\n',
+    )
+    commit(repo)
+    code, out = run(repo, capsys, "--decision", TAG)
+    assert code == 1
+    assert "AnalysisFunction: changed" in out
+
+
+def test_the_queue_event_and_a_condition_count(repo, capsys):
+    edit(
+        repo,
+        "backend/template.yaml",
+        "            BatchSize: 1\n",
+        "            BatchSize: 2\n",
+    )
+    commit(repo)
+    code, out = run(repo, capsys, TAG)
+    assert code == 1
+    assert "AnalysisFunction: changed" in out
+    edit(
+        repo,
+        "backend/template.yaml",
+        "            BatchSize: 2\n",
+        "            BatchSize: 1\n",
+    )
+    edit(
+        repo,
+        "backend/template.yaml",
+        "  AnalysisFunction:\n    Type: AWS::Serverless::Function\n",
+        "  AnalysisFunction:\n    Type: AWS::Serverless::Function\n    Condition: HasWeb\n",
+    )
+    commit(repo)
+    code, out = run(repo, capsys, TAG)
+    assert code == 1
+    assert "AnalysisFunction: changed" in out
+
+
+def test_an_edited_guard_fails(repo, capsys):
+    """A commit could move a file off the guard's list and change it in one go."""
+    edit(
+        repo,
+        "backend/scripts/check_freeze.py",
+        '    f"{PACKAGE}/rules.py",\n',
+        "",
+    )
+    edit(repo, f"{PACKAGE}/pipeline/measure.py", "LEVEL = 1", "LEVEL = 2")
+    commit(repo)
+    code, out = run(repo, capsys, TAG)
+    assert code == 1
+    assert "guard: changed since freeze-1" in out
+    assert "  changed: backend/scripts/check_freeze.py" in out
+
+
+def test_an_uncommitted_guard_change_fails(repo, capsys):
+    edit(repo, "backend/scripts/cfn_template.py", '"""Load', '"""Read')
+    code, out = run(repo, capsys, TAG)
+    assert code == 1
+    assert "  changed: backend/scripts/cfn_template.py" in out
+
+
+def test_the_working_trees_template_counts(repo, capsys):
+    """With no head named, the template is read as the deploy would build it."""
+    edit(
+        repo,
+        "backend/template.yaml",
+        "      MemorySize: 1024\n      Timeout: 180\n",
+        "      MemorySize: 1024\n      Timeout: 900\n",
+    )
+    code, out = run(repo, capsys, TAG)
+    assert code == 1
+    assert "AnalysisFunction: changed" in out
+    assert "uncommitted: backend/template.yaml" not in out
+
+
+def test_an_uncommitted_change_elsewhere_passes(repo, capsys):
+    """As the same change committed does: only the path, the function and the guard
+    count."""
+    edit(
+        repo,
+        "backend/template.yaml",
+        "      DefaultRouteSettings:\n        ThrottlingRateLimit: 10\n",
+        "      DefaultRouteSettings:\n        ThrottlingRateLimit: 12\n",
+    )
+    edit(repo, f"{PACKAGE}/handler.py", "= 30", "= 25")
+    code, out = run(repo, capsys, TAG)
+    assert code == 0
+    assert "handler.py: changed: a reviewer reads it" in out
+    assert out.rstrip().endswith("freeze: clean")
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Resources: [\n", "- a list\n- not a template\n", "Resources:\n  - a\n"],
+    ids=["no-parse", "a-list", "resources-a-list"],
+)
+def test_a_template_it_cannot_read_exits_2(repo, capsys, text):
+    (repo / "backend/template.yaml").write_text(text, encoding="utf-8")
+    commit(repo)
+    code, out = run(repo, capsys, TAG)
+    assert code == 2
+    assert "can't check" in out
+
+
+def test_a_missing_working_template_exits_2(repo, capsys):
+    (repo / "backend/template.yaml").unlink()
+    code, out = run(repo, capsys, TAG)
+    assert code == 2
+    assert "can't check: backend/template.yaml in the working tree" in out
 
 
 def test_handler_is_flagged_for_review(repo, capsys):
@@ -279,8 +419,11 @@ def test_resource_compare_reads_values_not_text():
 def test_path_files_name_the_repos_layout():
     """Every entry exists, and every tracked file of the analysis package and its build is
     either on the path or named off it, so a new module has to be placed."""
-    for entry in check_freeze.PATH_FILES + check_freeze.OFF_PATH:
+    named = [name for name, _ in check_freeze.REVIEWED]
+    for entry in (*check_freeze.PATH_FILES, *check_freeze.OFF_PATH, *named):
         assert (REPO_ROOT / entry).exists(), entry
+    for entry in check_freeze.GUARD_FILES:
+        assert (REPO_ROOT / entry).is_file(), entry
     tracked = subprocess.run(
         ["git", "-C", str(REPO_ROOT), "ls-files", "-z", "backend/analysis"],
         check=True,
