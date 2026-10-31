@@ -1,0 +1,40 @@
+{
+  "ok": [
+    "MIT",
+    "MIT-0",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "Apache-2.0",
+    "Python-2.0",
+    "PSF-2.0",
+    "Unlicense",
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "OFL-1.1",
+    "Zlib",
+    "BlueOak-1.0.0"
+  ],
+  "review": ["LGPL-*", "MPL-*", "EPL-*", "CC-BY-SA-*", "ODbL-1.0", "SAM License", "SEE LICENSE IN*"],
+  "fail": ["GPL-*", "AGPL-*", "CC-BY-NC*", "SSPL-*", "BUSL-*", "UNLICENSED"],
+  "aliases": {
+    "Apache 2.0": "Apache-2.0",
+    "Apache License 2.0": "Apache-2.0",
+    "Apache License, Version 2.0": "Apache-2.0",
+    "Apache Software License": "Apache-2.0",
+    "MIT License": "MIT",
+    "BSD License": "BSD-3-Clause",
+    "Mozilla Public License 2.0 (MPL 2.0)": "MPL-2.0"
+  },
+  "aliasNotes": {
+    "Apache Software License": "A classifier, which names no version. The one package that reaches it today, python-dateutil 2.9.0.post0, says Apache License, Version 2.0 in its LICENSE (read Oct 31). Read the licence of any other package that reaches it.",
+    "BSD License": "A classifier, which names no clause count. The one package that reaches it today, python-dateutil 2.9.0.post0, carries the 3-Clause licence in its LICENSE, for all of its code (read Oct 31). Read the licence of any other package that reaches it.",
+    "Dual License": "Not an alias: python-dateutil's License field. licences_py.py reads such a package's licences from its classifiers instead."
+  },
+  "credits": {
+    "react-dom": "React",
+    "@capacitor/*": "Capacitor",
+    "@aws-sdk/*": "AWS SDK for JavaScript v3"
+  }
+}
