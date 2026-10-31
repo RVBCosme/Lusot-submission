@@ -108,7 +108,7 @@ These limits cover only Lusot's own copies. What Meta keeps is set by Meta's ter
 
 ### Why Lusot may use this data
 
-[You agree to the consent notice before your first upload, and Lusot relies on that for your photos and questions. People who appear in a photo haven't agreed to anything: Lusot blurs their faces and plates before keeping a copy (automatic blurring can miss some), and deletes it after 7 days. The lawful basis for processing their data is still open (PRIV-Q8).]
+You agree to the consent notice before your first upload or question, and Lusot relies on that for your photos and questions. People who appear in a photo haven't agreed to anything. For them, Lusot relies on its legitimate interest in showing how deep the water is at one spot (Section 12(f) of the Data Privacy Act), and it uses as little of their data as it can. Their faces are blurred before the photo goes to Meta, and faces and plates are blurred again before Lusot keeps a copy (automatic blurring can miss some faces and plates). Nobody is identified or named, and the copy is deleted after 7 days. If you are in a photo, you can object or ask for it to be deleted (see "Your rights").
 
 ### Your rights
 
@@ -217,7 +217,7 @@ Not affiliated with MMDA.
 
 ### Why Lusot may use this data
 
-- *Taglish draft (M20):* [Pumapayag ka sa consent notice bago ang una mong upload, at iyon ang batayan ng Lusot para sa mga photo at tanong mo. Hindi pumayag sa anuman ang mga taong nasa photo: bina-blur ng Lusot ang mga mukha at plate number nila bago mag-save ng kopya (puwedeng may hindi ma-blur ng automatic blurring), at binubura ito pagkalipas ng 7 araw. Bukas pa ang tanong kung ano ang lawful basis para sa data nila (PRIV-Q8).]
+- *Taglish draft (M20):* Pumapayag ka sa consent notice bago ang una mong upload o tanong, at iyon ang batayan ng Lusot para sa mga photo at tanong mo. Hindi pumayag sa anuman ang mga taong nasa photo. Para sa kanila, ang batayan ng Lusot ay ang lehitimong interes nitong ipakita kung gaano kalalim ang tubig sa isang spot (Section 12(f) ng Data Privacy Act), at kaunti lang hangga't maaari ang ginagamit nitong data nila. Bina-blur ang mga mukha nila bago ipadala ang photo sa Meta, at bina-blur ulit ang mga mukha at plate number bago mag-save ng kopya ang Lusot (puwedeng may mga mukha at plate number na hindi ma-blur ng automatic blurring). Walang kinikilala o pinapangalanan, at binubura ang kopya pagkalipas ng 7 araw. Kung nasa photo ka, puwede kang tumutol o humiling na burahin ito (tingnan ang "Your rights").
 
 ### Your rights
 
@@ -257,7 +257,7 @@ The full questions, with options and defaults, are in Window 4's handoff note.
 
   Meta's retention with no fixed period stays in the text. Rene approves the wording.
 - **PRIV-Q7:** how long the device id and the hourly limit counters are kept. MS4's spec draft 4 (`e34a580`; its C508, C511 and C520) never stores the id itself, only its SHA-256 hash: for 2 hours in the counters (their TTL), and in a flag's record until the pin's `expiresAt`, 7 days after its photo was taken. DynamoDB's TTL then deletes both in the background, often days late, so the text says so, as the report's row does. Ask Lusot's question counters use the same table and TTL (its spec §4.8). The draft now says so, in English and Taglish, for Rene to approve (M21). **Approved on its default,** Oct 29.
-- **PRIV-Q8:** the lawful basis for processing the data of people who appear in photos.
+- **PRIV-Q8:** the lawful basis for processing the data of people who appear in photos. **Decided: (f), legitimate interest** (Section 12(f)), Oct 31. Rene asked the tracker to double-check Window 4's recommendation and approve it if all was good (12:35 PM). The tracker approved it with two fixes: "upload or question", since the consent notice also comes before the first question (C722), and a blurring caveat that covers both blurs. The page states it in English and Taglish, and the Taglish waits for Rene's M20 review. NPC Circular 2023-07 asks for the three tests in writing, so the assessment is in [legitimate-interest-assessment.md](legitimate-interest-assessment.md).
 - **PRIV-Q9 with MS5-Q4: the website's hosting and its access logs. Decided: (c)** (one decision for both questions). The page states it as fact: the website is served from Amazon S3 through Amazon CloudFront with access logging off, so the website keeps no visitor's IP address, while the API's own handling of IP addresses stays as MS4 states it, kept no longer than 7 days. It takes effect with the deploy that carries it (MS4 Task 15). The Amplify GitHub connection (item 35) is moot.
   - The options were: (a) Amplify connected to GitHub; (b) Amplify in the SAM template, builds uploaded by script; (c) Amazon S3 and CloudFront in the template, access logging off, deployed by the same script.
   - Why (c): Amplify keeps access logs, with visitors' IP addresses, "until you delete the app", with no off switch (its user guide, checked through Context7), which breaks CLAUDE.md's "Keep data 7 days". (c) keeps no visitor IP address, inside AWS's free tier.
