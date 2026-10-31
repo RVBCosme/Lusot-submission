@@ -3,10 +3,11 @@
 // consent notice, and Ask Lusot's first question at the notice too. No gate is passed: the boxes stay unticked, and
 // the guard aborts any request that isn't a read, so a gate that failed open would fail the test without reaching Meta.
 //
-// Skipped unless LUSOT_LIVE_URL is set. A step the site can't show (no sample listed, a build with no API) is skipped
-// and says why.
+// Skipped unless LUSOT_LIVE_URL is set. On this machine, a step the site can't show (no sample listed, a build with no
+// API) is skipped and says why. On a real site (STRICT, e2e/live.ts) it fails instead: a failed GET /samples reads as
+// an empty list, and a build with no API hides Ask, and either would otherwise pass as "skipped".
 import { expect, test } from '@playwright/test'
-import { guardWrites, LIVE_URL, SKIP_REASON } from './live'
+import { guardWrites, LIVE_URL, SKIP_REASON, STRICT } from './live'
 import { label } from './steps'
 
 test.skip(LIVE_URL === '', SKIP_REASON)
@@ -21,6 +22,7 @@ test('with empty storage, "Run this sample" stops at the 18+ check', async ({ pa
   const more = page.getByText(label(L, 'tested.samples.more'), { exact: true })
   // The list has loaded once a sample's button, the short list's line or the no-API line shows.
   await expect(run.or(more).or(noApi).first()).toBeVisible()
+  if (STRICT) expect(await run.count(), 'the site lists a sample to run').toBeGreaterThan(0)
   test.skip((await run.count()) === 0, 'the site lists no sample to run')
 
   await run.first().click()
@@ -38,7 +40,9 @@ test('with empty storage, "Report" stops at the consent notice', async ({ page }
   const report = page.getByRole('navigation').getByRole('link', { name: label(L, 'nav.report'), exact: true })
   await expect(report).toBeVisible()
   // A build with no API disables Report (MS1's R31); a typed #/report must still meet the notice.
-  if ((await report.getAttribute('aria-disabled')) === 'true') await page.goto('#/report')
+  const disabled = (await report.getAttribute('aria-disabled')) === 'true'
+  if (STRICT) expect(disabled, 'the site was built with its API, so Report is enabled').toBe(false)
+  if (disabled) await page.goto('#/report')
   else await report.click()
 
   await expect(page.getByTestId('notice')).toBeVisible()
@@ -57,6 +61,7 @@ test("with empty storage, Ask Lusot's first question stops at the consent notice
   const noApi = page.getByText(label(L, 'ask.ui.noApi'), { exact: true })
   await expect(box.or(noApi).first()).toBeVisible()
   // A build with no API still draws the box, with its button disabled, so the no-API line is what says to skip.
+  if (STRICT) await expect(noApi, 'the site was built with its API').toBeHidden()
   test.skip(await noApi.isVisible(), 'this build has no API, so Ask Lusot takes no question')
 
   await box.fill(label(L, 'ask.ui.example3'))

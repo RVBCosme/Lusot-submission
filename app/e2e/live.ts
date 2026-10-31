@@ -3,7 +3,7 @@
 // preview or MS5's in-page mock, never against MS5's end-to-end mocks, and they never type a pin's id into a title or a
 // message: a pin's id is its report id (MS4's C504), which no output may hold (MS7's C812).
 import { readFileSync } from 'node:fs'
-import type { Page } from '@playwright/test'
+import type { Page, Response } from '@playwright/test'
 
 export const LIVE_URL = process.env.LUSOT_LIVE_URL ?? ''
 export const SKIP_REASON = 'set LUSOT_LIVE_URL to the site to run the live pass'
@@ -42,7 +42,8 @@ function described(method: string, url: string): string {
 // Routes every request of the page through the guard; returns the list of requests it stopped.
 export async function guardWrites(page: Page): Promise<string[]> {
   const stopped: string[] = []
-  await page.route('**/*', async (route) => {
+  // The context's route, so a popup the page opens is guarded too.
+  await page.context().route('**/*', async (route) => {
     const request = route.request()
     if (READS.has(request.method())) {
       await route.continue()
@@ -56,29 +57,43 @@ export async function guardWrites(page: Page): Promise<string[]> {
 
 const PIN_ID = /^[A-Za-z0-9_-]{1,64}$/
 
-// The first pin of the app's own map read (GET /map/pins, which holds demo pins too, MS4's C519), or, with MS5's
-// in-page mock, which makes no request, the first pin of the map's list; null when there is none. `opened` is the
-// page's navigation to #/map, started after this is called, so the read can't be missed.
-export async function firstPin(page: Page, opened: () => Promise<unknown>, listLabel: string): Promise<string | null> {
-  const read = page
+// Strict on a real site: a step the site can't show fails instead of skipping, so a broken or stale deploy (a failed
+// GET /samples reads as an empty list, a build with no API hides Ask) can't pass as "skipped". On by default unless
+// the site is on this machine; LUSOT_LIVE_STRICT=1 or 0 overrides.
+function isLocal(url: string): boolean {
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+export const STRICT = process.env.LUSOT_LIVE_STRICT === undefined ? !isLocal(LIVE_URL) : process.env.LUSOT_LIVE_STRICT === '1'
+
+// The app's own map read (GET /map/pins, which holds demo pins too, MS4's C519), watched from before the page opens
+// so it can't be missed; null when none reaches the network in 15 s (MS5's in-page mock, or a build with no API).
+export function mapRead(page: Page): Promise<Response | null> {
+  return page
     .waitForResponse((r) => r.request().method() === 'GET' && new URL(r.url()).pathname.endsWith('/map/pins'), {
       timeout: 15_000,
     })
     .catch(() => null)
-  await opened()
-  const response = await read
-  if (response !== null && response.ok()) {
-    const body: unknown = await response.json().catch(() => null)
+}
+
+// The first pin of that read, or, with no read on the network, of the map's list (MS5's in-page mock); null when there
+// is none. A failed read throws with its status only. The id is never printed: it is a report id.
+export async function firstPin(page: Page, read: Response | null, listLabel: string): Promise<string | null> {
+  if (read !== null) {
+    if (!read.ok()) throw new Error(`the app's map read answered ${read.status()}`)
+    const body: unknown = await read.json().catch(() => null)
     const pins = (body as { pins?: unknown } | null)?.pins
-    if (Array.isArray(pins)) {
-      for (const pin of pins) {
-        const id = (pin as { id?: unknown } | null)?.id
-        if (typeof id === 'string' && PIN_ID.test(id)) return id
-      }
+    if (!Array.isArray(pins)) throw new Error("the app's map read holds no pins list")
+    for (const pin of pins) {
+      const id = (pin as { id?: unknown } | null)?.id
+      if (typeof id === 'string' && PIN_ID.test(id)) return id
     }
     return null
   }
-  // No map read reached the network: MS5's mock, or a build without an API.
+  if (STRICT) throw new Error('the app made no map read on the network')
   const list = page.getByRole('button', { name: listLabel, exact: true })
   if ((await list.count()) === 0) return null
   await list.click()
@@ -86,4 +101,14 @@ export async function firstPin(page: Page, opened: () => Promise<unknown>, listL
   if ((await link.count()) === 0) return null
   const id = (await link.getAttribute('href'))?.slice('#/pin/'.length) ?? ''
   return PIN_ID.test(id) ? id : null
+}
+
+// Opens a pin's screen without its id in any URL Playwright prints: the page starts on the map, then its hash is set
+// in the page, so a failure names the map's address only.
+export async function openPin(page: Page, id: string): Promise<void> {
+  await page.goto('about:blank')
+  await page.goto('#/map')
+  await page.evaluate((pin) => {
+    window.location.hash = `#/pin/${pin}`
+  }, id)
 }

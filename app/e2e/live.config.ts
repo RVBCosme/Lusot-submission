@@ -4,8 +4,11 @@
 //
 // Run from app/: npx playwright test --config e2e/live.config.ts, with LUSOT_LIVE_URL set to the site's address.
 //
-// Nothing is kept that could hold a pin's id, which is a report id (MS7's C812): no trace, no screenshot, no video,
-// and the list reporter only.
+// A pin's id is a report id (MS7's C812). No trace, screenshot or video is kept, and the list reporter only. Playwright
+// still writes an error-context file for a failed test, whose page snapshot can list pin links, so its output folder
+// is outside the repo (the repo is also an Obsidian vault): the system's temp folder.
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
@@ -18,10 +21,9 @@ export default defineConfig({
   reporter: 'list',
   timeout: 180_000,
   expect: { timeout: 20_000 },
-  outputDir: './test-results/live',
+  outputDir: join(tmpdir(), 'lusot-live-pass'),
   use: {
     baseURL: process.env.LUSOT_LIVE_URL,
-    viewport: { width: 360, height: 640 },
     // The app has no service worker (S5-R20); blocking one keeps every request in front of the guard.
     serviceWorkers: 'block',
     trace: 'off',

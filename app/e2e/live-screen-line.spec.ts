@@ -4,9 +4,11 @@
 // screen when the app's map read holds a pin. #/report opens with the 18+ and consent marks already set, so its
 // camera step is what is checked, and nothing is ever sent: the guard aborts any request that isn't a read.
 //
-// Skipped unless LUSOT_LIVE_URL is set. A pin's id is a report id, so no title or message ever holds it.
+// Skipped unless LUSOT_LIVE_URL is set. A pin's id is a report id, so no title, message or printed URL ever holds it:
+// the pin's screen is opened by setting the hash in the page. On a real site (STRICT) a map read that fails, or never
+// reaches the network, fails the test.
 import { expect, test } from '@playwright/test'
-import { CONSENT_KEY, firstPin, guardWrites, LANG_KEY, LIVE_URL, NOTICE_VERSION, SKIP_REASON } from './live'
+import { CONSENT_KEY, firstPin, guardWrites, LANG_KEY, LIVE_URL, mapRead, NOTICE_VERSION, openPin, SKIP_REASON, STRICT } from './live'
 import { expectLine, LINE } from './screenLine'
 import { label, type Lang } from './steps'
 
@@ -47,18 +49,29 @@ for (const { lang, name } of LANGS) {
     let pin: string | null = null
     for (const hash of ROUTES) {
       await test.step(hash, async () => {
-        if (hash === '#/map') pin = await firstPin(page, () => open(hash), label(lang, 'map.list'))
-        else await open(hash)
+        const read = hash === '#/map' ? mapRead(page) : null
+        await open(hash)
         await check(hash)
+        // The map is checked before its list is ever opened for a pin.
+        if (read !== null) pin = await firstPin(page, await read, label(lang, 'map.list'))
         if (hash === '#/report') {
           await expect(page.getByTestId('notice'), '#/report: the marks hold, so the notice stays closed').toBeHidden()
+          // The camera step itself; a build with no API (never in strict mode) shows its own line instead.
+          const camera = page.getByRole('heading', { name: label(lang, 'camera.title'), exact: true })
+          const noApi = page.getByText(label(lang, 'report.noApi'), { exact: true })
+          await expect(STRICT ? camera : camera.or(noApi).first(), '#/report: the camera step shows').toBeVisible()
         }
       })
     }
     await test.step('#/pin (the first pin of the map read)', async (step) => {
-      step.skip(pin === null, 'the map read holds no pin')
-      if (pin === null) return
-      await open(`#/pin/${pin}`)
+      if (pin === null) {
+        // A step's skip shows in no list line, so it is said here, and kept on the test.
+        console.log(`#/pin not checked, ${name}: the map read holds no pin`)
+        test.info().annotations.push({ type: 'not checked', description: '#/pin: the map read holds no pin' })
+        step.skip(true, 'the map read holds no pin')
+        return
+      }
+      await openPin(page, pin)
       await check('#/pin')
     })
 
