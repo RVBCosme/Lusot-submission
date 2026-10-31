@@ -97,6 +97,11 @@ describe("checkWav", () => {
     expect(checkWav(wav({ dataBytes: 15 * 16000 * 2 + 2 }))).toEqual({ ok: false, code: "audio_too_long" });
   });
 
+  it("rounds a length between whole ms up", () => {
+    // 48,001 samples at 16 kHz are 3,000.0625 ms.
+    expect(checkWav(wav({ dataBytes: 48_001 * 2 }))).toEqual({ ok: true, sampleRate: 16000, durationMs: 3001 });
+  });
+
   it("exactly 0.5 s passes, and one sample less is too short", () => {
     expect(checkWav(wav({ seconds: 0.5 }))).toEqual({ ok: true, sampleRate: 16000, durationMs: 500 });
     expect(checkWav(wav({ dataBytes: 0.5 * 16000 * 2 - 2 }))).toEqual({ ok: false, code: "audio_too_short" });

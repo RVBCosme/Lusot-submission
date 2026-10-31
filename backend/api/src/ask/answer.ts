@@ -169,6 +169,11 @@ export function modelAnswer(
   });
 }
 
+// A spoken question in which the transcription heard nothing (spec §4.7): no place, no reports, nothing to read.
+export function noSpeech(): Answer {
+  return build(undefined, { source: "model", fallback: null, kind: "no_speech", crossing: false, vehicle: null, cited: [] });
+}
+
 // The plain list (spec §4.5): the same answer without the model's parts. No vehicle, no citations, and the crossing
 // line only from the crossing words.
 export function plainList(tool: ToolResult | undefined, question: string, fallback: Fallback): Answer {

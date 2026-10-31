@@ -74,6 +74,10 @@ function fakeMeta(steps: Step[]) {
       if (next.reply instanceof MetaError) throw next.reply;
       return next.reply as unknown as Response;
     },
+    // The agent runs on a question's text, so it never transcribes.
+    async transcribe() {
+      throw new Error("the agent never transcribes");
+    },
   };
   return { meta, calls, bodies, marks };
 }

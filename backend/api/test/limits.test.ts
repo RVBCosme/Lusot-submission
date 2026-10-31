@@ -3,7 +3,7 @@ import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client
 import { DynamoDBDocumentClient, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type Bucket, deviceKey, LIMIT_CODES, LIMITS, type LimitDeps, retryAfterS, take } from "../src/limits";
+import { type Bucket, deviceKey, giveBack, LIMIT_CODES, LIMITS, type LimitDeps, retryAfterS, take } from "../src/limits";
 
 const AT_10_59 = Date.parse("2026-10-30T10:59:00Z") / 1000;
 const AT_11_00 = Date.parse("2026-10-30T11:00:00Z") / 1000;
@@ -275,5 +275,36 @@ describe("take for questions", () => {
       expect([body(byDevice).error, byDevice?.headers["retry-after"]]).toEqual(["question_limit", seconds]);
       expect([body(byHour).error, byHour?.headers["retry-after"]]).toEqual(["question_cap", seconds]);
     }
+  });
+});
+
+describe("giveBack", () => {
+  it("takes one question off the device's hour and the hour in all, so a taken question nets to nothing", async () => {
+    expect(await take("question", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(await take("question", DEVICE, AT_10_59, deps())).toBeNull();
+
+    await giveBack("question", DEVICE, AT_10_59, deps());
+
+    expect(counts.get(`question#${sha256(DEVICE)}#2026-10-30T10`)).toBe(1);
+    expect(counts.get("question#ALL#2026-10-30T10")).toBe(1);
+    const [device, all] = updates().slice(-2);
+    for (const input of [device, all]) {
+      expect(input).toMatchObject({
+        TableName: "limits",
+        UpdateExpression: "ADD #n :minusOne",
+        ExpressionAttributeNames: { "#n": "n" },
+        ExpressionAttributeValues: { ":minusOne": -1 },
+      });
+      expect(input.ConditionExpression).toBeUndefined();
+    }
+    expect([device.Key?.pk, all.Key?.pk]).toEqual([`question#${sha256(DEVICE)}#2026-10-30T10`, "question#ALL#2026-10-30T10"]);
+  });
+
+  it("gives a question taken without a device id back to the shared bucket", async () => {
+    await take("question", undefined, AT_10_59, deps());
+
+    await giveBack("question", "bad id", AT_10_59, deps());
+
+    expect(counts.get(`question#${sha256("none")}#2026-10-30T10`)).toBe(0);
   });
 });

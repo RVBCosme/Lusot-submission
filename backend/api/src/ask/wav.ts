@@ -51,7 +51,8 @@ export function checkWav(bytes: Uint8Array): WavCheck {
       // Compared in samples, so exactly 0.5 s and exactly 15.0 s pass at both rates.
       if (samples * 1000 < MIN_MS * rate) return { ok: false, code: "audio_too_short" };
       if (samples * 1000 > MAX_MS * rate) return { ok: false, code: "audio_too_long" };
-      return { ok: true, sampleRate: rate as 16000 | 24000, durationMs: Math.round((samples * 1000) / rate) };
+      // Rounded up to a whole ms, so seconds billed from it never fall under the clip's own (C736).
+      return { ok: true, sampleRate: rate as 16000 | 24000, durationMs: Math.ceil((samples * 1000) / rate) };
     }
     at = body + size + (size % 2); // chunks are padded to an even length
   }
