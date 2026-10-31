@@ -79,7 +79,18 @@ export function findSpotIn(question: string, spots: Spot[] = SPOTS): Spot | unde
   return longestFormIn(text, formsOf(spots)) ?? cornerIn(text, spots);
 }
 
-// The display names, sent to the transcription as keywords.
+// Meta's transcription refuses a keyword over 30 characters with a 400 (Oct 31), and 94 keywords is the most it has
+// been shown to take (that day's diagnostic, call 6).
+const MAX_KEYWORD_CHARS = 30;
+const MAX_KEYWORDS = 94;
+
+// Sent to the transcription as keywords: the display names that fit Meta's limit, then each spot's roads, each once,
+// so a corner whose name is too long still biases toward its roads' names. Names come first, so the count cap drops
+// roads before names.
 export function spotKeywords(spots: Spot[] = SPOTS): string[] {
-  return spots.map((spot) => spot.name);
+  const keywords = new Set<string>();
+  for (const word of [...spots.map((spot) => spot.name), ...spots.flatMap((spot) => spot.roads)]) {
+    if (word.length <= MAX_KEYWORD_CHARS) keywords.add(word);
+  }
+  return [...keywords].slice(0, MAX_KEYWORDS);
 }
