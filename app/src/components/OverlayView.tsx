@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Line, useT, type Text } from '../i18n'
 import { getLayers, type OverlayData, type OverlayRef } from '../lib/api'
-import { orderLayers, refChip, refLabel, type LayerKind, type OverlayLayer } from '../overlay/layers'
+import { orderLayers, refChip, refLabel, revealStep, type LayerKind, type OverlayLayer } from '../overlay/layers'
 
 export type OverlayViewProps = {
   photoUrl: string
@@ -184,12 +184,36 @@ function byReference(layers: OverlayLayer[]): { ref: OverlayRef | null; layers: 
   return groups
 }
 
-// MS4's layers drawn as one still SVG over the photo, scaled with it (C615): the water, then each reference's outline,
-// rim outline, box, fitted rim, waterline and label, in MS4's order. The legend under the photo carries each reference's
-// words, so the SVG is hidden from screen readers and nothing is said twice.
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+// How many of the drawing's layers show now. It draws itself (C615): the first layer at once, then layer i at
+// i x step, the last by 2,000 ms. With reduced motion, the final frame shows at once. A new layers file remounts the
+// drawing (its key), so it starts again from its first layer.
+function useReveal(count: number): number {
+  const [reduced] = useState(prefersReducedMotion)
+  const [shown, setShown] = useState(1)
+  useEffect(() => {
+    if (reduced) return
+    const step = revealStep(count)
+    const timers: ReturnType<typeof setTimeout>[] = []
+    for (let i = 1; i < count; i += 1) timers.push(setTimeout(() => setShown(i + 1), Math.round(i * step)))
+    return () => {
+      for (const timer of timers) clearTimeout(timer)
+    }
+  }, [count, reduced])
+  return reduced ? count : shown
+}
+
+// MS4's layers drawn as an SVG over the photo, scaled with it (C615): the water, then each reference's outline, rim
+// outline, box, fitted rim, waterline and label, in MS4's order, one after another. The legend under the photo carries
+// each reference's words from the start, so the SVG is hidden from screen readers and nothing is said twice.
 function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[] }) {
   const t = useT()
   const size = { width: data.width, height: data.height }
+  const shown = useReveal(layers.length)
+  const visible = new Set(layers.slice(0, shown))
   return (
     <svg
       data-testid="overlay-svg"
@@ -202,18 +226,18 @@ function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[
         if (ref === null) {
           return (
             <g key={`water-${index}`}>
-              {own.map((layer) => (
-                <Layer key={layer.kind} layer={layer} size={size} chip={undefined} />
-              ))}
+              {own.map((layer) =>
+                visible.has(layer) ? <Layer key={layer.kind} layer={layer} size={size} chip={undefined} /> : null,
+              )}
             </g>
           )
         }
         const chip = refChip(t, ref)
         return (
           <g key={`ref-${index}`} data-ref={ref.id} data-dimmed={String(typeof ref.dropped === 'string')}>
-            {own.map((layer) => (
-              <Layer key={layer.kind} layer={layer} size={size} chip={chip} />
-            ))}
+            {own.map((layer) =>
+              visible.has(layer) ? <Layer key={layer.kind} layer={layer} size={size} chip={chip} /> : null,
+            )}
           </g>
         )
       })}
@@ -294,14 +318,15 @@ export function OverlayView({ photoUrl, overlayUrl, layersUrl, onExpired, onLaye
     <div>
       <div className="relative overflow-hidden rounded-control border border-outline">
         <img src={photoUrl} alt={alt.text} lang={alt.lang} onError={photoFailed} className="block w-full" />
-        {drawn !== undefined && <OverlaySvg data={drawn} layers={layers} />}
+        {drawn !== undefined && <OverlaySvg key={layersUrl} data={drawn} layers={layers} />}
+        {/* The JPEG fades in over the photo (C615); reduced motion cuts every transition to its end (index.css). */}
         {settled && usable === undefined && overlayUrl !== undefined && failedJpeg !== overlayUrl && (
           <img
             src={overlayUrl}
             alt=""
             aria-hidden="true"
             onError={() => setFailedJpeg(overlayUrl)}
-            className="pointer-events-none absolute inset-0 size-full"
+            className="pointer-events-none absolute inset-0 size-full transition-opacity duration-700 starting:opacity-0"
           />
         )}
       </div>

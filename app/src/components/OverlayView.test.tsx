@@ -7,10 +7,11 @@ import { FIL } from '../i18n/fil'
 import type { OverlayData } from '../lib/api'
 import { writeItem } from '../lib/storage'
 import { levelLayers } from '../mock/fixtures'
-import { refLabel } from '../overlay/layers'
+import { orderLayers, REVEAL_MS, refLabel, revealStep } from '../overlay/layers'
 import { contrastRatio, tokenBlocks } from '../styles/contrast'
 import tokensCss from '../styles/tokens.css?raw'
 import { deferred } from '../test/camera'
+import { prefersReducedMotion } from '../test/motion'
 import { OverlayView } from './OverlayView'
 
 // The app's fetch is whatever a test sets: the layers file comes through it, as it does in the app.
@@ -62,8 +63,10 @@ const flush = () =>
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 
+// Most tests check the final frame, so they ask for reduced motion; the timing tests ask for motion.
 beforeEach(() => {
   net.fetch = () => Promise.reject(new TypeError('No layers link answers'))
+  prefersReducedMotion(true)
 })
 
 afterEach(() => {
@@ -71,6 +74,86 @@ afterEach(() => {
   vi.restoreAllMocks()
   localStorage.clear()
   document.documentElement.removeAttribute('lang')
+})
+
+describe('the overlay draws itself (C615)', () => {
+  const drawnLayers = (container: HTMLElement) =>
+    [...container.querySelectorAll('[data-testid="overlay-svg"] [data-layer]')].map((layer) => layer.getAttribute('data-layer'))
+  // Lets the layers file's answer through with the clock stopped: it settles on promises alone.
+  const settle = () =>
+    act(async () => {
+      for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows layer i at i x step, one after another, and the last by 2,000 ms', async () => {
+    prefersReducedMotion(false)
+    vi.useFakeTimers()
+    const file = levelLayers('knee')
+    const count = orderLayers(file).length
+    const step = revealStep(count)
+    expect(count).toBeGreaterThan(2)
+    expect(step * (count - 1)).toBeCloseTo(REVEAL_MS, 6)
+    serve(file)
+    const { container } = renderOverlay()
+    await settle()
+
+    // The water first, at once; then each layer at its own time, in C524's order, and never before it.
+    expect(drawnLayers(container)).toEqual(['water'])
+    for (let i = 1; i < count; i += 1) {
+      await act(async () => {
+        vi.advanceTimersByTime(Math.round(i * step) - 1 - (Math.round((i - 1) * step)))
+      })
+      expect(drawnLayers(container), `layer ${i} waits for its time`).toHaveLength(i)
+      await act(async () => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(drawnLayers(container), `layer ${i} at ${Math.round(i * step)} ms`).toHaveLength(i + 1)
+    }
+    // Every layer by 2,000 ms, in the order the still drawing has.
+    expect(Math.round((count - 1) * step)).toBeLessThanOrEqual(REVEAL_MS)
+    expect(drawnLayers(container)).toEqual(orderLayers(file).map((layer) => layer.kind))
+    // The legend's words are there from the start, so a screen reader never waits for the drawing.
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('with prefers-reduced-motion: reduce, shows the final frame at once, with no timer to wait for', async () => {
+    prefersReducedMotion(true)
+    vi.useFakeTimers()
+    const file = levelLayers('knee')
+    serve(file)
+    const { container } = renderOverlay()
+    await settle()
+
+    expect(drawnLayers(container)).toEqual(orderLayers(file).map((layer) => layer.kind))
+  })
+
+  it('draws itself again for a new layers link, from its first layer', async () => {
+    prefersReducedMotion(false)
+    vi.useFakeTimers()
+    serve(levelLayers('knee'))
+    const { container, again } = renderOverlay()
+    await settle()
+    await act(async () => {
+      vi.advanceTimersByTime(REVEAL_MS)
+    })
+    expect(drawnLayers(container).length).toBeGreaterThan(1)
+
+    serve(levelLayers('floor'))
+    again({ layersUrl: `${LAYERS}&next=1` })
+    await settle()
+    expect(drawnLayers(container)).toEqual(['water'])
+  })
+
+  it('fades the overlay JPEG in over the photo, a fade that reduced motion cuts to its end', () => {
+    const { container } = renderOverlay({ layersUrl: undefined })
+    const jpeg = overlayJpeg(container)
+    expect(jpeg?.getAttribute('class')).toMatch(/\btransition-opacity\b/)
+    expect(jpeg?.getAttribute('class')).toMatch(/\bstarting:opacity-0\b/)
+  })
 })
 
 describe('the photo', () => {
