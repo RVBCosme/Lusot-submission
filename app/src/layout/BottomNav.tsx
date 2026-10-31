@@ -28,8 +28,10 @@ const SECTION: Record<Route['name'], Section> = {
 }
 
 // The current section is underlined and in the action colour, not bolded, so its label keeps its width and doesn't wrap.
+// Each label stays on one line: at 360 px, Taglish's "Mag-report" broke at its hyphen (Rene's phone test, Nov 1). A
+// label that doesn't fit widens its link, and the row wraps instead (see the <ul>).
 const LINK =
-  'flex min-h-tap flex-col items-center justify-center gap-0.5 px-1 py-1 text-small active:opacity-70 aria-[current=page]:text-action aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4'
+  'flex min-h-tap flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 py-1 text-small active:opacity-70 aria-[current=page]:text-action aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4'
 
 export function BottomNav({ route, reportDisabled }: { route: Route; reportDisabled: boolean }) {
   const current = SECTION[route.name]
