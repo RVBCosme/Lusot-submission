@@ -14,11 +14,11 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 
 | What | When | Why |
 |---|---|---|
-| A photo you take in the app [or a 5-second clip, if clip mode ships] | when you report | to estimate the depth at that spot |
+| A photo you take in the app | when you report | to estimate the depth at that spot |
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |
-| Your typed question, and your phone's location for a question about "dito" | when you ask | to answer from nearby reports |
+| Your typed question, or your spoken question as a voice clip of up to 15 seconds, and your phone's location for a question about "dito" | when you ask | to answer from nearby reports |
 | A flag you put on a wrong or fake pin | when you flag | to check or hide that pin |
 | Your IP address, which comes with every upload | with each report | kept only in a failed upload's queue record, so the failure can be checked (up to 7 days) |
 
@@ -33,10 +33,6 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 5. **The original is deleted.** Lusot deletes your original photo as soon as the result is saved. An automatic rule removes any original left behind, usually within two days, for example after a failed analysis.
 6. **Only a blurred copy is kept,** and only when Lusot gives a level.
 
-[If clip mode ships: faces in a clip are blurred first, as in a photo. The clip is uploaded to Meta's file storage with a 1-hour expiry, and deleted from it after analysis.]
-
-[If Meta's service needs it (MS4): Lusot may send a face-blurred photo to Meta's file storage instead, with a 1-hour expiry, and delete it there after analysis.]
-
 ## What Meta keeps
 
 - **Meta may keep what it receives with no fixed period,** under its own terms. Lusot's 7-day deletion covers only Lusot's own copies, and can't delete what Meta keeps.
@@ -46,15 +42,15 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 
 ## Public pins
 
-- **When a result becomes a pin.** A photo taken inside Metro Manila that Lusot reads a level from becomes a public pin, on the map and in Lusot's public pin feed. [Whether a "no flood seen" result also becomes a pin is still being decided (PRIV-Q2).]
+- **When a result becomes a pin.** A photo taken inside Metro Manila that Lusot reads a level from becomes a public pin, on the map and in Lusot's public pin feed. A "no flood seen" result never becomes a pin; only the person who took the photo sees it.
 - **What a pin shows:**
   - the spot: your phone's GPS position, or where you nudged the pin, with the GPS accuracy
   - the time the photo was taken
   - the level, the landmark it was read from, and its passability class (PATV, NPLV or NPATV)
   - how many reference objects the reading used
   - [an inches range, only if Lusot's measurement passes its own tests]
-- **The photo on a pin.** [In the app, a pin also shows the blurred photo with the outlines Lusot used, so anyone can check how the reading was made (PRIV-Q2).]
-- **How long a pin stays.** A pin fades after 1 hour and leaves the map after 3 hours. The report and its blurred photo are deleted 7 days after the photo was taken. The storage services remove them in the background, usually within a few days after that. [Whether a pin's photo can still be opened through its link until then is checked when the backend is built (PRIV-Q2).]
+- **The photo on a pin.** In the app, a pin also shows the blurred photo with the outlines Lusot used, so anyone can check how the reading was made.
+- **How long a pin stays.** A pin fades after 1 hour and leaves the map after 3 hours. The report and its blurred photo are deleted 7 days after the photo was taken. The storage services remove them in the background, usually within a few days after that. Anyone can open a pin's photo only while the pin is on the map, through a link that lasts 5 minutes. A result that isn't a pin shows its photo only to the person who took it, until it is deleted.
 - **The pin feed** carries only what the map shows, never photos, outlines or device ids. Other flood maps may copy pins from the feed, and Lusot can't delete their copies.
 - **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos. They come from people who agreed to share their photos for this, or from openly licensed photos (CC0, public domain or CC BY, never BY-SA, from Wikimedia Commons and Flickr). Each is credited on screen with its author, licence and a link to the file. Faces and plate numbers are blurred in all of them. An open-licensed demo pin shows the photo's own date, marked as an archive photo, and is always shown as a demo pin. They stay up longer than 3 hours and 7 days, and never count as reports.
 - **Outside Metro Manila.** A photo taken outside Metro Manila is analysed, and the result is shown only to you. It never becomes a pin. The photo still goes to Meta as described above, and the report is kept for 7 days like any other.
@@ -62,7 +58,8 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 ## Ask Lusot
 
 - **Typed questions** go to Meta's AI service, which answers them from the nearby reports Lusot finds: their level, place and time, which are public pins anyway. Lusot doesn't store your typed questions.
-- **Questions** go to Meta on the same terms as photos: while the hackathon credits last, Meta may use them to improve its products. Meta may keep them with no fixed period. Lusot asks Meta not to store the requests that answer a question, and Meta accepts that.
+- **Spoken questions.** When you speak a question, the app records a voice clip of up to 15 seconds and sends it to Lusot's server. The server sends the clip to Meta's speech-to-text service, with Lusot's list of spot names so that they're heard right. The text that comes back is shown to you and answered like a typed question. Lusot doesn't store the clip or its text: the clip stays only in the server's memory until the answer is sent.
+- **Questions** go to Meta on the same terms as photos: while the hackathon credits last, Meta may use them to improve its products. Meta may keep them with no fixed period. Lusot asks Meta not to store the requests that answer a question, and Meta accepts that. Meta's speech-to-text service has no such setting, so Meta receives a spoken question's voice clip and may keep it under its own terms.
 - **Place names.** When your question names a place that isn't on Lusot's list of MMDA flood-prone spots, Lusot sends the place name, and nothing about you, to OpenStreetMap's Nominatim service to find it on the map. Lusot keeps OpenStreetMap's answers (a place's name and map position) for 7 days, or 1 day for a place it didn't find, filed under a one-way hash of the name, never the words you typed or who asked.
 - **"Dito" questions.** A question about "dito" uses your phone's location to find reports near you. That location stays on Lusot's server: Meta receives only the distances to nearby reports, never your position, and Lusot doesn't store it.
 
@@ -71,7 +68,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | Who | What they do | Where |
 |---|---|---|
 | Amazon Web Services | Lusot's servers, storage, queue, logs and website | Singapore; the website is also served through AWS's worldwide network |
-| Meta | AI analysis: outlining and reading photos, and answering questions | [Meta's locations] |
+| Meta | AI analysis: outlining and reading photos, turning spoken questions into text, and answering questions | [Meta's locations] |
 | OpenStreetMap Foundation | place-name lookups (Nominatim) and the map's images | [OpenStreetMap's locations] |
 | Anthropic | an AI assistant (Claude) that Lusot's developer may use to check logs, flagged reports, privacy requests and the demo video | [Anthropic's locations] |
 
@@ -91,6 +88,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | a pin on the map | fades after 1 hour; gone after 3 hours |
 | service logs: timings, model names and the reasons for "can't tell" (never photos, locations or IP addresses) | 14 days |
 | your typed questions | not stored |
+| your spoken questions: the voice clip and its text | not stored (the clip stays only in the server's memory until the answer is sent) |
 | OpenStreetMap's answers for place names (a hashed name, the place's name and map position) | 7 days, or 1 day for a place not found |
 | the website's access logs | none kept: access logging is off |
 
@@ -98,7 +96,7 @@ These limits cover only Lusot's own copies. What Meta keeps is set by Meta's ter
 
 ## Why Lusot may use this data
 
-[You agree to the consent notice before your first upload, and Lusot relies on that for your photos and questions. People who appear in a photo haven't agreed to anything: Lusot blurs their faces and plates before keeping a copy (automatic blurring can miss some), and deletes it after 7 days. The lawful basis for processing their data is still open (PRIV-Q8).]
+You agree to the consent notice before your first upload or question, and Lusot relies on that for your photos and questions. People who appear in a photo haven't agreed to anything. For them, Lusot relies on its legitimate interest in showing how deep the water is at one spot (Section 12(f) of the Data Privacy Act), and it uses as little of their data as it can. Their faces are blurred before the photo goes to Meta, and faces and plates are blurred again before Lusot keeps a copy (automatic blurring can miss some faces and plates). Nobody is identified or named, and the copy is deleted after 7 days. If you are in a photo, you can object or ask for it to be deleted (see "Your rights").
 
 ## Your rights
 

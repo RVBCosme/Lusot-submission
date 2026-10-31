@@ -8,7 +8,7 @@ import { fnv1a32, GateProvider, hasNotice, isAdultConfirmed, NOTICE_VERSION, use
 
 const CONSENT_KEY = 'lusot.consent'
 const SCREEN_LINE = 'Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.'
-const NOTICE_HEADING = 'Before your first photo'
+const NOTICE_HEADING = 'Before your first photo or question'
 
 afterEach(() => {
   cleanup()
