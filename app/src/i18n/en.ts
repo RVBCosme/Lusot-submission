@@ -593,7 +593,10 @@ export const EN = {
   },
   'ask.error.voiceFailed': { text: "Lusot couldn't hear the question. Try again, or type it.", reviewed: false },
   'ask.error.unavailable': { text: "Ask Lusot can't answer right now. Try again in a minute.", reviewed: false },
-  'ask.error.micDenied': { text: 'Allow the microphone to ask by voice, or type your question.', reviewed: false },
+  'ask.error.micDenied': {
+    text: "Lusot can't use the microphone. Allow it for this page or app in your browser or phone settings to ask by voice, or type your question.",
+    reviewed: false,
+  },
   'ask.error.micUnavailable': {
     text: "This phone or browser can't record a question here. Type your question instead.",
     reviewed: false,

@@ -597,7 +597,7 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: false,
   },
   'ask.error.micDenied': {
-    text: 'Payagan ang mikropono para makapagtanong gamit ang boses, o i-type ang tanong mo.',
+    text: 'Hindi magamit ng Lusot ang mikropono. Payagan ito para sa page o app na ito sa settings ng browser o phone mo para makapagtanong gamit ang boses, o i-type ang tanong mo.',
     reviewed: false,
   },
   'ask.error.micUnavailable': {
