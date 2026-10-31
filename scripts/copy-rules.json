@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "about": "The copy rules (MS7 C819): one rule set for scripts/check_copy.mjs and MS5's string-table test. Spec section 4.4; the plan's Task 9.",
+  "files": [
+    "app/src/i18n/en.ts",
+    "app/src/i18n/fil.ts",
+    "app/src/content/*.md",
+    "backend/analysis/src/lusot_analysis/overlay.py",
+    "backend/api/prompts/ask_v1.*",
+    "eval/results/report/report.md",
+    "README.md"
+  ],
+  "answers": {
+    "fields": ["rendered.en", "rendered.fil"],
+    "reviewFields": ["transcript"]
+  },
+  "fail": [
+    {
+      "id": "banned-safe",
+      "pattern": "\\b(un)?safe(r|st|ly|ty)?\\b|safe",
+      "flags": "i",
+      "reviewOnlyIn": ["eval/**", "backend/api/prompts/**"],
+      "note": "The plan's forms, joined with MS5's C608 rule: 'safe' anywhere in a word, in any case."
+    },
+    {
+      "id": "banned-ligtas",
+      "pattern": "ligtas",
+      "flags": "i",
+      "reviewOnlyIn": ["eval/**", "backend/api/prompts/**"],
+      "note": "Any word that holds 'ligtas', such as kaligtasan or makaligtas."
+    },
+    {
+      "id": "mmda-9-levels",
+      "pattern": "MMDA(['’]?s)?\\s+(9|nine)\\s+levels|\\b(9|nine)\\s+MMDA\\s+levels",
+      "flags": "i",
+      "reviewOnlyIn": ["eval/**", "backend/api/prompts/**"],
+      "note": "The 9 levels are MMDA's 7 plus two; never 'MMDA's 9 levels', in any form."
+    },
+    {
+      "id": "crossing-phrase",
+      "pattern": "you can (cross|pass|go through)|go ahead|pu?wede(ng)? (kang )?(tumawid|dumaan)|kaya mong (tumawid|dumaan)|makakalusot|tumawid ka|lusutan mo",
+      "flags": "i",
+      "reviewOnlyIn": ["eval/**", "backend/api/prompts/**"],
+      "note": "The plan's crossing phrases, joined with MS5's."
+    }
+  ],
+  "required": [
+    {
+      "id": "screen-line",
+      "text": "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.",
+      "files": ["app/src/i18n/en.ts"]
+    },
+    {
+      "id": "not-affiliated",
+      "text": "Not affiliated with MMDA.",
+      "files": ["app/src/i18n/en.ts", "README.md"]
+    }
+  ],
+  "levelLine": {
+    "levels": ["Below gutter", "Gutter", "Half-knee", "Half-tire", "Knee", "Tire", "Waist", "Chest", "Above chest"],
+    "mustInclude": ["at this spot", "sa spot na ito"],
+    "reviewOnlyIn": ["eval/**", "backend/analysis/src/lusot_analysis/overlay.py"]
+  },
+  "review": [
+    { "id": "crossing-cross", "pattern": "\\bcross(ing|es|ed)?\\b", "flags": "i" },
+    { "id": "crossing-pass", "pattern": "\\bpass(able|ing|es|ed)?\\b", "flags": "i" },
+    { "id": "crossing-through", "pattern": "drive through|walk through|wad(e|ing)", "flags": "i" },
+    { "id": "crossing-tawid", "pattern": "\\b(tawid|tumawid|dumaan|daanan)\\b", "flags": "i" },
+    { "id": "crossing-lusot", "pattern": "\\b(lusot|lumusot|lusutan|makalusot)\\b", "flags": "" },
+    { "id": "whole-road", "pattern": "\\b(roads?|streets?|routes?|highway|kalsada|ruta)\\b", "flags": "i" },
+    { "id": "level-words", "pattern": "\\b(ankle|shin|thigh|hip|neck|head)[- ]deep\\b", "flags": "i" },
+    { "id": "vehicle-verdict", "pattern": "\\bfor (sedans?|SUVs?|trucks?|jeepneys?|motorcycles?|buses|vans?|cars?)\\b", "flags": "i" },
+    { "id": "claim-first", "pattern": "\\bfirst\\b", "flags": "i" },
+    { "id": "claim-analyzer", "pattern": "(photo|image) analy[sz]er", "flags": "i" },
+    { "id": "claim-accuracy", "pattern": "\\baccura(cy|te)\\b", "flags": "i" },
+    { "id": "claim-danger", "pattern": "\\bdanger(ous)?\\b|\\bdelikado\\b", "flags": "i" },
+    { "id": "claim-guarantee", "pattern": "\\bguarantee", "flags": "i" }
+  ],
+  "allowed": [
+    "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.",
+    "I can't tell from this photo. Retake it from a dry spot with a parked car's wheel or a person standing still in view. Don't step into the water or the road.",
+    "Not affiliated with MMDA.",
+    "I can't tell you whether to cross or go through.",
+    "not passable to light vehicles",
+    "not passable to any vehicle",
+    "passable to all vehicles"
+  ]
+}

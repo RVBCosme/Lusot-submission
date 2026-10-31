@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+// Read as text at test time, so tsconfig.app.json needs no resolveJsonModule (MS7 Task 9).
+import copyRules from '../../../scripts/copy-rules.json?raw'
 import { readItem, writeItem } from '../lib/storage'
 import { EN, type Entry, type StringKey } from './en'
 import { FIL } from './fil'
@@ -51,26 +53,33 @@ it('the two locked English lines are the same in Taglish, and reviewed', () => {
   expect(FIL['about.notAffiliated']).toEqual(EN['about.notAffiliated'])
 })
 
-// The banned forms (C608): the two words anywhere in a word, the crossing phrases, and the 9 levels called MMDA's.
-const BANNED_WORDS = /safe|ligtas/i
-const CROSSING = /you can cross|you can pass|go ahead|pu?wedeng dumaan|tumawid ka|lusutan mo/i
-const NINE_LEVELS = /MMDA(['’]?s)? (9|nine) levels|(the )?(9|nine) MMDA levels/i
+// The banned forms (C608, extended by MS7's C819): the `fail` rules of scripts/copy-rules.json, the one rule set that
+// MS7's copy check (scripts/check_copy.mjs) reads too: "safe" and "ligtas" anywhere in a word, the crossing phrases,
+// and the 9 levels called MMDA's. The string tables are product copy, so every rule fails here; a rule's
+// `reviewOnlyIn` names only the eval and prompt files.
+type FailRule = { id: string; pattern: string; flags: string }
+const FAIL = (JSON.parse(copyRules) as { fail: FailRule[] }).fail.map((r) => ({ id: r.id, re: new RegExp(r.pattern, r.flags) }))
+function failRule(id: string): RegExp {
+  const found = FAIL.find((r) => r.id === id)
+  if (found === undefined) throw new Error(`scripts/copy-rules.json has no fail rule ${id}`)
+  return found.re
+}
 
 it('the banned-phrase patterns catch every spelling they stand for', () => {
-  for (const s of ['Unsafe', 'SAFETY', 'kaligtasan', 'makaligtas']) expect(s, s).toMatch(BANNED_WORDS)
+  expect(FAIL.map((r) => r.id)).toEqual(['banned-safe', 'banned-ligtas', 'mmda-9-levels', 'crossing-phrase'])
+  for (const s of ['Unsafe', 'SAFETY', 'safeguard']) expect(s, s).toMatch(failRule('banned-safe'))
+  for (const s of ['kaligtasan', 'makaligtas']) expect(s, s).toMatch(failRule('banned-ligtas'))
   const crossing = ['You can cross.', 'you can pass', 'Go ahead', 'Pwedeng dumaan', 'Puwedeng dumaan', 'TUMAWID KA']
-  for (const s of [...crossing, 'Lusutan mo']) expect(s, s).toMatch(CROSSING)
+  for (const s of [...crossing, 'Lusutan mo']) expect(s, s).toMatch(failRule('crossing-phrase'))
   for (const s of ["MMDA's 9 levels", 'MMDA’s nine levels', 'MMDA 9 levels', 'mmda nine levels', 'the 9 MMDA levels']) {
-    expect(s, s).toMatch(NINE_LEVELS)
+    expect(s, s).toMatch(failRule('mmda-9-levels'))
   }
 })
 
 it('no string uses a banned word or phrase', () => {
   const all = [...Object.values(EN), ...Object.values(FIL)].map((e) => e.text)
   for (const s of all) {
-    expect(s).not.toMatch(BANNED_WORDS)
-    expect(s).not.toMatch(CROSSING)
-    expect(s).not.toMatch(NINE_LEVELS)
+    for (const { id, re } of FAIL) expect(s, id).not.toMatch(re)
   }
 })
 
