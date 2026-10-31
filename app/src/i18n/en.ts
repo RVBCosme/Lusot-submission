@@ -572,6 +572,15 @@ export const EN = {
   'ask.ui.example1': { text: 'Gaano kalalim ang baha sa España cor. Maceda?', reviewed: false },
   'ask.ui.example2': { text: 'May baha ba dito?', reviewed: false },
   'ask.ui.example3': { text: 'How deep is it at Quezon Ave cor. Araneta?', reviewed: false },
+  'ask.ui.questionLabel': { text: 'Your question', reviewed: false },
+  'ask.ui.asking': { text: 'Looking up recent reports…', reviewed: false },
+  'ask.ui.examples': { text: 'Try asking:', reviewed: false },
+  'ask.ui.noApi': { text: "This build can't ask questions.", reviewed: false },
+  'ask.error.micUnavailable': {
+    text: "This phone or browser can't record a question here. Type your question instead.",
+    reviewed: false,
+  },
+  'ask.ui.answer': { text: 'Answer', reviewed: false },
   'ask.ui.suggestionQuestion': { text: 'How deep is it at {spot}?', reviewed: false },
   'ask.error.questionLimit': { text: "You've asked 20 questions this hour. Try again in {min} min.", reviewed: false },
   'ask.error.questionCap': {
