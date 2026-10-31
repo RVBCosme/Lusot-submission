@@ -3,7 +3,8 @@
 // the turn that answered it, and ask_offtopic.json from the off-topic question. The probe saved each call's
 // status, token counts, tool arguments and answer, not the raw body, so the envelope follows Meta's Responses
 // schema (dev.meta.ai/docs/api-reference/responses/schemas), and every id, call_id and encrypted_content is a
-// placeholder. The probe had no incomplete response, so ask_incomplete.json is written by hand.
+// placeholder. The probe had no incomplete response, so ask_incomplete.json is written by hand. transcribe.json takes
+// MS1's shape (backend/analysis's fixture, the example on dev.meta.ai/docs/speech-to-text), with its own words.
 import { readFileSync } from "node:fs";
 import type { ResponseCreateParamsNonStreaming } from "openai/resources/responses/responses";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
@@ -20,7 +21,8 @@ const fixture = (name: string): Fixture =>
   JSON.parse(readFileSync(new URL(`../fixtures/meta/${name}.json`, import.meta.url), "utf8"));
 
 type Reply = { status: number; body: unknown; headers?: Record<string, string> };
-type Sent = { url: string; method: string | undefined; headers: Headers; body: Record<string, unknown> };
+// A transcription's body is a form, kept as it was sent; a Responses body is JSON, kept parsed.
+type Sent = { url: string; method: string | undefined; headers: Headers; body: Record<string, unknown>; form?: FormData };
 
 let clock: number; // the fake clock that sleep, now and the retry tests' Deadline read
 let sleeps: number[];
@@ -36,11 +38,13 @@ const logged = () =>
   [errorSpy, logSpy, warnSpy, infoSpy, debugSpy].flatMap((spy) => spy.mock.calls.map((args) => args.map(String).join(" ")));
 
 const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+  const form = init?.body instanceof FormData ? init.body : undefined;
   sent.push({
     url: String(input),
     method: init?.method,
     headers: new Headers(init?.headers),
-    body: JSON.parse(String(init?.body)),
+    body: form === undefined ? JSON.parse(String(init?.body)) : {},
+    form,
   });
   const next = replies.shift();
   if (next === undefined) throw new Error("the test gave no reply for this call");
@@ -435,5 +439,176 @@ describe("what it keeps", () => {
 
     expect(found).toHaveLength(16);
     for (const value of found) expect(value).toMatch(/^[a-z]+_fixture_\d+$/);
+  });
+});
+
+// --- transcription (spec §4.7, F5) -------------------------------------------------------------------------------
+
+const WAV = Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0x5e, 0x77, 0x11, 0x00, 0x57, 0x41, 0x56, 0x45]); // a sentinel run
+const SPOKEN = "Sentinelspoken baha sa España?";
+const OPTS = { keywords: ["España Blvd cor. Maceda St", "Taft Ave in front of PGH"], languageBias: ["Tagalog", "English"] };
+// A Deadline whose transcription mark is `leftMs` away on the fake clock.
+const voiceDeadline = (leftMs: number = BUDGET.transcribeBy) => new Deadline(clock - (BUDGET.transcribeBy - leftMs), () => clock);
+const heard = (transcript: string): Reply => ({ status: 200, body: { ...fixture("transcribe"), transcript } });
+
+describe("transcribe", () => {
+  it("the transcription request's parts", async () => {
+    replies = [ok("transcribe")];
+    const meta = createMeta(deps());
+
+    await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].url).toBe("https://api.meta.ai/v1/asr/transcribe");
+    expect(sent[0].method).toBe("POST");
+    expect(sent[0].headers.get("authorization")).toBe(`Bearer ${KEY}`);
+    expect(sent[0].headers.get("accept")).toBe("application/json");
+    const form = sent[0].form as FormData;
+    expect([...form.keys()]).toEqual(["request", "audio"]);
+    const request = form.get("request") as Blob;
+    expect(request.type).toBe("application/json");
+    expect(JSON.parse(await request.text())).toEqual({
+      model: "muse-voice-transcribe-1.0",
+      audioEncoding: "WAV",
+      mode: "PUSH_TO_TALK",
+      keywords: OPTS.keywords,
+      languageBias: ["Tagalog", "English"],
+    });
+    const audio = form.get("audio") as File;
+    expect(audio.type).toBe("audio/wav");
+    expect(new Uint8Array(await audio.arrayBuffer())).toEqual(WAV);
+  });
+
+  it("gives the transcript and its duration, and records the try under the transcription model", async () => {
+    replies = [ok("transcribe")];
+    const meta = createMeta(deps());
+
+    const result = await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy);
+
+    expect(result).toEqual({ transcript: "Gaano kalalim ang baha sa España cor. Maceda?", audioDurationMs: 3700 });
+    expect(meta.calls).toEqual([{ model: "muse-voice-transcribe-1.0", status: 200, ms: 0 }]);
+  });
+
+  it("only the two model ids are allowed, and muse-spark-1.3-contributor is refused", async () => {
+    replies = [ok("transcribe"), ok("ask_call")];
+    const meta = createMeta(deps());
+
+    await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy);
+    await meta.respond(body(), deadline(), BUDGET.modelBy);
+    await expect(meta.respond(body({ model: "muse-spark-1.3-contributor" }), deadline(), BUDGET.modelBy)).rejects.toThrow();
+
+    expect(meta.calls.map((c) => c.model)).toEqual(["muse-voice-transcribe-1.0", "muse-spark-1.3"]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("a 429 then a 200 makes two calls, inside the transcription mark", async () => {
+    replies = [fail(429), ok("transcribe")];
+    const meta = createMeta(deps());
+
+    await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy);
+
+    expect(sent).toHaveLength(2);
+    expect(sleeps).toEqual([1000]);
+    expect(meta.calls.map((c) => c.status)).toEqual([429, 200]);
+  });
+
+  it("Retry-After past the transcription mark means no retry", async () => {
+    replies = [fail(503, { "retry-after": "3" })];
+    const meta = createMeta(deps());
+
+    const err = await failure(meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));
+
+    expect(err.status).toBe(503);
+    expect(sent).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  it.each([400, 401, 402, 403, 504])("a %i throws with its status, once", async (status) => {
+    replies = [fail(status)];
+    const meta = createMeta(deps());
+
+    const err = await failure(meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));
+
+    expect(err.status).toBe(status);
+    expect(sent).toHaveLength(1);
+    expect(meta.calls).toEqual([{ model: "muse-voice-transcribe-1.0", status, ms: 0 }]);
+  });
+
+  it.each([
+    ["no transcript", { audioDurationMs: 3700 }],
+    ["a transcript that isn't text", { transcript: 7, audioDurationMs: 3700 }],
+    ["a body that isn't JSON", "not json"],
+  ])("a 200 with %s is MetaError(null), recorded as the 200 it was", async (_name, answer) => {
+    replies = [
+      typeof answer === "string"
+        ? () => Promise.resolve(new Response(answer, { status: 200, headers: { "content-type": "application/json" } }))
+        : { status: 200, body: answer },
+    ];
+    const meta = createMeta(deps());
+
+    const err = await failure(meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));
+
+    expect(err.status).toBeNull();
+    expect(meta.calls).toEqual([{ model: "muse-voice-transcribe-1.0", status: 200, ms: 0 }]);
+    expect(logged().filter((line) => line.includes("meta_call_failed"))).toEqual([]);
+  });
+
+  it("a duration that is missing or not a number is null, since nothing reads it", async () => {
+    replies = [
+      { status: 200, body: { transcript: "baha" } },
+      { status: 200, body: { transcript: "baha", audioDurationMs: "3700" } },
+    ];
+    const meta = createMeta(deps());
+
+    expect(await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy)).toEqual({ transcript: "baha", audioDurationMs: null });
+    expect(await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy)).toEqual({ transcript: "baha", audioDurationMs: null });
+  });
+
+  it("the transcription mark aborts a call in flight: MetaError(null)", async () => {
+    const realStart = Date.now();
+    replies = [
+      (init) =>
+        new Promise<Response>((_, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    ];
+    const meta = createMeta(deps({ now: Date.now }));
+
+    const err = await failure(meta.transcribe(WAV, OPTS, new Deadline(realStart - BUDGET.transcribeBy + 50, Date.now), BUDGET.transcribeBy));
+
+    expect(err.status).toBeNull();
+    expect(Date.now() - realStart).toBeGreaterThanOrEqual(45);
+    expect(meta.calls.map((c) => c.status)).toEqual([null]);
+  });
+
+  it("a mark already past sends nothing", async () => {
+    const meta = createMeta(deps());
+
+    const err = await failure(meta.transcribe(WAV, OPTS, voiceDeadline(0), BUDGET.transcribeBy));
+
+    expect(err.status).toBeNull();
+    expect(sent).toHaveLength(0);
+  });
+
+  it("no log line, error or call record holds the key, the audio or the transcript", async () => {
+    replies = [
+      heard(SPOKEN),
+      { status: 401, body: { error: { message: `bad key ${KEY} for ${SPOKEN}`, type: "auth" } } },
+      () => Promise.reject(new TypeError(`fetch failed for ${KEY}`)),
+    ];
+    const meta = createMeta(deps());
+    const errors: unknown[] = [];
+
+    expect((await meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy)).transcript).toBe(SPOKEN);
+    errors.push(await failure(meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy)));
+    errors.push(await failure(meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy)));
+
+    const lines = logged();
+    expect(lines.some((line) => line.includes("meta_call_failed"))).toBe(true);
+    const audio = Buffer.from(WAV).toString("base64");
+    const kept = [...lines, JSON.stringify(meta.calls), ...errors.map((e) => `${String(e)} ${JSON.stringify(e)}`)];
+    for (const text of kept) {
+      for (const sentinel of [KEY, SPOKEN, "Sentinelspoken", audio, "RIFF^w"]) expect(text).not.toContain(sentinel);
+    }
   });
 });

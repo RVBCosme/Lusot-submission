@@ -254,6 +254,10 @@ function scriptedMeta(fault: (id: string) => Error | undefined = () => undefined
       const cited = result.reports.map((report) => report.ref);
       return reply("ask_answer", JSON.stringify({ kind: reading.kind, vehicle: reading.vehicle, cited }));
     },
+    // The typed set only: nothing here is spoken.
+    async transcribe() {
+      throw new Error("the typed dry run never transcribes");
+    },
   };
 }
 

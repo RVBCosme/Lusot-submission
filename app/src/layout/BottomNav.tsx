@@ -1,17 +1,18 @@
-import { CameraIcon, ClipboardCheckIcon, InfoIcon, MapIcon, type LucideIcon } from 'lucide-react'
+import { CameraIcon, ClipboardCheckIcon, InfoIcon, MapIcon, MessageCircleQuestionIcon, type LucideIcon } from 'lucide-react'
 import { T } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { routeHash, type Route } from '../router'
 
-type Section = 'map' | 'report' | 'tested' | 'about'
+type Section = 'map' | 'report' | 'tested' | 'about' | 'ask'
 
-// MS6 adds Ask as the fifth (spec §4.1). Lucide's icons are hidden from screen readers, so each link's name is
-// its text label.
+// Ask Lusot is the fifth (spec §4.1; Ask's C723). Lucide's icons are hidden from screen readers, so each link's name
+// is its text label.
 const ITEMS: { section: Section; label: StringKey; Icon: LucideIcon }[] = [
   { section: 'map', label: 'nav.map', Icon: MapIcon },
   { section: 'report', label: 'nav.report', Icon: CameraIcon },
   { section: 'tested', label: 'nav.tested', Icon: ClipboardCheckIcon },
   { section: 'about', label: 'nav.about', Icon: InfoIcon },
+  { section: 'ask', label: 'nav.ask', Icon: MessageCircleQuestionIcon },
 ]
 
 // A pin sits on the map, and the privacy policy and the licences are reached from About.
@@ -23,6 +24,7 @@ const SECTION: Record<Route['name'], Section> = {
   about: 'about',
   privacy: 'about',
   licences: 'about',
+  ask: 'ask',
 }
 
 // The current section is underlined and in the action colour, not bolded, so its label keeps its width and doesn't wrap.

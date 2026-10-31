@@ -61,6 +61,17 @@ describe('AndroidManifest.xml', () => {
     expect(attr(usesFeature('android.hardware.camera'), 'required')).toBe('false')
   })
 
+  it('asks for the microphone with RECORD_AUDIO and MODIFY_AUDIO_SETTINGS, and does not require a microphone', () => {
+    // Capacitor's WebView client asks Android for both together when the page opens a microphone stream, and refuses
+    // the stream if either is missing (Ask Lusot's Task 17). Android reads them only directly under <manifest>.
+    const permissions = [...manifest.getElementsByTagName('uses-permission')]
+      .filter((e) => e.parentNode === manifest.documentElement)
+      .map((e) => attr(e, 'name'))
+    expect(permissions).toContain('android.permission.RECORD_AUDIO')
+    expect(permissions).toContain('android.permission.MODIFY_AUDIO_SETTINGS')
+    expect(attr(usesFeature('android.hardware.microphone'), 'required')).toBe('false')
+  })
+
   it('does not require a GPS, so a store would not filter out a phone with network location only', () => {
     expect(attr(usesFeature('android.hardware.location.gps'), 'required')).toBe('false')
   })

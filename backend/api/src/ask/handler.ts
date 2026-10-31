@@ -2,26 +2,31 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { GetParameterCommand, PutParameterCommand, type SSMClient } from "@aws-sdk/client-ssm";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { json, type JsonResponse } from "../http";
-import { type LimitDeps, take } from "../limits";
+import { giveBack, type LimitDeps, take } from "../limits";
 import { logError } from "../log";
 import type { ModelKey } from "../modelKey";
 import type { PublicPin } from "../pins";
 import { costOf, recordSpend, SpendUnseeded, spendTotal, toMicro, UNREPORTED_USAGE } from "../spend";
 import type { StopSwitch } from "../stopSwitch";
 import { type AgentResult, AgentToolError, type AgentUsage, runAgent } from "./agent";
-import { type Answer, classify, type Fallback, plainList } from "./answer";
+import { type Answer, classify, type Fallback, noSpeech, plainList } from "./answer";
 import { BUDGET, Deadline } from "./deadline";
 import { type AskLogField, logAsk } from "./log";
-import type { Meta, MetaDeps } from "./meta";
+import { type Meta, type MetaCall, type MetaDeps, MetaError, MODEL, TRANSCRIBE_MODEL } from "./meta";
 import type { Geocoder, GeoTrace } from "./nominatim";
 import { loadPrompts } from "./prompts";
-import { parseQuestion } from "./request";
-import { findSpotIn, type Spot } from "./spots";
+import { parseQuestion, parseVoice } from "./request";
+import { findSpotIn, type Spot, spotKeywords } from "./spots";
 import { type Here, runGetReports, type ToolArgs, type ToolCtx, type ToolResult } from "./tool";
+import { checkWav } from "./wav";
 import { hasHereWords } from "./words";
 
 // The Meta spend stop, in USD (MS4's template and spend.py's SPEND_STOP_PARAM).
 export const SPEND_STOP_PARAM = "/lusot/spend/stop-usd";
+
+// Meta's names for the two languages a spoken question is in (spec §4.7; its Speech to text page lists Tagalog, not
+// Filipino).
+export const LANGUAGE_BIAS = ["Tagalog", "English"];
 
 // Metro Manila's bounds, from data/ncr.json (Task 0's notes): Nominatim's viewbox preference.
 export const NCR_BOUNDS = { west: 120.906221, south: 14.347255, east: 121.135023, north: 14.785336 };
@@ -64,8 +69,19 @@ export type AskRequest = { body: string | undefined; device: string | undefined 
 
 type Line = Partial<Record<AskLogField, unknown>>;
 
-// One question's state: what it asked, its budget, and its log line as it fills.
-type Question = { text: string; here?: Here; nowS: number; deadline: Deadline; deps: AskDeps; line: Line };
+// One question's state: what it asked, its budget, and its log line as it fills. A spoken question also holds its
+// clip's length, which its transcription is billed by, and its transcript, which its answer carries.
+type Question = {
+  text: string;
+  here?: Here;
+  nowS: number;
+  deadline: Deadline;
+  deps: AskDeps;
+  line: Line;
+  clipMs?: number;
+  transcript?: string;
+};
+type Route = (req: AskRequest, deps: AskDeps, deadline: Deadline, line: Line) => Promise<JsonResponse>;
 
 const NO_USAGE: AgentUsage = { input: 0, output: 0, reasoning: 0 };
 // The plain list's own lookup: the whole window (C732 needs the model's reading to shorten it), and no model parts.
@@ -74,11 +90,21 @@ const PLAIN_ARGS: ToolArgs = { place: "", here: false, sinceMin: 180, kind: "dep
 // POST /ask, typed (spec §4.1): check the body, count the question, then the model's answer or the plain list.
 // Every path writes one log line (§4.9). Anything that throws is MS1's 500 internal, logged by its name only.
 export async function askTyped(req: AskRequest, deps: AskDeps): Promise<JsonResponse> {
+  return handle("ask", typed, req, deps);
+}
+
+// POST /ask/voice (spec §4.1, §4.7): check the clip, then the pauses, before anything is counted, since transcription
+// is a Meta call; count it, transcribe it by 4 s, and answer the transcript as a typed question, with the transcript.
+export async function askVoice(req: AskRequest, deps: AskDeps): Promise<JsonResponse> {
+  return handle("ask_voice", spoken, req, deps);
+}
+
+async function handle(route: "ask" | "ask_voice", run: Route, req: AskRequest, deps: AskDeps): Promise<JsonResponse> {
   const startMs = deps.now();
-  const line: Line = { route: "ask", meta_calls: 0 };
+  const line: Line = { route, meta_calls: 0 };
   let res: JsonResponse;
   try {
-    res = await answer(req, deps, new Deadline(startMs, deps.now), line);
+    res = await run(req, deps, new Deadline(startMs, deps.now), line);
   } catch (err) {
     line.error = err instanceof Error ? err.name : "unknown";
     res = json(500, { error: "internal" });
@@ -87,7 +113,7 @@ export async function askTyped(req: AskRequest, deps: AskDeps): Promise<JsonResp
   return res;
 }
 
-async function answer(req: AskRequest, deps: AskDeps, deadline: Deadline, line: Line): Promise<JsonResponse> {
+async function typed(req: AskRequest, deps: AskDeps, deadline: Deadline, line: Line): Promise<JsonResponse> {
   const parsed = parseQuestion(req.body);
   if ("detail" in parsed) return json(400, { error: "bad_request", detail: parsed.detail });
 
@@ -111,6 +137,84 @@ async function answer(req: AskRequest, deps: AskDeps, deadline: Deadline, line: 
   return modelPath(q, deps.createMeta({ key, sleep: deps.sleep, random: deps.random, now: deps.now }), stopUsd);
 }
 
+async function spoken(req: AskRequest, deps: AskDeps, deadline: Deadline, line: Line): Promise<JsonResponse> {
+  const parsed = parseVoice(req.body);
+  if ("error" in parsed) return json(400, parsed.detail === undefined ? { error: parsed.error } : { error: parsed.error, detail: parsed.detail });
+  const clip = checkWav(parsed.audio);
+  if (!clip.ok) return json(clip.code === "bad_audio" ? 400 : 422, { error: clip.code });
+  line.audio_ms = clip.durationMs;
+
+  // Neither pause counts the question (spec §5.4): a spoken one can't be answered without Meta. The switch is read
+  // first, from its 30 s cache. The spend counter is read only once the question is counted, so refused questions
+  // can't drain the limits table's 2 read units and trip the fail-closed pause; a stop found then gives the count back.
+  if (await deps.isStopped("model-calls", deps.now())) return json(503, { error: "voice_paused" });
+  const nowS = Math.floor(deps.now() / 1000);
+  const refused = await take("question", req.device, nowS, deps);
+  if (refused !== null) return refused;
+  const stopUsd = await spendCheck(deps, deadline);
+  if (stopUsd === null) {
+    try {
+      await giveBack("question", req.device, nowS, deps);
+    } catch (err) {
+      logError("question_give_back_failed", err); // one question too many on the counters, never too few
+    }
+    return json(503, { error: "voice_paused" });
+  }
+
+  let key: string;
+  try {
+    key = await deps.modelKey.get(deadline.signal(BUDGET.transcribeBy));
+  } catch (err) {
+    logError("model_key_unreadable", err);
+    return json(503, { error: "voice_failed" });
+  }
+  const meta = deps.createMeta({ key, sleep: deps.sleep, random: deps.random, now: deps.now });
+  const q: Question = { text: "", here: parsed.here, nowS, deadline, deps, line, clipMs: clip.durationMs };
+
+  const started = deps.now();
+  let transcript: string;
+  try {
+    const opts = { keywords: spotKeywords(deps.spots), languageBias: LANGUAGE_BIAS };
+    transcript = (await meta.transcribe(parsed.audio, opts, deadline, BUDGET.transcribeBy)).transcript.trim();
+  } catch (err) {
+    // A failed or late transcription is a 503 voice_failed (spec §5.4), after its billed tries are recorded. A
+    // rejected key is dropped, as the model path drops it (C710). Anything else is a bug: MS1's 500.
+    if (err instanceof MetaError && (err.status === 401 || err.status === 402 || err.status === 403)) deps.modelKey.drop();
+    await settleTranscription(q, meta, stopUsd, started);
+    if (!(err instanceof MetaError)) throw err;
+    return json(503, { error: "voice_failed" });
+  }
+
+  if (transcript === "") {
+    await settleTranscription(q, meta, stopUsd, started);
+    Object.assign(line, { tool_calls: 0, final: null, crossing: null });
+    return answered({ ...q, transcript }, noSpeech(), null);
+  }
+  line.transcribe_ms = deps.now() - started;
+  return modelPath({ ...q, text: transcript, transcript }, meta, stopUsd);
+}
+
+// A spoken question that ends at its transcription: its log fields, and its billed audio on the spend counter.
+async function settleTranscription(q: Question, meta: Meta, stopUsd: number, started: number): Promise<void> {
+  q.line.transcribe_ms = q.deps.now() - started;
+  metaFields(meta, q.line);
+  await settleSpend(NO_USAGE, billedAudioSeconds(meta, q.clipMs), stopUsd, q.deps, q.deadline);
+}
+
+// Transcription is billed by the clip's whole seconds (F5), for each try that may have been billed. A typed question
+// has no clip. checkWav rounds the clip's length up to a whole ms, so its seconds round up here too, never under.
+function billedAudioSeconds(meta: Meta, clipMs: number | undefined): number {
+  if (clipMs === undefined) return 0;
+  const tries = meta.calls.filter((call) => call.model === TRANSCRIBE_MODEL && mayBeBilled(call));
+  return tries.length * Math.ceil(clipMs / 1000);
+}
+
+// A try Meta may have billed: any but its own HTTP error answer (backend/analysis's _maybe_billed), so a try with no
+// answer counts.
+function mayBeBilled(call: MetaCall): boolean {
+  return call.status === null || call.status < 400;
+}
+
 // The tool loop, then the answer it gives. Whatever ends it, the question's cost goes to the spend counter.
 async function modelPath(q: Question, meta: Meta, stopUsd: number): Promise<JsonResponse> {
   const { deps, line } = q;
@@ -132,7 +236,7 @@ async function modelPath(q: Question, meta: Meta, stopUsd: number): Promise<Json
     } catch (err) {
       if (!(err instanceof AgentToolError)) {
         // A bug, or a 200 the SDK couldn't read: charge each try that may have been billed (C736: never under).
-        const billed = meta.calls.filter((call) => call.status === 200 || call.status === null).length;
+        const billed = meta.calls.filter((call) => call.model === MODEL && mayBeBilled(call)).length;
         const { spark_input_tokens: input, spark_output_tokens: output } = UNREPORTED_USAGE;
         usage = { input: billed * input, output: billed * output, reasoning: 0 };
         throw err;
@@ -152,18 +256,21 @@ async function modelPath(q: Question, meta: Meta, stopUsd: number): Promise<Json
     if (outcome.type === "answer") {
       line.final = outcome.final;
       line.crossing = outcome.crossingFrom;
-      return answered(outcome.answer, trace, line);
+      return answered(q, outcome.answer, trace);
     }
     // Only turn 1 falls back, before any tool ran, so today a fallback carries no tool result. One that did would
     // keep the place the model's call found (spec §4.5).
     const { tool: found, fallback } = outcome;
-    if (found !== undefined) return answered(plainList(found, q.text, fallback), trace, plainLine(q));
+    if (found !== undefined) {
+      plainLine(q);
+      return answered(q, plainList(found, q.text, fallback), trace);
+    }
     return await plainAnswer(q, fallback);
   } finally {
     line.input_tokens = usage.input;
     line.output_tokens = usage.output;
     line.reasoning_tokens = usage.reasoning;
-    await settleSpend(usage, stopUsd, deps, q.deadline);
+    await settleSpend(usage, billedAudioSeconds(meta, q.clipMs), stopUsd, deps, q.deadline);
   }
 }
 
@@ -185,19 +292,20 @@ async function plainAnswer(q: Question, fallback: Fallback): Promise<JsonRespons
       return unavailable(err);
     }
   }
-  return answered(plainList(tool, q.text, fallback), null, plainLine(q));
+  plainLine(q);
+  return answered(q, plainList(tool, q.text, fallback), null);
 }
 
 // The plain list's log fields: no final turn, and the crossing line from the words only. tool_calls keeps the
 // model's count when it ran, else 0.
-function plainLine(q: Question): Line {
+function plainLine(q: Question): void {
   const crossing = classify({ calls: [], question: q.text }).crossingFrom;
   Object.assign(q.line, { tool_calls: q.line.tool_calls ?? 0, final: null, crossing });
-  return q.line;
 }
 
-function answered(a: Answer, trace: GeoTrace | null, line: Line): JsonResponse {
-  Object.assign(line, {
+// The 200 and its log fields. A spoken question's answer carries its transcript (spec §5.2).
+function answered(q: Question, a: Answer, trace: GeoTrace | null): JsonResponse {
+  Object.assign(q.line, {
     source: a.source,
     fallback: a.fallback,
     kind: a.kind,
@@ -208,7 +316,7 @@ function answered(a: Answer, trace: GeoTrace | null, line: Line): JsonResponse {
     demo: a.demo.length,
     cited: a.cited.length,
   });
-  return json(200, { answer: a });
+  return json(200, q.transcript === undefined ? { answer: a } : { answer: a, transcript: q.transcript });
 }
 
 function toolCtx(q: Question): ToolCtx {
@@ -336,15 +444,22 @@ async function readStop(ssm: SSMClient): Promise<number> {
   return stop;
 }
 
-// After the question: its cost on the counter, under the source "ask". Nothing billed records nothing. A total that
+// After the question: its cost on the counter, under the source "ask": Muse Spark's tokens and the transcription's
+// billed seconds, at MS4's PRICES (C736). Nothing billed records nothing. A total that
 // reaches the stop pauses at once. A write that still fails after the client's retries, or is still out at the
 // settle mark, logs spend_error with the amount and pauses (fail closed). The client's retries alone could run
 // about 7.5 s, so the mark keeps a late answer's settle and pause inside the 15 s timeout, where a killed Lambda
 // would record nothing and log nothing. The answer stands either way, so nothing here throws.
-async function settleSpend(usage: AgentUsage, stopUsd: number, deps: AskDeps, deadline: Deadline): Promise<void> {
+async function settleSpend(
+  usage: AgentUsage,
+  audioSeconds: number,
+  stopUsd: number,
+  deps: AskDeps,
+  deadline: Deadline,
+): Promise<void> {
   let cost: string | undefined;
   try {
-    cost = costOf({ spark_input_tokens: usage.input, spark_output_tokens: usage.output });
+    cost = costOf({ spark_input_tokens: usage.input, spark_output_tokens: usage.output, audio_seconds: audioSeconds });
     if (cost === "0") return;
     const write = recordSpend(cost, "ask", { ddb: deps.spendDdb, limitsTableName: deps.limitsTableName });
     const total = await byMark(write, deadline, BUDGET.settleBy);
