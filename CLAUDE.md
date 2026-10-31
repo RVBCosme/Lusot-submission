@@ -113,7 +113,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
   - Keep prompts and JSON schemas in versioned files.
   - Structured output needs `strict: true` set inside `text.format`; it is off by default.
   - File transcription accepts WAV only (mono, 16-bit, 16 or 24 kHz), so the app records WAV.
-- **Tests:** run them in GitHub Actions on every push (§19). The workflow, `.github/workflows/ci.yml`, runs the same three checks as `npm run check`.
+- **Tests:** run them in GitHub Actions on every push (§19). The workflow, `.github/workflows/ci.yml`, runs the same three checks as `npm run check`, plus an `e2e` job: Playwright on the app's end-to-end path and its screen-line spec, with every request mocked.
 - **Merging into `main` (C530, Oct 30; replaces D16's milestone-end pushes for the private repo):** push the branch and wait for its CI to pass, get the tracker's OK, merge with `--no-ff`, run one full `npm run check` on the merged `main` (announced to the tracker; a docs-only merge needs only CI), push `main`, and wait for `main`'s CI.
 - **Alarms** email the address on Rene's Claude account (D17). It is passed at deploy time from a git-ignored config and never written into the repo.
 - **Not used in this project:** Vercel, Supabase, the Claude API, Amazon Bedrock. Ignore plugin suggestions to switch.
@@ -122,11 +122,11 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 
 | Part | Choice |
 |---|---|
-| Website and Android app | React + Vite + TypeScript, Tailwind CSS, installable PWA; Capacitor (camera, geolocation) for the APK. iOS is tested as the web app in Safari only. |
+| Website and Android app | React + Vite + TypeScript, Tailwind CSS, installable web app (manifest, no service worker); an in-app camera (getUserMedia) and Capacitor's geolocation plugin for the APK. iOS is tested as the web app in Safari only. |
 | Map | Leaflet with OpenStreetMap tiles |
 | API | API Gateway HTTP API + Node.js Lambda in TypeScript |
 | Analysis | Python container Lambda: OpenCV, NumPy, meta-sam-parser; image built with Docker Desktop (WSL 2) |
-| Data and infrastructure | S3, SQS with dead-letter queue, DynamoDB (TTL and report-id index), SSM, CloudWatch, Amplify Hosting |
+| Data and infrastructure | S3, SQS with dead-letter queue, DynamoDB (TTL and report-id index), SSM, CloudWatch; the website on S3 and CloudFront, with logging off (MS5-Q4 (c)) |
 | AI | Meta Model API via the OpenAI SDK at `https://api.meta.ai/v1`; voice through a plain HTTPS call |
 | Tests and CI | pytest, Vitest, Playwright; GitHub Actions on every push |
 
@@ -215,12 +215,25 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - `check:secrets`: gitleaks over the whole history, the plan-leak check and the 12-digit account-ID scan. gitleaks scans every local branch, so another worktree's leak fails it too.
   - After pulling or merging a change to `package-lock.json` or `uv.lock`, run `npm ci` and `uv sync --directory backend/analysis --locked` in that worktree before `npm run check`, or typecheck fails on a missing module.
 - **Deploy:** `npm run deploy`. It needs:
-  - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced. Git ignores it, because it holds the alarm email.
+  - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced and WebHosting set to on or off. Git ignores it, because it holds the alarm email.
   - Docker Desktop running, and no Gradle build at the same time
   - a current AWS login
   - Before `sam deploy` (run `npm run build -w backend/api` and `sam build --parallel` first), check the image SAM built (`analysisfunction:<tag>`), not a manual `docker build`, which gets another image ID: `docker run --rm --network none --entrypoint python <image> -c "import lusot_analysis.meta_client, lusot_analysis.handler"`, then list `/var/task/prompts`.
   - Before deploying, compare the stack's logical ids with the template's: `aws cloudformation get-template --stack-name lusot --template-stage Original`, loaded through `backend/scripts/cfn_template.py`. Print only the ids that differ (the template can hold account-specific values), and delete nothing.
   - Afterwards, stop Docker to free memory: `& "C:\Program Files\Docker\Docker\DockerCli.exe" -Shutdown`.
+- **Web deploy:** `npm run deploy:web`, from `main` only, right after `npm run deploy`, under the same DEPLOY hold.
+  - What it does:
+    - reads the stack's outputs
+    - builds the app against `ApiUrl` and runs the bundle check
+    - uploads each file type with its Content-Type set explicitly; an unknown file type stops it before any upload
+    - caches `assets/` for a year and serves the rest `no-cache`
+    - invalidates CloudFront's cache and waits, then deletes the old assets
+  - It prints step statuses and the web URL, and masks ARNs, 12-digit runs and email addresses in a failed step's output.
+  - After a web deploy, a tab opened before it must reload before it asks for a location (ruling S5-R27).
+  - The first CloudFront create can take 5 to 15 minutes. A new account may be refused it until AWS verifies the account; then the stack update rolls back and nothing is deleted. That happened on Oct 31, so `deploy:web` runs only while `backend/samconfig.toml` sets `WebHosting=on`, and stops before any AWS call otherwise.
+- **End-to-end tests:** run `npx playwright install chromium` once, then `npm run e2e -w app`.
+  - It builds into the git-ignored `app/.e2e-dist/none`, never `app/dist`, and mocks every API, S3 and tile request.
+  - It needs no AWS login and spends nothing.
 - **After a dead-letter alarm email:** look at the message in the dead-letter queue, then redrive it to the queue or purge it. While a message stays there the alarm stays in ALARM, so later failures send no new email. Messages there age out after 7 days.
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.

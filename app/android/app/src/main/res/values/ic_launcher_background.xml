@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- The gauge ink of app/public/icons/icon.svg, behind the adaptive icon's foreground layer. -->
+    <color name="ic_launcher_background">#16181A</color>
 </resources>

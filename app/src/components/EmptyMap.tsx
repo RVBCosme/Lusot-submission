@@ -1,0 +1,66 @@
+import { basisLine, classLine, landmarkLine, levelLine } from '../copy/wording'
+import { Line, T, useT } from '../i18n'
+import { routeHash } from '../router'
+import { Badge } from './Badge'
+import { Gauge } from './Gauge'
+
+const BUTTON =
+  'inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
+  'active:bg-ink active:text-surface'
+
+// One fixed reading, taken from Task 6's mock knee-deep result: a parked car's wheel and a person, geometry reading the
+// level. It is made up and says so; it is never a pin, and it is the only reading shown when there is no report.
+const EXAMPLE = { level: 'knee', landmark: 'rim_three_quarters', basis: { vehicles: 1, people: 1 } } as const
+
+// What the map shows when there are no pins (C618): the plain fact, a way in, and one card that says it is an example.
+// "No reports" is never a statement about a spot, so the note says a spot with no report may still be flooded.
+export function EmptyMap() {
+  const t = useT()
+  const landmark = landmarkLine(t, EXAMPLE.landmark)
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-balance text-heading font-bold">
+          <T k="map.empty.title" />
+        </h2>
+        <p className="mt-1 text-pretty">
+          <T k="map.empty.note" />
+        </p>
+        <p className="mt-3">
+          <a href={routeHash({ name: 'tested' })} className={BUTTON}>
+            <T k="map.trySample" />
+          </a>
+        </p>
+      </div>
+      <article className="rounded-control border-2 border-solid border-outline bg-surface p-4">
+        <div className="mb-3">
+          <Badge>
+            <T k="badge.example" />
+          </Badge>
+        </div>
+        <p className="text-balance text-title font-bold">
+          <Line value={levelLine(t, EXAMPLE.level, false)} />
+        </p>
+        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
+          <Gauge level={EXAMPLE.level} isFloor={false} />
+          <div className="min-w-0 flex-1 basis-48 space-y-2">
+            {landmark !== undefined && (
+              <p className="text-pretty">
+                <Line value={landmark} />
+              </p>
+            )}
+            <p className="text-pretty">
+              <Line value={classLine(t, EXAMPLE.level)} />
+            </p>
+            <p className="text-pretty text-ink-2">
+              <Line value={basisLine(t, EXAMPLE.basis)} />
+            </p>
+          </div>
+        </div>
+        <p className="mt-4 text-small text-ink-2">
+          <T k="map.example.note" />
+        </p>
+      </article>
+    </section>
+  )
+}

@@ -1,0 +1,544 @@
+[
+  {
+    "id": "ortigas-boni",
+    "name": "F. Ortigas St cor. Boni Ave",
+    "city": "Mandaluyong",
+    "lat": 14.5839,
+    "lng": 121.02784,
+    "roads": [
+      "F. Ortigas Street",
+      "Boni Avenue",
+      "F. Ortigas",
+      "Boni"
+    ],
+    "aliases": [
+      "F. Ortigas cor. Boni",
+      "F. Ortigas St. cor. Boni Avenue",
+      "F. Ortigas cor Boni Ave.",
+      "F. Ortigas Boni"
+    ]
+  },
+  {
+    "id": "edsa-aurora",
+    "name": "EDSA cor. Aurora Blvd",
+    "city": "Quezon City",
+    "lat": 14.62136,
+    "lng": 121.05021,
+    "roads": [
+      "EDSA",
+      "Aurora Boulevard"
+    ],
+    "aliases": [
+      "EDSA Aurora",
+      "EDSA Aurora Tunnel",
+      "EDSA Aurora Service Road",
+      "EDSA cor. Aurora"
+    ]
+  },
+  {
+    "id": "edsa-kamuning",
+    "name": "EDSA cor. Kamuning Rd",
+    "city": "Quezon City",
+    "lat": 14.63071,
+    "lng": 121.04571,
+    "roads": [
+      "EDSA",
+      "Kamuning Road",
+      "Kamuning"
+    ],
+    "aliases": [
+      "EDSA Kamuning",
+      "Kamuning Service Road",
+      "EDSA cor. Kamuning"
+    ]
+  },
+  {
+    "id": "araneta-rodriguez",
+    "name": "G. Araneta Ave cor. E. Rodriguez Sr. Ave",
+    "city": "Quezon City",
+    "lat": 14.61887,
+    "lng": 121.01489,
+    "roads": [
+      "Gregorio Araneta Avenue",
+      "E. Rodriguez Sr. Avenue",
+      "G. Araneta Avenue",
+      "Araneta",
+      "E. Rodriguez"
+    ],
+    "aliases": [
+      "Araneta E. Rodriguez",
+      "Araneta - E. Rodriguez",
+      "E Rodriguez - G. Araneta Intersection",
+      "G. Araneta cor. E. Rodriguez"
+    ]
+  },
+  {
+    "id": "edsa-santolan",
+    "name": "EDSA cor. Col. Bonny Serrano Ave (Santolan)",
+    "city": "Quezon City",
+    "lat": 14.61088,
+    "lng": 121.05506,
+    "roads": [
+      "EDSA",
+      "Colonel Bonny Serrano Avenue",
+      "Col. Bonny Serrano Avenue",
+      "Bonny Serrano Avenue"
+    ],
+    "aliases": [
+      "EDSA Santolan",
+      "EDSA Santolan Service Road",
+      "EDSA cor. Santolan"
+    ]
+  },
+  {
+    "id": "edsa-north-avenue",
+    "name": "EDSA cor. North Ave",
+    "city": "Quezon City",
+    "lat": 14.65542,
+    "lng": 121.03015,
+    "roads": [
+      "EDSA",
+      "North Avenue",
+      "North Ave"
+    ],
+    "aliases": [
+      "EDSA North Avenue",
+      "EDSA North Ave",
+      "EDSA cor. North Avenue"
+    ]
+  },
+  {
+    "id": "quezon-biak-na-bato",
+    "name": "Quezon Ave cor. Biak-na-Bato St",
+    "city": "Quezon City",
+    "lat": 14.62524,
+    "lng": 121.00978,
+    "roads": [
+      "Quezon Avenue",
+      "Biak na Bato Street",
+      "Quezon Ave",
+      "Biak na Bato"
+    ],
+    "aliases": [
+      "Quezon Avenue Bian na Bato",
+      "Quezon Ave Bian na Bato",
+      "Quezon Ave cor. Biak na Bato"
+    ]
+  },
+  {
+    "id": "edsa-main-avenue",
+    "name": "EDSA cor. Main Ave",
+    "city": "Quezon City",
+    "lat": 14.61362,
+    "lng": 121.05374,
+    "roads": [
+      "EDSA",
+      "Main Avenue",
+      "Main Ave"
+    ],
+    "aliases": [
+      "EDSA Main Ave",
+      "EDSA Main Avenue",
+      "EDSA cor. Main Avenue"
+    ]
+  },
+  {
+    "id": "taft-pgh",
+    "name": "Taft Ave in front of PGH",
+    "city": "Manila",
+    "lat": 14.578,
+    "lng": 120.98588,
+    "roads": [
+      "Taft Avenue",
+      "Taft Ave",
+      "Taft"
+    ],
+    "aliases": [
+      "Taft Avenue in front of PGH",
+      "Taft Avenue, Pedro Gil to front of PGH",
+      "Taft front of PGH",
+      "PGH",
+      "Philippine General Hospital"
+    ]
+  },
+  {
+    "id": "espana-maceda",
+    "name": "España Blvd cor. Maceda St",
+    "city": "Manila",
+    "lat": 14.61443,
+    "lng": 120.99802,
+    "roads": [
+      "España Boulevard",
+      "A. Maceda Street",
+      "España",
+      "España Blvd",
+      "Maceda"
+    ],
+    "aliases": [
+      "Espana Maceda",
+      "España cor. Maceda",
+      "España Boulevard cor. Maceda Street"
+    ]
+  },
+  {
+    "id": "espana-antipolo",
+    "name": "España Blvd cor. Antipolo St",
+    "city": "Manila",
+    "lat": 14.61293,
+    "lng": 120.99634,
+    "roads": [
+      "España Boulevard",
+      "Antipolo Street",
+      "España",
+      "España Blvd"
+    ],
+    "aliases": [
+      "España Blvd corner Antipolo St.",
+      "España cor. Antipolo",
+      "Espana Antipolo"
+    ]
+  },
+  {
+    "id": "marcos-sm-marikina",
+    "name": "Marcos Highway at SM Marikina",
+    "city": "Marikina",
+    "lat": 14.62583,
+    "lng": 121.0847,
+    "roads": [
+      "Marcos Highway"
+    ],
+    "aliases": [
+      "Marcos Highway, SM Marikina Bridge Service Road",
+      "SM Marikina Bridge Service Road",
+      "SM Marikina Bridge",
+      "Marcos Highway SM Marikina",
+      "SM Marikina"
+    ]
+  },
+  {
+    "id": "edsa-shaw",
+    "name": "EDSA cor. Shaw Blvd",
+    "city": "Mandaluyong",
+    "lat": 14.58128,
+    "lng": 121.05362,
+    "roads": [
+      "EDSA",
+      "Shaw Boulevard",
+      "Shaw"
+    ],
+    "aliases": [
+      "EDSA Shaw",
+      "EDSA Shaw Tunnel",
+      "EDSA cor. Shaw"
+    ]
+  },
+  {
+    "id": "edsa-p-tuazon",
+    "name": "EDSA cor. P. Tuazon Blvd",
+    "city": "Quezon City",
+    "lat": 14.61646,
+    "lng": 121.05247,
+    "roads": [
+      "EDSA",
+      "P. Tuazon Boulevard",
+      "P. Tuazon"
+    ],
+    "aliases": [
+      "Edsa P. Tuazon tunnel NB",
+      "EDSA P. Tuazon",
+      "EDSA cor. P. Tuazon"
+    ]
+  },
+  {
+    "id": "oyster-plaza",
+    "name": "Ninoy Aquino Ave at Oyster Plaza",
+    "city": "Parañaque",
+    "lat": 14.48965,
+    "lng": 120.99122,
+    "roads": [
+      "Ninoy Aquino Avenue"
+    ],
+    "aliases": [
+      "Ninoy Aquino Oyster Plaza",
+      "Oyster Plaza",
+      "Ninoy Aquino Avenue Oyster Plaza"
+    ]
+  },
+  {
+    "id": "sucat-sm",
+    "name": "Dr. A. Santos Ave in front of SM Sucat",
+    "city": "Parañaque",
+    "lat": 14.48272,
+    "lng": 120.99354,
+    "roads": [
+      "Dr. A. Santos Avenue",
+      "Dr. Arcadio Santos Avenue",
+      "Sucat Road"
+    ],
+    "aliases": [
+      "Dr. A. Santos Ave. in front of SM Sucat NB",
+      "Dr. A. Santos Ave. in front of SM Sucat SB",
+      "SM Sucat",
+      "SM City Sucat"
+    ]
+  },
+  {
+    "id": "roxas-edsa",
+    "name": "Roxas Blvd cor. EDSA",
+    "city": "Pasay",
+    "lat": 14.53707,
+    "lng": 120.99257,
+    "roads": [
+      "Roxas Boulevard",
+      "EDSA",
+      "Roxas Blvd",
+      "Roxas"
+    ],
+    "aliases": [
+      "Roxas Edsa intersection",
+      "Roxas Blvd. - EDSA Intersection",
+      "Roxas Blvd EDSA"
+    ]
+  },
+  {
+    "id": "roxas-pedro-gil",
+    "name": "Roxas Blvd cor. Pedro Gil St",
+    "city": "Manila",
+    "lat": 14.57309,
+    "lng": 120.981,
+    "roads": [
+      "Roxas Boulevard",
+      "Pedro Gil Street",
+      "Roxas Blvd",
+      "Roxas",
+      "Pedro Gil"
+    ],
+    "aliases": [
+      "Roxas Pedro Gil service road",
+      "Roxas Blvd. - Pedro Gil NB and SB",
+      "Roxas Pedro Gil"
+    ]
+  },
+  {
+    "id": "un-ave-taft",
+    "name": "UN Ave cor. Taft Ave",
+    "city": "Manila",
+    "lat": 14.58243,
+    "lng": 120.98468,
+    "roads": [
+      "United Nations Avenue",
+      "Taft Avenue",
+      "Taft Ave",
+      "Taft",
+      "UN Avenue",
+      "UN Ave"
+    ],
+    "aliases": [
+      "UN Ave. Taft",
+      "UN Avenue Taft",
+      "United Nations Avenue cor. Taft Avenue"
+    ]
+  },
+  {
+    "id": "araneta-baloy",
+    "name": "G. Araneta Ave cor. Baloy St",
+    "city": "Quezon City",
+    "lat": 14.61345,
+    "lng": 121.01683,
+    "roads": [
+      "Gregorio Araneta Avenue",
+      "Baloy Street",
+      "G. Araneta Avenue",
+      "Araneta"
+    ],
+    "aliases": [
+      "Araneta - Baloy",
+      "Araneta Baloy",
+      "G. Araneta cor. Baloy"
+    ]
+  },
+  {
+    "id": "santo-domingo-calamba",
+    "name": "Sto. Domingo Ave cor. Calamba St",
+    "city": "Quezon City",
+    "lat": 14.63216,
+    "lng": 121.00723,
+    "roads": [
+      "Santo Domingo Avenue",
+      "Calamba Street",
+      "Sto. Domingo Avenue",
+      "Sto. Domingo"
+    ],
+    "aliases": [
+      "Sto. Domingo cor. Calamba",
+      "Santo Domingo cor. Calamba",
+      "Sto. Domingo Calamba"
+    ]
+  },
+  {
+    "id": "samat-don-jose",
+    "name": "Samat St cor. Don Jose St",
+    "city": "Quezon City",
+    "lat": 14.63331,
+    "lng": 121.00803,
+    "roads": [
+      "Samat Street",
+      "Don Jose Street",
+      "Samat",
+      "Don Jose"
+    ],
+    "aliases": [
+      "Samat cor. Don Jose",
+      "Samat Don Jose"
+    ]
+  },
+  {
+    "id": "amoranto-don-jose",
+    "name": "N.S. Amoranto Ave cor. Don Jose St",
+    "city": "Quezon City",
+    "lat": 14.63549,
+    "lng": 121.00783,
+    "roads": [
+      "N. S. Amoranto Sr. Avenue",
+      "Don Jose Street",
+      "Amoranto",
+      "NS Amoranto",
+      "Don Jose"
+    ],
+    "aliases": [
+      "NS Amoranto cor. Don Jose",
+      "N.S. Amoranto cor. Don Jose",
+      "NS Amoranto Don Jose"
+    ]
+  },
+  {
+    "id": "taft-quirino",
+    "name": "Taft Ave cor. Quirino Ave",
+    "city": "Manila",
+    "lat": 14.57028,
+    "lng": 120.99156,
+    "roads": [
+      "Taft Avenue",
+      "Quirino Avenue",
+      "Taft Ave",
+      "Taft"
+    ],
+    "aliases": [
+      "Taft cor. Quirino",
+      "Taft Avenue corner Quirino Avenue"
+    ]
+  },
+  {
+    "id": "roxas-us-embassy",
+    "name": "Roxas Blvd at the US Embassy",
+    "city": "Manila",
+    "lat": 14.57693,
+    "lng": 120.97729,
+    "roads": [
+      "Roxas Boulevard",
+      "Roxas Blvd",
+      "Roxas"
+    ],
+    "aliases": [
+      "Roxas Blvd. SB - US Embassy",
+      "US Embassy",
+      "Roxas Blvd US Embassy"
+    ]
+  },
+  {
+    "id": "roxas-kalaw",
+    "name": "Roxas Blvd cor. T.M. Kalaw Ave",
+    "city": "Manila",
+    "lat": 14.57984,
+    "lng": 120.97727,
+    "roads": [
+      "Roxas Boulevard",
+      "Kalaw Avenue",
+      "Roxas Blvd",
+      "Roxas",
+      "Kalaw",
+      "T.M. Kalaw Avenue"
+    ],
+    "aliases": [
+      "Roxas Blvd - Kalaw",
+      "Roxas Kalaw",
+      "Roxas Boulevard cor. Kalaw"
+    ]
+  },
+  {
+    "id": "roxas-buendia",
+    "name": "Roxas Blvd cor. Gil Puyat Ave (Buendia)",
+    "city": "Pasay",
+    "lat": 14.55228,
+    "lng": 120.98948,
+    "roads": [
+      "Roxas Boulevard",
+      "Senator Gil J. Puyat Avenue",
+      "Roxas Blvd",
+      "Roxas",
+      "Gil Puyat Avenue",
+      "Buendia"
+    ],
+    "aliases": [
+      "Roxas Blvd. - Buendia Flyover SB (pagbaba)",
+      "Roxas Blvd cor. Buendia",
+      "Buendia Flyover"
+    ]
+  },
+  {
+    "id": "araneta-maria-clara",
+    "name": "G. Araneta Ave cor. Maria Clara St",
+    "city": "Quezon City",
+    "lat": 14.63056,
+    "lng": 121.01107,
+    "roads": [
+      "Gregorio Araneta Avenue",
+      "Maria Clara Street",
+      "G. Araneta Avenue",
+      "Araneta",
+      "Ma. Clara"
+    ],
+    "aliases": [
+      "G. Araneta / Ma. Clara",
+      "G. Araneta Ma. Clara",
+      "Araneta cor. Ma. Clara"
+    ]
+  },
+  {
+    "id": "valenzuela-3s-dalandanan",
+    "name": "3S Center, Dalandanan",
+    "city": "Valenzuela",
+    "lat": 14.70424,
+    "lng": 120.96122,
+    "roads": [],
+    "aliases": [
+      "3S Center Dalandanan"
+    ]
+  },
+  {
+    "id": "valenzuela-toyota-dalandanan",
+    "name": "Toyota Dalandanan",
+    "city": "Valenzuela",
+    "lat": 14.7051,
+    "lng": 120.96049,
+    "roads": [],
+    "aliases": []
+  },
+  {
+    "id": "ninoy-aquino-kabihasnan",
+    "name": "Ninoy Aquino Ave cor. Kabihasnan St",
+    "city": "Parañaque",
+    "lat": 14.49081,
+    "lng": 120.99181,
+    "roads": [
+      "Ninoy Aquino Avenue",
+      "Victor Medina Street",
+      "Kabihasnan"
+    ],
+    "aliases": [
+      "Ninoy Aquino Avenue - Kabihasnan",
+      "Ninoy Aquino Ave Kabihasnan",
+      "Ninoy Aquino cor. Kabihasnan"
+    ]
+  }
+]

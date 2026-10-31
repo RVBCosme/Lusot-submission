@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Lusot</title>
+  <!-- The source of the app's icons (the PNGs beside it are drawn from it). Colours are Task 3's tokens: gauge ink, pole
+       white and silt, the brown of floodwater. A gauge pole with a tick every 40 units, standing in rising water. The
+       art keeps inside the central 80% circle, so the same picture serves as the maskable icon. -->
+  <rect width="512" height="512" fill="#16181A"/>
+  <rect x="226" y="92" width="60" height="320" fill="#FBFBF8"/>
+  <path d="M240 132H286M240 212H286" stroke="#16181A" stroke-width="8" fill="none"/>
+  <path d="M262 172H286M262 252H286" stroke="#16181A" stroke-width="8" fill="none"/>
+  <path d="M136 300C176 280 216 320 256 300S336 280 376 300V412H136Z" fill="#9A8A52"/>
+  <path d="M136 300C176 280 216 320 256 300S336 280 376 300" stroke="#FBFBF8" stroke-width="8" stroke-linecap="round" fill="none"/>
+</svg>

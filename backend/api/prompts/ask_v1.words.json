@@ -1,0 +1,7 @@
+{
+  "crossing": ["\\bcross(es|ing)?\\b", "\\bpass(able|ing)?\\b", "\\b(go|drive|walk) through\\b", "\\bwad(e|ing)\\b", "\\b(un)?safe(ly|ty)?\\b", "\\bdanger(ous)?\\b", "tawid", "\\bdumaan\\b", "\\bdaanan\\b", "\\blusot ba\\b", "\\blulusot\\b", "\\blumusot\\b", "\\blusutan\\b", "makalusot", "makakalusot", "ligtas", "delikado", "\\bkaya ba\\b", "tumawid", "\\bkaya bang\\b", "\\blusot pa ba\\b", "\\bdadaan\\b", "\\bmakadaan\\b", "\\bmakakadaan\\b", "\\brisk(s|y)?\\b", "mapanganib", "\\blumusong\\b"],
+  "here": ["\\bdito\\b", "\\bhere\\b", "\\bnear me\\b", "\\bnearby\\b", "\\baround me\\b", "\\bmalapit sa akin\\b", "\\bsa amin\\b", "\\brito\\b", "\\bnandito\\b", "\\bnarito\\b", "\\bsamin\\b"],
+  "heavy": ["\\btrucks?\\b", "\\btrak\\b", "\\bbus(es)?\\b", "\\b(6|10|six|ten)[- ]?wheelers?\\b"],
+  "walking": ["\\bwalk(ing)?\\b", "\\bon foot\\b", "\\bwad(e|ing)\\b", "\\blakad\\b", "\\bmaglakad\\b", "\\bnaglalakad\\b", "\\bmaglalakad\\b", "\\blalakad\\b", "\\blumusong\\b"],
+  "time": ["\\b\\d+ ?(min|mins|minutes?|minuto)\\b", "\\b\\d+ ?(hours?|oras)\\b", "\\b(an?|one|isang) (hour|oras)\\b", "\\b(last|past|nakaraang) (hour|oras)\\b"]
+}

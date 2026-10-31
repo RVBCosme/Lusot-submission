@@ -1,0 +1,23 @@
+{
+  "id": "resp_fixture_4",
+  "object": "response",
+  "model": "muse-spark-1.3",
+  "status": "incomplete",
+  "incomplete_details": { "reason": "max_output_tokens" },
+  "error": null,
+  "output": [
+    {
+      "id": "rs_fixture_4",
+      "type": "reasoning",
+      "summary": [],
+      "encrypted_content": "enc_fixture_4",
+      "status": "incomplete"
+    }
+  ],
+  "usage": {
+    "input_tokens": 1285,
+    "output_tokens": 800,
+    "output_tokens_details": { "reasoning_tokens": 800 },
+    "total_tokens": 2085
+  }
+}

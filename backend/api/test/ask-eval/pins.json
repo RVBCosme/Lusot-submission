@@ -1,0 +1,15 @@
+{
+  "about": "Fixture pins for Ask Lusot's typed harness (Task 18). Each sits northM and eastM metres from its anchor: spot:<id> in spots.json, here (the fixture location below), or geocode:<id> in geocodes.json. A live pin's photo is minutesAgo old at each read; a demo pin keeps its own capturedAt. No pin is a real report.",
+  "here": { "lat": 14.6095, "lng": 120.9894, "accuracyM": 20 },
+  "pins": [
+    { "id": "fx-t1-knee", "at": "spot:espana-maceda", "northM": 40, "eastM": 20, "mode": "live", "minutesAgo": 25, "level": "knee", "levelIsFloor": false, "landmark": "rim_three_quarters" },
+    { "id": "fx-t1-half-knee", "at": "spot:espana-maceda", "northM": -20, "eastM": 110, "mode": "live", "minutesAgo": 50, "level": "half_knee", "levelIsFloor": false, "landmark": "mid_shin" },
+    { "id": "fx-t1-far", "at": "spot:espana-maceda", "northM": 0, "eastM": 340, "mode": "live", "minutesAgo": 15, "level": "waist", "levelIsFloor": false, "landmark": "waist" },
+    { "id": "fx-t1-old", "at": "spot:espana-maceda", "northM": 30, "eastM": -30, "mode": "live", "minutesAgo": 200, "level": "chest", "levelIsFloor": false, "landmark": "chest" },
+    { "id": "fx-t1-demo", "at": "spot:espana-maceda", "northM": 80, "eastM": 0, "mode": "demo", "capturedAt": "2009-09-26T05:00:00Z", "level": "waist", "levelIsFloor": false, "landmark": "waist", "credit": "Fixture photo, not a real credit", "place": "España Blvd, Manila", "event": "Fixture flood" },
+    { "id": "fx-t3-floor", "at": "here", "northM": 70, "eastM": 0, "mode": "live", "minutesAgo": 35, "level": "tire", "levelIsFloor": true, "landmark": "wheel_covered" },
+    { "id": "fx-t5-old", "at": "geocode:quezon-araneta", "northM": 30, "eastM": 30, "mode": "live", "minutesAgo": 90, "level": "tire", "levelIsFloor": false, "landmark": "rim_top" },
+    { "id": "fx-taft-knee", "at": "spot:taft-pgh", "northM": 0, "eastM": 40, "mode": "live", "minutesAgo": 30, "level": "knee", "levelIsFloor": false, "landmark": "rim_three_quarters" },
+    { "id": "fx-taft-half-tire", "at": "spot:taft-pgh", "northM": -90, "eastM": 0, "mode": "live", "minutesAgo": 70, "level": "half_tire", "levelIsFloor": false, "landmark": "hub" }
+  ]
+}

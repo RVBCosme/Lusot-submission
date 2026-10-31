@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "vehicle", "cited"],
+  "properties": {
+    "kind": { "type": "string", "enum": ["depth", "crossing", "off_topic"] },
+    "vehicle": { "type": "string", "enum": ["light", "heavy", "on_foot", "none"] },
+    "cited": { "type": "array", "items": { "type": "string" } }
+  }
+}
