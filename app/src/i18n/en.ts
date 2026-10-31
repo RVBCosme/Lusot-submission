@@ -123,11 +123,11 @@ export const EN = {
   // are screen-line keys (retake.), so their Taglish shows English until it is reviewed (C619).
   'report.checkTitle': { text: 'Check the photo', reviewed: false },
   'retake.too_dark': {
-    text: 'This photo looks too dark for Lusot to read. If you can, retake it with more light on the scene, from a dry spot.',
+    text: "This photo looks too dark for Lusot to read. Retake it when there's more light, from a dry spot. Don't step into the water or the road.",
     reviewed: false,
   },
   'retake.too_blurry': {
-    text: 'This photo looks blurry. Hold the phone still and retake it, from a dry spot.',
+    text: "This photo looks blurry. Hold the phone still and retake it, from a dry spot. Don't step into the water or the road.",
     reviewed: false,
   },
   'report.checkNote': { text: 'Lusot checks the photo again when it arrives, so you can still send it.', reviewed: false },

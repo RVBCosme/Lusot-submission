@@ -1,4 +1,6 @@
 {
+ "brightness_min": 40.0,
+ "sharpness_min": 25.0,
  "cases": [
   {
    "name": "flat_30",

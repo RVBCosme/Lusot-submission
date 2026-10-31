@@ -363,6 +363,19 @@ describe('the shutter', () => {
     expect(photo.quality).toBeUndefined()
   })
 
+  it('a still whose pixels throw when read is still a photo, with no scores: the check never stops one', async () => {
+    const { context } = stubCanvas({ grey: 20 })
+    context.getImageData!.mockImplementation(() => {
+      throw new DOMException('The canvas has been tainted', 'SecurityError')
+    })
+    const { onPhoto } = await openWith()
+    fireEvent.click(shutter())
+    await flush()
+    expect(onPhoto).toHaveBeenCalledOnce()
+    expect(onPhoto.mock.calls[0]?.[0].quality).toBeUndefined()
+    expect(onPhoto.mock.calls[0]?.[0].blob).toBeInstanceOf(Blob)
+  })
+
   it('scores the still for the quality check, as two numbers and no pixel array (Task 10)', async () => {
     stubCanvas({ grey: 20 })
     const { onPhoto } = await openWith()

@@ -2,9 +2,11 @@
 
 Makes six synthetic RGB images (flat 30, flat 200, a checkerboard, a gradient, seeded noise
 and a 3 x 5 odd size), encodes each as PNG, scores the bytes with quality.quality_scores,
-and writes the pixels and the scores, rounded to 8 decimals, to
-app/src/lib/quality.golden.json, which app/src/lib/quality.test.ts reads. No photograph is
-used, nothing is sent anywhere, and no pipeline code changes (C600).
+and writes the pixels and the scores, rounded to 8 decimals, with the live cutoffs
+(TUNING's, which quality_refusal uses), to app/src/lib/quality.golden.json, which
+app/src/lib/quality.test.ts reads. tests/test_quality_golden.py checks the committed file is
+what this writes now, so a retuned cutoff or a changed score can't go unseen. No photograph
+is used, nothing is sent anywhere, and no pipeline code changes (C600).
 
 Run from the repo root: uv run --directory backend/analysis python probes/make_quality_golden.py
 """
@@ -18,6 +20,7 @@ import cv2
 import numpy as np
 
 from lusot_analysis.pipeline.quality import quality_scores
+from lusot_analysis.tuning import TUNING
 
 OUT = Path(__file__).resolve().parents[3] / "app" / "src" / "lib" / "quality.golden.json"
 W, H = 16, 12
@@ -40,7 +43,8 @@ def images() -> dict[str, np.ndarray]:
     }
 
 
-def main() -> None:
+def build() -> dict:
+    """The golden file's content: the live cutoffs and each image's pixels and scores."""
     cases = []
     for name, rgb in images().items():
         ok, png = cv2.imencode(".png", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
@@ -57,8 +61,21 @@ def main() -> None:
                 "sharpness": round(scores.sharpness, 8),
             }
         )
-    OUT.write_text(json.dumps({"cases": cases}, indent=1) + "\n", encoding="utf-8")
-    print(f"wrote {len(cases)} cases")
+    return {
+        "brightness_min": TUNING.brightness_min,
+        "sharpness_min": TUNING.sharpness_min,
+        "cases": cases,
+    }
+
+
+def render(golden: dict) -> str:
+    return json.dumps(golden, indent=1) + "\n"
+
+
+def main() -> None:
+    golden = build()
+    OUT.write_text(render(golden), encoding="utf-8")
+    print(f"wrote {len(golden['cases'])} cases")
 
 
 if __name__ == "__main__":

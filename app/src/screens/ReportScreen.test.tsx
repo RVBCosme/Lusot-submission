@@ -813,11 +813,11 @@ describe('the location', () => {
     expect(heading().textContent).toBe(text('report.checkTitle'))
   })
 
-  it('a photo bright and sharp enough, or one whose pixels could not be read, goes straight to the place step', async () => {
+  it('a photo whose pixels could not be read goes straight to the place step, with no check', async () => {
     fakeApi()
     render(<Harness />)
     await openCamera()
-    // A flat grey of 128 is bright, but has no edges at all, so it would be too blurry: use no pixels instead.
+    // No pixels to read gives no scores (a bright, sharp photo's path is the e2e street project's).
     await shoot()
     await act(async () => fixes.at(-1)?.resolve(FIX))
     expect(heading().textContent).toBe(text('place.title'))

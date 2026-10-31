@@ -7,7 +7,8 @@ import { BRIGHTNESS_MIN, qualityRefusal, qualityScores, SHARPNESS_MIN } from './
 // The golden scores come from the server's own quality_scores on PNGs of these pixels
 // (backend/analysis/probes/make_quality_golden.py), so the phone and the server agree.
 type Case = { name: string; width: number; height: number; rgb: number[]; brightness: number; sharpness: number }
-const CASES = (golden as { cases: Case[] }).cases
+const GOLDEN = golden as { brightness_min: number; sharpness_min: number; cases: Case[] }
+const CASES = GOLDEN.cases
 
 // RGB as ImageData's RGBA, with an alpha the scores must ignore.
 function rgba({ width, height, rgb }: Case) {
@@ -38,6 +39,11 @@ describe('the cutoffs are the server\'s', () => {
     expect(tuningPy).toMatch(/^\s+sharpness_min: float = 25\.0\b/m)
     expect(BRIGHTNESS_MIN).toBe(40)
     expect(SHARPNESS_MIN).toBe(25)
+  })
+
+  it('equals the live cutoffs the server uses, as the generator wrote them from TUNING', () => {
+    expect(BRIGHTNESS_MIN).toBe(GOLDEN.brightness_min)
+    expect(SHARPNESS_MIN).toBe(GOLDEN.sharpness_min)
   })
 
   it('refuses under a cutoff only, with dark checked first', () => {

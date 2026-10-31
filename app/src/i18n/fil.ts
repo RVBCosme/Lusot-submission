@@ -113,11 +113,11 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'report.checkTitle': { text: 'Tingnan ang photo', reviewed: false },
   'retake.too_dark': {
-    text: 'Mukhang masyadong madilim ang photo na ito para mabasa ng Lusot. Kung kaya, kunan ulit na may mas maraming ilaw sa eksena, mula sa tuyong puwesto.',
+    text: 'Mukhang masyadong madilim ang photo na ito para mabasa ng Lusot. Kunan ulit kapag mas maliwanag na, mula sa tuyong lugar. Huwag lumusong sa baha o pumunta sa kalsada.',
     reviewed: false,
   },
   'retake.too_blurry': {
-    text: 'Mukhang malabo ang photo na ito. Hawakan nang steady ang phone at kunan ulit, mula sa tuyong puwesto.',
+    text: 'Mukhang malabo ang photo na ito. Hawakan nang steady ang phone at kunan ulit, mula sa tuyong lugar. Huwag lumusong sa baha o pumunta sa kalsada.',
     reviewed: false,
   },
   'report.checkNote': { text: 'Titingnan ulit ng Lusot ang photo pagdating nito, kaya puwede mo pa rin itong ipadala.', reviewed: false },
