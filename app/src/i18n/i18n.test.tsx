@@ -74,7 +74,7 @@ it('no string uses a banned word or phrase', () => {
   }
 })
 
-it("D19's English refusal and its Taglish are reviewed, and a line that changed after the M20 review isn't", () => {
+it("D19's English refusal and its Taglish are reviewed, and so is every line Rene's review of Oct 31 passed", () => {
   expect(EN['refusal.d19']).toEqual({ text: D19, reviewed: true })
   expect(FIL['refusal.d19'].reviewed).toBe(true)
   // M20 (Oct 30) reviewed every key present at a4d066d.
@@ -85,10 +85,10 @@ it("D19's English refusal and its Taglish are reviewed, and a line that changed 
     expect(EN[key].reviewed, `en ${key}`).toBe(true)
     expect(FIL[key].reviewed, `fil ${key}`).toBe(true)
   }
-  // A line whose text changed after a4d066d is a new line again, until its next review.
-  expect(EN['report.sendFailed'].reviewed).toBe(false)
-  expect(FIL['report.sendFailed'].reviewed).toBe(false)
-  expect(EN['report.refused.gps_too_coarse'].reviewed).toBe(false)
+  // Lines whose text changed after a4d066d waited again, until Rene's review of Oct 31 passed every line left.
+  expect(EN['report.sendFailed'].reviewed).toBe(true)
+  expect(FIL['report.sendFailed'].reviewed).toBe(true)
+  expect(EN['report.refused.gps_too_coarse'].reviewed).toBe(true)
   expect(FIL['report.refused.gps_too_coarse'].reviewed).toBe(true)
 })
 
@@ -106,9 +106,12 @@ it('resolveText gives English on an English screen, and Taglish on a Taglish one
   expect(resolveText('en', 'refusal.d19')).toEqual({ text: D19, lang: 'en' })
   expect(FIL['nav.map'].reviewed).toBe(true)
   expect(resolveText('fil', 'nav.map')).toEqual({ text: FIL['nav.map'].text, lang: 'fil' })
-  // A draft Taglish line that isn't a screen-line key shows in development builds (C619).
-  expect(FIL['report.sendFailed'].reviewed).toBe(false)
-  expect(resolveText('fil', 'report.sendFailed')).toEqual({ text: FIL['report.sendFailed'].text, lang: 'fil' })
+  // A draft Taglish line that isn't a screen-line key shows in development builds (C619). Rene's review passed every
+  // line, so a draft is made here.
+  const draft = FIL['report.sendFailed']
+  withEntry(FIL, 'report.sendFailed', { ...draft, reviewed: false }, () => {
+    expect(resolveText('fil', 'report.sendFailed')).toEqual({ text: draft.text, lang: 'fil' })
+  })
 })
 
 it('resolveText keeps the locked lines, and unreviewed screen-line keys, in English on a Taglish screen', () => {
@@ -153,10 +156,11 @@ it('makeT fills {name} placeholders and leaves the rest as they are', () => {
 it('unreviewedKeys lists every line still waiting for review, with its language', () => {
   const list = unreviewedKeys()
 
-  expect(list).toContainEqual({ lang: 'en', key: 'report.sendFailed' })
-  expect(list).toContainEqual({ lang: 'fil', key: 'report.sendFailed' })
-  expect(list).toContainEqual({ lang: 'en', key: 'report.refused.gps_too_coarse' })
-  expect(list).not.toContainEqual({ lang: 'fil', key: 'report.refused.gps_too_coarse' })
+  // A line that changes after its review waits again, in the language that changed.
+  withEntry(EN, 'report.sendFailed', { ...EN['report.sendFailed'], reviewed: false }, () => {
+    expect(unreviewedKeys()).toContainEqual({ lang: 'en', key: 'report.sendFailed' })
+    expect(unreviewedKeys()).not.toContainEqual({ lang: 'fil', key: 'report.sendFailed' })
+  })
   expect(list).not.toContainEqual({ lang: 'en', key: 'refusal.d19' })
   expect(list).not.toContainEqual({ lang: 'fil', key: 'layout.screenLine' })
   const waiting = [...Object.values(EN), ...Object.values(FIL)].filter((e) => !e.reviewed)

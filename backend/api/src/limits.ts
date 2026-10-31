@@ -2,16 +2,21 @@ import { createHash } from "node:crypto";
 import { type DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { json, type JsonResponse } from "./http";
 
-export type Bucket = "upload" | "sample";
+export type Bucket = "upload" | "sample" | "question";
 
 // Per UTC clock hour (C508, MS4-Q13): each device's count, then the count in all.
 export const LIMITS: Record<Bucket, { device: number; all: number }> = {
   upload: { device: 10, all: 300 },
   sample: { device: 5, all: 30 },
+  question: { device: 20, all: 60 },
 };
 
-// C522's refusal codes, in one place.
-const REFUSED = { device: "device_limit", all: "global_cap" } as const;
+// The refusal codes, in one place: C522's for uploads and samples, Ask Lusot's for questions.
+export const LIMIT_CODES: Record<Bucket, { device: string; all: string }> = {
+  upload: { device: "device_limit", all: "global_cap" },
+  sample: { device: "device_limit", all: "global_cap" },
+  question: { device: "question_limit", all: "question_cap" },
+};
 
 const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const HOUR_S = 3600;
@@ -53,7 +58,7 @@ export async function take(
   const hour = utcHour(nowS);
   const expiresAt = nowS - (nowS % HOUR_S) + TTL_S;
   const device = `${bucket}#${hashDevice(deviceKey(deviceHeader))}#${hour}`;
-  if (!(await increment(device, LIMITS[bucket].device, expiresAt, deps))) return refuse(REFUSED.device, nowS);
+  if (!(await increment(device, LIMITS[bucket].device, expiresAt, deps))) return refuse(LIMIT_CODES[bucket].device, nowS);
   if (!(await increment(`${bucket}#ALL#${hour}`, LIMITS[bucket].all, expiresAt, deps))) {
     // The hour refused it, so the device's count goes back.
     await deps.ddb.send(
@@ -65,7 +70,7 @@ export async function take(
         ExpressionAttributeValues: { ":minusOne": -1 },
       }),
     );
-    return refuse(REFUSED.all, nowS);
+    return refuse(LIMIT_CODES[bucket].all, nowS);
   }
   return null;
 }

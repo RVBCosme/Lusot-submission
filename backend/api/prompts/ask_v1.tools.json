@@ -1,0 +1,18 @@
+{
+  "type": "function",
+  "name": "get_reports",
+  "description": "Recent published flood reports within 300 m of a place in Metro Manila, from the last 180 minutes at most.",
+  "strict": true,
+  "parameters": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["place", "here", "since_minutes", "kind", "vehicle"],
+    "properties": {
+      "place": { "type": "string", "description": "The place as the person named it. Empty when here is true." },
+      "here": { "type": "boolean", "description": "True when the person asks about where they are now." },
+      "since_minutes": { "type": "integer", "description": "How far back to look, 1 to 180. Use 180 unless the person states a shorter time." },
+      "kind": { "type": "string", "enum": ["depth", "crossing"], "description": "crossing when the person asks whether to cross or go through, or whether going is risky or dangerous." },
+      "vehicle": { "type": "string", "enum": ["light", "heavy", "on_foot", "none"], "description": "heavy for a truck or a bus, on_foot for walking, light for any other vehicle or when unsure, none when none is named." }
+    }
+  }
+}

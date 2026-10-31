@@ -1,5 +1,6 @@
 """Tests for backend/template.yaml: MS4's routes, APIs, tables, CORS, throttles,
-lifecycle, retentions, alarms and role grants (MS4 spec §4.3 to §4.7; plan Task 1).
+lifecycle, retentions, alarms and role grants (MS4 spec §4.3 to §4.7; plan Task 1),
+and Ask Lusot's route, grants, switch and alarms (Ask plan Task 13, typed only).
 
 They read the template through cfn_template.load_template, so nothing reaches AWS.
 check:py runs this file with the scripts' dependencies. Alone, from the repo root:
@@ -18,6 +19,10 @@ ANALYSIS_SRC = TEMPLATE.parent / "analysis" / "src" / "lusot_analysis"
 REPORT_STORE = ANALYSIS_SRC / "report_store.py"
 SPEND = ANALYSIS_SRC / "spend.py"
 API_ROUTER = TEMPLATE.parent / "api" / "src" / "index.ts"
+API_LIMITS = TEMPLATE.parent / "api" / "src" / "limits.ts"
+ASK_DEADLINE = TEMPLATE.parent / "api" / "src" / "ask" / "deadline.ts"
+ASK_HANDLER = TEMPLATE.parent / "api" / "src" / "ask" / "handler.ts"
+ASK_NOMINATIM = TEMPLATE.parent / "api" / "src" / "ask" / "nominatim.ts"
 ALARM_TOPIC = [{"Ref": "AlarmTopic"}]
 SSM_ARN = "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter"
 # The website's resources (MS5 Task 19, C622) and the managed CloudFront policies they use.
@@ -95,11 +100,13 @@ def bucket_paths(*prefixes):
     return {f"${{UploadBucket.Arn}}/{prefix}/*" for prefix in prefixes}
 
 
-def resolve(value, params, attrs):
-    """What CloudFormation makes of Ref, Fn::GetAtt, Fn::Join, Fn::Split and Fn::Sub
-    in `value`, given parameter values and resource attributes: enough for the CORS lists."""
+def resolve(value, params, attrs, conditions=None):
+    """What CloudFormation makes of Ref, Fn::GetAtt, Fn::Join, Fn::Split, Fn::Sub and Fn::If
+    in `value`, given parameter values, resource attributes and condition values: enough for
+    the CORS lists and the Nominatim User-Agent."""
+    conditions = conditions or {}
     if isinstance(value, list):
-        return [resolve(item, params, attrs) for item in value]
+        return [resolve(item, params, attrs, conditions) for item in value]
     if not (isinstance(value, dict) and len(value) == 1):
         return value
     ((fn, arg),) = value.items()
@@ -108,22 +115,54 @@ def resolve(value, params, attrs):
     if fn == "Fn::GetAtt":
         return attrs[tuple(arg)]
     if fn == "Fn::Join":
-        return arg[0].join(resolve(arg[1], params, attrs))
+        return arg[0].join(resolve(arg[1], params, attrs, conditions))
     if fn == "Fn::Split":
-        return resolve(arg[1], params, attrs).split(arg[0])
+        return resolve(arg[1], params, attrs, conditions).split(arg[0])
     if fn == "Fn::Sub":
         text, names = arg if isinstance(arg, list) else (arg, {})
-        names = {k: resolve(v, params, attrs) for k, v in names.items()}
-        return re.sub(r"\$\{([^}]+)\}", lambda m: names[m.group(1)], text)
+        names = {k: resolve(v, params, attrs, conditions) for k, v in names.items()}
+
+        def name(m):
+            key = m.group(1)
+            return names[key] if key in names else attrs[tuple(key.split(".", 1))]
+
+        return re.sub(r"\$\{([^}]+)\}", name, text)
+    if fn == "Fn::If":
+        condition, on, off = arg
+        return resolve(on if conditions[condition] else off, params, attrs, conditions)
     return value
 
 
-def cors_origins(value, app_origins):
+def cors_origins(value, app_origins, web=True):
     return resolve(
         value,
         {"AppOrigins": app_origins},
-        {("WebDistribution", "DomainName"): WEB_DOMAIN},
+        {("WebDistribution", "DomainName"): WEB_DOMAIN} if web else {},
+        {"HasWeb": web},
     )
+
+
+def unguarded(value):
+    """The web resources `value` names outside the on branch of an Fn::If on HasWeb. With
+    WebHosting off they don't exist, and CloudFormation refuses a template that names one."""
+    found = set()
+    if isinstance(value, list):
+        for item in value:
+            found |= unguarded(item)
+    elif isinstance(value, dict):
+        for key, arg in value.items():
+            if key == "Fn::If" and arg[0] == "HasWeb":
+                found |= unguarded(arg[2])
+                continue
+            if key == "Ref" and isinstance(arg, str):
+                found.add(arg)
+            elif key == "Fn::GetAtt":
+                found.add(arg[0])
+            elif key == "Fn::Sub":
+                text = arg[0] if isinstance(arg, list) else arg
+                found.update(re.findall(r"\$\{([A-Za-z0-9]+)", text))
+            found |= unguarded(arg)
+    return found & set(WEB_RESOURCES)
 
 
 def references(value):
@@ -154,8 +193,21 @@ def test_routes():
         "POST /reports/{id}/flag",
         "GET /samples",
         "POST /samples/{sampleId}",
+        "POST /ask",
     }
     assert route_keys("FeedApi") == {"GET /pins.geojson"}
+
+
+def test_ask_routes():
+    """Ask ships typed only (Oct 30): one AskTyped event on HttpApi, and no voice route."""
+    events = props("ApiFunction")["Events"]
+    assert events.get("AskTyped") == {
+        "Type": "HttpApi",
+        "Properties": {"ApiId": {"Ref": "HttpApi"}, "Method": "POST", "Path": "/ask"},
+    }
+    assert "AskVoice" not in events
+    deployed = route_keys("HttpApi") | route_keys("FeedApi")
+    assert {key for key in deployed if "/ask" in key} == {"POST /ask"}
 
 
 def test_routes_match_the_api_router():
@@ -165,7 +217,7 @@ def test_routes_match_the_api_router():
     assert router, "route() is missing from index.ts"
     cases = set(re.findall(r'^\s*case "([^"]+)":', router.group(0), re.MULTILINE))
     deployed = route_keys("HttpApi") | route_keys("FeedApi")
-    assert len(deployed) == 8
+    assert len(deployed) == 9
     assert cases == deployed
 
 
@@ -180,13 +232,37 @@ def test_api_environment():
         "LIMITS_TABLE_NAME",
         "FEED_INDEX_NAME",
         "INCHES_SHOWN",
+        "MODEL_KEY_PARAM",
+        "NOMINATIM_USER_AGENT",
     }
+    # Ask's two (C701), read only on POST /ask. The key's name, never the key; the
+    # analysis function reads the same parameter.
+    assert env["MODEL_KEY_PARAM"] == "/lusot/meta/model-api-key"
+    analysis = props("AnalysisFunction")["Environment"]["Variables"]
+    assert env["MODEL_KEY_PARAM"] == analysis["MODEL_KEY_PARAM"]
+    # Identifies the app to Nominatim (its usage policy) by name and, with the website on,
+    # the site's address; never an email address.
+    agent = env["NOMINATIM_USER_AGENT"]
+    attrs = {("WebDistribution", "DomainName"): WEB_DOMAIN}
+    assert resolve(agent, {}, attrs, {"HasWeb": True}) == f"Lusot/1.0 (+https://{WEB_DOMAIN})"
+    assert resolve(agent, {}, {}, {"HasWeb": False}) == "Lusot/1.0"
     assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
     assert env["FEED_INDEX_NAME"] == "feed-index"
     # A literal string, never a parameter (C515): YAML's bare false would be a bool.
     assert env["INCHES_SHOWN"] == "false"
     assert isinstance(env["INCHES_SHOWN"], str)
     assert not [name for name in T["Parameters"] if "inches" in name.lower()]
+
+
+def test_api_timeout_is_15():
+    """C701: a backstop. Ask's own marks end a question, the last of them (the pause
+    after a failed spend write, C736) inside the timeout."""
+    timeout = props("ApiFunction")["Timeout"]
+    assert timeout == 15
+    source = ASK_DEADLINE.read_text(encoding="utf-8")
+    pause_by = re.search(r"^\s*pauseBy:\s*(\d+),", source, re.MULTILINE)
+    assert pause_by, "pauseBy not found in ask/deadline.ts"
+    assert int(pause_by.group(1)) < timeout * 1000
 
 
 def test_analysis_environment():
@@ -299,7 +375,8 @@ def test_cors():
 
 
 def test_cors_origins_add_the_website():
-    """C622: the API and the photo bucket allow AppOrigins and the website's origin."""
+    """C622: the API and the photo bucket allow AppOrigins and the website's origin, or
+    AppOrigins alone with WebHosting off."""
     api = props("HttpApi")["DefinitionBody"]["x-amazon-apigateway-cors"]["allowOrigins"]
     (rule,) = props("UploadBucket")["CorsConfiguration"]["CorsRules"]
     bucket = rule["AllowedOrigins"]
@@ -317,6 +394,46 @@ def test_cors_origins_add_the_website():
         # AppOrigins stays a list: a deploy that passes other origins keeps each one.
         other = ["https://a.example", "https://b.example"]
         assert cors_origins(origins, other) == [*other, web]
+        # Off: no CloudFront origin, and still a list.
+        assert cors_origins(origins, default, web=False) == default
+        assert cors_origins(origins, other, web=False) == other
+
+
+def test_web_hosting_switch():
+    """Oct 31: AWS refused the account's first CloudFront distribution until it verifies the
+    account, so WebHosting can leave the website out. On by default; npm run deploy needs it
+    set by name in samconfig.toml."""
+    p = T["Parameters"]["WebHosting"]
+    assert p["Type"] == "String"
+    assert p["AllowedValues"] == ["on", "off"]
+    assert p["Default"] == "on"
+    # Strings, never YAML 1.1's booleans (C309).
+    assert all(isinstance(value, str) for value in [*p["AllowedValues"], p["Default"]])
+    assert T["Conditions"] == {"HasWeb": {"Fn::Equals": [{"Ref": "WebHosting"}, "on"]}}
+
+
+def test_only_the_website_needs_the_switch():
+    """Off leaves out the four web resources and the three outputs deploy:web reads, and
+    nothing else."""
+    assert {name for name, r in RES.items() if "Condition" in r} == set(WEB_RESOURCES)
+    assert all(RES[name]["Condition"] == "HasWeb" for name in WEB_RESOURCES)
+    outputs = T["Outputs"]
+    web_outputs = {"WebUrl", "WebBucketName", "WebDistributionId"}
+    assert {name for name, o in outputs.items() if "Condition" in o} == web_outputs
+    assert all(outputs[name]["Condition"] == "HasWeb" for name in web_outputs)
+
+
+def test_nothing_left_in_names_the_website():
+    """With WebHosting off, every resource and output left in must name no web resource,
+    except in the on branch of an Fn::If on HasWeb."""
+    for name, r in RES.items():
+        if r.get("Condition") == "HasWeb":
+            continue
+        assert not unguarded(r), name
+        assert not set(as_list(r.get("DependsOn", []))) & set(WEB_RESOURCES), name
+    for name, o in T["Outputs"].items():
+        if o.get("Condition") != "HasWeb":
+            assert not unguarded(o), name
 
 
 def test_web_bucket():
@@ -547,6 +664,32 @@ def test_alarms():
     assert len(of_type("AWS::CloudWatch::Alarm")) <= 10
 
 
+def test_api_alarm_stays_5000():
+    """C735: Ask adds at most 60 counted questions an hour, well inside 5,000. The
+    threshold MS4 left for Ask's spec to set is now set, and its comment says so."""
+    p = props("ApiInvocationsAlarm")
+    assert (p["Threshold"], p["Period"]) == (5000, 3600)
+    lines = [line.strip() for line in raw_lines()]
+    above = lines[lines.index("ApiInvocationsAlarm:") - 1]
+    assert above.startswith("#") and "C735" in above
+    assert not [line for line in lines if "until Ask Lusot's spec sizes it" in line]
+
+
+def test_alarms_fit_the_free_ten():
+    """CloudWatch's free tier: 10 alarms and 10 custom metrics. Ask's cap alarm is the
+    sixth alarm and its refusals the third metric."""
+    alarms = of_type("AWS::CloudWatch::Alarm")
+    assert "AskCapAlarm" in alarms
+    assert len(alarms) <= 10
+    metrics = {
+        (t["MetricNamespace"], t["MetricName"])
+        for f in of_type("AWS::Logs::MetricFilter").values()
+        for t in f["Properties"]["MetricTransformations"]
+    }
+    assert ("Lusot", "AskCapRefusals") in metrics
+    assert len(metrics) <= 10
+
+
 def test_roles():
     # The analysis role: MS3a's grants on raw/, plus the stored photos' prefixes.
     assert granted("AnalysisRole", "s3:GetObject") == bucket_paths("raw")
@@ -611,7 +754,24 @@ def test_roles():
         "ssm:GetParameter",
         "ssm:PutParameter",
     }
-    assert not granted("ApiRole", "ssm:PutParameter")
+
+    # The API role's switches, and Ask's key and spend stop (C701, C736): the stop
+    # read, and only the model-calls switch put, as the analysis role has them.
+    assert granted("ApiRole", "ssm:GetParameter") == {
+        f"{SSM_ARN}/lusot/stop/*",
+        f"{SSM_ARN}/lusot/meta/model-api-key",
+        f"{SSM_ARN}/lusot/spend/stop-usd",
+    }
+    assert granted("ApiRole", "ssm:PutParameter") == {
+        f"{SSM_ARN}/lusot/stop/model-calls"
+    }
+    api_actions = {
+        action for s in statements("ApiRole") for action in as_list(s["Action"])
+    }
+    assert {a for a in api_actions if a.startswith("ssm:")} == {
+        "ssm:GetParameter",
+        "ssm:PutParameter",
+    }
 
     # The API role: presigned links and the sample copy's source; uploads to raw/ only.
     assert granted("ApiRole", "s3:GetObject") == bucket_paths(
@@ -636,6 +796,9 @@ def test_roles():
     }
     assert granted("ApiRole", "dynamodb:PutItem") == tables
     assert granted("ApiRole", "dynamodb:UpdateItem") == tables
+    # Ask's reads (C701): the spend counter, the place cache and the Nominatim slot,
+    # all in limits; never a report.
+    assert granted("ApiRole", "dynamodb:GetItem") == {"${LimitsTable.Arn}"}
     # The API writes every kind of limits item, so its grant has no key condition.
     assert not [s for s in statements("ApiRole") if "dynamodb:LeadingKeys" in str(s)]
     dynamodb = {
@@ -644,7 +807,12 @@ def test_roles():
         for action in as_list(s["Action"])
         if action.startswith("dynamodb:")
     }
-    assert dynamodb == {"dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"}
+    assert dynamodb == {
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+    }
 
     for role in of_type("AWS::IAM::Role"):
         # A managed policy would bring grants this test never sees.
@@ -654,6 +822,29 @@ def test_roles():
             actions = as_list(s["Action"])
             assert not [action for action in actions if "*" in action], role
             assert "dynamodb:Scan" not in actions, role
+
+
+def test_api_role_reads_only_the_model_key():
+    """C701: the API role reads the Meta key's one parameter, and nothing else under
+    /lusot/meta. No resource is exactly "*" (MS1's /lusot/stop/* grant holds one
+    inside its ARN), and no KMS grant: the key is a SecureString under the AWS managed
+    aws/ssm key, whose policy lets the account's SSM callers decrypt."""
+    env = props("ApiFunction")["Environment"]["Variables"]
+    model_key = f"{SSM_ARN}{env['MODEL_KEY_PARAM']}"
+    assert model_key == f"{SSM_ARN}/lusot/meta/model-api-key"
+    named = [
+        (s, resource_name(r))
+        for s in statements("ApiRole")
+        for r in as_list(s["Resource"])
+    ]
+    assert {name for _, name in named if "/lusot/meta" in str(name)} == {model_key}
+    (on_key,) = [s for s, name in named if name == model_key]
+    assert on_key["Effect"] == "Allow"
+    assert as_list(on_key["Action"]) == ["ssm:GetParameter"]
+    assert "Condition" not in on_key
+    assert not [name for _, name in named if name == "*"]
+    actions = {a for s in statements("ApiRole") for a in as_list(s["Action"])}
+    assert not [a for a in actions if a.startswith("kms:")]
 
 
 def test_spend_stop_parameter():
@@ -667,7 +858,33 @@ def test_spend_stop_parameter():
     match = re.search(r'^SPEND_STOP_PARAM\s*=\s*"([^"]+)"', source, re.MULTILINE)
     assert match, "SPEND_STOP_PARAM not found in spend.py"
     assert match.group(1) == p["Name"]
+    # And the name Ask's handler reads before its first Meta call (C736). A wrong one
+    # fails closed, but every typed question would then get the plain list.
+    source = ASK_HANDLER.read_text(encoding="utf-8")
+    match = re.search(
+        r'^export const SPEND_STOP_PARAM = "([^"]+)";', source, re.MULTILINE
+    )
+    assert match, "SPEND_STOP_PARAM not found in the Ask handler"
+    assert match.group(1) == p["Name"]
+    assert "GetParameterCommand({ Name: SPEND_STOP_PARAM })" in source
     assert not [name for name in T["Parameters"] if "spend" in name.lower()]
+
+
+def test_nominatim_switch_is_off():
+    """Ask spec §4.8: the off switch Nominatim's policy asks for. Off, so places resolve
+    through Nominatim; a missing switch reads as on, and every such place would be
+    lookup_unavailable."""
+    assert resource("StopNominatimParameter")["Type"] == "AWS::SSM::Parameter"
+    p = props("StopNominatimParameter")
+    assert p == {"Name": "/lusot/stop/nominatim", "Type": "String", "Value": "off"}
+    assert isinstance(p["Value"], str)  # YAML 1.1's bare off would be false
+    # Under the prefix the API reads its switches by, which its /lusot/stop/* grant covers.
+    prefix = props("ApiFunction")["Environment"]["Variables"]["STOP_PARAM_PREFIX"]
+    assert p["Name"] == f"{prefix}nominatim"
+    assert f"{SSM_ARN}/lusot/stop/*" in granted("ApiRole", "ssm:GetParameter")
+    # The name the geocoder reads.
+    source = ASK_NOMINATIM.read_text(encoding="utf-8")
+    assert re.search(r'isStopped\("nominatim",', source)
 
 
 def test_budget():
@@ -735,6 +952,16 @@ def test_spend_pause_alarm():
     assert "until" in description and "cleared" in description
     assert "docs/operations.md" in description
     assert len(of_type("AWS::CloudWatch::Alarm")) <= 10
+    # Ask's pauses (C736) are logged in the API's group: a second filter there feeds
+    # the same metric, so the one alarm covers both.
+    assert resource("ApiSpendPauseFilter")["Type"] == "AWS::Logs::MetricFilter"
+    api = props("ApiSpendPauseFilter")
+    assert api["LogGroupName"] == {"Ref": "ApiLogGroup"}
+    assert api["FilterPattern"] == '?"spend_error" ?"spend_stop"'
+    assert (
+        api["MetricTransformations"]
+        == props("SpendPauseFilter")["MetricTransformations"]
+    )
 
 
 def test_publish_read_alarm():
@@ -748,14 +975,50 @@ def test_publish_read_alarm():
         "ApiInvocationsAlarm",
         "SpendPauseAlarm",
         "PublishReadAlarm",
+        "AskCapAlarm",
     }
-    # Two custom metrics, inside the free tier's 10.
+    # Three custom metrics, inside the free tier's 10.
     metrics = {
         (t["MetricNamespace"], t["MetricName"])
         for f in of_type("AWS::Logs::MetricFilter").values()
         for t in f["Properties"]["MetricTransformations"]
     }
-    assert metrics == {("Lusot", "SpendPauses"), ("Lusot", "PublishReadErrors")}
+    assert metrics == {
+        ("Lusot", "SpendPauses"),
+        ("Lusot", "PublishReadErrors"),
+        ("Lusot", "AskCapRefusals"),
+    }
+
+
+def test_ask_cap_alarm():
+    """C727: each question_cap refusal counts 1, matched by the term, since Lambda's text
+    log format puts a timestamp and the request id before each JSON line. Any refusal in
+    an hour emails, and so does the alarm clearing."""
+    assert resource("AskCapMetricFilter")["Type"] == "AWS::Logs::MetricFilter"
+    f = props("AskCapMetricFilter")
+    assert f["LogGroupName"] == {"Ref": "ApiLogGroup"}
+    assert f["FilterPattern"] == '"question_cap"'
+    # No DefaultValue: a quiet hour publishes nothing, which notBreaching reads.
+    assert f["MetricTransformations"] == [
+        {"MetricNamespace": "Lusot", "MetricName": "AskCapRefusals", "MetricValue": "1"}
+    ]
+    assert resource("AskCapAlarm")["Type"] == "AWS::CloudWatch::Alarm"
+    a = props("AskCapAlarm")
+    assert (a["Namespace"], a["MetricName"]) == ("Lusot", "AskCapRefusals")
+    assert "Dimensions" not in a
+    assert a["Statistic"] == "Sum"
+    assert (a["Period"], a["EvaluationPeriods"], a["Threshold"]) == (3600, 1, 1)
+    assert a["ComparisonOperator"] == "GreaterThanOrEqualToThreshold"
+    assert a["TreatMissingData"] == "notBreaching"
+    assert a["AlarmActions"] == ALARM_TOPIC
+    assert a.get("OKActions") == ALARM_TOPIC
+    # The code the API's global question refusal carries.
+    source = API_LIMITS.read_text(encoding="utf-8")
+    assert re.search(r'question:\s*\{[^}]*all:\s*"question_cap"', source)
+    # The description names the cap limits.ts sets (N1: 60 an hour, Rene, Oct 31).
+    (cap,) = re.findall(r"question:\s*\{\s*device:\s*\d+,\s*all:\s*(\d+)\s*\}", source)
+    assert cap == "60"
+    assert a["AlarmDescription"] == f"Ask Lusot refused a question at its cap of {cap} an hour."
 
 
 def test_visibility_grant_comment():

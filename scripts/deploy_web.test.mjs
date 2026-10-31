@@ -29,7 +29,7 @@ const SAMCONFIG = [
   'stack_name = "lusot-test"',
   'region = "ap-southeast-1"',
   "[default.deploy.parameters]",
-  `parameter_overrides = "AlarmEmail=${CONTACT} BucketSuffix=abc123"`,
+  `parameter_overrides = "AlarmEmail=${CONTACT} BucketSuffix=abc123 WebHosting=on"`,
 ].join("\n");
 
 // app/dist as the build leaves it today, in kind: the page, the licences, the manifest and the icons, and under
@@ -352,6 +352,19 @@ test("a missing samconfig.toml stops the run before any call", async () => {
   assert.equal(code, 1);
   assert.deepEqual(argvs, []);
   assert.match(err, /samconfig\.toml/);
+});
+
+test("with WebHosting off, or not set, the run stops before any call and says why", async () => {
+  for (const samconfig of [
+    SAMCONFIG.replace("WebHosting=on", "WebHosting=off"),
+    SAMCONFIG.replace(" WebHosting=on", ""),
+  ]) {
+    const { code, argvs, err } = await deploy({ samconfig });
+    assert.equal(code, 1);
+    assert.deepEqual(argvs, []);
+    assert.match(err, /WebHosting isn't on in backend\/samconfig\.toml/);
+    assert.ok(!err.includes(CONTACT), err);
+  }
 });
 
 test("a stack without the web outputs stops the run before the build", async () => {

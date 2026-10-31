@@ -3,7 +3,7 @@ import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client
 import { DynamoDBDocumentClient, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { deviceKey, type LimitDeps, take } from "../src/limits";
+import { type Bucket, deviceKey, LIMIT_CODES, LIMITS, type LimitDeps, retryAfterS, take } from "../src/limits";
 
 const AT_10_59 = Date.parse("2026-10-30T10:59:00Z") / 1000;
 const AT_11_00 = Date.parse("2026-10-30T11:00:00Z") / 1000;
@@ -182,5 +182,98 @@ describe("take", () => {
     ddbMock.on(UpdateCommand).rejects(Object.assign(new Error("throttled"), { name: "ProvisionedThroughputExceededException" }));
 
     await expect(take("upload", DEVICE, AT_10_59, deps())).rejects.toThrow("throttled");
+  });
+});
+
+// Ask Lusot's questions (Task 6): MS4's take, with codes of their own.
+describe("take for questions", () => {
+  const body = (res: Awaited<ReturnType<typeof take>>) => JSON.parse(res?.body ?? "");
+
+  it("the 20th question in an hour passes, the 21st is refused with question_limit and a Retry-After, and the next hour passes", async () => {
+    expect(LIMITS.question).toEqual({ device: 20, all: 60 });
+    for (let i = 0; i < 20; i++) expect(await take("question", DEVICE, AT_10_59, deps())).toBeNull();
+
+    const res = await take("question", DEVICE, AT_10_59, deps());
+
+    expect(res?.statusCode).toBe(429);
+    expect(body(res)).toEqual({ error: "question_limit" });
+    expect(res?.headers["retry-after"]).toBe("60");
+    expect(counts.get(`question#${sha256(DEVICE)}#2026-10-30T10`)).toBe(20);
+    // The device refused it, so it never reached the hour's count.
+    expect(counts.get("question#ALL#2026-10-30T10")).toBe(20);
+
+    // The device's hash, then the hour in all, each with the 2-hour TTL.
+    const expiresAt = Date.parse("2026-10-30T10:00:00Z") / 1000 + 7200;
+    const [device, all] = updates();
+    expect([device.Key, device.ExpressionAttributeValues]).toEqual([
+      { pk: `question#${sha256(DEVICE)}#2026-10-30T10` },
+      { ":one": 1, ":limit": 20, ":expiresAt": expiresAt },
+    ]);
+    expect([all.Key, all.ExpressionAttributeValues]).toEqual([
+      { pk: "question#ALL#2026-10-30T10" },
+      { ":one": 1, ":limit": 60, ":expiresAt": expiresAt },
+    ]);
+    for (const input of updates()) expect(JSON.stringify(input)).not.toContain(DEVICE);
+
+    expect(await take("question", DEVICE, AT_11_00, deps())).toBeNull();
+    expect(counts.get(`question#${sha256(DEVICE)}#2026-10-30T11`)).toBe(1);
+  });
+
+  it("the 60th question in all passes, and the 61st is refused with question_cap and gives the device's count back", async () => {
+    // 3 devices at their limit of 20 make the hour's 60; the last take of the loop is the 60th.
+    for (let d = 0; d < 3; d++) {
+      for (let i = 0; i < 20; i++) expect(await take("question", `device-${d}-padding`, AT_10_59, deps())).toBeNull();
+    }
+    expect(counts.get("question#ALL#2026-10-30T10")).toBe(60);
+
+    const res = await take("question", DEVICE, AT_10_59, deps());
+
+    expect(res?.statusCode).toBe(429);
+    expect(body(res)).toEqual({ error: "question_cap" });
+    expect(res?.headers["retry-after"]).toBe("60");
+    expect(counts.get("question#ALL#2026-10-30T10")).toBe(60);
+    expect(counts.get(`question#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    // Uploads keep their own counters.
+    expect(await take("upload", DEVICE, AT_10_59, deps())).toBeNull();
+  });
+
+  it("uploads and samples keep device_limit and global_cap", async () => {
+    expect(LIMIT_CODES).toEqual({
+      upload: { device: "device_limit", all: "global_cap" },
+      sample: { device: "device_limit", all: "global_cap" },
+      question: { device: "question_limit", all: "question_cap" },
+    });
+    const expected: Record<Bucket, [string, string]> = {
+      upload: ["device_limit", "global_cap"],
+      sample: ["device_limit", "global_cap"],
+      question: ["question_limit", "question_cap"],
+    };
+    for (const bucket of ["upload", "sample", "question"] as const) {
+      for (let i = 0; i < LIMITS[bucket].device; i++) await take(bucket, DEVICE, AT_10_59, deps());
+      const byDevice = await take(bucket, DEVICE, AT_10_59, deps());
+      counts.set(`${bucket}#ALL#2026-10-30T10`, LIMITS[bucket].all);
+      const byHour = await take(bucket, "device-another-one", AT_10_59, deps());
+
+      expect([byDevice?.statusCode, byHour?.statusCode], bucket).toEqual([429, 429]);
+      expect([body(byDevice).error, body(byHour).error], bucket).toEqual(expected[bucket]);
+    }
+  });
+
+  it("Retry-After is retryAfterS's: 3,600 at the top of an hour, 1 a second before the next", async () => {
+    const AT_11_59_59 = Date.parse("2026-10-30T11:59:59Z") / 1000;
+    for (const [nowS, seconds] of [
+      [AT_11_00, "3600"],
+      [AT_11_59_59, "1"],
+    ] as const) {
+      expect(String(retryAfterS(nowS))).toBe(seconds);
+      counts.set(`question#${sha256(DEVICE)}#2026-10-30T11`, 20);
+      counts.set("question#ALL#2026-10-30T11", 60);
+
+      const byDevice = await take("question", DEVICE, nowS, deps());
+      const byHour = await take("question", "device-another-one", nowS, deps());
+
+      expect([body(byDevice).error, byDevice?.headers["retry-after"]]).toEqual(["question_limit", seconds]);
+      expect([body(byHour).error, byHour?.headers["retry-after"]]).toEqual(["question_cap", seconds]);
+    }
   });
 });

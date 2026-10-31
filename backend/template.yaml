@@ -17,7 +17,17 @@ Parameters:
   AppOrigins:
     Type: CommaDelimitedList
     Default: "https://localhost,http://localhost:5173,http://localhost:4173"
-    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers). The template adds the website's origin.
+    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers). With WebHosting on, the template adds the website's origin.
+  # Oct 31: AWS refused the account's first CloudFront distribution until it verifies the
+  # account, so the website can be left out. samconfig.toml sets it by name (npm run deploy).
+  WebHosting:
+    Type: String
+    AllowedValues: ["on", "off"]
+    Default: "on"
+    Description: on serves the website from WebBucket through CloudFront; off leaves the web resources and outputs out.
+
+Conditions:
+  HasWeb: !Equals [!Ref WebHosting, "on"]
 
 Resources:
   UploadBucket:
@@ -39,13 +49,17 @@ Resources:
         CorsRules:
           # GET lets the app fetch a report's layersUrl (MS5's N14).
           - AllowedMethods: [GET, POST]
-            # AppOrigins and the website's origin (C622), the same list as the API's.
-            AllowedOrigins: !Split
-              - ","
-              - !Sub
-                - "${Origins},https://${WebDomain}"
-                - Origins: !Join [",", !Ref AppOrigins]
-                  WebDomain: !GetAtt WebDistribution.DomainName
+            # AppOrigins and the website's origin (C622), or AppOrigins alone with WebHosting off;
+            # the same list as the API's.
+            AllowedOrigins: !If
+              - HasWeb
+              - !Split
+                - ","
+                - !Sub
+                  - "${Origins},https://${WebDomain}"
+                  - Origins: !Join [",", !Ref AppOrigins]
+                    WebDomain: !GetAtt WebDistribution.DomainName
+              - !Ref AppOrigins
       LifecycleConfiguration:
         Rules:
           - Id: raw-1-day
@@ -224,13 +238,17 @@ Resources:
           version: "1.0"
         paths: {}
         x-amazon-apigateway-cors:
-          # AppOrigins and the website's origin (C622), as a list, the same as the bucket's.
-          allowOrigins: !Split
-            - ","
-            - !Sub
-              - "${Origins},https://${WebDomain}"
-              - Origins: !Join [",", !Ref AppOrigins]
-                WebDomain: !GetAtt WebDistribution.DomainName
+          # AppOrigins and the website's origin (C622), or AppOrigins alone with WebHosting off;
+          # as a list, the same as the bucket's.
+          allowOrigins: !If
+            - HasWeb
+            - !Split
+              - ","
+              - !Sub
+                - "${Origins},https://${WebDomain}"
+                - Origins: !Join [",", !Ref AppOrigins]
+                  WebDomain: !GetAtt WebDistribution.DomainName
+            - !Ref AppOrigins
           allowMethods: [GET, POST]
           # The app's random device id (C508), and a 429's Retry-After (C522).
           allowHeaders: [content-type, x-lusot-device]
@@ -265,7 +283,8 @@ Resources:
       Runtime: nodejs22.x
       Architectures: [arm64]
       MemorySize: 256
-      Timeout: 10
+      # A backstop (C701): Ask's own marks end a question, the last by 14 s (C736).
+      Timeout: 15
       Role: !GetAtt ApiRole.Arn
       LoggingConfig:
         LogGroup: !Ref ApiLogGroup
@@ -280,6 +299,14 @@ Resources:
           FEED_INDEX_NAME: feed-index
           # A literal, never a parameter (C515): MS6's post-gate commit sets it to "true".
           INCHES_SHOWN: "false"
+          # Ask Lusot's two (C701), read only on POST /ask: the key's parameter name, never the key.
+          MODEL_KEY_PARAM: /lusot/meta/model-api-key
+          # Identifies the app to Nominatim (its usage policy) by name and, with the website on,
+          # the site's address; never an email address.
+          NOMINATIM_USER_AGENT: !If
+            - HasWeb
+            - !Sub "Lusot/1.0 (+https://${WebDistribution.DomainName})"
+            - Lusot/1.0
       Events:
         CreateUpload:
           Type: HttpApi
@@ -323,6 +350,13 @@ Resources:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /samples/{sampleId}
+        # Ask Lusot, typed only (Oct 30): no voice route.
+        AskTyped:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /ask
         Feed:
           Type: HttpApi
           Properties:
@@ -362,6 +396,11 @@ Resources:
                 Resource:
                   - !GetAtt ReportsTable.Arn
                   - !GetAtt LimitsTable.Arn
+              # Ask's reads of limits (C701): the Meta spend counter, the place cache and the
+              # Nominatim slot. Never a report.
+              - Effect: Allow
+                Action: dynamodb:GetItem
+                Resource: !GetAtt LimitsTable.Arn
               # Nearby queries the table, the pin detail reportId-index, and the map and the feed feed-index.
               - Effect: Allow
                 Action: dynamodb:Query
@@ -392,9 +431,19 @@ Resources:
                 Condition:
                   StringLike:
                     s3:prefix: "samples/*"
+              # The switches, and Ask's Meta key (C701) and spend stop (C736). The key is a
+              # SecureString under the AWS managed aws/ssm key, which lets every principal in the
+              # account decrypt through SSM, so no kms:Decrypt grant is needed.
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/*"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/meta/model-api-key"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/spend/stop-usd"
+              # Ask's spend stop sets the model-calls switch "on" (C736), and nothing else.
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/lusot/stop/model-calls"
 
   AnalysisFunction:
     Type: AWS::Serverless::Function
@@ -551,6 +600,15 @@ Resources:
       Type: String
       Value: "off"
 
+  # Ask Lusot's place lookup (its spec §4.8): the off switch Nominatim's usage policy asks for.
+  # On, places resolve from the spot list only.
+  StopNominatimParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /lusot/stop/nominatim
+      Type: String
+      Value: "off"
+
   # The Meta spend stop in USD (C527, C528): a literal, like INCHES_SHOWN, never a parameter.
   # $60 while building; set_spend_stop.py raises it to $140 at the submission deploy on Nov 4,
   # and again after any later deploy that puts it back to 60 (docs/operations.md).
@@ -656,7 +714,8 @@ Resources:
       AlarmActions:
         - !Ref AlarmTopic
 
-  # 5,000 until Ask Lusot's spec sizes it. The feed's and the map's calls count too.
+  # The feed's and the map's calls count too. Ask Lusot's spec sets the 5,000 an hour
+  # (C735), with at most 60 counted questions an hour from Ask.
   ApiInvocationsAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -682,6 +741,18 @@ Resources:
     Type: AWS::Logs::MetricFilter
     Properties:
       LogGroupName: !Ref AnalysisLogGroup
+      FilterPattern: '?"spend_error" ?"spend_stop"'
+      MetricTransformations:
+        - MetricNamespace: Lusot
+          MetricName: SpendPauses
+          MetricValue: "1"
+
+  # Ask's spend pauses (C736), logged in the API's group: the same pattern and metric, so the
+  # one SpendPauseAlarm covers both.
+  ApiSpendPauseFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
       FilterPattern: '?"spend_error" ?"spend_stop"'
       MetricTransformations:
         - MetricNamespace: Lusot
@@ -732,12 +803,45 @@ Resources:
       AlarmActions:
         - !Ref AlarmTopic
 
+  # Ask Lusot's global cap (C727): only a question_cap refusal's line holds the term. A term
+  # pattern, since Lambda's text log format puts a timestamp and the request id before each
+  # JSON line, so a JSON pattern wouldn't match.
+  AskCapMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      FilterPattern: '"question_cap"'
+      MetricTransformations:
+        - MetricNamespace: Lusot
+          MetricName: AskCapRefusals
+          MetricValue: "1"
+
+  AskCapAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Ask Lusot refused a question at its cap of 60 an hour.
+      Namespace: Lusot
+      MetricName: AskCapRefusals
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+      # So Rene also hears when the hour passes quietly.
+      OKActions:
+        - !Ref AlarmTopic
+
   # The website (MS5-Q4 (c), C622): the built app in a private bucket, served only through CloudFront.
   # `npm run deploy:web` fills it. Neither the bucket nor the distribution logs requests, so no
   # visitor's IP address is kept (PRIV-Q9, the 7-day rule). Like the upload bucket, these four take
   # CloudFormation's default Delete policies; the bucket must be emptied before the stack is deleted.
+  # All four exist only with WebHosting on.
   WebBucket:
     Type: AWS::S3::Bucket
+    Condition: HasWeb
     Properties:
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -755,6 +859,7 @@ Resources:
 
   WebOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
+    Condition: HasWeb
     Properties:
       OriginAccessControlConfig:
         Name: !Sub "${AWS::StackName}-web"
@@ -765,6 +870,7 @@ Resources:
 
   WebDistribution:
     Type: AWS::CloudFront::Distribution
+    Condition: HasWeb
     Properties:
       DistributionConfig:
         Enabled: true
@@ -796,6 +902,7 @@ Resources:
   # CloudFront may read the bucket, for this distribution only.
   WebBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    Condition: HasWeb
     Properties:
       Bucket: !Ref WebBucket
       PolicyDocument:
@@ -825,10 +932,13 @@ Outputs:
     Value: !GetAtt UploadQueue.QueueName
   DeadLetterQueueName:
     Value: !GetAtt DeadLetterQueue.QueueName
-  # The website, and what `npm run deploy:web` uploads to and invalidates.
+  # The website, and what `npm run deploy:web` uploads to and invalidates; with WebHosting on only.
   WebUrl:
+    Condition: HasWeb
     Value: !Sub "https://${WebDistribution.DomainName}"
   WebBucketName:
+    Condition: HasWeb
     Value: !Ref WebBucket
   WebDistributionId:
+    Condition: HasWeb
     Value: !Ref WebDistribution

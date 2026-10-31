@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { format } from "node:util";
 import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { GetParameterCommand } from "@aws-sdk/client-ssm";
-import { PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handler } from "../src/index";
@@ -14,6 +14,7 @@ import {
   ddbMock,
   ENV_NAMES,
   ID,
+  MODEL_KEY_PARAM,
   NOW,
   PIN,
   ROUTE_KEYS,
@@ -30,17 +31,24 @@ import {
 const UPLOAD = JSON.stringify({ lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedAt: new Date().toISOString() });
 
 // Sentinels that must never reach a log (CLAUDE.md, spec §4.6): the caller's IP, its device id and
-// the id's SHA-256, and a point that only the upload body and the nearby query hold.
+// the id's SHA-256, and a point that only the upload body and the nearby query hold. Ask Lusot adds a
+// question's word and a "dito" point next to PIN, inside Metro Manila, so its pins are read (its spec AK7).
 const SENTINEL_IP = "203.0.113.7";
 const SENTINEL_DEVICE = "device-5e771ne1-0123456789";
 const SENTINEL_LAT = "14.123456";
 const SENTINEL_LNG = "121.123456";
+const SENTINEL_WORD = "Sentinelquestionword";
+const SENTINEL_HERE_LAT = "14.609517";
+const SENTINEL_HERE_LNG = "120.989417";
 const SENTINELS = [
   SENTINEL_IP,
   SENTINEL_DEVICE,
   createHash("sha256").update(SENTINEL_DEVICE).digest("hex"),
   SENTINEL_LAT,
   SENTINEL_LNG,
+  SENTINEL_WORD,
+  SENTINEL_HERE_LAT,
+  SENTINEL_HERE_LNG,
 ];
 
 function sentinelRequest(routeKey: RouteKey): APIGatewayProxyEventV2 {
@@ -54,7 +62,23 @@ function sentinelRequest(routeKey: RouteKey): APIGatewayProxyEventV2 {
     fields.body = JSON.stringify({ ...UPLOAD_FIELDS, lat: Number(SENTINEL_LAT), lng: Number(SENTINEL_LNG) });
   }
   if (routeKey === "GET /reports") fields.queryStringParameters = { lat: SENTINEL_LAT, lng: SENTINEL_LNG };
+  if (routeKey === "POST /ask") {
+    const here = { lat: Number(SENTINEL_HERE_LAT), lng: Number(SENTINEL_HERE_LNG), accuracyM: 20 };
+    fields.body = JSON.stringify({ question: `${SENTINEL_WORD} may baha ba dito?`, here });
+  }
   return request(routeKey, fields);
+}
+
+// The status a route gives when its `failAt`-th DynamoDB or S3 call (of `calls` in its success) fails. MS4's
+// routes give 500. POST /ask degrades instead (its spec §5.4, C736): its calls are the two question counters, the
+// spend counter's read, the nine cells of the pins read, then the spend write. A failed counter is a 500; an
+// unreadable spend counter pauses model calls and answers with the plain list; a failed pins read is a 503
+// ask_unavailable; a failed spend write keeps the answer.
+function failedStatus(routeKey: RouteKey, failAt: number, calls: number): number {
+  if (routeKey !== "POST /ask") return 500;
+  if (failAt <= 2) return 500;
+  if (failAt === 3 || failAt === calls) return 200;
+  return 503;
 }
 
 // Every line written through console, as console would format it.
@@ -83,9 +107,12 @@ function cancelled(...codes: string[]): TransactionCanceledException {
 
 type Sent = { kind: string; input: Record<string, unknown> };
 
-// Each DynamoDB command input the mock received, a transaction's items one by one.
+// Each DynamoDB command input the mock received, a transaction's items one by one. Ask Lusot's GetItem
+// reads (the spend counter, the place cache, the Nominatim slot) use no ProjectionExpression, so they hold
+// no placeholder; they are listed so that stays checked.
 function sentInputs(): Sent[] {
   const kinds = [
+    ["GetCommand", GetCommand],
     ["QueryCommand", QueryCommand],
     ["UpdateCommand", UpdateCommand],
     ["PutCommand", PutCommand],
@@ -245,9 +272,14 @@ describe("handler, in a new container", () => {
           },
         });
         const res = await (await coldHandler())(sentinelRequest(routeKey));
-        expect(res.statusCode, `${routeKey}, call ${failAt}`).toBe(500);
+        expect(res.statusCode, `${routeKey}, call ${failAt}`).toBe(failedStatus(routeKey, failAt, calls));
       }
     }
+    // Ask's success made the thirteen calls failedStatus names, in that order.
+    resetMocks();
+    serve();
+    await (await coldHandler())(sentinelRequest("POST /ask"));
+    expect(awsCalls()).toBe(13);
 
     // The runs logged, so the capture works.
     expect(lines.some((line) => line.includes("request_failed"))).toBe(true);
@@ -276,7 +308,7 @@ describe("handler, in a new container", () => {
     sent.push(...sentInputs());
 
     const kinds = new Set(sent.map(({ kind }) => kind));
-    for (const kind of ["QueryCommand", "UpdateCommand", "PutCommand", "TransactWriteCommand.Put", "TransactWriteCommand.Update"]) {
+    for (const kind of ["GetCommand", "QueryCommand", "UpdateCommand", "PutCommand", "TransactWriteCommand.Put", "TransactWriteCommand.Update"]) {
       expect([...kinds], kind).toContain(kind);
     }
     const seen = new Set<string>();
@@ -360,5 +392,42 @@ describe("handler, in a new container", () => {
       status: 400,
     });
     for (const absent of ["cancelled", ID, ...SENTINELS]) expect(line).not.toContain(absent);
+  });
+
+  // Ask Lusot's two variables are read on its own route only (its Task 12), so the test above keeps seven names.
+  it.each(["MODEL_KEY_PARAM", "NOMINATIM_USER_AGENT"])(
+    "without %s, POST /ask answers 500 internal and names it, and MS4's routes still answer",
+    async (name) => {
+      const lines = captureConsole();
+      vi.stubEnv(name, undefined);
+      const cold = await coldHandler();
+
+      const res = await cold(request("POST /ask"));
+
+      expect(res.statusCode).toBe(500);
+      expect(JSON.parse(res.body)).toEqual({ error: "internal" });
+      expect(lines.map((line) => JSON.parse(line))).toEqual([
+        { msg: "ask_unconfigured", variable: name },
+        { msg: "ask", route: "ask", status: 500, code: "internal", error: "MissingVariable" },
+      ]);
+      expect(awsCalls() + ssmMock.calls().length).toBe(0);
+      expect((await cold(request("GET /reports/{id}"))).statusCode).toBe(200);
+      // Set again, the next question builds Ask's deps and is answered.
+      stubApiEnv();
+      expect((await cold(request("POST /ask"))).statusCode).toBe(200);
+    },
+  );
+
+  it("answers POST /ask through the real Meta client, and no other route reads the model key", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const keyReads = () => ssmMock.commandCalls(GetParameterCommand).filter((call) => call.args[0].input.Name === MODEL_KEY_PARAM);
+    for (const routeKey of ROUTE_KEYS.filter((key) => key !== "POST /ask")) await (await coldHandler())(request(routeKey));
+    expect(keyReads()).toHaveLength(0);
+
+    const res = await (await coldHandler())(request("POST /ask"));
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).answer).toMatchObject({ source: "model", kind: "reports", place: { source: "here" }, cited: [ID] });
+    expect(keyReads().map((call) => call.args[0].input)).toEqual([{ Name: MODEL_KEY_PARAM, WithDecryption: true }]);
   });
 });

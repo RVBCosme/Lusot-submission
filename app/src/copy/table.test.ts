@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { EN, type Entry } from '../i18n/en'
+import { FIL } from '../i18n/fil'
 import { makeT } from '../i18n'
 import { LEVELS } from './levels'
 import { levelLine } from './wording'
@@ -87,15 +88,21 @@ it('a pipe or a line break in a line cannot break its row', () => {
   expect(table.split('\n')).toHaveLength(3)
 })
 
-it("the real table lists every key of the English table once, with the marks the M20 review left", () => {
+it("the real table lists every key of the English table once, with the marks the reviews left", () => {
   const rows = copyTable().split('\n').slice(2)
   expect(rows).toHaveLength(Object.keys(EN).length)
   const marks = (key: string) => rows.find((row) => row.startsWith(`| \`${key}\` |`))
   expect(marks('refusal.d19')).toMatch(/\| en yes, fil yes \|$/)
   expect(marks('layout.screenLine')).toMatch(/\| en yes, fil yes \|$/)
-  // Text that changed after the review (a4d066d) is unreviewed again, in the language that changed.
-  expect(marks('report.sendFailed')).toMatch(/\| en no, fil no \|$/)
-  expect(marks('report.refused.gps_too_coarse')).toMatch(/\| en no, fil yes \|$/)
+  // Rene's review of Oct 31 passed the lines that changed after M20 (a4d066d), and every other line left.
+  expect(marks('report.sendFailed')).toMatch(/\| en yes, fil yes \|$/)
+  expect(marks('report.refused.gps_too_coarse')).toMatch(/\| en yes, fil yes \|$/)
+  // A line that changes after its review is unreviewed again, in the language that changed.
+  const changed = { ...EN, 'report.sendFailed': { ...EN['report.sendFailed'], reviewed: false } }
+  const row = copyTable(changed, FIL)
+    .split('\n')
+    .find((line) => line.startsWith('| `report.sendFailed` |'))
+  expect(row).toMatch(/\| en no, fil yes \|$/)
 })
 
 it('the level-line table holds each of the 9 levels in its template, then the one floor the rules reach, in both languages', () => {
