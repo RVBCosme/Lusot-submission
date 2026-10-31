@@ -7,7 +7,7 @@ import { EN, type StringKey } from '../src/i18n/en'
 import { FIL } from '../src/i18n/fil'
 import { expect, LIVE_PIN, test } from './mocks'
 import { expectLine } from './screenLine'
-import { acceptNotice, label, showsEnglish } from './steps'
+import { acceptNotice, choose, label, showsEnglish } from './steps'
 
 // The whole lines a Taglish screen shows in English, with no {placeholder} left in them: the screen line, "Not
 // affiliated with MMDA." and any screen-line key whose Taglish is still unreviewed.
@@ -102,4 +102,46 @@ test('switching to Taglish changes the lines, keeps the screen line in English, 
   await page.getByRole('group', { name: label('fil', 'lang.switch') }).getByRole('button', { name: label('fil', 'lang.en') }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.getByRole('heading', { name: label('en', 'camera.title') })).toBeVisible()
+})
+
+// The words on the screen that a line break splits at their hyphen, such as "Mag-" over "report" in the navigation
+// (Rene's phone test, Nov 1): the hyphen and the letters on each side of it, laid out on two lines.
+async function hyphenBreaks(page: Page): Promise<string[]> {
+  await page.evaluate(() => document.fonts.ready)
+  return page.evaluate(() => {
+    const broken: string[] = []
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const text = node.textContent ?? ''
+      for (const match of text.matchAll(/\p{L}-\p{L}/gu)) {
+        const range = document.createRange()
+        range.setStart(node, match.index)
+        range.setEnd(node, match.index + 3)
+        const lines = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top)))
+        if (lines.size > 1) broken.push(text.trim())
+      }
+    }
+    return broken
+  })
+}
+
+test('in Taglish at 360 px, no word breaks at its hyphen, nor at 200% text, where the navigation still has no sideways scroll', async ({
+  page,
+}) => {
+  await choose(page, { lang: 'fil' })
+  await page.goto('/#/map')
+  const nav = page.getByRole('navigation')
+  await expect(nav.getByRole('link', { name: label('fil', 'nav.report'), exact: true })).toBeVisible()
+  expect(page.viewportSize()?.width).toBe(360)
+  expect(await hyphenBreaks(page), 'Taglish, #/map, 360 px').toEqual([])
+  // At the default text size, the five links still share one row.
+  const rows = await nav.getByRole('listitem').evaluateAll((items) => new Set(items.map((item) => Math.round(item.getBoundingClientRect().top))).size)
+  expect(rows, 'rows of navigation links at 360 px').toBe(1)
+
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%'
+  })
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe('32px')
+  expect(await hyphenBreaks(page), 'Taglish, #/map, 360 px, 200% text').toEqual([])
+  expect(await nav.evaluate((element) => element.scrollWidth - element.clientWidth), 'sideways scroll in the navigation').toBeLessThanOrEqual(0)
 })
