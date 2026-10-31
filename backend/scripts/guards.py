@@ -6,7 +6,9 @@
   lusot-data refuses one before reading anything (exit 2).
 - **The output mask:** every printed line has each run of 12 digits replaced by
   `<account>`. Scripts print counts, outcomes and ids through `say`, never a path, a
-  coordinate, a message body, a receipt handle, a queue URL, an IP or an email.
+  coordinate, a message body, a receipt handle, a queue URL, an IP or an email. A
+  traceback a script prints (MS7's D-f) goes through `traceback_lines`, which also
+  hides every report id, wherever it sits, and any secret the script names.
 - **The one allow-list** (spec §4.5): demo pins and samples come only from the
   open-licensed manifest's rows that pass `open_licence_ok` and the consent log's rows
   that pass `consent_ok`, read by `allowed_sources`. More consented photos arrive as
@@ -23,6 +25,7 @@ import csv
 import importlib.util
 import os
 import re
+import traceback
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -54,6 +57,11 @@ CONSENT_LICENSE = "used with permission"  # the exact value MS5's getSamples kee
 _ACCOUNT_ID = re.compile(r"[0-9]{12}")
 _ID_TOKEN = re.compile(f"({REPORT_ID.pattern})")  # captured, so split keeps the ids
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+# A report id anywhere, file names included, which MS7 prints nowhere (C812). Ids are
+# lower case (C32); upper case is masked too.
+ANY_REPORT_ID = re.compile(r"r_[0-9a-fA-F]{32}")
+# A traceback frame's source file, whose folders can name the laptop's user.
+_FRAME_FILE = re.compile(r'(File ")[^"]*[\\/]([^"\\/]*")')
 
 
 def is_sealed(path: Path) -> bool:
@@ -99,6 +107,22 @@ def mask(line: str) -> str:
 
 def say(line: str) -> None:
     print(mask(line), flush=True)
+
+
+def traceback_lines(exc: BaseException, *, hide: Iterable[str] = ()) -> list[str]:
+    """`exc`'s traceback as lines to print (MS7's D-f), never Python's own, unmasked.
+
+    Each of `hide`, such as the Meta key, goes first, as <hidden>, so its own digits
+    never half-show; then every report id, wherever it sits, as <report>; then mask's
+    rule. The exceptions `exc` was raised from are left out, since an httpx error's
+    message holds its URL, and each frame names its source file without its folders.
+    """
+    text = "".join(traceback.format_exception(exc, chain=False))
+    for secret in hide:
+        if secret:
+            text = text.replace(secret, "<hidden>")
+    text = _FRAME_FILE.sub(r"\1\2", ANY_REPORT_ID.sub("<report>", text))
+    return [mask(line) for line in text.splitlines()]
 
 
 def data_dir() -> Path:

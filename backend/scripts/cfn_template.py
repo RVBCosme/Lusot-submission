@@ -41,5 +41,10 @@ def load_template(path: Path = TEMPLATE) -> dict:
         return yaml.load(stream, Loader=_CfnLoader)
 
 
+def parse_template(text: str) -> dict:
+    """load_template on text: the freeze guard reads the template as a commit holds it."""
+    return yaml.load(text, Loader=_CfnLoader)
+
+
 def raw_lines(path: Path = TEMPLATE) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
