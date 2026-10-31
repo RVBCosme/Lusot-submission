@@ -221,7 +221,7 @@ describe("a question that finds reports", () => {
       store: false,
       include: ["reasoning.encrypted_content"],
       reasoning: { effort: "low" },
-      max_output_tokens: 800,
+      max_output_tokens: 1200,
       tools: [prompts.tool],
       tool_choice: "auto",
       parallel_tool_calls: false,
@@ -260,7 +260,7 @@ describe("a question that finds reports", () => {
       store: false,
       include: ["reasoning.encrypted_content"],
       reasoning: { effort: "low" },
-      max_output_tokens: 800,
+      max_output_tokens: 1200,
       tool_choice: "auto",
       parallel_tool_calls: false,
       text: { format: { type: "json_schema", strict: true } },
@@ -495,7 +495,7 @@ describe("the final turn", () => {
       store: false,
       include: ["reasoning.encrypted_content"],
       reasoning: { effort: "low" },
-      max_output_tokens: 800,
+      max_output_tokens: 1200,
       text: { format: { type: "json_schema", name: "ask_answer_v1", strict: true } },
     });
     // The question and the tool's output as plain input: no reasoning item, no call, no call output.
