@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import androidIgnore from '../android/.gitignore?raw'
 import buildGradle from '../android/app/build.gradle?raw'
 import manifestXml from '../android/app/src/main/AndroidManifest.xml?raw'
 import config from '../capacitor.config.ts'
@@ -40,6 +41,19 @@ describe('android/app/build.gradle', () => {
     expect(buildGradle).toMatch(/^\s*versionName\s+"0\.5\.0"\s*$/m)
     expect(buildGradle).toContain(`versionName "${pkg.version}"`)
     expect(buildGradle).toMatch(/^\s*versionCode\s+1\s*$/m)
+  })
+
+  it('signs a release build only from the git-ignored keystore.properties, and holds no signing secret itself', () => {
+    expect(buildGradle).toContain("rootProject.file('keystore.properties')")
+    for (const key of ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']) {
+      expect(buildGradle, key).toContain(`keystoreProperties['${key}']`)
+    }
+    expect(buildGradle).toMatch(/release\s*\{\s*signingConfig signingConfigs\.release/)
+    // No password, alias or keystore path written into the file: every value comes from keystoreProperties.
+    expect(buildGradle).not.toMatch(/(storePassword|keyPassword|keyAlias)\s+["']/)
+    expect(buildGradle).not.toMatch(/storeFile\s+file\(\s*["']/)
+    expect(buildGradle).not.toMatch(/\.(jks|keystore|p12)\b/)
+    expect(androidIgnore.split(/\r?\n/)).toEqual(expect.arrayContaining(['keystore.properties', '*.jks', '*.keystore', '*.p12']))
   })
 })
 
