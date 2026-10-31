@@ -38,7 +38,13 @@ Runner = Callable[[list[str], Path], tuple[int, str]]
 def run(args: list[str], cwd: Path) -> tuple[int, str]:
     """Runs a command; returns its exit code and its stdout. Its stderr is left to the console."""
     done = subprocess.run(
-        args, cwd=cwd, stdout=subprocess.PIPE, text=True, encoding="utf-8", check=False
+        args,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     return done.returncode, done.stdout
 
@@ -72,8 +78,15 @@ def check(runner: Runner, repo: Path) -> list[str]:
     if code != 0:
         drifted.append("backend/analysis/uv.lock")
     code, exported = runner(list(EXPORT), analysis)
-    committed = (analysis / "requirements.lock.txt").read_text(encoding="utf-8")
-    if code != 0 or requirement_lines(exported) != requirement_lines(committed):
+    try:
+        committed = (analysis / "requirements.lock.txt").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        committed = None  # a missing lock has drifted from any export
+    if (
+        code != 0
+        or committed is None
+        or requirement_lines(exported) != requirement_lines(committed)
+    ):
         drifted.append("backend/analysis/requirements.lock.txt")
     for script in locked_scripts(repo):
         relative = script.relative_to(repo).as_posix()
@@ -86,9 +99,10 @@ def check(runner: Runner, repo: Path) -> list[str]:
 def main() -> int:
     try:
         drifted = check(run, REPO)
-    except FileNotFoundError as error:
+    except OSError as error:
         print(
-            f"check_locks: can't run uv ({error.__class__.__name__})", file=sys.stderr
+            f"check_locks: can't run uv ({error.__class__.__name__}: {error.filename})",
+            file=sys.stderr,
         )
         return 2
     for path in drifted:

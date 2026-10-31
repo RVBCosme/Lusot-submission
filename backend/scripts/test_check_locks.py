@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import check_locks
@@ -99,11 +100,47 @@ def test_each_kind_of_drift_is_named(repo):
     ]
 
 
+class ExportFailsWithMatchingBody(FakeUv):
+    """An export that exits 1 but still prints the committed body."""
+
+    def __call__(self, args, cwd):
+        code, out = super().__call__(args, cwd)
+        return (1, out) if args[:2] == ["uv", "export"] else (code, out)
+
+
 def test_a_failed_export_is_drift(repo):
-    export = "uv export --frozen --no-dev --no-emit-project --format requirements-txt"
-    assert check_locks.check(FakeUv(fail=frozenset({export})), repo) == [
+    assert check_locks.check(ExportFailsWithMatchingBody(), repo) == [
         "backend/analysis/requirements.lock.txt"
     ]
+
+
+def test_a_changed_hash_alone_is_drift(repo):
+    rehashed = EXPORT_HEADER + EXPORT_BODY.replace("b" * 64, "c" * 64)
+    assert check_locks.check(FakeUv(export=rehashed), repo) == [
+        "backend/analysis/requirements.lock.txt"
+    ]
+
+
+def test_a_missing_requirements_lock_is_drift(repo):
+    (repo / "backend" / "analysis" / "requirements.lock.txt").unlink()
+    assert check_locks.check(FakeUv(), repo) == [
+        "backend/analysis/requirements.lock.txt"
+    ]
+
+
+def test_export_runs_in_the_analysis_package(repo):
+    uv = FakeUv()
+    check_locks.check(uv, repo)
+    (where,) = [cwd for args, cwd in uv.calls if args[:2] == ["uv", "export"]]
+    assert where == repo / "backend" / "analysis"
+
+
+def test_run_returns_the_exit_code_and_stdout(tmp_path):
+    script = "import sys; sys.stdout.write('out\\n'); sys.stdout.buffer.write(b'\\xff\\n'); sys.exit(3)"
+    code, out = check_locks.run([sys.executable, "-c", script], tmp_path)
+    assert code == 3
+    assert out.splitlines()[0] == "out"
+    assert "\ufffd" in out  # undecodable bytes are replaced, never a crash
 
 
 def test_eval_runner_is_checked_only_if_it_exists(repo):
