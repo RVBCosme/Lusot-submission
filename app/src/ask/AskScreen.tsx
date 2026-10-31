@@ -20,14 +20,18 @@ const EXAMPLES: StringKey[] = ['ask.ui.example1', 'ask.ui.example2', 'ask.ui.exa
 
 const BUTTON =
   'inline-flex min-h-tap items-center gap-2 rounded-control bg-action px-4 font-bold text-on-action ' +
-  'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50'
+  'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50 ' +
+  'aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
 const CHIP =
   'inline-flex min-h-tap items-center rounded-control border border-outline px-3 text-left ' +
   'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50'
 const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
 
-// What the screen shows under the controls: the last answer, or the line for why there is none.
-type Shown = { kind: 'answer'; answer: AskAnswer; transcript?: string } | { kind: 'problem'; key: StringKey; vars?: Record<string, number> }
+// What the screen shows under the controls: the last answer, with when it came (its photos' ages count from then), or
+// the line for why there is none.
+type Shown =
+  | { kind: 'answer'; answer: AskAnswer; transcript?: string; at: Date }
+  | { kind: 'problem'; key: StringKey; vars?: Record<string, number> }
 
 // Where "Use my location" stands: off, waiting for a fix, holding one, or the line that says why it can't.
 type Fixing = { status: 'off' } | { status: 'waiting' } | { status: 'ready' } | { status: 'problem'; key: StringKey }
@@ -51,6 +55,7 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
   const [fixing, setFixing] = useState<Fixing>({ status: 'off' })
   const inFlight = useRef(false)
   const live = useRef(new AbortController()) // aborted when the screen closes
+  const switchFix = useRef<AbortController | undefined>(undefined) // the fix the switch itself started
   const answerArea = useRef<HTMLDivElement>(null)
 
   // A new answer or problem is brought into view: on a phone it lands below the examples.
@@ -65,35 +70,46 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
   }, [])
 
   // One fix, by waitForFix's rules, cut at 10 s however long it would wait. Undefined when there is none good enough;
-  // the line then says why, and no location is sent.
-  const takeFix = useCallback(async (): Promise<Here | undefined> => {
+  // the line then says why, and no location is sent. A fix that `stop` drops, or the screen's closing, changes nothing.
+  const takeFix = useCallback(async (stop?: AbortSignal): Promise<Here | undefined> => {
     const screenGone = live.current.signal
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new PoorFix()), FIX_WAIT_MS)
-    const onGone = () => controller.abort(screenGone.reason)
-    screenGone.addEventListener('abort', onGone, { once: true })
+    const onStop = () => controller.abort()
+    screenGone.addEventListener('abort', onStop, { once: true })
+    stop?.addEventListener('abort', onStop, { once: true })
+    const dropped = () => screenGone.aborted || stop?.aborted === true
     setFixing({ status: 'waiting' })
     try {
       const fix = await waitForFix({ maxWaitMs: FIX_WAIT_MS, goodM: GOOD_FIX_M, signal: controller.signal })
-      if (!screenGone.aborted) setFixing({ status: 'ready' })
+      if (!dropped()) setFixing({ status: 'ready' })
       return fix
     } catch (err) {
-      if (!screenGone.aborted) setFixing({ status: 'problem', key: err instanceof PoorFix ? 'ask.ui.locationPoor' : locationLine(err) })
+      if (!dropped()) setFixing({ status: 'problem', key: fixLine(err) })
       return undefined
     } finally {
       clearTimeout(timer)
-      screenGone.removeEventListener('abort', onGone)
+      screenGone.removeEventListener('abort', onStop)
+      stop?.removeEventListener('abort', onStop)
     }
   }, [])
 
+  // On, the switch finds a fix at once, so its prompt and its state show before the first question; off drops it.
   const toggleLocation = () => {
+    switchFix.current?.abort()
+    switchFix.current = undefined
     const on = !locationOn
     setLocationOn(on)
-    if (on) void takeFix()
-    else setFixing({ status: 'off' })
+    if (on) {
+      switchFix.current = new AbortController()
+      void takeFix(switchFix.current.signal)
+    } else {
+      setFixing({ status: 'off' })
+    }
   }
 
-  // Sends one question, once nothing else is in flight. With the location on, a fresh fix comes first.
+  // Sends one question, once nothing else is in flight. With the location on, a fresh fix comes first, in place of
+  // any the switch is still finding; a screen closed meanwhile sends nothing.
   const run = useCallback(
     async (send: (here: Here | undefined) => Promise<Shown>) => {
       if (inFlight.current) return
@@ -101,7 +117,13 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
       setBusy(true)
       setShown(undefined)
       try {
-        const here = locationOn ? await takeFix() : undefined
+        let here: Here | undefined
+        if (locationOn) {
+          switchFix.current?.abort()
+          switchFix.current = undefined
+          here = await takeFix()
+          if (live.current.signal.aborted) return
+        }
         const result = await send(here)
         if (!live.current.signal.aborted) setShown(result)
       } finally {
@@ -120,7 +142,7 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
       void run(async (here) => {
         try {
           const { answer } = await ask(apiUrl, { question: text, here }, getDeviceId())
-          return { kind: 'answer', answer }
+          return { kind: 'answer', answer, at: new Date() }
         } catch (err) {
           return problemOf(err)
         }
@@ -132,7 +154,7 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
     void run(async (here) => {
       try {
         const { answer, transcript } = await askVoice(apiUrl, { audio: wav, here }, getDeviceId())
-        return { kind: 'answer', answer, transcript }
+        return { kind: 'answer', answer, transcript, at: new Date() }
       } catch (err) {
         return problemOf(err)
       }
@@ -167,7 +189,8 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
             onChange={(event) => setQuestion(Array.from(event.target.value).slice(0, MAX_CHARS).join(''))}
             className="min-h-tap min-w-0 flex-1 rounded-control border border-outline bg-surface px-3"
           />
-          <button type="submit" disabled={noApi || waiting} className={BUTTON}>
+          {/* Waiting, it stays focusable (aria-disabled), so the focus a tap put on it isn't lost. */}
+          <button type="submit" disabled={noApi} aria-disabled={waiting} className={BUTTON}>
             <SendHorizontalIcon aria-hidden="true" />
             <T k="ask.ui.send" />
           </button>
@@ -181,27 +204,30 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         <MicButton
-          disabled={noApi || busy}
+          unavailable={noApi}
+          waiting={busy}
           gate={gate}
           onRecording={setRecording}
           onClip={sendClip}
           onProblem={(err) => setShown(problemOf(err))}
         />
         <label className="inline-flex min-h-tap items-center gap-2">
-          <input type="checkbox" role="switch" checked={locationOn} disabled={busy} onChange={toggleLocation} className="size-5" />
+          <input
+            type="checkbox"
+            role="switch"
+            checked={locationOn}
+            disabled={noApi || busy}
+            onChange={toggleLocation}
+            className="size-5"
+          />
           <T k="ask.ui.location" />
         </label>
       </div>
-      {fixing.status === 'waiting' && (
-        <p className="mt-1 text-small text-ink-2">
-          <T k="ask.ui.locationWaiting" />
-        </p>
-      )}
-      {fixing.status === 'problem' && (
-        <p className="mt-1 text-small">
-          <T k={fixing.key} />
-        </p>
-      )}
+      {/* Always there, so a screen reader hears why no location was sent. */}
+      <p aria-live="polite" className="mt-1 text-small">
+        {fixing.status === 'waiting' && <T k="ask.ui.locationWaiting" />}
+        {fixing.status === 'problem' && <T k={fixing.key} />}
+      </p>
 
       <div className="mt-4">
         <p className="text-small text-ink-2">
@@ -224,16 +250,26 @@ export function AskScreen({ apiUrl }: { apiUrl: string }) {
           </p>
         )}
         {shown?.kind === 'problem' && (
-          <p role="alert" className="mt-6 font-bold">
+          <p className="mt-6 font-bold">
             <T k={shown.key} vars={shown.vars} />
           </p>
         )}
         {shown?.kind === 'answer' && (
-          <AnswerView answer={shown.answer} transcript={shown.transcript} onSuggestion={setQuestion} />
+          <AnswerView answer={shown.answer} transcript={shown.transcript} now={shown.at} onSuggestion={setQuestion} />
         )}
       </div>
     </div>
   )
+}
+
+// Why the location couldn't be used, in MS5's lines, but for the two that speak of the report flow: a timeout reads as
+// Ask's poor fix, and the refusal to turn location on gets Ask's own line.
+function fixLine(err: unknown): StringKey {
+  if (err instanceof PoorFix) return 'ask.ui.locationPoor'
+  const key = locationLine(err)
+  if (key === 'location.poor') return 'ask.ui.locationPoor'
+  if (key === 'location.enableDenied') return 'ask.ui.locationTurnOn'
+  return key
 }
 
 // The line for a question that got no answer (Ask's spec §5.4). A limit names the minutes to the next hour, from the

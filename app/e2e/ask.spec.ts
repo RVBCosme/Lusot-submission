@@ -52,7 +52,8 @@ test('the fake microphone records, and the transcript and the answer appear', as
   // The clip: RIFF/WAVE, PCM, mono, 16-bit at 16 kHz, about 2 s long, and holding the tone, not silence.
   const spoken = mocks.requests.filter((request) => request.path === '/ask/voice')
   expect(spoken).toHaveLength(1)
-  const wav = Buffer.from((spoken[0]?.json as { audio: string }).audio, 'base64')
+  const { audio } = (spoken[0]?.json ?? {}) as { audio?: string }
+  const wav = Buffer.from(audio ?? '', 'base64')
   expect([wav.toString('ascii', 0, 4), wav.toString('ascii', 8, 16), wav.toString('ascii', 36, 40)]).toEqual(['RIFF', 'WAVEfmt ', 'data'])
   expect([wav.readUInt16LE(20), wav.readUInt16LE(22), wav.readUInt32LE(24), wav.readUInt16LE(34)]).toEqual([1, 1, 16000, 16])
   const seconds = wav.readUInt32LE(40) / 32000

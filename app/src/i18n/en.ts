@@ -564,6 +564,10 @@ export const EN = {
     text: "Your location isn't within 100 m yet. Try under open sky, or name a place.",
     reviewed: false,
   },
+  'ask.ui.locationTurnOn': {
+    text: 'Lusot needs location turned on to use it in a question. Turn it on when your phone asks, then try again, or name a place.',
+    reviewed: false,
+  },
   'ask.ui.youAsked': { text: 'You asked:', reviewed: false },
   'ask.ui.notice': { text: "Your question goes to Meta's AI service. Lusot doesn't keep it.", reviewed: false },
   'ask.ui.attribution': { text: 'Place search © OpenStreetMap contributors', reviewed: false },
@@ -576,10 +580,6 @@ export const EN = {
   'ask.ui.asking': { text: 'Looking up recent reports…', reviewed: false },
   'ask.ui.examples': { text: 'Try asking:', reviewed: false },
   'ask.ui.noApi': { text: "This build can't ask questions.", reviewed: false },
-  'ask.error.micUnavailable': {
-    text: "This phone or browser can't record a question here. Type your question instead.",
-    reviewed: false,
-  },
   'ask.ui.answer': { text: 'Answer', reviewed: false },
   'ask.ui.suggestionQuestion': { text: 'How deep is it at {spot}?', reviewed: false },
   'ask.error.questionLimit': { text: "You've asked 20 questions this hour. Try again in {min} min.", reviewed: false },
@@ -594,6 +594,10 @@ export const EN = {
   'ask.error.voiceFailed': { text: "Lusot couldn't hear the question. Try again, or type it.", reviewed: false },
   'ask.error.unavailable': { text: "Ask Lusot can't answer right now. Try again in a minute.", reviewed: false },
   'ask.error.micDenied': { text: 'Allow the microphone to ask by voice, or type your question.', reviewed: false },
+  'ask.error.micUnavailable': {
+    text: "This phone or browser can't record a question here. Type your question instead.",
+    reviewed: false,
+  },
   'ask.answer.crossing': { text: "I can't tell you whether to cross or go through.", reviewed: false },
   'ask.answer.summaryOne': { text: '1 report within 300 m of {place} in the last {window}.', reviewed: false },
   'ask.answer.summaryMany': { text: '{n} reports within 300 m of {place} in the last {window}.', reviewed: false },

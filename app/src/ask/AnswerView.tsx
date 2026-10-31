@@ -30,14 +30,17 @@ function groups(lines: AnswerLine[]): Group[] {
 export function AnswerView({
   answer,
   transcript,
+  now,
   onSuggestion,
 }: {
   answer: AskAnswer
   transcript?: string
+  // When the answer came: each photo's age counts from then.
+  now: Date
   onSuggestion(question: string): void
 }) {
   const t = useT()
-  const lines = useMemo(() => renderAnswer(answer, t, new Date()), [answer, t])
+  const lines = useMemo(() => renderAnswer(answer, t, now), [answer, t, now])
   return (
     <section aria-label={t('ask.ui.answer').text} className="mt-6 space-y-3">
       {transcript !== undefined && (

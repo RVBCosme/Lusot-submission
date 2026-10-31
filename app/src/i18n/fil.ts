@@ -558,6 +558,10 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Hindi pa pasok sa 100 m ang lokasyon mo. Subukan sa lugar na kita ang langit, o magbanggit ng lugar.',
     reviewed: false,
   },
+  'ask.ui.locationTurnOn': {
+    text: 'Kailangang naka-on ang location para magamit ito sa tanong. I-on ito kapag nagtanong ang phone mo, saka subukan ulit, o magbanggit ng lugar.',
+    reviewed: false,
+  },
   'ask.ui.youAsked': { text: 'Tanong mo:', reviewed: false },
   'ask.ui.notice': {
     text: 'Napupunta sa AI service ng Meta ang tanong mo. Hindi ito sine-save ng Lusot.',
@@ -573,10 +577,6 @@ export const FIL: Record<StringKey, Entry> = {
   'ask.ui.asking': { text: 'Hinahanap ang mga recent report…', reviewed: false },
   'ask.ui.examples': { text: 'Subukang itanong:', reviewed: false },
   'ask.ui.noApi': { text: 'Hindi makapagtanong ang build na ito.', reviewed: false },
-  'ask.error.micUnavailable': {
-    text: 'Hindi makapag-record ng tanong ang phone o browser na ito. I-type na lang ang tanong mo.',
-    reviewed: false,
-  },
   'ask.ui.answer': { text: 'Sagot', reviewed: false },
   'ask.ui.suggestionQuestion': { text: 'Gaano kalalim sa {spot}?', reviewed: false },
   'ask.error.questionLimit': {
@@ -598,6 +598,10 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'ask.error.micDenied': {
     text: 'Payagan ang mikropono para makapagtanong gamit ang boses, o i-type ang tanong mo.',
+    reviewed: false,
+  },
+  'ask.error.micUnavailable': {
+    text: 'Hindi makapag-record ng tanong ang phone o browser na ito. I-type na lang ang tanong mo.',
     reviewed: false,
   },
   'ask.answer.crossing': { text: 'Hindi ko masasabi kung dapat kang tumawid o dumaan.', reviewed: false },

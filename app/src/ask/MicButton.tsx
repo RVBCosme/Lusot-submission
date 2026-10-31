@@ -8,34 +8,40 @@ const MAX_MS = 14_900
 
 const BUTTON =
   'inline-flex min-h-tap items-center gap-2 rounded-control border-2 border-outline px-4 font-bold ' +
-  'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50'
+  'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50 ' +
+  'aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
 
 type State = { phase: 'idle' } | { phase: 'starting' } | { phase: 'recording'; secondsLeft: number }
 
+type Callbacks = {
+  onRecording(recording: boolean): void
+  onClip(wav: Uint8Array): void
+  onProblem(err: unknown): void
+}
+
 // Ask by voice: a tap starts recording, a second tap stops it, and it stops itself at 14.9 s, with the seconds left
-// shown as it goes. The clip goes to onClip and is held nowhere else. Leaving the screen, or the page going hidden,
-// drops the recording with nothing sent (the recorder's signal and onCancel). `gate` is the first question's notice
-// (MS5's useGate), so the microphone is asked for only after it.
+// shown as it goes. It is one button throughout, its name turning from "Ask by voice" to "Stop" and back, so the focus a
+// tap put on it stays there. The clip goes to onClip and is held nowhere else. Leaving the screen, or the page going
+// hidden, drops the recording with nothing sent (the recorder's signal and onCancel). `gate` is the first question's
+// notice (MS5's useGate), so the microphone is asked for only after it. `unavailable` (no API) disables it; while
+// `waiting` for an answer, or starting, it stays focusable and ignores taps.
 export function MicButton({
-  disabled,
+  unavailable,
+  waiting,
   gate,
   onRecording,
   onClip,
   onProblem,
-}: {
-  disabled: boolean
-  gate(action: () => void): void
-  onRecording(recording: boolean): void
-  onClip(wav: Uint8Array): void
-  onProblem(err: unknown): void
-}) {
+}: { unavailable: boolean; waiting: boolean; gate(action: () => void): void } & Callbacks) {
   const [state, setState] = useState<State>({ phase: 'idle' })
   const recording = useRef<Recording | undefined>(undefined)
   // Aborted when the screen closes: it abandons a start in progress and cancels a recording.
   const screen = useRef(new AbortController())
   // The latest callbacks, so a recording that ends on its own reaches the screen as it is now.
-  const latest = useRef({ onRecording, onClip, onProblem })
-  latest.current = { onRecording, onClip, onProblem }
+  const latest = useRef<Callbacks>({ onRecording, onClip, onProblem })
+  useEffect(() => {
+    latest.current = { onRecording, onClip, onProblem }
+  })
 
   useEffect(() => {
     const controller = new AbortController()
@@ -93,28 +99,24 @@ export function MicButton({
     }
   }
 
-  if (state.phase === 'recording') {
-    return (
-      <span className="inline-flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => void finish()} className={BUTTON}>
-          <SquareIcon aria-hidden="true" />
-          <T k="ask.ui.micStop" />
-        </button>
-        <span role="timer" aria-live="off" className="tabular-nums">
-          <T k="ask.ui.micLeft" vars={{ s: state.secondsLeft }} />
-        </span>
-      </span>
-    )
+  const recordingNow = state.phase === 'recording'
+  const ignoring = waiting || state.phase === 'starting'
+  const tap = () => {
+    if (ignoring) return
+    if (recordingNow) void finish()
+    else gate(() => void begin())
   }
   return (
-    <button
-      type="button"
-      disabled={disabled || state.phase === 'starting'}
-      onClick={() => gate(() => void begin())}
-      className={BUTTON}
-    >
-      <MicIcon aria-hidden="true" />
-      <T k="ask.ui.mic" />
-    </button>
+    <span className="inline-flex flex-wrap items-center gap-3">
+      <button type="button" disabled={unavailable} aria-disabled={ignoring} onClick={tap} className={BUTTON}>
+        {recordingNow ? <SquareIcon aria-hidden="true" /> : <MicIcon aria-hidden="true" />}
+        <T k={recordingNow ? 'ask.ui.micStop' : 'ask.ui.mic'} />
+      </button>
+      {state.phase === 'recording' && (
+        <span role="timer" className="tabular-nums">
+          <T k="ask.ui.micLeft" vars={{ s: state.secondsLeft }} />
+        </span>
+      )}
+    </span>
   )
 }

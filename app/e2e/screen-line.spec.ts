@@ -6,13 +6,15 @@
 // Every route and dialog is visited at 360 x 640 and 390 x 844, in English and Taglish: the map and its list, a pin's
 // screen and the flag dialog, Tested and its 18+ check, About, the privacy page, the licences page, and the report flow at
 // each step the fake camera, the fake fix and the routes in mocks.ts can reach: the notice, the camera view, the place
-// step, sending, waiting, the result, and a problem; then Ask Lusot, empty and with an answer. The map's OpenStreetMap credit gets the same check on the map and
-// on the place step. The page is never scrolled to bring the line into view: it must be there already. The licences page's
-// licence texts are never scanned for words (S5-R23); only the line on that page is checked.
+// step, sending, waiting, the result, and a problem; then Ask Lusot, empty and with an answer. The map's OpenStreetMap
+// credit gets the same check on the map and on the place step. The page is never scrolled to bring the line into view: it
+// must be there already. The licences page's licence texts are never scanned for words (S5-R23); only the line on that
+// page is checked.
 import type { Page } from '@playwright/test'
 import { expect, LIVE_PIN, test } from './mocks'
 import { expectLine, LINE } from './screenLine'
 import { acceptNotice, label, takePhoto, type Lang } from './steps'
+
 const SIZES = [
   { width: 360, height: 640 },
   { width: 390, height: 844 },

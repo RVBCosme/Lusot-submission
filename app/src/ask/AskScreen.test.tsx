@@ -8,7 +8,7 @@ import { writeItem } from '../lib/storage'
 import { ASK_TRANSCRIPT } from '../mock/fixtures'
 import { createMockFetch } from '../mock/mockFetch'
 import { AskScreen } from './AskScreen'
-import { MicDenied, RecordingCancelled, startRecording, type Recording } from './recorder'
+import { MicDenied, MicUnavailable, RecordingCancelled, startRecording, type Recording, type RecordingOptions } from './recorder'
 
 // The app's fetch, swapped per test for Task 6's mock API (which answers Ask by a word in the question), wrapped so a
 // test can count, hold or replace the calls.
@@ -75,6 +75,15 @@ function fakeRecording(stop: () => Promise<Uint8Array> = async () => new Uint8Ar
   return recording
 }
 
+// The options the screen gave the recorder, so a test can play its part: a tick, or a cancel of its own.
+const recorderOptions = (): RecordingOptions => vi.mocked(startRecording).mock.calls[0][0]
+
+// A location that never answers on its own: it rejects only when its signal aborts, with the signal's reason.
+const pendingFix = () =>
+  vi.mocked(waitForFix).mockImplementation(
+    ({ signal } = {}) => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason))),
+  )
+
 beforeEach(() => {
   useMock()
   vi.mocked(waitForFix).mockReset()
@@ -116,7 +125,9 @@ describe('AskScreen', () => {
     fireEvent.submit(box().closest('form') as HTMLFormElement)
 
     expect(calls).toHaveLength(1)
-    expect((askButton() as HTMLButtonElement).disabled).toBe(true)
+    // Waiting, but still focusable, so the focus a tap put on it stays there.
+    expect(askButton().getAttribute('aria-disabled')).toBe('true')
+    expect((askButton() as HTMLButtonElement).disabled).toBe(false)
     expect(box().hasAttribute('readonly')).toBe(true)
     expect(screen.getByText(text('ask.ui.asking'))).toBeTruthy()
     await act(async () => release())
@@ -172,14 +183,62 @@ describe('AskScreen', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: text('ask.ui.location') }))
     await askTyped('May baha ba dito?')
-
     expect(await screen.findByText(/3 reports within 300 m of you/)).toBeTruthy()
-    expect(calls.map((call) => call.body.here)).toEqual([{ lat: 14.6095, lng: 120.9894, accuracyM: 20 }])
+    await askTyped('May baha ba dito ngayon?')
+    await waitFor(() => expect(calls).toHaveLength(2))
+
+    const here = { lat: 14.6095, lng: 120.9894, accuracyM: 20 }
+    expect(calls.map((call) => call.body.here)).toEqual([here, here])
+    // The switch's own fix, then one for each question.
+    expect(waitForFix).toHaveBeenCalledTimes(3)
+  })
+
+  it('leaving the screen while the location is found sends nothing', async () => {
+    pendingFix()
+    const { unmount } = renderAsk()
+
+    fireEvent.click(screen.getByRole('switch', { name: text('ask.ui.location') }))
+    await askTyped('May baha ba dito?')
+    unmount()
+    await act(async () => {})
+
+    expect(calls).toEqual([])
+  })
+
+  it('switching the location off drops the fix it was finding', async () => {
+    vi.useFakeTimers()
+    pendingFix()
+    renderAsk()
+    const toggle = screen.getByRole('switch', { name: text('ask.ui.location') })
+
+    fireEvent.click(toggle)
+    const signal = vi.mocked(waitForFix).mock.calls[0][0]?.signal
+    fireEvent.click(toggle)
+    await act(async () => vi.advanceTimersByTime(10_000))
+
+    expect(signal?.aborted).toBe(true)
+    expect(screen.queryByText(text('ask.ui.locationPoor'))).toBeNull()
+    expect(screen.queryByText(text('ask.ui.locationWaiting'))).toBeNull()
+  })
+
+  it('a turned-off location, or a timed-out one, gets Ask\'s own line, in a live region', async () => {
+    vi.mocked(waitForFix).mockRejectedValue(new LocationDenied('OS-PLUG-GLOC-0009'))
+    renderAsk()
+
+    fireEvent.click(screen.getByRole('switch', { name: text('ask.ui.location') }))
+
+    const line = await screen.findByText(text('ask.ui.locationTurnOn'))
+    expect(line.closest('[aria-live="polite"]')).not.toBeNull()
+    cleanup()
+    vi.mocked(waitForFix).mockRejectedValue(new LocationDenied('OS-PLUG-GLOC-0010'))
+    renderAsk()
+    fireEvent.click(screen.getByRole('switch', { name: text('ask.ui.location') }))
+    expect(await screen.findByText(text('ask.ui.locationPoor'))).toBeTruthy()
   })
 
   it('the wait for a fix ends after 10 s, however the location answers', async () => {
     vi.useFakeTimers()
-    vi.mocked(waitForFix).mockImplementation(({ signal } = {}) => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason))))
+    pendingFix()
     renderAsk()
 
     fireEvent.click(screen.getByRole('switch', { name: text('ask.ui.location') }))
@@ -216,6 +275,7 @@ describe('AskScreen', () => {
     [503, 'voice_paused', 'ask.error.voicePaused'],
     [503, 'voice_failed', 'ask.error.voiceFailed'],
     [422, 'audio_too_short', 'ask.error.voiceFailed'],
+    [422, 'audio_too_long', 'ask.error.voiceFailed'],
     [400, 'bad_audio', 'ask.error.voiceFailed'],
     [503, 'ask_unavailable', 'ask.error.unavailable'],
   ] as const)('a spoken %i %s shows its line, and isn\'t retried', async (status, code, key) => {
@@ -230,14 +290,58 @@ describe('AskScreen', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('a refused microphone offers typing instead', async () => {
-    vi.mocked(startRecording).mockRejectedValue(new MicDenied())
+  it.each([
+    [new MicDenied(), 'ask.error.micDenied'],
+    [new MicUnavailable(), 'ask.error.micUnavailable'],
+  ] as const)('a microphone that fails with %s offers typing instead', async (err, key) => {
+    vi.mocked(startRecording).mockRejectedValue(err)
     renderAsk()
 
     fireEvent.click(micButton())
 
-    expect(await screen.findByText(text('ask.error.micDenied'))).toBeTruthy()
+    expect(await screen.findByText(text(key))).toBeTruthy()
     expect(calls).toEqual([])
+  })
+
+  it('the mic keeps the focus: one button turns into Stop, and back', async () => {
+    fakeRecording()
+    renderAsk()
+    const mic = micButton()
+    mic.focus()
+
+    fireEvent.click(mic)
+    const stop = await screen.findByRole('button', { name: text('ask.ui.micStop') })
+
+    expect(stop).toBe(mic)
+    expect(document.activeElement).toBe(mic)
+    fireEvent.click(stop)
+    await screen.findByText(text('ask.ui.youAsked'))
+    expect(screen.getByRole('button', { name: text('ask.ui.mic') })).toBe(mic)
+    expect(document.activeElement).toBe(mic)
+  })
+
+  it('the recording sends itself at 14.9 s', async () => {
+    fakeRecording()
+    renderAsk()
+
+    fireEvent.click(micButton())
+    await screen.findByRole('button', { name: text('ask.ui.micStop') })
+    expect(recorderOptions().maxMs).toBe(14_900)
+    await act(async () => recorderOptions().onTick(0))
+
+    expect(await screen.findByText(text('ask.ui.youAsked'))).toBeTruthy()
+    expect(calls.map((call) => call.path)).toEqual(['/ask/voice'])
+  })
+
+  it('the countdown follows the recorder\'s ticks', async () => {
+    fakeRecording()
+    renderAsk()
+
+    fireEvent.click(micButton())
+    await screen.findByRole('button', { name: text('ask.ui.micStop') })
+    await act(async () => recorderOptions().onTick(9_400))
+
+    expect(screen.getByRole('timer').textContent).toBe(text('ask.ui.micLeft', { s: 10 }))
   })
 
   it('a spoken answer shows "You asked:" and the transcript', async () => {
@@ -271,7 +375,20 @@ describe('AskScreen', () => {
     expect(document.body.textContent).not.toMatch(BANNED_WORDS)
   })
 
-  it('a recording cancelled by the page going hidden sends nothing', async () => {
+  it('a recording cancelled by the page going hidden sends nothing, and the screen is ready again', async () => {
+    fakeRecording()
+    renderAsk()
+
+    fireEvent.click(micButton())
+    await screen.findByRole('button', { name: text('ask.ui.micStop') })
+    await act(async () => recorderOptions().onCancel?.())
+
+    expect(screen.getByRole('button', { name: text('ask.ui.mic') })).toBeTruthy()
+    expect(askButton().getAttribute('aria-disabled')).toBe('false')
+    expect(calls).toEqual([])
+  })
+
+  it('a stop after the recording was cancelled sends nothing', async () => {
     fakeRecording(async () => {
       throw new RecordingCancelled()
     })
@@ -282,6 +399,23 @@ describe('AskScreen', () => {
 
     expect(await screen.findByRole('button', { name: text('ask.ui.mic') })).toBeTruthy()
     expect(calls).toEqual([])
+  })
+
+  it('an answer that comes after the screen closed is dropped', async () => {
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => (release = resolve))
+    useMock(async () => {
+      await held
+      return undefined
+    })
+    const { unmount } = renderAsk()
+
+    await askTyped('Baha ba sa España cor. Maceda?')
+    unmount()
+    await act(async () => release())
+
+    expect(calls).toHaveLength(1)
+    expect(document.body.textContent).toBe('')
   })
 
   it('leaving the screen mid-recording cancels the recording', async () => {
@@ -352,6 +486,7 @@ describe('AskScreen', () => {
     expect(screen.getByText(text('ask.ui.noApi'))).toBeTruthy()
     expect((askButton() as HTMLButtonElement).disabled).toBe(true)
     expect((micButton() as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('switch', { name: text('ask.ui.location') }) as HTMLInputElement).disabled).toBe(true)
   })
 
   it('every line on the screen, and in each answer, keeps the copy rules', async () => {
