@@ -56,10 +56,13 @@ test("with empty storage, Ask Lusot's first question stops at the consent notice
   const box = page.getByLabel(label(L, 'ask.ui.questionLabel'), { exact: true })
   const noApi = page.getByText(label(L, 'ask.ui.noApi'), { exact: true })
   await expect(box.or(noApi).first()).toBeVisible()
-  test.skip((await box.count()) === 0, 'this build has no API, so Ask Lusot takes no question')
+  // A build with no API still draws the box, with its button disabled, so the no-API line is what says to skip.
+  test.skip(await noApi.isVisible(), 'this build has no API, so Ask Lusot takes no question')
 
   await box.fill(label(L, 'ask.ui.example3'))
-  await page.getByRole('button', { name: label(L, 'ask.ui.send'), exact: true }).click()
+  const send = page.getByRole('button', { name: label(L, 'ask.ui.send'), exact: true })
+  await expect(send).toBeEnabled()
+  await send.click()
   await expect(page.getByTestId('notice')).toBeVisible()
   await expect(page.getByRole('checkbox', { name: label(L, 'consent.adult') })).not.toBeChecked()
   await page.waitForTimeout(1_000)
