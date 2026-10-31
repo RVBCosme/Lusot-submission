@@ -84,11 +84,17 @@ def test_a_data_folder_inside_the_repo_is_refused(tmp_path, monkeypatch):
     assert not inside.exists()
 
 
-def run(folder: Path, status: str, reason: str | None = None, level: str | None = None) -> Path:
+def run(folder: Path, status: str, reason: str | None = None, level: str | None = None, *, photo: str = "p-plain.jpg") -> Path:
     folder.mkdir(parents=True)
     outcome = {"status": status, "reason": reason, "no_flood_seen": False, "level": level}
-    (folder / "run.json").write_text(json.dumps({"outcome": outcome}), encoding="utf-8")
+    sha = "a" * 64 if photo.endswith("-plain.jpg") else "b" * 64
+    record = {"outcome": outcome, "photo": photo, "photo_sha256": sha}
+    (folder / "run.json").write_text(json.dumps(record), encoding="utf-8")
     return folder
+
+
+def signed(folder: Path, status: str, reason: str | None = None, level: str | None = None, stem: str = "p") -> Path:
+    return run(folder, status, reason, level, photo=f"{stem}-signed.jpg")
 
 
 def test_outcome_reads_a_saved_run(tmp_path):
@@ -101,26 +107,81 @@ def test_outcome_reads_a_saved_run(tmp_path):
 def test_judge_tells_noise_from_the_sign(tmp_path):
     knee_a = run(tmp_path / "a1", "done", level="knee")
     knee_b = run(tmp_path / "b1", "done", level="knee")
-    tire = run(tmp_path / "s1", "done", level="tire")
-    knee_s = run(tmp_path / "s2", "done", level="knee")
     refused = run(tmp_path / "x", "refused", reason="no_reference")
-    assert w15_signs.judge(knee_a, refused, knee_s) == "noisy"
-    assert w15_signs.judge(knee_a, knee_b, knee_s) == "match"
-    assert w15_signs.judge(knee_a, knee_b, tire) == "changed"
-    assert w15_signs.judge(knee_a, knee_b, refused) == "changed"
+    assert w15_signs.judge(knee_a, refused, signed(tmp_path / "s0", "done", level="knee")) == "noisy"
+    assert w15_signs.judge(knee_a, knee_b, signed(tmp_path / "s1", "done", level="knee")) == "match"
+    assert w15_signs.judge(knee_a, knee_b, signed(tmp_path / "s2", "done", level="tire")) == "changed"
+    assert w15_signs.judge(knee_a, knee_b, signed(tmp_path / "s3", "refused", reason="no_reference")) == "changed"
+
+
+def test_a_failed_run_is_never_the_signs_effect(tmp_path):
+    a = run(tmp_path / "a", "done", level="knee")
+    b = run(tmp_path / "b", "done", level="knee")
+    assert w15_signs.judge(a, b, signed(tmp_path / "s", "failed", reason="model_error")) == "failed"
+    assert w15_signs.judge(a, run(tmp_path / "b2", "failed", reason="model_error"), signed(tmp_path / "s2", "done", level="knee")) == "failed"
+
+
+def test_judge_refuses_runs_out_of_order(tmp_path):
+    a = run(tmp_path / "a", "done", level="knee")
+    b = run(tmp_path / "b", "done", level="knee")
+    s = signed(tmp_path / "s", "done", level="knee")
+    with pytest.raises(CheckFailed, match="plain"):
+        w15_signs.judge(a, s, b)
+    with pytest.raises(CheckFailed, match="signed"):
+        w15_signs.judge(a, b, signed(tmp_path / "other", "done", level="knee", stem="q"))
+    with pytest.raises(CheckFailed, match="plain"):
+        w15_signs.judge(a, run(tmp_path / "q", "done", level="knee", photo="q-plain.jpg"), s)
 
 
 def test_compare_counts_only_the_steady_photos(tmp_path, capsys):
     t = tmp_path
-    triples = [
-        (run(t / "1a", "done", level="knee"), run(t / "1b", "done", level="knee"), run(t / "1s", "done", level="knee")),
-        (run(t / "2a", "done", level="knee"), run(t / "2b", "done", level="waist"), run(t / "2s", "done", level="knee")),
-        (run(t / "3a", "done", level="gutter"), run(t / "3b", "done", level="gutter"), run(t / "3s", "done", level="tire")),
+
+    def triple(n, a, b, s):
+        return [run(t / f"{n}a", "done", level=a), run(t / f"{n}b", "done", level=b), signed(t / f"{n}s", *s)]
+
+    runs = [
+        *triple(1, "knee", "knee", ("done", None, "knee")),
+        *triple(2, "knee", "waist", ("done", None, "knee")),
+        *triple(3, "gutter", "gutter", ("done", None, "tire")),
+        *triple(4, "knee", "knee", ("failed", "model_error", None)),
     ]
-    code = w15_signs.main(["compare", *[str(p) for triple in triples for p in triple]])
+    code = w15_signs.main(["compare", *[str(p) for p in runs]])
     out = capsys.readouterr().out
     assert code == 0
-    assert "1 of 2 counted photos match" in out
-    assert "1 noisy" in out
-    assert "indicative" in out
-    assert w15_signs.main(["compare", str(t / "1a"), str(t / "1b")]) == 2, "runs come in threes"
+    assert "1 of 2 counted photos match (indicative)" in out
+    assert "1 noisy: photo 2" in out
+    assert "1 failed: photo 4" in out
+    assert w15_signs.main(["compare", *[str(p) for p in runs[:9]]]) == 2, "all four photos in one call"
+
+
+def test_pairs_takes_the_11th_to_14th_credited_photos(tmp_path, data):
+    from fake_aws import commons_folder
+    from smoke_upload import credited, seeded_photo_order
+
+    folder = commons_folder(data, [f"p{n:02}.jpg" for n in range(16)])
+    made = w15_signs.pairs(folder)
+    expected = credited(folder, seeded_photo_order(folder))[0][10:14]
+    assert [plain.name for plain, _ in made] == [f"{p.stem}-plain.jpg" for p in expected]
+    assert [s.name for _, s in made] == [f"{p.stem}-signed.jpg" for p in expected]
+    assert all(plain.parent == data / "ms7" / "w15" for plain, _ in made)
+
+
+def test_pairs_refuses_too_few_photos_another_folder_and_sealed(tmp_path, data):
+    from fake_aws import commons_folder
+
+    folder = commons_folder(data, [f"p{n:02}.jpg" for n in range(12)])
+    with pytest.raises(CheckFailed, match="needs 4"):
+        w15_signs.pairs(folder)
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(CheckFailed, match="C87"):
+        w15_signs.pairs(other)
+    with pytest.raises(CheckFailed, match="sealed"):
+        w15_signs.pairs(tmp_path / "sealed" / "commons-ph-floods")
+
+
+def test_make_without_the_folder_exits_2_and_prints_no_path(tmp_path, data, capsys):
+    assert w15_signs.main(["make"]) == 2
+    out = capsys.readouterr().out
+    assert str(data) not in out
+    assert w15_signs.main(["make", str(tmp_path)]) == 2, "make reads only C87's folder, so it takes no path"
