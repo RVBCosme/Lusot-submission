@@ -14,10 +14,10 @@ two proofs a script can give; the third, MS3a's B3 replay, runs beside it:
   unchanged, read as values, so a comment doesn't count.
 
 The guard's own files count too: changed since the tag, its lists can't be trusted, so
-the run fails and says to run the tag's own copy. Three files off the path are
-reported for a reviewer's read instead, and don't fail the check by themselves:
-handler.py against the run's deadline code; pipeline/publish.py, whose phrases the
-reading leaves out and whose error would end a level; and the B3 replay tests.
+the run fails and says to run the tag's own copy. Two files off the path are reported
+for a reviewer's read instead, and don't fail the check by themselves: handler.py
+against the run's deadline code, and the B3 replay tests. pipeline/publish.py is on
+the path, since its phrases shape the reading's and its error would end a level.
 
 --decision allows DECISION_VARIABLE alone, for the commit that applies the sealed run's
 decision (C801's exception), and only as "on" or "off". INCHES_SHOWN sits in the API
@@ -70,7 +70,8 @@ PATH_FILES: tuple[str, ...] = (
 )
 # Named off the path, so every tracked file of the package and its build is placed.
 OFF_PATH: tuple[str, ...] = (
-    f"{PACKAGE}/pipeline/publish.py",  # the publish blur, after the result
+    # pipeline/publish.py is on the path, inside pipeline/: its phrases shape the
+    # reading's, and its error would end a level (the tracker, Oct 31, Rene's delegation).
     HANDLER,  # read by a reviewer instead
     f"{PACKAGE}/export.py",
     f"{PACKAGE}/laptop_spend.py",
@@ -96,11 +97,6 @@ REVIEWED: tuple[tuple[str, str], ...] = (
     (
         HANDLER,
         "the run's deadline code: DEADLINE_MARGIN_S, _deadline and analyse (C84, C88)",
-    ),
-    (
-        f"{PACKAGE}/pipeline/publish.py",
-        "the reading: READING_PHRASES leaves out PUBLISH_PHRASES, and an error in"
-        " publish_jpeg ends a level as pipeline_error",
     ),
     (
         "backend/analysis/tests/test_handler.py",

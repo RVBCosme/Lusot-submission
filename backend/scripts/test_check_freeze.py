@@ -115,17 +115,25 @@ def test_a_path_file_fails(repo, capsys):
     assert out.rstrip().endswith("freeze: CHANGED")
 
 
-def test_publish_is_off_the_path(repo, capsys):
-    """The publish blur runs after the result (C801), as the overlay does. Its phrases
-    shape the reading's, and its error would end a level, so a reviewer reads it."""
+def test_publish_is_on_the_path(repo, capsys):
+    """The publish blur's phrases shape the reading's, and its error would end a level, so
+    it can change what a reading shows: on the path (the tracker's ruling under Rene's
+    delegation, Oct 31, Cloud 4's item 1), so a change after freeze-1 needs freeze-2."""
     edit(repo, f"{PACKAGE}/pipeline/publish.py", "BLUR = 1", "BLUR = 2")
+    commit(repo)
+    code, out = run(repo, capsys, TAG)
+    assert code == 1
+    assert f"  changed: {PACKAGE}/pipeline/publish.py" in out
+    assert out.rstrip().endswith("freeze: CHANGED")
+
+
+def test_the_overlay_stays_off_the_path(repo, capsys):
+    """The overlay runs after the result (C801), so its change alone passes."""
     edit(repo, f"{PACKAGE}/overlay.py", "'level'", "'antas'")
     commit(repo)
     code, out = run(repo, capsys, TAG)
     assert code == 0
     assert "path files: none changed" in out
-    assert "pipeline/publish.py: changed: a reviewer reads it" in out
-    assert "PUBLISH_PHRASES" in out
     assert "tests/test_handler.py: unchanged" in out
 
 
@@ -443,5 +451,8 @@ def test_path_files_name_the_repos_layout():
         if name and not under(name, check_freeze.PATH_FILES + check_freeze.OFF_PATH)
     ]
     assert unplaced == []
-    assert under(f"{PACKAGE}/pipeline/publish.py", check_freeze.OFF_PATH)
+    publish = f"{PACKAGE}/pipeline/publish.py"
+    assert under(publish, check_freeze.PATH_FILES)
+    assert not under(publish, check_freeze.OFF_PATH)
+    assert publish not in named
     assert not under(f"{PACKAGE}/handler.py", check_freeze.PATH_FILES)

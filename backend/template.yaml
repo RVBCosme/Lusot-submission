@@ -644,6 +644,8 @@ Resources:
 
   # Ask Lusot's place lookup (its spec §4.8): the off switch Nominatim's usage policy asks for.
   # On, places resolve from the spot list only.
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopNominatimParameter:
     Type: AWS::SSM::Parameter
     Properties:

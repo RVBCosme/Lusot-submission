@@ -19,6 +19,8 @@ SWITCHES = (
     "StopUploadsParameter",
     "StopPublishParameter",
     "StopModelCallsParameter",
+    # Ask Lusot's place lookup: the same warning (the tracker, Oct 31, Cloud 4's item 4).
+    "StopNominatimParameter",
 )
 
 
@@ -102,6 +104,17 @@ def test_switch_parameters_warn_about_deploys():
         assert "a deploy that changes this parameter" in text, name
         assert "resets it to off" in text, name
         assert "after a deploy during an incident, read every switch again" in text, name
+
+
+def test_every_stop_switch_is_listed():
+    """A switch added later carries the same warning: every /lusot/stop/ parameter is in SWITCHES."""
+    stops = {
+        name
+        for name, r in RES.items()
+        if r["Type"] == "AWS::SSM::Parameter"
+        and str(r["Properties"]["Name"]).startswith("/lusot/stop/")
+    }
+    assert stops == set(SWITCHES)
 
 
 def test_dead_letter_alarm_reports_recovery():
