@@ -761,8 +761,11 @@ def test_names_follow_ms4s_code():
     demo = re.search(r'if \(item\.mode === "demo"\) \{\n(.*?)\n  \}', pins, re.DOTALL)
     assert set(re.findall(r"pin\.(\w+) =", demo.group(1))) == harden.DEMO_EXTRA_FIELDS
     limits = (API_SRC / "src" / "limits.ts").read_text(encoding="utf-8")
-    refused = re.search(r"const REFUSED = \{(.*?)\}", limits).group(1)
-    assert set(re.findall(r'"(\w+)"', refused)) == harden.DEVICE_LIMIT_CODES
+    # C522's codes, which uploads and samples share; Ask Lusot's question codes aren't MS7's.
+    table = re.search(r"const LIMIT_CODES\b.*? = \{\n(.*?)\n\};", limits, re.DOTALL).group(1)
+    for bucket in ("upload", "sample"):
+        codes = re.search(rf"^  {bucket}: \{{(.*?)\}},$", table, re.MULTILINE).group(1)
+        assert set(re.findall(r'"(\w+)"', codes)) == harden.DEVICE_LIMIT_CODES
     template = (SCRIPTS.parent / "template.yaml").read_text(encoding="utf-8")
     outputs = template.split("\nOutputs:\n", 1)[1]
     assert re.search(rf"^  {harden.FEED_URL_OUTPUT}:$", outputs, re.MULTILINE)
