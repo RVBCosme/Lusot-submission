@@ -92,11 +92,12 @@ it("D19's English refusal and its Taglish are reviewed, and a line that changed 
   expect(FIL['report.refused.gps_too_coarse'].reviewed).toBe(true)
 })
 
-it('screen-line keys are the refusal, reason, retake, consent and privacy lines', () => {
-  for (const key of ['refusal.d19', 'reason.too_dark', 'retake.tip', 'consent.title', 'privacy.title']) {
+it("screen-line keys are the refusal, reason, retake, consent and privacy lines, and Ask Lusot's answer", () => {
+  for (const key of ['refusal.d19', 'reason.too_dark', 'retake.tip', 'consent.title', 'privacy.title', 'ask.answer.crossing']) {
     expect(isScreenLineKey(key as StringKey), key).toBe(true)
   }
-  for (const key of ['nav.map', 'layout.screenLine', 'about.notAffiliated', 'about.privacy.link', 'reasonable.x']) {
+  const others = ['nav.map', 'layout.screenLine', 'about.notAffiliated', 'about.privacy.link', 'reasonable.x', 'ask.ui.send', 'ask.error.voiceFailed']
+  for (const key of others) {
     expect(isScreenLineKey(key as StringKey), key).toBe(false)
   }
 })

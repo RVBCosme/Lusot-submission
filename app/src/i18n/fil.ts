@@ -10,6 +10,7 @@ export const FIL: Record<StringKey, Entry> = {
   'nav.report': { text: 'Mag-report', reviewed: true },
   'nav.tested': { text: 'Tested', reviewed: true },
   'nav.about': { text: 'Tungkol', reviewed: true },
+  'nav.ask': { text: 'Magtanong', reviewed: false },
   // The two locked lines are the English entries themselves, so the tables can't drift apart (C619).
   'layout.screenLine': EN['layout.screenLine'],
   'about.notAffiliated': EN['about.notAffiliated'],
@@ -543,4 +544,116 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Naabot na ng Lusot ang dami ng sample na kaya nito sa ngayon. Subukan ulit mamaya.',
     reviewed: false,
   },
+  // Ask Lusot's lines (plan Task 14): Claude's Taglish drafts, each waiting for Rene's review (M20). The ask.answer.
+  // keys show their English line until their Taglish is reviewed (C724). The first two example questions are Taglish
+  // already and stay as written, the third is translated, and the attribution is OpenStreetMap's own wording.
+  'ask.ui.placeholder': { text: 'Magtanong tungkol sa lalim ng baha sa isang lugar', reviewed: false },
+  'ask.ui.send': { text: 'Itanong', reviewed: false },
+  'ask.ui.mic': { text: 'Magtanong gamit ang boses', reviewed: false },
+  'ask.ui.micStop': { text: 'Ihinto', reviewed: false },
+  'ask.ui.micLeft': { text: '{s} s na lang', reviewed: false },
+  'ask.ui.location': { text: 'Gamitin ang lokasyon ko', reviewed: false },
+  'ask.ui.locationWaiting': { text: 'Hinahanap ang lokasyon mo…', reviewed: false },
+  'ask.ui.locationPoor': {
+    text: 'Hindi pa pasok sa 100 m ang lokasyon mo. Subukan sa lugar na kita ang langit, o magbanggit ng lugar.',
+    reviewed: false,
+  },
+  'ask.ui.youAsked': { text: 'Tanong mo:', reviewed: false },
+  'ask.ui.notice': {
+    text: 'Napupunta sa AI service ng Meta ang tanong mo. Hindi ito sine-save ng Lusot.',
+    reviewed: false,
+  },
+  'ask.ui.attribution': { text: 'Place search © OpenStreetMap contributors', reviewed: false },
+  'ask.ui.used': { text: 'Ginamit', reviewed: false },
+  'ask.ui.openPin': { text: 'Buksan ang pin na ito', reviewed: false },
+  'ask.ui.example1': { text: 'Gaano kalalim ang baha sa España cor. Maceda?', reviewed: false },
+  'ask.ui.example2': { text: 'May baha ba dito?', reviewed: false },
+  'ask.ui.example3': { text: 'Gaano kalalim sa Quezon Ave cor. Araneta?', reviewed: false },
+  'ask.ui.suggestionQuestion': { text: 'Gaano kalalim sa {spot}?', reviewed: false },
+  'ask.error.questionLimit': {
+    text: '20 tanong na ang naitanong mo ngayong oras. Subukan ulit pagkalipas ng {min} min.',
+    reviewed: false,
+  },
+  'ask.error.questionCap': {
+    text: 'Naabot na ng Ask Lusot ang limit nito ngayong oras. Subukan ulit pagkalipas ng {min} min.',
+    reviewed: false,
+  },
+  'ask.error.voicePaused': {
+    text: 'Naka-pause ngayon ang mga tanong gamit ang boses. I-type na lang ang tanong mo.',
+    reviewed: false,
+  },
+  'ask.error.voiceFailed': { text: 'Hindi narinig ng Lusot ang tanong. Subukan ulit, o i-type ito.', reviewed: false },
+  'ask.error.unavailable': {
+    text: 'Hindi makasagot ang Ask Lusot ngayon. Subukan ulit pagkalipas ng isang minuto.',
+    reviewed: false,
+  },
+  'ask.error.micDenied': {
+    text: 'Payagan ang mikropono para makapagtanong gamit ang boses, o i-type ang tanong mo.',
+    reviewed: false,
+  },
+  'ask.answer.crossing': { text: 'Hindi ko masasabi kung dapat kang tumawid o dumaan.', reviewed: false },
+  'ask.answer.summaryOne': {
+    text: '1 report sa loob ng 300 m mula sa {place} sa nakaraang {window}.',
+    reviewed: false,
+  },
+  'ask.answer.summaryMany': {
+    text: '{n} report sa loob ng 300 m mula sa {place} sa nakaraang {window}.',
+    reviewed: false,
+  },
+  'ask.answer.summaryHereOne': {
+    text: '1 report sa loob ng 300 m mula sa iyo sa nakaraang {window}.',
+    reviewed: false,
+  },
+  'ask.answer.summaryHereMany': {
+    text: '{n} report sa loob ng 300 m mula sa iyo sa nakaraang {window}.',
+    reviewed: false,
+  },
+  'ask.answer.where': { text: 'Kinunan ang photo {age}, {distance} m mula sa {place}.', reviewed: false },
+  'ask.answer.whereHere': { text: 'Kinunan ang photo {age}, {distance} m mula sa iyo.', reviewed: false },
+  'ask.answer.vehicleLight': {
+    text: 'Para sa mga class ng MMDA, light vehicle ang turing ng Lusot sa sasakyan mo.',
+    reviewed: false,
+  },
+  'ask.answer.vehicleHeavy': {
+    text: 'Para sa mga class ng MMDA, heavy vehicle ang turing ng Lusot sa sasakyan mo.',
+    reviewed: false,
+  },
+  'ask.answer.onFoot': {
+    text: 'Para sa mga sasakyan ang mga class ng MMDA, kaya level lang ang ibinibigay ng sagot na ito.',
+    reviewed: false,
+  },
+  'ask.answer.demo': { text: '(demo)', reviewed: false },
+  'ask.answer.noReports': {
+    text: 'Walang recent report sa loob ng 300 m mula sa {place} sa nakaraang {window}.',
+    reviewed: false,
+  },
+  'ask.answer.noReportsHere': { text: 'Walang recent report dito.', reviewed: false },
+  'ask.answer.noReportNote': { text: 'Ang walang report ay hindi nangangahulugang walang baha.', reviewed: false },
+  'ask.answer.tooBroad': {
+    text: 'Buong kalye o lugar iyan. Magtanong tungkol sa isang kanto o landmark doon, o i-on ang lokasyon mo at magtanong tungkol sa "dito".',
+    reviewed: false,
+  },
+  'ask.answer.noPlace': {
+    text: 'Hindi ko mahanap ang lugar na iyan sa Metro Manila. Magbanggit ng kanto o landmark, o i-on ang lokasyon mo at magtanong tungkol sa "dito".',
+    reviewed: false,
+  },
+  'ask.answer.lookupUnavailable': {
+    text: 'Hindi ko ma-check ang lugar na iyan ngayon. Subukan ulit pagkalipas ng isang minuto, o magbanggit ng malapit na landmark.',
+    reviewed: false,
+  },
+  'ask.answer.outside': { text: 'Sumasagot lang ang Lusot tungkol sa mga spot sa Metro Manila.', reviewed: false },
+  'ask.answer.noLocation': {
+    text: 'I-on ang lokasyon mo para makapagtanong tungkol sa "dito", o magbanggit ng lugar.',
+    reviewed: false,
+  },
+  'ask.answer.offTopic': {
+    text: 'Lalim lang ng baha malapit sa isang lugar sa Metro Manila ang kaya kong sagutin, mula sa mga recent report.',
+    reviewed: false,
+  },
+  'ask.answer.noSpeech': { text: 'Wala akong narinig na tanong. Subukan ulit, o i-type ito.', reviewed: false },
+  'ask.answer.plainList': { text: 'Narito ang listahan ng mga report.', reviewed: false },
+  'ask.window.hours': { text: '{n} oras', reviewed: false },
+  'ask.window.hour': { text: '1 oras', reviewed: false },
+  'ask.window.minutes': { text: '{n} minuto', reviewed: false },
+  'ask.window.minute': { text: '1 minuto', reviewed: false },
 }

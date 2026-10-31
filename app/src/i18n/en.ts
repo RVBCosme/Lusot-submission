@@ -10,6 +10,7 @@ export const EN = {
   'nav.report': { text: 'Report', reviewed: true },
   'nav.tested': { text: 'Tested', reviewed: true },
   'nav.about': { text: 'About', reviewed: true },
+  'nav.ask': { text: 'Ask', reviewed: false },
   // CLAUDE.md's exact line, on every screen. It stays in English in both languages (C619).
   'layout.screenLine': {
     text: 'Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.',
@@ -549,6 +550,88 @@ export const EN = {
     text: 'Lusot has run as many samples as it can for now. Try again later.',
     reviewed: false,
   },
+  // Ask Lusot (its spec §4.4, §4.10, plan Task 14): the screen's controls and errors (ask.ui., ask.error.), and the
+  // answer's lines (ask.answer.), which are screen-line keys, so their Taglish shows only once reviewed (C724). The
+  // answer's level and class lines are MS5's own (copy/wording.ts). Every one waits for Rene's review (M20).
+  'ask.ui.placeholder': { text: 'Ask about flood depth at a place', reviewed: false },
+  'ask.ui.send': { text: 'Ask', reviewed: false },
+  'ask.ui.mic': { text: 'Ask by voice', reviewed: false },
+  'ask.ui.micStop': { text: 'Stop', reviewed: false },
+  'ask.ui.micLeft': { text: '{s} s left', reviewed: false },
+  'ask.ui.location': { text: 'Use my location', reviewed: false },
+  'ask.ui.locationWaiting': { text: 'Finding your location…', reviewed: false },
+  'ask.ui.locationPoor': {
+    text: "Your location isn't within 100 m yet. Try under open sky, or name a place.",
+    reviewed: false,
+  },
+  'ask.ui.youAsked': { text: 'You asked:', reviewed: false },
+  'ask.ui.notice': { text: "Your question goes to Meta's AI service. Lusot doesn't keep it.", reviewed: false },
+  'ask.ui.attribution': { text: 'Place search © OpenStreetMap contributors', reviewed: false },
+  'ask.ui.used': { text: 'Used', reviewed: false },
+  'ask.ui.openPin': { text: 'Open this pin', reviewed: false },
+  'ask.ui.example1': { text: 'Gaano kalalim ang baha sa España cor. Maceda?', reviewed: false },
+  'ask.ui.example2': { text: 'May baha ba dito?', reviewed: false },
+  'ask.ui.example3': { text: 'How deep is it at Quezon Ave cor. Araneta?', reviewed: false },
+  'ask.ui.suggestionQuestion': { text: 'How deep is it at {spot}?', reviewed: false },
+  'ask.error.questionLimit': { text: "You've asked 20 questions this hour. Try again in {min} min.", reviewed: false },
+  'ask.error.questionCap': {
+    text: 'Ask Lusot has reached its limit for this hour. Try again in {min} min.',
+    reviewed: false,
+  },
+  'ask.error.voicePaused': {
+    text: 'Voice questions are paused right now. Type your question instead.',
+    reviewed: false,
+  },
+  'ask.error.voiceFailed': { text: "Lusot couldn't hear the question. Try again, or type it.", reviewed: false },
+  'ask.error.unavailable': { text: "Ask Lusot can't answer right now. Try again in a minute.", reviewed: false },
+  'ask.error.micDenied': { text: 'Allow the microphone to ask by voice, or type your question.', reviewed: false },
+  'ask.answer.crossing': { text: "I can't tell you whether to cross or go through.", reviewed: false },
+  'ask.answer.summaryOne': { text: '1 report within 300 m of {place} in the last {window}.', reviewed: false },
+  'ask.answer.summaryMany': { text: '{n} reports within 300 m of {place} in the last {window}.', reviewed: false },
+  'ask.answer.summaryHereOne': { text: '1 report within 300 m of you in the last {window}.', reviewed: false },
+  'ask.answer.summaryHereMany': { text: '{n} reports within 300 m of you in the last {window}.', reviewed: false },
+  'ask.answer.where': { text: 'Photo taken {age}, {distance} m from {place}.', reviewed: false },
+  'ask.answer.whereHere': { text: 'Photo taken {age}, {distance} m from you.', reviewed: false },
+  'ask.answer.vehicleLight': {
+    text: "For MMDA's classes, Lusot counts your vehicle as a light vehicle.",
+    reviewed: false,
+  },
+  'ask.answer.vehicleHeavy': {
+    text: "For MMDA's classes, Lusot counts your vehicle as a heavy vehicle.",
+    reviewed: false,
+  },
+  'ask.answer.onFoot': {
+    text: "MMDA's classes are for vehicles, so this answer gives the level only.",
+    reviewed: false,
+  },
+  'ask.answer.demo': { text: '(demo)', reviewed: false },
+  'ask.answer.noReports': { text: 'No recent reports within 300 m of {place} in the last {window}.', reviewed: false },
+  'ask.answer.noReportsHere': { text: 'No recent reports near you in the last {window}.', reviewed: false },
+  'ask.answer.noReportNote': { text: "No report doesn't mean no flood.", reviewed: false },
+  'ask.answer.tooBroad': {
+    text: "That's a whole street or area. Ask about a corner or a landmark on it, or turn on your location and ask about \"dito\".",
+    reviewed: false,
+  },
+  'ask.answer.noPlace': {
+    text: "I couldn't find that place in Metro Manila. Name a corner or a landmark, or turn on your location and ask about \"dito\".",
+    reviewed: false,
+  },
+  'ask.answer.lookupUnavailable': {
+    text: "I couldn't look up that place just now. Try again in a minute, or name a nearby landmark.",
+    reviewed: false,
+  },
+  'ask.answer.outside': { text: 'Lusot answers only about spots in Metro Manila.', reviewed: false },
+  'ask.answer.noLocation': { text: 'Turn on your location to ask about "dito", or name a place.', reviewed: false },
+  'ask.answer.offTopic': {
+    text: 'I can only answer about flood depth near a place in Metro Manila, from recent reports.',
+    reviewed: false,
+  },
+  'ask.answer.noSpeech': { text: "I didn't catch a question. Try again, or type it.", reviewed: false },
+  'ask.answer.plainList': { text: 'Here is the plain list of reports.', reviewed: false },
+  'ask.window.hours': { text: '{n} hours', reviewed: false },
+  'ask.window.hour': { text: '1 hour', reviewed: false },
+  'ask.window.minutes': { text: '{n} minutes', reviewed: false },
+  'ask.window.minute': { text: '1 minute', reviewed: false },
 } satisfies Record<string, Entry>
 
 export type StringKey = keyof typeof EN

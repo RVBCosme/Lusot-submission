@@ -14,6 +14,8 @@
 // seeded pins' times are fixed when the mock is made, so a fresh pin fades as the session goes on. A live report that
 // reaches a level joins the pins once its result has been read, as the person's own pin.
 import {
+  ASK_TRANSCRIPT,
+  askReply,
   assertScenario,
   DEFAULT_SCENARIO,
   isoSeconds,
@@ -352,6 +354,32 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }:
     return reply(201, { reportId: report.id })
   }
 
+  // Ask Lusot: an answer picked by a word in the question (fixtures.ts's askReply). A spoken one is heard as
+  // ASK_TRANSCRIPT, and its answer carries that transcript. The 429s say how long until the next UTC hour.
+  const askAnswer = (question: string, here: boolean, transcript?: string): Response => {
+    const { status, body } = askReply(question, here, startedAt, now())
+    if (status === 429) return limited(String(body.error))
+    return reply(status, status === 200 && transcript !== undefined ? { ...body, transcript } : body)
+  }
+  const askBody = (body: BodyInit | null | undefined): Record<string, unknown> => {
+    try {
+      const parsed: unknown = JSON.parse(typeof body === 'string' ? body : '')
+      return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {}
+    } catch {
+      return {}
+    }
+  }
+  const askTyped = (body: BodyInit | null | undefined): Response => {
+    const { question, here } = askBody(body)
+    if (typeof question !== 'string' || question.trim() === '') return reply(400, { error: 'bad_request', detail: 'question must be 1 to 300 characters' })
+    return askAnswer(question, here !== undefined)
+  }
+  const askSpoken = (body: BodyInit | null | undefined): Response => {
+    const { audio, here } = askBody(body)
+    if (typeof audio !== 'string' || audio === '') return reply(400, { error: 'bad_audio' })
+    return askAnswer(ASK_TRANSCRIPT, here !== undefined, ASK_TRANSCRIPT)
+  }
+
   const layersFile = (id: string): Response => {
     const outcome = reports.get(id)?.outcome
     const key = outcome === undefined ? pinSpecs().find((spec) => spec.id === id)?.key : levelKeyOf(outcome)
@@ -383,6 +411,8 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }:
     if (method === 'GET' && reportId !== undefined) return readReport(decodeURIComponent(reportId))
     const flagged = match(path, `/reports/([^/]+)/flag`)
     if (method === 'POST' && flagged !== undefined) return flag(decodeURIComponent(flagged), device)
+    if (method === 'POST' && path === '/ask') return askTyped(init?.body)
+    if (method === 'POST' && path === '/ask/voice') return askSpoken(init?.body)
     return reply(404, { error: 'not_found' })
   }
 }
