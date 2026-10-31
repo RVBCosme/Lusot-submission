@@ -411,17 +411,56 @@ describe("what it keeps", () => {
     await failure(meta.respond(body(), deadline(), BUDGET.modelBy));
 
     // Only the client's own line for the failed try.
-    expect(logged()).toEqual([JSON.stringify({ msg: "meta_call_failed", model: "muse-spark-1.3", status: 400, ms: 0 })]);
+    expect(logged()).toEqual([
+      JSON.stringify({
+        msg: "meta_call_failed",
+        model: "muse-spark-1.3",
+        status: 400,
+        ms: 0,
+        error_type: "error",
+        error_code: "400",
+        error_param: null,
+      }),
+    ]);
   });
 
   it("a failed try logs one line: its model, status and ms", async () => {
-    replies = [fail(400)];
+    replies = [fail(503)];
+
+    await failure(createMeta(deps()).respond(body(), deadline(1000), BUDGET.modelBy));
+
+    expect(logged().map((line) => JSON.parse(line))).toEqual([
+      { msg: "meta_call_failed", model: "muse-spark-1.3", status: 503, ms: 0 },
+    ]);
+  });
+
+  it("a 4xx's line adds Meta's error type, code and param, never its message", async () => {
+    const message = `bad include for ${QUESTION} with ${KEY}`;
+    replies = [{ status: 400, body: { error: { message, type: "invalid_request_error", code: "invalid_value", param: "include" } } }];
 
     await failure(createMeta(deps()).respond(body(), deadline(), BUDGET.modelBy));
 
     expect(logged().map((line) => JSON.parse(line))).toEqual([
-      { msg: "meta_call_failed", model: "muse-spark-1.3", status: 400, ms: 0 },
+      {
+        msg: "meta_call_failed",
+        model: "muse-spark-1.3",
+        status: 400,
+        ms: 0,
+        error_type: "invalid_request_error",
+        error_code: "invalid_value",
+        error_param: "include",
+      },
     ]);
+    for (const line of logged()) for (const text of ["bad include", QUESTION, KEY]) expect(line).not.toContain(text);
+  });
+
+  it("a field that isn't a short identifier, or holds the key, is logged as null", async () => {
+    replies = [{ status: 400, body: { error: { message: "m", type: "two words", code: "x".repeat(65), param: `p-${KEY}` } } }];
+
+    await failure(createMeta(deps()).respond(body(), deadline(), BUDGET.modelBy));
+
+    expect(JSON.parse(logged()[0])).toMatchObject({ error_type: null, error_code: null, error_param: null });
+    expect(logged()[0]).not.toContain(KEY);
   });
 
   it("the fixtures carry a placeholder for every id, call_id and encrypted_content", () => {
@@ -532,6 +571,53 @@ describe("transcribe", () => {
     expect(err.status).toBe(status);
     expect(sent).toHaveLength(1);
     expect(meta.calls).toEqual([{ model: "muse-voice-transcribe-1.0", status, ms: 0 }]);
+  });
+
+  it("a 4xx's line adds the transcription's error type, code and param, never its message", async () => {
+    // Meta's answer to the Oct 31 voice probe (C740), with its own message.
+    const message = "ASR keyword 3 exceeds the maximum length of 30 characters";
+    replies = [{ status: 400, body: { error: { message, type: "invalid_request_error", code: null, param: null } } }];
+
+    await failure(createMeta(deps()).transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));
+
+    expect(logged().map((line) => JSON.parse(line))).toEqual([
+      {
+        msg: "meta_call_failed",
+        model: "muse-voice-transcribe-1.0",
+        status: 400,
+        ms: 0,
+        error_type: "invalid_request_error",
+        error_code: null,
+        error_param: null,
+      },
+    ]);
+    expect(logged().join("\n")).not.toContain("ASR keyword");
+  });
+
+  it("a 5xx's body is never read, and its line has no error fields", async () => {
+    let pulled = false;
+    let cancelled = false;
+    const errorBody = new ReadableStream(
+      {
+        pull: (controller) => {
+          pulled = true;
+          controller.enqueue(new TextEncoder().encode(JSON.stringify({ error: { type: "server_error" } })));
+          controller.close();
+        },
+        cancel: () => {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 }, // pulled only when something reads it
+    );
+    replies = [() => Promise.resolve(new Response(errorBody, { status: 504, headers: { "content-type": "application/json" } }))];
+
+    await failure(createMeta(deps()).transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));
+
+    expect({ pulled, cancelled }).toEqual({ pulled: false, cancelled: true });
+    expect(logged().map((line) => JSON.parse(line))).toEqual([
+      { msg: "meta_call_failed", model: "muse-voice-transcribe-1.0", status: 504, ms: 0 },
+    ]);
   });
 
   it.each([
