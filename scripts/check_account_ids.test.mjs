@@ -99,7 +99,7 @@ test("files that aren't UTF-8 text are skipped; UTF-8 beyond ASCII is scanned", 
   assert.equal(code, 1);
   assert.match(out, /^docs\/plan-notes\.md:1$/m);
   assert.doesNotMatch(out, /photo\.jpg/);
-  assert.match(out, /1 non-UTF-8 files/);
+  assert.match(out, /1 non-text files/);
 });
 
 test("directory entries, such as a nested repo, are skipped and counted", () => {
@@ -140,5 +140,89 @@ test("GIT_* variables from a calling git hook never reach the throwaway repo's g
       else process.env[key] = value;
     }
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// UTF-16 with a byte-order mark: little-endian (FF FE) or big-endian (FE FF).
+function utf16(text, endian) {
+  const le = Buffer.from(text, "utf16le");
+  if (endian === "le") return Buffer.concat([Buffer.from([0xff, 0xfe]), le]);
+  const be = Buffer.from(le);
+  be.swap16();
+  return Buffer.concat([Buffer.from([0xfe, 0xff]), be]);
+}
+
+test("scans UTF-16 text", () => {
+  const { code, out } = scan({
+    "res/strings-le.txt": utf16(`first\r\nid ${ID}\r\n`, "le"),
+    "res/strings-be.txt": utf16(`first\nsecond\nid ${ID}\n`, "be"),
+  });
+  assert.equal(code, 1);
+  assert.match(out, /^res\/strings-le\.txt:2$/m);
+  assert.match(out, /^res\/strings-be\.txt:3$/m);
+  assert.match(out, /checked 2 files .*0 non-text files.*: 2 line\(s\) with a 12-digit run/);
+  assert.doesNotMatch(out, /[0-9]{12}/);
+});
+
+test("flags a 12-digit file name without printing it", () => {
+  const { code, out } = scan({
+    [`exports/billing-${ID}.csv`]: "clean\n",
+    [`exports/notes-${ID}.md`]: `also ${ID}\n`,
+    [`exports/photo-${ID}.jpg`]: Buffer.from([0xff, 0xd8, 0xff, 0x00, 0xc3]),
+    "exports/ok.md": "fine\n",
+  });
+  assert.equal(code, 1);
+  assert.match(out, /^exports\/billing-<account>\.csv \(file name\)$/m);
+  assert.match(out, /^exports\/photo-<account>\.jpg \(file name\)$/m);
+  assert.match(out, /^exports\/notes-<account>\.md \(file name\)$/m);
+  assert.match(out, /^exports\/notes-<account>\.md:1$/m);
+  assert.match(out, /: 1 line\(s\) with a 12-digit run, 3 path\(s\) with one in the name$/m);
+  assert.doesNotMatch(out, /[0-9]{12}/);
+});
+
+test("a file name's hex token of 32 or more characters is not flagged", () => {
+  const digest = "ab" + ID + "c".repeat(50); // 64 characters, like a SHA-256 digest
+  const { code, out } = scan({ [`cache/${digest}.bin`]: "ok\n" });
+  assert.equal(code, 0);
+  assert.match(out, /: clean$/m);
+});
+
+test("still skips binary files", () => {
+  const { code, out } = scan({
+    "blob.bin": Buffer.concat([Buffer.from([0x00, 0xc3, 0x28, 0xa0]), Buffer.from(ID)]),
+    "bad-utf16.txt": Buffer.from([0xff, 0xfe, 0x00, 0xd8, 0x41]), // odd length, lone surrogate
+  });
+  assert.equal(code, 0);
+  assert.match(out, /checked 0 files \(skipped 0 lockfiles, 2 non-text files and 0 directories\): clean$/m);
+});
+
+test("importing runs nothing", () => {
+  // From a folder that isn't a git repo, a scan run on import would fail on `git ls-files`
+  // and print its summary; a clean import prints only what the probe prints.
+  const dir = mkdtempSync(join(tmpdir(), "lusot-import-"));
+  try {
+    const probe = [
+      `const m = await import(${JSON.stringify(new URL("./check_account_ids.mjs", import.meta.url).href)});`,
+      `const id = "1234567" + "89012";`,
+      `console.log(JSON.stringify({`,
+      `  exitCode: process.exitCode ?? null,`,
+      `  twelve: m.TWELVE_DIGITS.test("x" + id + "y"),`,
+      `  hex: ("a".repeat(20) + id).replace(m.LONG_HEX, "") === "",`,
+      `  masked: m.maskDigits("a" + id + "-b" + id + "1-c" + id.slice(1)),`,
+      `}));`,
+    ].join("\n");
+    const run = spawnSync(process.execPath, ["--input-type=module", "-e", probe], {
+      cwd: dir,
+      encoding: "utf8",
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(JSON.parse(run.stdout.trim()), {
+      exitCode: null,
+      twelve: true,
+      hex: true,
+      masked: `a<account>-b${ID}1-c${ID.slice(1)}`,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
