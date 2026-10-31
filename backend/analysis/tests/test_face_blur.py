@@ -190,12 +190,18 @@ def test_blur_covers_each_box_with_its_margin():
     img = np.dstack([np.where((xs + ys) % 2, 255, 0).astype(np.uint8)] * 3)
     faces = [
         FaceBox(40, 50, 30, 42, 0.9),  # 25% is 7.5 px and 10.5 px, rounded up: 8 and 11
-        FaceBox(200, 120, 64, 48, 0.8),  # 16 px and 12 px
-        FaceBox(380, 285, 40, 40, 0.7),  # 10 px each way, clipped at the corner
+        FaceBox(200, 120, 64, 41, 0.8),  # 16 px, and 10.25 px up to 11 (not to 10)
+        FaceBox(380, 285, 40, 40, 0.7),  # 10 px each way, clipped at the bottom right
+        FaceBox(-20, -30, 50, 50, 0.6),  # 12.5 px up to 13, clipped at the top left
     ]
     out = blur_faces(img, faces)
     # The areas worked out by hand, not with blur_area, so the margin is pinned here.
-    areas = [np.s_[39:103, 32:78], np.s_[108:180, 184:280], np.s_[275:300, 370:400]]
+    areas = [
+        np.s_[39:103, 32:78],
+        np.s_[109:172, 184:280],
+        np.s_[275:300, 370:400],
+        np.s_[0:33, 0:43],
+    ]
     inside = np.zeros(img.shape[:2], bool)
     for area in areas:
         inside[area] = True
