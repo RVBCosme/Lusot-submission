@@ -9,6 +9,7 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
         backend/scripts/test_ask_cloud_check.py
 """
 
+import base64
 import json
 import re
 import uuid
@@ -340,10 +341,88 @@ def test_an_aws_failure_shows_its_class_name_only(monkeypatch, capsys):
 
 
 def test_the_script_takes_no_path(capsys):
-    # Typed questions only: no clip, no folder, so a path (sealed or not) is no argument.
+    # A clip comes only through --voice, so a bare path (sealed or not) is no argument.
     sealed = r"C:\Systems\Lusot\lusot-data\set_b\sealed\clip.wav"
     for argument in (sealed, "clip.wav"):
         with pytest.raises(SystemExit) as exit_:
             main([argument], transport=Api().transport)
         assert exit_.value.code == 2
     capsys.readouterr()
+
+
+# --voice (plan Task 19, Step 5's synthetic WAV): the spoken questions alone, each to
+# POST /ask/voice, printed without the transcript or the clip's path.
+TRANSCRIPT = "Zzyzx transcript words"
+
+
+def a_voice_answer(kind="no_reports", source="model"):
+    return {**an_answer(kind, source), "transcript": TRANSCRIPT}
+
+
+def clips(tmp_path, *names):
+    paths = []
+    for n, name in enumerate(names):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"RIFF" + bytes([n]) * 40)
+        paths.append(path)
+    return paths
+
+
+def test_voice_posts_each_clip_alone_to_ask_voice(stack, tmp_path, capsys):
+    one, two = clips(tmp_path, "zzyzx-one.wav", "zzyzx-two.wav")
+    api = Api(lambda request: httpx.Response(200, json=a_voice_answer()))
+
+    code = main(["--voice", str(one), "--voice", str(two)], transport=api.transport)
+
+    assert code == 0
+    assert [request.url.path for request in api.requests] == ["/ask/voice", "/ask/voice"]
+    assert api.bodies() == [
+        {"audio": base64.b64encode(one.read_bytes()).decode("ascii")},
+        {"audio": base64.b64encode(two.read_bytes()).decode("ascii")},
+    ]
+    devices = api.devices()
+    assert len(set(devices)) == 2
+    out = capsys.readouterr().out
+    assert "question 1/2 (voice 1): HTTP 200, source model, kind no_reports" in out
+    assert out.splitlines()[-1].startswith(
+        "ASK CHECK OK in 0.0 s: 2 spoken questions, each HTTP 200 within 10 s"
+    )
+    for secret in (TRANSCRIPT, PLACE, REPORT_ID, "zzyzx", str(tmp_path), *devices):
+        assert secret not in out
+
+
+def test_voice_fails_when_a_clip_is_not_answered_in_time(stack, tmp_path, capsys):
+    (one,) = clips(tmp_path, "clip.wav")
+    refused = Api(lambda request: httpx.Response(503, json={"error": "voice_failed"}))
+
+    assert main(["--voice", str(one)], transport=refused.transport) == 1
+    out = capsys.readouterr().out
+    assert "question 1/1 (voice 1): HTTP 503 (voice_failed)" in out
+    assert out.splitlines()[-1] == (
+        "ASK CHECK FAILED: 1 of 1 questions were not HTTP 200 within 10 s"
+    )
+
+
+def test_voice_refuses_a_sealed_path_before_anything_is_read(stack, tmp_path, capsys):
+    (inside,) = clips(tmp_path, "sealed/clip.wav")
+    api = Api()
+
+    with pytest.raises(SystemExit) as exit_:
+        main(["--voice", str(inside)], transport=api.transport)
+
+    assert exit_.value.code == 2
+    assert api.requests == []
+    out = capsys.readouterr().out
+    assert "refused" in out and str(tmp_path) not in out
+
+
+def test_voice_with_an_unreadable_clip_fails_without_naming_it(stack, tmp_path, capsys):
+    missing = tmp_path / "zzyzx-missing.wav"
+    api = Api()
+
+    assert main(["--voice", str(missing)], transport=api.transport) == 1
+    assert api.requests == []
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1] == "ASK CHECK FAILED: a --voice clip can't be read (FileNotFoundError)"
+    assert "zzyzx" not in out and str(tmp_path) not in out
