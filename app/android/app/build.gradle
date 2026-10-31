@@ -1,5 +1,15 @@
 apply plugin: 'com.android.application'
 
+// The release build's signing (the security review's H3; Rene, Oct 31): read from keystore.properties beside
+// settings.gradle, which git ignores and Rene writes himself, with storeFile (forward slashes), storePassword, keyAlias
+// and keyPassword. The keystore lives outside every repo. Without the file a release build stops at its signing
+// check, so it is never signed by anything else; a debug build doesn't need it.
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 android {
     namespace = "io.github.rvbcosme.lusot"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,8 +26,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

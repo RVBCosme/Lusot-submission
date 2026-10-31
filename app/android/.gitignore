@@ -56,6 +56,9 @@ captures/
 # Never commit a signing keystore: it is binary, so gitleaks can't see it.
 *.jks
 *.keystore
+*.p12
+# The release build's signing details, passwords included (app/build.gradle reads it).
+keystore.properties
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
