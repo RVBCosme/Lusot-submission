@@ -1,0 +1,26 @@
+[
+  {
+    "id": "quezon-araneta",
+    "words": ["quezon", "araneta"],
+    "name": "Quezon Avenue corner G. Araneta Avenue",
+    "lat": 14.6265,
+    "lng": 121.0127,
+    "box": { "south": 14.6262, "north": 14.6268, "west": 121.0124, "east": 121.013 }
+  },
+  {
+    "id": "maginhawa",
+    "words": ["maginhawa"],
+    "name": "Maginhawa Street",
+    "lat": 14.6455,
+    "lng": 121.0585,
+    "box": { "south": 14.6408, "north": 14.6502, "west": 121.0558, "east": 121.0612 }
+  },
+  {
+    "id": "san-pablo",
+    "words": ["san pablo"],
+    "name": "San Pablo",
+    "lat": 14.0696,
+    "lng": 121.3254,
+    "box": { "south": 13.9936, "north": 14.1505, "west": 121.2585, "east": 121.4466 }
+  }
+]

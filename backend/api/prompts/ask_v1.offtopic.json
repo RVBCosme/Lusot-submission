@@ -1,0 +1,7 @@
+{
+  "type": "function",
+  "name": "not_about_flood_depth",
+  "description": "Call this, with no arguments, when the question isn't about flood or water depth at a place.",
+  "strict": true,
+  "parameters": { "type": "object", "additionalProperties": false, "required": [], "properties": {} }
+}
