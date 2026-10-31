@@ -16,17 +16,33 @@ from botocore.stub import Stubber
 
 class StubSession:
     """A boto3 session whose clients are stubbed, active from the start. It records the
-    region each client asks for."""
+    region each client asks for, and every call in order, across clients, in `calls`
+    as (service, operation, params). `on_call(service, operation, params)` sees each
+    call before its Stubber answers it, so a fake API can follow what the call did."""
 
-    def __init__(self, *services: str, region: str = "ap-southeast-1"):
+    def __init__(self, *services: str, region: str = "ap-southeast-1", on_call=None):
         base = boto3.Session(
             aws_access_key_id="stub", aws_secret_access_key="stub", region_name=region
         )
         self.clients = {name: base.client(name) for name in services}
         self.stubs = {name: Stubber(client) for name, client in self.clients.items()}
         self.regions: dict[str, str | None] = {}
+        self.calls: list[tuple[str, str, dict]] = []
+        self.on_call = on_call
+        for name, client in self.clients.items():
+            client.meta.events.register_first(
+                "before-parameter-build.*.*",
+                lambda params, model, service=name, **_: self._record(
+                    service, model, params
+                ),
+            )
         for stub in self.stubs.values():
             stub.activate()
+
+    def _record(self, service: str, model, params: dict) -> None:
+        self.calls.append((service, model.name, dict(params)))
+        if self.on_call is not None:
+            self.on_call(service, model.name, dict(params))
 
     def client(self, service: str, region_name: str | None = None):
         self.regions[service] = region_name
