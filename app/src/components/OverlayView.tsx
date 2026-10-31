@@ -189,8 +189,8 @@ function prefersReducedMotion(): boolean {
 }
 
 // How many of the drawing's layers show now. It draws itself (C615): the first layer at once, then layer i at
-// i x step, the last by 2,000 ms. With reduced motion, the final frame shows at once. A new layers file remounts the
-// drawing (its key), so it starts again from its first layer.
+// i x step, the last by 2,000 ms. With reduced motion, the final frame shows at once. A new layers link unmounts the
+// drawing until its file is read, so the next one starts again from its first layer.
 function useReveal(count: number): number {
   const [reduced] = useState(prefersReducedMotion)
   const [shown, setShown] = useState(1)
@@ -271,8 +271,10 @@ export function OverlayView({ photoUrl, overlayUrl, layersUrl, onExpired, onLaye
   const t = useT()
   const alt = t('sample.photoAlt')
   const [loaded, setLoaded] = useState<{ url: string; data: OverlayData | undefined }>()
-  // The link of the overlay JPEG that failed to load: a new link is tried again.
+  // The link of the overlay JPEG that failed to load: a new link is tried again. And the one that has loaded, which
+  // fades in only then.
   const [failedJpeg, setFailedJpeg] = useState<string>()
+  const [loadedJpeg, setLoadedJpeg] = useState<string>()
   const [gone, setGone] = useState(false)
   const failures = useRef(0)
   const told = useRef(onLayers)
@@ -318,15 +320,17 @@ export function OverlayView({ photoUrl, overlayUrl, layersUrl, onExpired, onLaye
     <div>
       <div className="relative overflow-hidden rounded-control border border-outline">
         <img src={photoUrl} alt={alt.text} lang={alt.lang} onError={photoFailed} className="block w-full" />
-        {drawn !== undefined && <OverlaySvg key={layersUrl} data={drawn} layers={layers} />}
-        {/* The JPEG fades in over the photo (C615); reduced motion cuts every transition to its end (index.css). */}
+        {drawn !== undefined && <OverlaySvg data={drawn} layers={layers} />}
+        {/* The JPEG fades in over the photo once it has loaded (C615); reduced motion cuts every transition to its end
+            (index.css). */}
         {settled && usable === undefined && overlayUrl !== undefined && failedJpeg !== overlayUrl && (
           <img
             src={overlayUrl}
             alt=""
             aria-hidden="true"
+            onLoad={() => setLoadedJpeg(overlayUrl)}
             onError={() => setFailedJpeg(overlayUrl)}
-            className="pointer-events-none absolute inset-0 size-full transition-opacity duration-700 starting:opacity-0"
+            className={`pointer-events-none absolute inset-0 size-full transition-opacity duration-700 ${loadedJpeg === overlayUrl ? 'opacity-100' : 'opacity-0'}`}
           />
         )}
       </div>

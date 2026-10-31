@@ -79,6 +79,13 @@ afterEach(() => {
 describe('the overlay draws itself (C615)', () => {
   const drawnLayers = (container: HTMLElement) =>
     [...container.querySelectorAll('[data-testid="overlay-svg"] [data-layer]')].map((layer) => layer.getAttribute('data-layer'))
+  // Each layer drawn, with the reference it belongs to, since kinds repeat from one reference to the next.
+  const drawnRefs = (container: HTMLElement) =>
+    [...container.querySelectorAll('[data-testid="overlay-svg"] [data-layer]')].map(
+      (layer) => `${layer.closest('[data-ref]')?.getAttribute('data-ref') ?? 'water'}:${layer.getAttribute('data-layer')}`,
+    )
+  const expected = (file: OverlayData) =>
+    orderLayers(file).map((layer) => `${layer.kind === 'water' ? 'water' : layer.ref.id}:${layer.kind}`)
   // Lets the layers file's answer through with the clock stopped: it settles on promises alone.
   const settle = () =>
     act(async () => {
@@ -96,7 +103,8 @@ describe('the overlay draws itself (C615)', () => {
     const count = orderLayers(file).length
     const step = revealStep(count)
     expect(count).toBeGreaterThan(2)
-    expect(step * (count - 1)).toBeCloseTo(REVEAL_MS, 6)
+    expect(REVEAL_MS).toBe(2000)
+    expect(step * (count - 1)).toBeCloseTo(2000, 6)
     serve(file)
     const { container } = renderOverlay()
     await settle()
@@ -112,9 +120,11 @@ describe('the overlay draws itself (C615)', () => {
         vi.advanceTimersByTime(1)
       })
       expect(drawnLayers(container), `layer ${i} at ${Math.round(i * step)} ms`).toHaveLength(i + 1)
+      // In C524's order at every step: the first i + 1 layers, never others.
+      expect(drawnRefs(container)).toEqual(expected(file).slice(0, i + 1))
     }
     // Every layer by 2,000 ms, in the order the still drawing has.
-    expect(Math.round((count - 1) * step)).toBeLessThanOrEqual(REVEAL_MS)
+    expect(Math.round((count - 1) * step)).toBeLessThanOrEqual(2000)
     expect(drawnLayers(container)).toEqual(orderLayers(file).map((layer) => layer.kind))
     // The legend's words are there from the start, so a screen reader never waits for the drawing.
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
@@ -129,6 +139,18 @@ describe('the overlay draws itself (C615)', () => {
     await settle()
 
     expect(drawnLayers(container)).toEqual(orderLayers(file).map((layer) => layer.kind))
+    expect(vi.getTimerCount(), 'no timer for the drawing').toBe(0)
+  })
+
+  it('leaves no timer behind when the card goes mid-drawing', async () => {
+    prefersReducedMotion(false)
+    vi.useFakeTimers()
+    serve(levelLayers('knee'))
+    const { unmount } = renderOverlay()
+    await settle()
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('draws itself again for a new layers link, from its first layer', async () => {
@@ -148,11 +170,15 @@ describe('the overlay draws itself (C615)', () => {
     expect(drawnLayers(container)).toEqual(['water'])
   })
 
-  it('fades the overlay JPEG in over the photo, a fade that reduced motion cuts to its end', () => {
+  it('fades the overlay JPEG in over the photo once it has loaded, a fade that reduced motion cuts to its end', () => {
     const { container } = renderOverlay({ layersUrl: undefined })
-    const jpeg = overlayJpeg(container)
-    expect(jpeg?.getAttribute('class')).toMatch(/\btransition-opacity\b/)
-    expect(jpeg?.getAttribute('class')).toMatch(/\bstarting:opacity-0\b/)
+    const jpeg = overlayJpeg(container)!
+    expect(jpeg.getAttribute('class')).toMatch(/\btransition-opacity\b/)
+    // Hidden until it arrives, so a slow link doesn't spend the fade before there is anything to show.
+    expect(jpeg.getAttribute('class')).toMatch(/\bopacity-0\b/)
+    fireEvent.load(jpeg)
+    expect(jpeg.getAttribute('class')).toMatch(/\bopacity-100\b/)
+    expect(jpeg.getAttribute('class')).not.toMatch(/\bopacity-0\b/)
   })
 })
 
