@@ -55,7 +55,7 @@ import re
 import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -67,9 +67,11 @@ from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import BotoCoreError, ClientError
 from harden import (
     DEMO_EXTRA_FIELDS,
+    FEED_CACHE_S,
     OUTSIDE_POINT,
     PUBLIC_PIN_FIELDS,
     SMOKE_SPOT,
+    SWITCH_PREFIX,
     api_urls,
     ipv4_client,
     load_records,
@@ -94,17 +96,21 @@ INCHES = frozenset(
 )  # only once the release gate shows them
 PHOTO_KINDS = ("blurred", "overlay")
 SINCE_DEFAULT_H = 24
-_IPV4 = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])")
+INDEX_WAIT_S = 30  # the report index can lag a new item
+# An address may end a sentence: "from 203.0.113.9." still counts.
+_IPV4 = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?!\.?[0-9])")
 # A whole token: an ARN's "ap-southeast-1::runtime" or a time such as 02:15:00 never counts.
 _IPV6 = re.compile(
-    r"(?<![0-9A-Za-z:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?![0-9A-Za-z:.])"
+    r"(?<![0-9A-Za-z:.])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,7}(?![0-9A-Za-z:]|\.[0-9A-Za-z])"
 )
 _DECIMAL = re.compile(r"-?[0-9]+\.[0-9]+")
 _DEMO_KEY = re.compile(r"demo/(blurred|overlay)/(r_[0-9a-f]{32})\.jpg")
 _SAMPLE_ID = re.compile(r"s[0-9A-Za-z_-]{1,64}")
-_FETCHED = re.compile(
-    r"([A-Z]#[0-9]+-(blurred|overlay)|demo-[0-9]+-(blurred|overlay)|s[0-9A-Za-z_-]{1,64})\.jpg"
+_ORDINAL = re.compile(r"[A-Z]#[0-9]+")
+FETCHED_LIST = (
+    ".p3-fetched.json"  # the names fetch-p3 wrote, which clear-p3 alone deletes
 )
+KNOWN_PREFIXES = ("raw/", "blurred/", "overlay/", "demo/", "samples/")  # P14
 
 
 @dataclass(frozen=True)
@@ -114,7 +120,7 @@ class Needles:
 
     points: tuple[dict, ...] = (OUTSIDE_POINT, SMOKE_SPOT)
     devices: tuple[str, ...] = ()
-    key: str = ""
+    key: str = field(default="", repr=False)  # the whole key, never in a repr
 
 
 def check_queues(sqs, queue_name: str, dlq_name: str) -> list[str]:
@@ -248,7 +254,13 @@ def _records_bucket(selectors: dict, bucket: str) -> bool:
         ):
             continue
         arns = fields.get("resources.ARN")
+        # A NotStartsWith, NotEquals or EndsWith condition can still take this bucket.
         if arns is None or any(
+            arns.get(op)
+            for op in ("NotStartsWith", "NotEquals", "EndsWith", "NotEndsWith")
+        ):
+            return True
+        if any(
             value.startswith(mine) or mine.startswith(value)
             for value in arns.get("Equals", []) + arns.get("StartsWith", [])
         ):
@@ -397,23 +409,45 @@ def _is_ip(candidate: str, version: int) -> bool:
 
 
 def expired_items_check(
-    ddb, http: httpx.Client, api_url: str, feed_url: str, table: str, *, now_s: int
+    ddb,
+    http: httpx.Client,
+    api_url: str,
+    feed_url: str,
+    table: str,
+    *,
+    now_s: int,
+    ssm=None,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> list[str]:
     """P5 (W27): a published live item past its visibleUntil is in no read, and one past
-    its expiresAt reads 404 (C526). `now_s` is the server's time. Both are deleted in
-    finally, even when a check fails; a failed delete is a problem, and the item stays
-    hidden by its own times until its TTL."""
+    its expiresAt reads 404 (C526). `now_s` is the server's time.
+
+    So that a pass proves something (Task 5's review): publish must read off first, or
+    every live pin is hidden anyway; the reads wait out the map's and the feed's caches;
+    and GET /reports/{id} must find the hidden item, as a control, before the expired
+    one's 404 counts, since the report index can lag. Both items are deleted in finally
+    and confirmed gone with a consistent read; a failed delete is a problem, printed at
+    once if a read has raised, and the item stays hidden by its own times.
+    """
+    if ssm is not None:
+        publish = ssm.get_parameter(Name=SWITCH_PREFIX + "publish")["Parameter"][
+            "Value"
+        ]
+        if publish != "off":
+            return [f"publish reads {publish!r}, not off, so P5 would prove nothing"]
     items = {
         kind: synthetic_item(kind, now_s=now_s)
         for kind in ("hidden_expired", "read_expired")
     }
-    problems = []
+    problems: list[str] = []
     try:
         for item in items.values():
             ddb.put_item(
                 TableName=table,
                 Item={k: TypeSerializer().serialize(v) for k, v in item.items()},
             )
+        sleep(FEED_CACHE_S + 5)  # no read may come from a memo built before the puts
         hidden = items["hidden_expired"]["reportId"]
         reads = pin_reads(http, api_url, feed_url)
         for where in ("nearby", "map"):
@@ -421,28 +455,48 @@ def expired_items_check(
                 problems.append(f"the hidden_expired item shows in the {where} read")
         if hidden in reads["feed"]:
             problems.append("the hidden_expired item shows in the feed")
-        gone = http.get(f"{api_url}/reports/{items['read_expired']['reportId']}")
-        if gone.status_code != 404:
-            problems.append(
-                f"the read_expired item reads HTTP {gone.status_code}, not 404 (C526)"
-            )
+        began = clock()
+        while http.get(f"{api_url}/reports/{hidden}").status_code != 200:
+            if clock() - began >= INDEX_WAIT_S:
+                problems.append(
+                    "the control, the hidden item's own read, never answered 200"
+                )
+                break
+            sleep(1)
+        else:
+            gone = http.get(f"{api_url}/reports/{items['read_expired']['reportId']}")
+            if gone.status_code != 404:
+                problems.append(
+                    f"the read_expired item reads HTTP {gone.status_code}, not 404 (C526)"
+                )
     finally:
         for kind, item in items.items():
+            key = {"pk": {"S": item["pk"]}, "sk": {"S": item["sk"]}}
             try:
-                ddb.delete_item(
-                    TableName=table,
-                    Key={"pk": {"S": item["pk"]}, "sk": {"S": item["sk"]}},
+                ddb.delete_item(TableName=table, Key=key)
+                left = "Item" in ddb.get_item(
+                    TableName=table, Key=key, ConsistentRead=True
                 )
             except (BotoCoreError, ClientError) as exc:
-                problems.append(
-                    f"the {kind} item's delete failed ({failure(exc)}); its times keep it hidden"
-                )
+                left, why = True, failure(exc)
+            else:
+                why = "it is still there"
+            if left:
+                problem = f"the {kind} item's delete wasn't confirmed ({why}); its times keep it hidden"
+                problems.append(problem)
+                say(f"P5: {problem}")
     return problems
 
 
 def raw_left(s3, bucket: str, report_ids: list[str]) -> int:
     """How many of the reports still have a raw/ photo."""
     return sum(object_exists(s3, bucket, f"raw/{rid}.jpg") for rid in report_ids)
+
+
+def prefix_problems(counts: dict[str, int]) -> list[str]:
+    """P14: the bucket holds only the known prefixes, so no audio was ever stored."""
+    unknown = sorted(prefix for prefix in counts if prefix not in KNOWN_PREFIXES)
+    return [f"the bucket holds other prefixes: {', '.join(unknown)}"] if unknown else []
 
 
 def _private_folder(out: Path) -> None:
@@ -457,8 +511,14 @@ def _private_folder(out: Path) -> None:
 
 
 def fetch_p3(s3, bucket: str, ordinals: dict[str, str], out: Path) -> list[Path]:
-    """P3's copies, named by ordinal, order or sample id (Task 5's defaults 1 to 3)."""
+    """P3's copies, named by ordinal, order or sample id (Task 5's defaults 1 to 3). The
+    names written go into OUT's list, which clear_p3 alone deletes from."""
     _private_folder(out)
+    bad = [ordinal for ordinal in ordinals if not _ORDINAL.fullmatch(ordinal)]
+    if bad:
+        raise CheckFailed(
+            f"refused: {len(bad)} ordinals in the records aren't safe file names"
+        )
     out.mkdir(parents=True, exist_ok=True)
     saved: list[Path] = []
 
@@ -496,27 +556,51 @@ def fetch_p3(s3, bucket: str, ordinals: dict[str, str], out: Path) -> list[Path]
         if exc.response.get("Error", {}).get("Code") not in ("NoSuchKey", "404"):
             raise
         manifest = {"samples": []}
+    skipped = 0
     for entry in manifest.get("samples", []):
         sid = entry.get("sampleId")
-        # A Set B composite leaves out its place and date (C512): MS7 opens no Set B photo.
-        if not (entry.get("place") and entry.get("date")):
+        # A Set B composite leaves out both its place and its date (C512): MS7 opens no
+        # Set B photo. A real sample may lack one of them, and is still fetched.
+        if not entry.get("place") and not entry.get("date"):
+            skipped += 1
             continue
         if isinstance(sid, str) and _SAMPLE_ID.fullmatch(sid):  # a safe file name
             fetch(f"samples/{sid}.jpg", f"{sid}.jpg")
+    listed = out / FETCHED_LIST
+    known = json.loads(listed.read_text(encoding="utf-8")) if listed.is_file() else []
+    listed.write_text(
+        json.dumps(sorted({*known, *(p.name for p in saved)})), encoding="utf-8"
+    )
+    say(f"skipped {skipped} Set B composites")
     return saved
 
 
 def clear_p3(out: Path) -> int:
-    """Delete the files fetch_p3 names in `out`, and nothing else."""
+    """Delete the files fetch_p3 wrote into `out`, from its list, and nothing else."""
     _private_folder(out)
-    if not out.is_dir():
+    listed = out / FETCHED_LIST
+    if not listed.is_file():
         return 0
     removed = 0
-    for path in out.iterdir():
-        if path.is_file() and _FETCHED.fullmatch(path.name):
+    for name in json.loads(listed.read_text(encoding="utf-8")):
+        path = out / name
+        if Path(name).name == name and path.is_file():
             path.unlink()
             removed += 1
+    listed.unlink()
     return removed
+
+
+def _kinds(paths: list[Path]) -> str:
+    counted = Counter(
+        "run photos"
+        if _ORDINAL.match(p.name)
+        else "demo photos"
+        if p.name.startswith("demo-")
+        else "samples"
+        for p in paths
+    )
+    return ", ".join(f"{n} {kind}" for kind, n in sorted(counted.items())) or "none"
 
 
 def main(
@@ -525,6 +609,8 @@ def main(
     session=None,
     http: httpx.Client | None = None,
     wall: Callable[[], float] = time.time,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
     environ: dict | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -553,144 +639,166 @@ def main(
             if args.command == "clear-p3":
                 say(f"cleared {clear_p3(args.out)} P3 copies")
                 return 0
+            since = (
+                datetime.fromisoformat(args.since)
+                if args.since
+                else datetime.fromtimestamp(wall(), UTC)
+                - timedelta(hours=SINCE_DEFAULT_H)
+            )
             ordinals, devices = load_records(args.ids) if args.ids else ({}, [])
+            if not ordinals:
+                raise CheckFailed(
+                    "refused: --ids must name the runs' records, with at least one report"
+                )
             if args.command == "fetch-p3":
                 aws = session if session is not None else lusot_session()
-                stack = load_stack(aws)
-                saved = fetch_p3(aws.client("s3"), stack.bucket, ordinals, args.out)
-                say(
-                    f"fetched {len(saved)} P3 copies, named by ordinal, order or sample id"
+                saved = fetch_p3(
+                    aws.client("s3"), load_stack(aws).bucket, ordinals, args.out
                 )
+                say(f"fetched {len(saved)} P3 copies: {_kinds(saved)}")
                 return 0
-        except CheckFailed as exc:
-            say(str(exc))
+            return run_checks(
+                args,
+                since,
+                ordinals,
+                devices,
+                env,
+                session=session,
+                http=http,
+                wall=wall,
+                clock=clock,
+                sleep=sleep,
+            )
+        except ValueError:
+            say("refused: --since isn't an ISO 8601 time")
             return 2
-        return run_checks(
-            args, ordinals, devices, env, session=session, http=http, wall=wall
-        )
+        except CheckFailed as exc:
+            say(
+                f"PRIVACY CHECK FAILED: {exc}"
+                if not str(exc).startswith("refused")
+                else str(exc)
+            )
+            return 2 if str(exc).startswith("refused") else 1
 
     return guarded(
         command,
         label="PRIVACY CHECK FAILED",
-        shown=(CheckFailed,),
         errors=(BotoCoreError, ClientError, httpx.HTTPError),
     )
 
 
-def run_checks(args, ordinals, devices, env, *, session, http, wall) -> int:
+def run_checks(
+    args, since, ordinals, devices, env, *, session, http, wall, clock, sleep
+) -> int:
+    """Every row, each printed as it finishes, labelled as spec §4.3 numbers it."""
     aws = session if session is not None else lusot_session()
     stack = load_stack(aws)
     api_url, feed_url = api_urls(aws)
     api_ids = tuple(urlparse(url).hostname.split(".")[0] for url in (api_url, feed_url))
     cloudformation = aws.client("cloudformation")
+    resources = [
+        r
+        for page in cloudformation.get_paginator("list_stack_resources").paginate(
+            StackName=STACK
+        )
+        for r in page.get("StackResourceSummaries", [])
+    ]
+    by_id = {r["LogicalResourceId"]: r["PhysicalResourceId"] for r in resources}
+    groups = sorted(
+        r["PhysicalResourceId"]
+        for r in resources
+        if r["ResourceType"] == "AWS::Logs::LogGroup"
+    )
+    failed = 0
 
-    def physical(logical: str) -> str:
-        return cloudformation.describe_stack_resource(
-            StackName=STACK, LogicalResourceId=logical
-        )["StackResourceDetail"]["PhysicalResourceId"]
+    def row(name: str, problems: list[str], note: str = "") -> None:
+        nonlocal failed
+        failed += bool(problems)
+        say(f"{name}: {'FAIL: ' + '; '.join(problems) if problems else 'ok'}{note}")
 
-    api_log_group = physical("ApiLogGroup")
     client = http if http is not None else ipv4_client()
-    rows: list[tuple[str, list[str]]] = []
     try:
         offset = server_offset(client, api_url, clock=wall)
         now_s = int(server_now(offset, clock=wall).timestamp())
-        rows.append(
-            (
-                "P5 hidden and expired items",
-                expired_items_check(
-                    aws.client("dynamodb"),
-                    client,
-                    api_url,
-                    feed_url,
-                    stack.output("TableName"),
-                    now_s=now_s,
-                ),
-            )
+        row(
+            "P5 hidden and expired items",
+            expired_items_check(
+                aws.client("dynamodb"),
+                client,
+                api_url,
+                feed_url,
+                stack.output("TableName"),
+                now_s=now_s,
+                ssm=aws.client("ssm"),
+                clock=clock,
+                sleep=sleep,
+            ),
         )
-        rows.append(
-            (
-                "P8 queues",
-                check_queues(
-                    aws.client("sqs"),
-                    stack.output("QueueName"),
-                    stack.output("DeadLetterQueueName"),
-                ),
-            )
+        row("P6 lifecycle", check_lifecycle(aws.client("s3"), stack.bucket))
+        row(
+            "P6 TTL",
+            check_ttl(
+                aws.client("dynamodb"),
+                {
+                    stack.output("TableName"): "expiresAt",
+                    by_id["LimitsTable"]: "expiresAt",
+                },
+            ),
         )
-        rows.append(("P8 lifecycle", check_lifecycle(aws.client("s3"), stack.bucket)))
-        rows.append(
-            (
-                "P8 TTL",
-                check_ttl(
-                    aws.client("dynamodb"),
-                    {
-                        stack.output("TableName"): "expiresAt",
-                        physical("LimitsTable"): "expiresAt",
-                    },
-                ),
-            )
+        row(
+            "P6 log retention",
+            check_log_retention(aws.client("logs"), groups),
+            f" ({len(groups)} groups)",
         )
-        rows.append(
-            (
-                "P8 log retention",
-                check_log_retention(
-                    aws.client("logs"), [stack.log_group, api_log_group]
-                ),
-            )
+        row(
+            "P8 queues",
+            check_queues(
+                aws.client("sqs"),
+                stack.output("QueueName"),
+                stack.output("DeadLetterQueueName"),
+            ),
         )
         apigw = aws.client("apigatewayv2")
-        rows.append(
-            (
-                "P9 access logs",
-                check_access_logs(
-                    apigw,
-                    aws.client("s3"),
-                    aws.client("cloudtrail"),
-                    api_ids=api_ids,
-                    bucket=stack.bucket,
-                ),
-            )
+        row(
+            "P9 access logs",
+            check_access_logs(
+                apigw,
+                aws.client("s3"),
+                aws.client("cloudtrail"),
+                api_ids=api_ids,
+                bucket=stack.bucket,
+            ),
         )
-        rows.append(
-            (
-                "P11 CORS",
-                check_feed_cors(apigw, app_api_id=api_ids[0], feed_api_id=api_ids[1]),
-            )
+        row(
+            "P11 CORS",
+            check_feed_cors(apigw, app_api_id=api_ids[0], feed_api_id=api_ids[1]),
         )
         feed = client.get(f"{feed_url}/pins.geojson")
         mapped = client.get(f"{api_url}/map/pins")
-        rows.append(
-            (
-                "P11 feed",
-                feed_problems(
-                    json_object(feed, "the feed"),
-                    screen_line=screen_line(),
-                    inches_shown=args.inches_shown,
-                ),
-            )
+        for name, response in (("the feed", feed), ("GET /map/pins", mapped)):
+            if response.status_code != 200:
+                raise CheckFailed(f"{name} answered HTTP {response.status_code}")
+        geojson = json_object(feed, "the feed")
+        pins = json_object(mapped, "GET /map/pins").get("pins") or []
+        row(
+            "P11 feed",
+            feed_problems(
+                geojson, screen_line=screen_line(), inches_shown=args.inches_shown
+            ),
+            f" ({len(geojson.get('features') or [])} features checked)",
         )
-        rows.append(
-            (
-                "P11 map read",
-                map_problems(
-                    json_object(mapped, "GET /map/pins").get("pins") or [],
-                    inches_shown=args.inches_shown,
-                ),
-            )
+        row(
+            "P11 map read",
+            map_problems(pins, inches_shown=args.inches_shown),
+            f" ({len(pins)} pins checked)",
         )
     finally:
         if http is None:
             client.close()
-    since = (
-        datetime.fromisoformat(args.since)
-        if args.since
-        else datetime.fromtimestamp(wall(), UTC) - timedelta(hours=SINCE_DEFAULT_H)
-    )
-    key = env.get("MODEL_API_KEY", "")
+    key = env.get("MODEL_API_KEY", "").strip()
     counts: Counter = Counter()
     logs = aws.client("logs")
-    for group in (stack.log_group, api_log_group):
+    for group in groups:
         pages = logs.get_paginator("filter_log_events").paginate(
             logGroupName=group, startTime=int(since.timestamp() * 1000)
         )
@@ -701,24 +809,20 @@ def run_checks(args, ordinals, devices, env, *, session, http, wall) -> int:
     scan = [f"{n} messages hold {name}" for name, n in sorted(counts.items())]
     if not key:
         scan.append("MODEL_API_KEY isn't set, so the key wasn't looked for")
-    rows.append(("P14 log scan", scan))
+    row("P9 log scan", scan, f" ({len(groups)} groups, {len(devices)} device ids)")
     left = raw_left(aws.client("s3"), stack.bucket, list(ordinals.values()))
-    rows.append(
-        (
-            "raw photos left",
-            [f"{left} of the runs' reports still have a raw photo"] if left else [],
-        )
+    row(
+        "P10 raw photos left",
+        [f"{left} of the runs' reports still have a raw photo"] if left else [],
+        f" ({len(ordinals)} reports checked)",
     )
-    for name, problems in rows:
-        say(f"{name}: {'FAIL: ' + '; '.join(problems) if problems else 'ok'}")
     counted = prefix_counts(aws.client("s3"), stack.bucket)
-    say("objects by prefix: " + ", ".join(f"{p} {n}" for p, n in counted.items()))
-    failed = sum(bool(problems) for _, problems in rows)
-    say(
-        f"PRIVACY CHECK FAILED: {failed} of {len(rows)} rows"
-        if failed
-        else "PRIVACY CHECK OK"
+    row(
+        "P14 known prefixes only",
+        prefix_problems(counted),
+        " (" + ", ".join(f"{p} {n}" for p, n in counted.items()) + ")",
     )
+    say(f"PRIVACY CHECK FAILED: {failed} rows" if failed else "PRIVACY CHECK OK")
     return 1 if failed else 0
 
 

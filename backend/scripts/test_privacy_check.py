@@ -19,7 +19,7 @@ import harden
 import httpx
 import privacy_check
 import pytest
-from boto3.dynamodb.types import TypeDeserializer
+from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.response import StreamingBody
 from smoke_upload import CheckFailed
 from stubs import StubSession, report_ids
@@ -374,20 +374,33 @@ def test_lambda_lines_count_zero():
     )
 
 
+NOW_S = 1_793_700_000
+
+
 class FakeTable:
     """The reports table for P5, answered through Stubber from what was written."""
 
-    def __init__(self, *, delete_fails=False):
-        self.items, self.deleted, self.delete_fails = {}, [], delete_fails
-        self.session = StubSession("dynamodb", on_call=self.on_aws)
+    def __init__(self, *, delete_fails=False, publish="off"):
+        self.items, self.written, self.deleted = {}, [], []
+        self.delete_fails, self.publish = delete_fails, publish
+        self.session = StubSession("dynamodb", "ssm", on_call=self.on_aws)
 
     def on_aws(self, service, operation, params):
         stub = self.session.stubs[service]
-        if operation == "PutItem":
+        if operation == "GetParameter":
+            parameter = {
+                "Name": params["Name"],
+                "Type": "String",
+                "Value": self.publish,
+                "Version": 1,
+            }
+            stub.add_response("get_parameter", {"Parameter": parameter})
+        elif operation == "PutItem":
             item = {
                 k: TypeDeserializer().deserialize(v) for k, v in params["Item"].items()
             }
             self.items[item["reportId"]] = item
+            self.written.append(item)
             stub.add_response("put_item", {})
         elif operation == "DeleteItem":
             if self.delete_fails:
@@ -401,29 +414,46 @@ class FakeTable:
                 r: i for r, i in self.items.items() if (i["pk"], i["sk"]) != key
             }
             stub.add_response("delete_item", {})
+        elif operation == "GetItem":
+            assert params.get("ConsistentRead") is True
+            key = (params["Key"]["pk"]["S"], params["Key"]["sk"]["S"])
+            found = [i for i in self.items.values() if (i["pk"], i["sk"]) == key]
+            typed = (
+                {k: TypeSerializer().serialize(v) for k, v in found[0].items()}
+                if found
+                else None
+            )
+            stub.add_response("get_item", {"Item": typed} if typed else {})
 
 
-def api_for(table, *, show_hidden=(), read_status=404, raise_on=None):
-    """The API and the feed: the time hides both items unless `show_hidden` names a read."""
+def api_for(
+    table, *, show_hidden=(), read_status=404, control_status=200, raise_on=None
+):
+    """The API and the feed, which honour the items' own times unless `show_hidden`
+    names a read: the hidden item reads 200 (the control), the expired one 404."""
 
     def handle(request):
         path = request.url.path
         if raise_on and raise_on in path:
             raise httpx.ConnectError("dropped")
-        shown = list(table.items)  # what a read that ignored the times would show
+        hidden = [
+            i["reportId"] for i in table.items.values() if i["visibleUntil"] < NOW_S
+        ]
         if request.url.host.startswith("f4e5d6") and path == "/pins.geojson":
-            ids = shown if "feed" in show_hidden else []
+            ids = hidden if "feed" in show_hidden else []
             return httpx.Response(200, json=collection(*(live_pin(id=i) for i in ids)))
         if path in ("/reports", "/map/pins"):
             where = "nearby" if path == "/reports" else "map"
-            ids = shown if where in show_hidden else []
+            ids = hidden if where in show_hidden else []
             return httpx.Response(200, json={"pins": [live_pin(id=i) for i in ids]})
         if path.startswith("/reports/"):
+            item = table.items.get(path.removeprefix("/reports/"))
+            if item is None:
+                return httpx.Response(404, json={"error": "not_found"})
+            status = read_status if item["expiresAt"] < NOW_S else control_status
             return httpx.Response(
-                read_status,
-                json={"error": "not_found"}
-                if read_status == 404
-                else {"status": "done"},
+                status,
+                json={"error": "not_found"} if status == 404 else {"status": "done"},
             )
         return httpx.Response(500)
 
@@ -431,20 +461,34 @@ def api_for(table, *, show_hidden=(), read_status=404, raise_on=None):
 
 
 def expired(table, **api):
-    return privacy_check.expired_items_check(
+    slept = []
+    found = privacy_check.expired_items_check(
         table.session.client("dynamodb"),
         api_for(table, **api),
         API,
         FEED,
         "lusot-reports",
-        now_s=1_793_700_000,
+        now_s=NOW_S,
+        ssm=table.session.client("ssm"),
+        clock=lambda: sum(slept),
+        sleep=slept.append,
     )
+    return found
 
 
 def test_expired_items_are_hidden_then_deleted():
     table = FakeTable()
     assert expired(table) == []
     assert table.items == {} and len(table.deleted) == 2
+    # Both items would publish but for their times (PUBLISH_FIELDS["live"]).
+    hidden, gone = table.written
+    for item in table.written:
+        assert (
+            item.items() >= harden.PUBLISH_FIELDS["live"].items()
+            and item["mode"] == "live"
+        )
+    assert hidden["visibleUntil"] < NOW_S < hidden["expiresAt"]
+    assert gone["expiresAt"] < NOW_S
     for where in ("nearby", "map", "feed"):
         table = FakeTable()
         problems = expired(table, show_hidden=(where,))
@@ -454,11 +498,18 @@ def test_expired_items_are_hidden_then_deleted():
     assert len(expired(table, read_status=200)) == 1  # C526: past expiresAt is a 404
     assert table.items == {}
     table = FakeTable()
+    assert (
+        len(expired(table, control_status=404)) == 1
+    )  # the index never showed the control
+    table = FakeTable()
     with pytest.raises(httpx.ConnectError):
         expired(table, raise_on="map")
     assert table.items == {}
     table = FakeTable(delete_fails=True)
     assert any("delete" in p for p in expired(table))
+    # With publish on, every live pin is hidden anyway: P5 refuses to pass, and writes nothing.
+    table = FakeTable(publish="on")
+    assert len(expired(table)) == 1 and table.written == []
 
 
 class FakeBucket:
@@ -505,7 +556,7 @@ class FakeBucket:
                 )
 
 
-def bucket_with_runs():
+def bucket_with_runs(**extra):
     first, second, demo = report_ids(3, seed=4)
     manifest = {
         "version": 1,
@@ -518,11 +569,25 @@ def bucket_with_runs():
                 "date": "2024-07-24",
             },
             {
+                "sampleId": "s1111111111",
+                "credit": "c",
+                "license": "CC0",
+                "place": "España",
+                "date": "",
+            },  # no date: still fetched
+            {
                 "sampleId": "s9876543210",
                 "credit": "Synthetic",
                 "license": "CC0",
                 "date": "",
             },  # a Set B composite
+            {
+                "sampleId": "../escape",
+                "credit": "c",
+                "license": "CC0",
+                "place": "x",
+                "date": "2024-01-01",
+            },
         ],
     }
     objects = {
@@ -532,14 +597,16 @@ def bucket_with_runs():
         f"demo/overlay/{demo}.jpg": b"\xff\xd8 demo overlay",
         "samples/manifest.json": json.dumps(manifest).encode(),
         "samples/s0123456789.jpg": b"\xff\xd8 sample",
+        "samples/s1111111111.jpg": b"\xff\xd8 undated sample",
         "samples/s9876543210.jpg": b"\xff\xd8 composite",
+        "samples/../escape.jpg": b"\xff\xd8 traversal",
         f"raw/{second}.jpg": b"\xff\xd8 raw",
-    }
+    } | extra
     return FakeBucket(objects), {"L#6": first, "L#7": second}, demo
 
 
 def test_fetch_names_by_ordinal(tmp_path, capsys):
-    bucket, ordinals, demo = bucket_with_runs()
+    bucket, ordinals, _demo = bucket_with_runs()
     out = tmp_path / "data" / "ms7" / "p3"
     paths = privacy_check.fetch_p3(
         bucket.session.client("s3"), "lusot-uploads", ordinals, out
@@ -551,19 +618,49 @@ def test_fetch_names_by_ordinal(tmp_path, capsys):
         "demo-1-blurred.jpg",
         "demo-1-overlay.jpg",
         "s0123456789.jpg",
+        "s1111111111.jpg",
     ]
-    assert "s9876543210.jpg" not in names  # the Set B composite isn't fetched
+    assert not (
+        tmp_path / "data" / "ms7" / "escape.jpg"
+    ).exists()  # the manifest can't traverse
     assert (out / "L#6-blurred.jpg").read_bytes() == b"\xff\xd8 blurred one"
-    printed = capsys.readouterr().out
-    for secret in [*ordinals.values(), demo, "blurred/", "samples/"]:
-        assert secret not in printed
-    # clear-p3 deletes only what fetch-p3 named.
+    assert "skipped 1 Set B composites" in capsys.readouterr().out
+    # clear-p3 deletes only what fetch-p3 wrote, from its list.
     (out / "keep.txt").write_text("mine")
-    assert privacy_check.clear_p3(out) == 5
-    assert sorted(p.name for p in out.iterdir()) == ["keep.txt"]
+    (out / "s5555555555.jpg").write_bytes(b"a photo the person keeps")
+    assert privacy_check.clear_p3(out) == 6
+    assert sorted(p.name for p in out.iterdir()) == ["keep.txt", "s5555555555.jpg"]
 
 
-def test_fetch_refuses_a_sealed_or_repo_folder(tmp_path):
+def test_fetch_through_main_prints_no_key(tmp_path, capsys, monkeypatch):
+    bucket, ordinals, demo = bucket_with_runs()
+    record = harden.RunRecord(
+        tmp_path / "data" / "ms7" / "2026-11-03", "load_test", "L"
+    )
+    for rid in ordinals.values():
+        record.name(rid)
+    path = record.save()
+    monkeypatch.setattr(
+        privacy_check,
+        "load_stack",
+        lambda session: type("S", (), {"bucket": "lusot-uploads"})(),
+    )
+    out = tmp_path / "data" / "p3"
+    assert (
+        privacy_check.main(
+            ["fetch-p3", str(out), "--ids", str(path)], session=bucket.session
+        )
+        == 0
+    )
+    printed = capsys.readouterr().out
+    assert "fetched 6 P3 copies: 2 demo photos, 2 run photos, 2 samples" in printed
+    for secret in [*ordinals.values(), demo, "blurred/", "samples/", "raw/"]:
+        assert secret not in printed
+    # Without --ids, or with records that name no report, it refuses.
+    assert privacy_check.main(["fetch-p3", str(out)], session=bucket.session) == 2
+
+
+def test_fetch_refuses_a_sealed_or_repo_folder_and_odd_ordinals(tmp_path):
     bucket, ordinals, _ = bucket_with_runs()
     for out in (tmp_path / "sealed" / "p3", REPO / "p3-copies"):
         with pytest.raises(CheckFailed):
@@ -572,6 +669,13 @@ def test_fetch_refuses_a_sealed_or_repo_folder(tmp_path):
             )
         assert not out.exists()
     assert not (tmp_path / "sealed").exists()
+    with pytest.raises(CheckFailed):
+        privacy_check.fetch_p3(
+            bucket.session.client("s3"),
+            "lusot-uploads",
+            {"../L#1": "x"},
+            tmp_path / "o",
+        )
 
 
 def test_raw_left_and_prefix_counts():
@@ -588,14 +692,81 @@ def test_raw_left_and_prefix_counts():
         "demo/": 2,
         "overlay/": 1,
         "raw/": 1,
-        "samples/": 3,
+        "samples/": 5,
     }
+    assert privacy_check.prefix_problems(counts) == []
+    assert len(privacy_check.prefix_problems(counts | {"audio/": 1})) == 1  # P14
+
+
+def test_ttl_and_log_retention():
+    session = StubSession("dynamodb", "logs")
+    on = {
+        "TimeToLiveDescription": {
+            "TimeToLiveStatus": "ENABLED",
+            "AttributeName": "expiresAt",
+        }
+    }
+    off = {"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}}
+    session.stubs["dynamodb"].add_response(
+        "describe_time_to_live", on, {"TableName": "reports"}
+    )
+    session.stubs["dynamodb"].add_response(
+        "describe_time_to_live", off, {"TableName": "limits"}
+    )
+    found = privacy_check.check_ttl(
+        session.client("dynamodb"), {"reports": "expiresAt", "limits": "expiresAt"}
+    )
+    assert len(found) == 1 and "limits" in found[0]
+    for days, expected in ((14, 0), (30, 1), (None, 1)):
+        group = {"logGroupName": "g1"} | ({"retentionInDays": days} if days else {})
+        session.stubs["logs"].add_response(
+            "describe_log_groups", {"logGroups": [group]}
+        )
+        assert (
+            len(privacy_check.check_log_retention(session.client("logs"), ["g1"]))
+            == expected
+        )
+    session.done()
+
+
+def test_advanced_selectors_that_can_take_the_bucket():
+    def advanced(*fields):
+        return {
+            "AdvancedEventSelectors": [
+                {
+                    "FieldSelectors": [
+                        {"Field": "eventCategory", "Equals": ["Data"]},
+                        {"Field": "resources.type", "Equals": ["AWS::S3::Object"]},
+                        *fields,
+                    ]
+                }
+            ]
+        }
+
+    assert privacy_check._records_bucket(advanced(), "lusot-uploads")
+    assert privacy_check._records_bucket(
+        advanced({"Field": "resources.ARN", "NotStartsWith": ["arn:aws:s3:::other/"]}),
+        "lusot-uploads",
+    )
+    assert not privacy_check._records_bucket(
+        advanced({"Field": "resources.ARN", "StartsWith": ["arn:aws:s3:::other/"]}),
+        "lusot-uploads",
+    )
+
+
+def test_an_address_that_ends_a_sentence_counts():
+    ipv4 = ".".join(str(octet) for octet in (203, 0, 113, 9))
+    ipv6 = ":".join(group for group in ("2001", "db8", "", "7"))
+    counts = privacy_check.scan_events([f"from {ipv4}.", f"peer {ipv6}."], needles())
+    assert counts == {"ipv4": 1, "ipv6": 1}
+    assert "key" not in repr(needles(key="-".join(part for part in ("stub", "k"))))
 
 
 def test_main_clears_and_refuses_usage(tmp_path, capsys):
     out = tmp_path / "data" / "p3"
     out.mkdir(parents=True)
     (out / "L#1-blurred.jpg").write_bytes(b"x")
+    (out / ".p3-fetched.json").write_text(json.dumps(["L#1-blurred.jpg"]))
     assert (
         privacy_check.main(["clear-p3", str(out)], session=object(), http=object()) == 0
     )
@@ -604,6 +775,12 @@ def test_main_clears_and_refuses_usage(tmp_path, capsys):
     assert (
         privacy_check.main(
             ["clear-p3", str(REPO / "p3")], session=object(), http=object()
+        )
+        == 2
+    )
+    assert (
+        privacy_check.main(
+            ["check", "--since", "not a time", "--ids", str(out)], session=object()
         )
         == 2
     )
