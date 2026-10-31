@@ -54,4 +54,12 @@
          so an app store wouldn't filter out a device without a camera, where the app points to the samples. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Ask Lusot by voice (its spec §4.7): the page's own microphone stream, through Web Audio. Capacitor's WebView
+         client asks Android for RECORD_AUDIO and MODIFY_AUDIO_SETTINGS together for an audio stream, and refuses it if
+         either is missing. Not required, so an app store wouldn't filter out a device without a microphone, where
+         questions are typed. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>
