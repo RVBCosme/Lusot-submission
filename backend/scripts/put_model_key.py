@@ -10,7 +10,9 @@ key aws/ssm, then reads it back with decryption and compares the two in memory.
 
 It prints the parameter's name, its type and the value's length, never the value. An AWS
 error is reported by its code and HTTP status only: its message can carry an ARN, and an
-ARN carries the account ID.
+ARN carries the account ID. A reply it doesn't expect, such as one without the value,
+prints its traceback instead (MS7's D-f), through the scripts' shared mask
+(guards.traceback_lines), with the key itself as <hidden>.
 
 boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
@@ -28,6 +30,7 @@ import os
 import sys
 
 import boto3
+import guards
 from botocore.exceptions import BotoCoreError, ClientError
 
 PARAM = "/lusot/meta/model-api-key"
@@ -57,6 +60,7 @@ def main(ssm=None) -> int:
             Tier="Standard",
         )
         stored = ssm.get_parameter(Name=PARAM, WithDecryption=True)["Parameter"]
+        value, kind = stored["Value"], stored["Type"]
     except ClientError as exc:
         error = exc.response["Error"]["Code"]
         status = exc.response["ResponseMetadata"]["HTTPStatusCode"]
@@ -68,11 +72,19 @@ def main(ssm=None) -> int:
     except BotoCoreError as exc:
         print(f"AWS error: {type(exc).__name__}", file=sys.stderr)
         return 1
-    matches = stored["Value"] == key
-    print(
-        f"stored {PARAM} ({stored['Type']}), length {len(key)},"
-        f" read-back matches: {matches}"
-    )
+    except Exception as exc:
+        # A reply it doesn't expect, such as one without Value (D-f): the traceback,
+        # through the scripts' mask, with the key itself hidden.
+        for line in guards.traceback_lines(exc, hide=(key,)):
+            print(line, file=sys.stderr)
+        print(
+            f"AWS answered as put_model_key.py doesn't expect ({type(exc).__name__}):"
+            " the key may be stored, but it isn't checked, so run the script again",
+            file=sys.stderr,
+        )
+        return 1
+    matches = value == key
+    print(f"stored {PARAM} ({kind}), length {len(key)}, read-back matches: {matches}")
     return 0 if matches else 1
 
 

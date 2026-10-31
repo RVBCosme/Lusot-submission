@@ -154,3 +154,51 @@ def test_aws_error_prints_code_not_message(monkeypatch, capsys):
     assert "AccessDeniedException" in err
     assert ACCOUNT not in out + err
     assert "arn:" not in out + err
+
+
+class OddSSM(FakeSSM):
+    """Stores the key, then answers the read with a reply the script doesn't expect."""
+
+    def __init__(self, reply):
+        super().__init__()
+        self._reply = reply
+
+    def get_parameter(self, Name, WithDecryption=False):
+        if isinstance(self._reply, Exception):
+            raise self._reply
+        return self._reply
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"Parameter": {"Name": NAME, "Type": "SecureString"}},  # no Value
+        RuntimeError(
+            f"reply for arn:aws:ssm:ap-southeast-1:{ACCOUNT}:parameter{NAME}: {KEY}"
+        ),
+    ],
+    ids=["no-value", "echoes-the-key"],
+)
+def test_an_unexpected_reply_prints_a_traceback_without_the_key(
+    monkeypatch, capsys, reply
+):
+    """D-f: a reply it doesn't expect prints its traceback, through the scripts' mask,
+    with the key itself hidden, so no piece of the key or the account shows."""
+    monkeypatch.setenv("MODEL_API_KEY", KEY)
+
+    assert put_model_key.main(OddSSM(reply)) == 1
+
+    out, err = capsys.readouterr()
+    assert out == ""
+    lines = err.splitlines()
+    assert lines[0] == "Traceback (most recent call last):"
+    kind = type(reply).__name__ if isinstance(reply, Exception) else "KeyError"
+    # What failed, and what to do.
+    assert lines[-1] == (
+        f"AWS answered as put_model_key.py doesn't expect ({kind}): the key may be"
+        " stored, but it isn't checked, so run the script again"
+    )
+    if isinstance(reply, Exception):
+        assert f"arn:aws:ssm:ap-southeast-1:<account>:parameter{NAME}: <hidden>" in err
+    assert not any(piece in out + err for piece in fragments(KEY))
+    assert ACCOUNT not in out + err
