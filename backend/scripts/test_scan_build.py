@@ -15,6 +15,7 @@ import json
 import random
 import secrets
 import shutil
+import string
 import zipfile
 from pathlib import Path
 
@@ -22,6 +23,7 @@ import httpx
 import pytest
 import scan_build
 from smoke_upload import CheckFailed
+from stubs import StubSession
 
 REPO = Path(__file__).resolve().parents[2]
 RECEIVER = "io.github.rvbcosme.lusot.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
@@ -94,6 +96,7 @@ def test_output_never_holds_the_secret(tmp_path, made, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert key not in out and account not in out
     assert "meta_key" in out and "account_id" in out  # what was found, by name
+    assert "assets/<hidden>.txt" in out  # the member named after the key, masked
 
 
 def test_markers_in_any_file(tmp_path):
@@ -225,14 +228,22 @@ def test_fetch_site_stays_on_its_origin(tmp_path):
     pages = {
         "/": b'<html><script type="module" src="/assets/index-a1.js"></script>'
         b'<link rel="stylesheet" href="/assets/index-b2.css"><link rel="icon" href="icons/i.png">'
+        b'<link rel="manifest" href="/manifest.webmanifest">'
         b'<script src="https://other.test.invalid/tracker.js"></script>'
-        b'<a href="//other.test.invalid/x.js">x</a></html>',
-        "/assets/index-a1.js": b'import("./chunk-c3.js"); const u = "/assets/chunk-d4.js";',
+        b'<a href="//other.test.invalid/x.js">x</a><a href="http://site.test.invalid/plain.js">p</a>'
+        b'<a href="/assets/..%5C..%5Cevil.js">e</a><a href="/missing.js">m</a></html>',
+        "/assets/index-a1.js": b'import("./chunk-c3.js"); const u = "/assets/chunk-d4.js";'
+        b' const deps = ["assets/lazy-f6.js"]; fetch("./licences.txt");',
         "/assets/index-b2.css": b"body { background: url(/assets/bg-e5.png) }",
         "/assets/chunk-c3.js": b"chunk c3",
         "/assets/chunk-d4.js": b"chunk d4",
+        "/assets/lazy-f6.js": b"lazy f6",
+        "/assets/licences.txt": b"licences",
         "/assets/bg-e5.png": b"png",
         "/icons/i.png": b"icon",
+        "/manifest.webmanifest": b'{"icons": [{"src": "icons/m-192.png"}]}',
+        "/icons/m-192.png": b"manifest icon",
+        "/assets/..\\..\\evil.js": b"traversal",
     }
 
     def handle(request):
@@ -250,36 +261,128 @@ def test_fetch_site_stays_on_its_origin(tmp_path):
 
     http = httpx.Client(transport=httpx.MockTransport(handle))
     into = tmp_path / "site"
-    folder = scan_build.fetch_site("https://site.test.invalid/", into, http)
-    saved = sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file())
+    folder, counts = scan_build.fetch_site("https://site.test.invalid/", into, http)
+    saved = sorted(
+        p.relative_to(folder).as_posix() for p in folder.rglob("*") if p.is_file()
+    )
     assert saved == [
         "assets/bg-e5.png",
         "assets/chunk-c3.js",
         "assets/chunk-d4.js",
         "assets/index-a1.js",
         "assets/index-b2.css",
+        "assets/lazy-f6.js",
+        "assets/licences.txt",
         "icons/i.png",
+        "icons/m-192.png",
         "index.html",
+        "manifest.webmanifest",
     ]
-    assert not any("other.test.invalid" in url for url in asked)
+    assert not any(
+        "other.test.invalid" in url or url.startswith("http:") for url in asked
+    )
+    assert not (tmp_path / "evil.js").exists() and counts["missing"] >= 1
+    assert counts["saved"] == 11 and counts["left"] == 0
     with pytest.raises(CheckFailed):
         scan_build.fetch_site(
             "https://site.test.invalid/", into, http
         )  # must not exist
     with pytest.raises(CheckFailed):
         scan_build.fetch_site("https://site.test.invalid/", REPO / "fetched-site", http)
+    down = httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(301))
+    )
+    with pytest.raises(CheckFailed, match="root"):
+        scan_build.fetch_site("https://site.test.invalid/", tmp_path / "down", down)
 
 
 def test_load_secrets_needs_both(monkeypatch):
     with pytest.raises(CheckFailed):
         scan_build.load_secrets(session=object(), environ={})
+    session = StubSession("sts")
+    session.stubs["sts"].add_response("get_caller_identity", {"UserId": "stub"})
+    with pytest.raises(CheckFailed, match="account"):
+        scan_build.load_secrets(
+            session=session, environ={"MODEL_API_KEY": secrets.token_urlsafe(8)}
+        )
 
 
 @pytest.mark.skipif(shutil.which("gitleaks") is None, reason="gitleaks isn't installed")
 def test_real_gitleaks_finds_a_key_and_prints_none(tmp_path, capsys):
     folder = tmp_path / "bundle"
     folder.mkdir()
-    value = secrets.token_hex(20)
+    value = "".join(
+        random.sample(string.ascii_letters + string.digits, 40)
+    )  # sure entropy
     (folder / "config.js").write_text(f'const api_key = "{value}";\n')
     assert scan_build.gitleaks_dir(folder, hide=(value,)) == 1
-    assert value not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "REDACTED" in out  # --verbose prints the finding, redacted
+    assert value not in out and str(folder) not in out
+
+
+def test_nothing_scanned_or_a_wrong_target_refuses(tmp_path, made, monkeypatch, capsys):
+    monkeypatch.setattr(scan_build, "load_secrets", lambda session=None: made)
+    monkeypatch.setattr(scan_build, "gitleaks_dir", lambda folder, hide=(): 0)
+    bundle = tmp_path / "app.aab"
+    bundle.write_bytes(b"PK" + made["meta_key"])
+    assert scan_build.main([str(bundle)]) == 2
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    assert scan_build.main([str(empty)]) == 2
+    assert "refused" in capsys.readouterr().out
+
+
+def test_a_folder_named_sealed_below_the_target_is_refused(tmp_path, monkeypatch):
+    # A stand-in name: no folder named sealed is ever made.
+    monkeypatch.setattr(
+        scan_build.guards, "is_sealed", lambda path: Path(path).name == "locked"
+    )
+    target = tmp_path / "bundle"
+    (target / "locked").mkdir(parents=True)
+    (target / "locked" / "inside.txt").write_text("never read")
+    (target / "a.txt").write_text("a")
+    with pytest.raises(CheckFailed):
+        list(scan_build.members(target))
+
+
+def test_a_zip_is_unpacked_for_gitleaks_and_deleted(tmp_path, made, monkeypatch):
+    seen = []
+
+    def gitleaks(folder, hide=()):
+        seen.append((folder, sorted(p.name for p in folder.rglob("*"))))
+        return 0
+
+    monkeypatch.setattr(scan_build, "load_secrets", lambda session=None: made)
+    monkeypatch.setattr(scan_build, "gitleaks_dir", gitleaks)
+    target = apk(tmp_path / "web.zip", {"index.html": b"<html></html>"})
+    assert scan_build.main([str(target)]) == 0
+    [(folder, names)] = seen
+    assert names == ["index.html"] and not folder.exists()  # unpacked, scanned, deleted
+
+
+def test_the_e2e_fixture_marker_and_android_overrides(tmp_path, monkeypatch):
+    target = apk(
+        tmp_path / "app.apk",
+        {
+            "assets/public/f.js": b"LUSOT_E2E_FIXTURE",
+            "assets/capacitor.config.json": json.dumps(
+                {"loggingBehavior": "none", "android": {"loggingBehavior": "debug"}}
+            ).encode(),
+        },
+    )
+    assert "LUSOT_E2E_FIXTURE" in scan_build.marker_hits(scan_build.members(target))
+    allowed = ["android.permission.INTERNET"]
+    monkeypatch.setattr(
+        scan_build.subprocess,
+        "run",
+        lambda command, **kw: type(
+            "Done",
+            (),
+            {"returncode": 0, "stdout": xmltree("@0x7f050000", allowed), "stderr": ""},
+        )(),
+    )
+    flags = scan_build.apk_flags(target, Path("aapt2"))
+    assert flags["allowBackup"] is True  # a resource reference isn't a literal false
+    assert flags["loggingBehavior"] == "debug"  # the android override wins
+    assert len(scan_build.flag_problems(flags)) == 2
