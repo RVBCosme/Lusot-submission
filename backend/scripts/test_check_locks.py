@@ -136,7 +136,9 @@ def test_export_runs_in_the_analysis_package(repo):
 
 
 def test_run_returns_the_exit_code_and_stdout(tmp_path):
-    script = "import sys; sys.stdout.write('out\\n'); sys.stdout.buffer.write(b'\\xff\\n'); sys.exit(3)"
+    # One write to the byte buffer, so the lines' order can't hang on the text layer's buffering
+    # (a pipe is block-buffered unless PYTHONUNBUFFERED is set) or on the runner's locale.
+    script = "import sys; sys.stdout.buffer.write(b'out\\n\\xff\\n'); sys.exit(3)"
     code, out = check_locks.run([sys.executable, "-c", script], tmp_path)
     assert code == 3
     assert out.splitlines()[0] == "out"
