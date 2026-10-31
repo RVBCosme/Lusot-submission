@@ -26,6 +26,18 @@
   },
   {
     "package": "workbox-build",
-    "ships": "the service worker's loader and precache list, written at build time"
+    "ships": "the service worker's precache list, written at build time"
+  },
+  {
+    "package": "workbox-strategies",
+    "ships": "the service worker's strategy code, in its workbox chunk"
+  },
+  {
+    "package": "@trickfilm400/rollup-plugin-off-main-thread",
+    "ships": "the module loader at the top of the service worker (sw.js)"
+  },
+  {
+    "package": "vite-plugin-pwa",
+    "ships": "registerSW, which registers the service worker from the page"
   }
 ]

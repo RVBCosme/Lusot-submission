@@ -13,7 +13,7 @@ import { POLL, pollReport } from '../lib/poll'
 import { MOCK_FILES_ORIGIN, type Scenario } from '../mock/fixtures'
 import { createMockFetch } from '../mock/mockFetch'
 import type { FlowState, OwnPin } from '../report/flow'
-import { ReportFlowProvider, useOwnPin, useReportFlow, useSeenOnMap } from '../report/ReportFlowProvider'
+import { ReportFlowProvider, useOwnPin, useReportFlow, useSeenOnMap, reportFlowBusy } from '../report/ReportFlowProvider'
 import { useRoute } from '../router'
 import { deferred, fakeStream, showFrame, stubCanvas } from '../test/camera'
 import { ReportScreen } from './ReportScreen'
@@ -800,6 +800,18 @@ describe('the location', () => {
     expect(heading().textContent).toBe(text('place.title'))
     await send()
     expect(api.of('upload')).toHaveLength(1)
+  })
+
+  it('tells the service worker the flow is busy once it holds a photo, and free again after "Retake"', async () => {
+    fakeApi()
+    render(<Harness />)
+    await openCamera()
+    expect(reportFlowBusy()).toBe(false)
+    await shoot(10)
+    expect(reportFlowBusy()).toBe(true)
+    fireEvent.click(button('report.retake'))
+    await flush()
+    expect(reportFlowBusy()).toBe(false)
   })
 
   it('focus resting on the scrolling <main> still moves to the next step\'s heading', async () => {

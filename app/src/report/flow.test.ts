@@ -395,5 +395,8 @@ describe('holdsPhotoOrReport, which holds a new deploy back (Task 16, Review Foc
     }
     expect(holdsPhotoOrReport(waiting)).toBe(true)
     expect(holdsPhotoOrReport({ ...waiting, timedOut: true })).toBe(true)
+    const fix = { lat: 14.6, lng: 121, accuracyM: 10 }
+    expect(holdsPhotoOrReport({ step: 'sending', shot: 0, photo, fix, place: { lat: 14.6, lng: 121, nudgeM: 0 } } as FlowState)).toBe(true)
+    expect(holdsPhotoOrReport({ step: 'result', shot: 0, result: {} as ReportResult, fixAccuracyM: 10 })).toBe(true)
   })
 })

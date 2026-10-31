@@ -42,6 +42,10 @@ const CONTENT_TYPES = new Map([
 ]);
 // app/dist outside assets/: the page (also cached as the root object), the manifest, the licences text and the icons.
 const NO_CACHE_PATHS = ["/", "/index.html", "/manifest.webmanifest", "/licences.txt", "/icons/*"];
+// The web app's service worker (MS5 Task 16). It goes up alone, after the new pages are live and invalidated: a
+// browser that fetched the new worker while the old page was still served would precache the old page under the new
+// revision, and blank once the old assets went.
+const WORKER = "sw.js";
 const OUTPUT_KEYS = ["ApiUrl", "WebBucketName", "WebDistributionId", "WebUrl"];
 
 const aws = (...args) => ["aws", ...args, ...AWS_FLAGS];
@@ -120,6 +124,9 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
         files.some((file) => file.startsWith("assets/") === inAssets && posix.extname(file) === ext));
     const assetTypes = typesIn(true);
     const pageTypes = typesIn(false);
+    const hasWorker = files.includes(WORKER);
+    // Every page sync leaves the worker alone: neither uploaded nor deleted until its own step.
+    const leaveWorker = hasWorker ? ["--exclude", WORKER] : [];
 
     // The CLI's filters: the last pattern that matches a path decides, and "files excluded by filters are excluded
     // from deletion". So a sync that lets in one type uploads only that type, with its own --content-type, and its
@@ -138,7 +145,7 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
     for (const ext of pageTypes) {
       await step(
         `pages upload (${ext})`,
-        aws("s3", "sync", ...pages, "--delete", ...only(ext), "--exclude", "assets/*", ...typed(ext, "no-cache")),
+        aws("s3", "sync", ...pages, "--delete", ...only(ext), "--exclude", "assets/*", ...leaveWorker, ...typed(ext, "no-cache")),
       );
     }
     await step("pages clean-up", aws("s3", "sync", ...pages, "--delete", "--exclude", "assets/*", ...cleanUp(pageTypes)));
@@ -154,6 +161,20 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
       aws("cloudfront", "wait", "invalidation-completed", "--distribution-id", distribution, "--id", created.stdout.trim()),
     );
     say("invalidation: done");
+
+    if (hasWorker) {
+      await step("service worker upload", aws("s3", "cp", `app/dist/${WORKER}`, `s3://${bucket}/${WORKER}`, ...typed(".js", "no-cache")));
+      const worker = await step(
+        "service worker invalidation",
+        aws("cloudfront", "create-invalidation", "--distribution-id", distribution, "--paths", `/${WORKER}`,
+          "--query", "Invalidation.Id", "--output", "text"),
+      );
+      await step(
+        "service worker invalidation wait",
+        aws("cloudfront", "wait", "invalidation-completed", "--distribution-id", distribution, "--id", worker.stdout.trim()),
+      );
+      say("service worker: live");
+    }
 
     const removal = "old assets removal (the new site is already live)";
     for (const ext of assetTypes) await step(removal, assetsSync(ext, "--delete"));

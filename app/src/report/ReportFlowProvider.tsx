@@ -80,10 +80,17 @@ function seenOffline(problem: Problem): Problem {
 // failure is told apart by its type and shown as a line.
 export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; children: ReactNode }) {
   const [state, dispatch] = useReducer(flowReducer, initialFlow)
-  // What the service worker's registration reads before it reloads for a new deploy (src/pwa.ts).
-  useEffect(() => {
+  // What the service worker's registration reads before it reloads for a new deploy (src/pwa.ts): set before the
+  // browser paints the new step, and cleared when the flow goes.
+  useLayoutEffect(() => {
     flowBusy = holdsPhotoOrReport(state)
   }, [state])
+  useLayoutEffect(
+    () => () => {
+      flowBusy = false
+    },
+    [],
+  )
   const [ownPin, setOwnPin] = useState<OwnPin>()
   // The state as last rendered, for the handlers, which stay the same from render to render. Written before the
   // browser paints, so a press always reads the step it sees.
