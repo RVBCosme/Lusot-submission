@@ -852,13 +852,13 @@ const NEW_KEYS = (Object.keys(EN) as StringKey[]).filter(
 )
 
 describe('the new lines', () => {
-  it('exist in both languages, start unreviewed, and keep to the product rules', () => {
+  it('exist in both languages, reviewed by Rene (Oct 31), and keep to the product rules', () => {
     expect(NEW_KEYS.length).toBeGreaterThan(25)
     for (const key of NEW_KEYS) {
       for (const table of [EN, FIL]) {
         const { text: line, reviewed } = table[key]
         expect(line.length, key).toBeGreaterThan(2)
-        expect(reviewed, key).toBe(false)
+        expect(reviewed, key).toBe(true)
         expect(line, key).not.toMatch(/safe|ligtas/i)
         expect(line, key).not.toMatch(/you can cross|go ahead|pwedeng dumaan|tumawid ka|lusutan mo|you can pass|\bnine\b|9 levels/i)
         expect(line, key).not.toMatch(/\b(road|route|street|kalsada|daan|ruta)\b/i)
