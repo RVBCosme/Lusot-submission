@@ -26,8 +26,14 @@ fails, it prints STOP SWITCH LEFT ON with the exact command, as the smoke script
   feed's cache, then check that the pin is absent from the nearby read, the app's map
   read and the public feed, that the demo pins the reads held before stay, and that
   GET /reports/{id} still answers. The item is deleted in an inner finally and
-  confirmed gone before the switch goes off. If the delete fails, publish stays on, and
-  the hand fix goes to a private file whose path is all that is printed.
+  confirmed gone before the switch goes off. From just before the item's put until its
+  delete is confirmed, publish stays on whatever ends the run. If the cleanup fails, the
+  hand fix (delete, confirm, then switch off) goes to a private file whose path is all
+  that is printed, and the run never prints the bare command to set publish off.
+
+Every cache wait counts from when its put returned. S1 ends once every API container has
+seen uploads off again. A server clock more than 300 s from the laptop's stops the run
+before any switch is set, since the synthetic item's times come from it.
 
 None makes a Meta call: S2 uses dark JPEGs, and its question gets the plain list. It
 first confirms that a new report at OUTSIDE_POINT reads private (C803). At the end all
@@ -97,6 +103,7 @@ MARGIN_S = 5  # past a cache, for clocks and requests in flight
 ACT_TIMEOUT_S = SWITCH_CACHE_S + 30
 RELEASE_TIMEOUT_S = SWITCH_CACHE_S + FEED_CACHE_S + 60
 INDEX_WAIT_S = 10  # feed-index follows the table eventually
+MAX_OFFSET_S = 300  # a server clock further off than this stops the run
 NEARBY_RADIUS_M = 300
 QUESTION = "Gaano kalalim ang baha sa España Boulevard ngayon?"  # a Metro Manila place
 CLI = "--profile lusot --region ap-southeast-1 --no-cli-pager"
@@ -110,18 +117,29 @@ PLAN = (
 
 @dataclass(frozen=True)
 class SwitchTime:
-    """One switch's seconds from its put until its effect showed, and from off until
-    service was back."""
+    """One switch's seconds from its put's return until its effect showed, and from
+    off until service was back (None when the release can't show)."""
 
     name: str
     act_s: float
-    release_s: float
+    release_s: float | None
 
 
 @dataclass
 class SwitchState:
+    """When the put of the switch returned, and when its reset to off returned."""
+
     on_at: float
     off_at: float | None = None
+
+
+@dataclass
+class PublishState:
+    """S3's item, while it may exist: publish stays on until it is confirmed gone."""
+
+    item_name: str | None = None
+    may_exist: bool = False
+    hand_fix: Path | None = None
 
 
 class PublishCleanupFailed(Exception):
@@ -181,11 +199,15 @@ def switch_on(
     keep_on: tuple[type[BaseException], ...] = (),
     *,
     clock: Callable[[], float] = time.monotonic,
+    hold: Callable[[], bool] = lambda: False,
 ) -> Iterator[SwitchState]:
-    """Set the switch to `value`, and set it back to off in finally, timing both.
+    """Set the switch to `value`, and set it back to off in finally.
 
-    A `keep_on` exception leaves it as it is: the caller has written the hand fix. A
-    reset that fails prints STOP SWITCH LEFT ON with the command, and raises.
+    The yielded state's `on_at` is when the put returned: an API container that read
+    the switch just before the put landed holds the old value for 30 s from then, so
+    every cache wait counts from it. A `keep_on` exception, or `hold()` being True
+    (S3's item may still exist), leaves the switch as it is. A reset that fails prints
+    STOP SWITCH LEFT ON with the command, and raises.
     """
     state = SwitchState(clock())
     failure: BaseException | None = None
@@ -194,6 +216,7 @@ def switch_on(
         set_switch(
             ssm, name, value
         )  # in the try: a put SSM applies but fails here is reset
+        state.on_at = clock()
         yield state
     except keep_on:
         kept = True
@@ -202,7 +225,7 @@ def switch_on(
         failure = exc
         raise
     finally:
-        if not kept:
+        if not kept and not hold():
             try:
                 set_switch(ssm, name, "off")
                 state.off_at = clock()
@@ -215,20 +238,25 @@ def switch_on(
                 raise
 
 
-def write_hand_fix(record: RunRecord, steps: list[str]) -> Path:
-    """The hand-fix commands, which may name a report id, in the run's private folder,
-    never over another file. The returned path is all that is printed."""
+def private_file(record: RunRecord, kind: str, suffix: str, text: str) -> Path:
+    """A new file in the run's private folder, never over another."""
     record.folder.mkdir(parents=True, exist_ok=True)
-    stem = f"hand-fix-{record.script}-{record.started:%H%M%S}"
+    stem = f"{kind}-{record.script}-{record.started:%H%M%S}"
     for n in itertools.count(1):
-        path = record.folder / (f"{stem}.txt" if n == 1 else f"{stem}-{n}.txt")
+        path = record.folder / (f"{stem}{suffix}" if n == 1 else f"{stem}-{n}{suffix}")
         try:
             with path.open("x", encoding="utf-8") as file:
-                file.write("\n".join(steps) + "\n")
+                file.write(text)
         except FileExistsError:
             continue
         return path
     raise AssertionError("unreachable")
+
+
+def write_hand_fix(record: RunRecord, steps: list[str]) -> Path:
+    """The hand-fix commands, which may name a report id, in the run's private folder,
+    never over another file. The returned path is all that is printed."""
+    return private_file(record, "hand-fix", ".txt", "\n".join(steps) + "\n")
 
 
 def is_paused(response: httpx.Response) -> bool:
@@ -264,7 +292,9 @@ def check_uploads(
     clock,
     sleep,
 ) -> tuple[SwitchTime, str]:
-    """S1, with the mistyped value after the release (Task 4's defaults 1 and 2)."""
+    """S1, with the mistyped value after the release (Task 4's defaults 1 and 2). It
+    ends once every API container has seen uploads off again, so the next check's
+    uploads aren't refused."""
     timing = {"clock": clock, "sleep": sleep}
 
     def probe() -> httpx.Response:
@@ -283,6 +313,7 @@ def check_uploads(
         wait_until(typo.on_at + SWITCH_CACHE_S + MARGIN_S, **timing)
         mistyped = probe()
     wait_for(serving, timeout_s=ACT_TIMEOUT_S, **timing)
+    wait_until(typo.off_at + SWITCH_CACHE_S + MARGIN_S, **timing)
     ok = sample in ("503", "none listed") and is_paused(mistyped)
     detail = (
         f"503 uploads_paused after {act_s:.0f} s; the sample: {sample}; paused:"
@@ -369,7 +400,8 @@ def check_model_calls(
     clock,
     sleep,
 ) -> tuple[SwitchTime, str]:
-    """S2 (Task 4's default 3)."""
+    """S2 (Task 4's default 3). Each time is a dark upload's round trip to its final
+    report, the log search included."""
     timing = {"offset_s": offset_s, "wall": wall, "clock": clock, "sleep": sleep}
     with switch_on(ssm, "model-calls", clock=clock) as state:
         paused_name, paused, paused_lines, paused_gone = dark_upload(
@@ -468,16 +500,27 @@ def check_publish(
     wall,
     clock,
     sleep,
+    held: PublishState | None = None,
 ) -> tuple[SwitchTime, str]:
     """S3, in spec §4.1's order, with MS7-Q3's default (a): a synthetic pin that exists
-    only while the switch hides it."""
+    only while the switch hides it.
+
+    From just before its put until its delete is confirmed, `held.may_exist` is True,
+    and publish stays on whatever ends the run, a second interrupt included. A failed
+    cleanup writes the hand fix, delete first, and raises PublishCleanupFailed.
+    """
+    held = held if held is not None else PublishState()
     before = pin_reads(http, api_url, feed_url)
     demo = {
         where: {i for i, mode in before[where] if mode == "demo"}
         for where in ("nearby", "map")
     }
     with switch_on(
-        ssm, "publish", keep_on=(PublishCleanupFailed,), clock=clock
+        ssm,
+        "publish",
+        keep_on=(PublishCleanupFailed,),
+        clock=clock,
+        hold=lambda: held.may_exist,
     ) as state:
         read_back = ssm.get_parameter(Name=SWITCH_PREFIX + "publish")["Parameter"][
             "Value"
@@ -488,21 +531,22 @@ def check_publish(
         item = synthetic_item(
             "publish", now_s=int(server_now(offset_s, clock=wall).timestamp())
         )
-        name = record.name(item["reportId"])
+        held.item_name = record.name(item["reportId"])
         key = {"pk": {"S": item["pk"]}, "sk": {"S": item["sk"]}}
-        record.save()  # the id is on disk before the item exists
-        ddb.put_item(
-            TableName=table,
-            Item={k: TypeSerializer().serialize(v) for k, v in item.items()},
-        )
-        written_at = clock()
+        record.save()  # the id is on disk before the item can exist
+        held.may_exist = True
         try:
+            ddb.put_item(
+                TableName=table,
+                Item={k: TypeSerializer().serialize(v) for k, v in item.items()},
+            )
+            written_at = clock()
             wait_until(written_at + FEED_CACHE_S, clock=clock, sleep=sleep)
             during = pin_reads(http, api_url, feed_url)
             own = http.get(f"{api_url}/reports/{item['reportId']}")
             act_s = clock() - state.on_at
-        finally:
-            remove_item(ddb, table, key, record, sleep=sleep)
+        finally:  # a put that applied but raised is deleted too: a missing item's delete is a no-op
+            remove_item(ddb, table, key, record, held=held, sleep=sleep)
     rid = item["reportId"]
     shown = [
         where for where in ("nearby", "map") if rid in {i for i, _ in during[where]}
@@ -513,23 +557,31 @@ def check_publish(
         for where in ("nearby", "map")
         if not demo[where] <= {i for i, _ in during[where]}
     ]
-    release_s = wait_for(
-        lambda: pin_reads(http, api_url, feed_url)["feed"] == before["feed"],
-        timeout_s=RELEASE_TIMEOUT_S,
-        clock=clock,
-        sleep=sleep,
-    )
+    if before["feed"]:
+        release_s = wait_for(
+            lambda: pin_reads(http, api_url, feed_url)["feed"] == before["feed"],
+            timeout_s=RELEASE_TIMEOUT_S,
+            clock=clock,
+            sleep=sleep,
+        )
+        released = f"the feed as before after {release_s:.0f} s"
+    else:
+        release_s, released = (
+            None,
+            "the release not shown (no live pin in the feed before)",
+        )
     ok = not shown and not lost and own.status_code == 200
     detail = (
-        f"{name} hidden {'nowhere: shown in ' + ', '.join(shown) if shown else 'from nearby, the map and the feed'};"
+        f"{held.item_name} hidden {'nowhere: shown in ' + ', '.join(shown) if shown else 'from nearby, the map and the feed'};"
         f" demo pins {'lost from ' + ', '.join(lost) if lost else 'kept'}; its own read"
-        f" HTTP {own.status_code}; deleted and gone; the feed as before after {release_s:.0f} s"
-        + ("" if before["feed"] else " (no live pin in it to show the release)")
+        f" HTTP {own.status_code}; deleted and gone; {released}"
     )
     return SwitchTime("publish", act_s, release_s), result("S3", ok, detail)
 
 
-def remove_item(ddb, table: str, key: dict, record: RunRecord, *, sleep) -> None:
+def remove_item(
+    ddb, table: str, key: dict, record: RunRecord, *, held: PublishState, sleep
+) -> None:
     """Delete the synthetic item, confirm it gone with a consistent read, and give
     feed-index a moment. Any failure writes the hand fix and keeps publish on."""
     try:
@@ -537,25 +589,29 @@ def remove_item(ddb, table: str, key: dict, record: RunRecord, *, sleep) -> None
         if "Item" in ddb.get_item(TableName=table, Key=key, ConsistentRead=True):
             raise CheckFailed("the synthetic item is still there after its delete")
         sleep(INDEX_WAIT_S)
+        held.may_exist = False
     except BaseException as exc:  # noqa: BLE001 - any failure, an interrupt too, keeps publish on
-        steps = [
-            "# MS7's switch test left its synthetic item, so publish is still on. In order:",
-            f"aws dynamodb delete-item --table-name {table} --key '{_json(key)}' {CLI}",
-            hand_command("publish"),
-        ]
-        path = write_hand_fix(record, steps)
+        # The key in its own file: PowerShell 5.1 strips the quotes of inline JSON.
+        key_file = private_file(record, "hand-fix", "-key.json", json.dumps(key))
+        held.hand_fix = write_hand_fix(
+            record,
+            [
+                "# MS7's switch test left its synthetic item, so publish is still on.",
+                "# In order: delete the item, check that the read finds no Item, then set publish off.",
+                f"aws dynamodb delete-item --table-name {table} --key file://{key_file} {CLI}",
+                f"aws dynamodb get-item --table-name {table} --key file://{key_file} --consistent-read {CLI}",
+                hand_command("publish"),
+            ],
+        )
         say(
-            f"PUBLISH LEFT ON, the synthetic item may remain ({failure_name(exc)}). Hand fix: {path}"
+            f"PUBLISH KEPT ON ON PURPOSE: the synthetic item may remain ({failure_name(exc)}). Hand fix: {held.hand_fix}"
         )
         raise PublishCleanupFailed(failure_name(exc)) from None
 
 
-def _json(value: dict) -> str:
-    return json.dumps(value, separators=(",", ":"))
-
-
 def times_table(times: list[SwitchTime], *, when: str, run: str) -> str:
-    """Spec §4.1's switch times, one Markdown row per switch, seconds rounded up (C830)."""
+    """Spec §4.1's switch times, one Markdown row per switch, seconds rounded up (C830),
+    and a line saying what each cell measures."""
     rows = [
         "| Switch | On: effect after | Off: back after | Measured |",
         "|---|---|---|---|",
@@ -564,9 +620,18 @@ def times_table(times: list[SwitchTime], *, when: str, run: str) -> str:
         act = f"{math.ceil(t.act_s)} s"
         if t.name == "publish":
             act += ", the feed's 60 s cache included"
-        rows.append(
-            f"| `{t.name}` | {act} | {math.ceil(t.release_s)} s | {when}, {run} |"
+        back = (
+            "not shown (no live pin)"
+            if t.release_s is None
+            else f"{math.ceil(t.release_s)} s"
         )
+        rows.append(f"| `{t.name}` | {act} | {back} | {when}, {run} |")
+    rows.append(
+        "\nEach time runs from the put's return. uploads: until POST /uploads gives 503, and"
+        " 201 again; model-calls: a dark JPEG's round trip to its final report, the log"
+        " search included; publish: until the reads show the synthetic pin hidden, both"
+        " caches' waits included, and until the feed shows its live pins again."
+    )
     return "\n".join(rows)
 
 
@@ -622,11 +687,16 @@ def main(
         client = http if http is not None else ipv4_client()
         times: list[SwitchTime] = []
         lines: list[str] = []
+        held = PublishState()
         code = 0
         try:
             stack = load_stack(aws)
             api_url, feed_url = api_urls(aws)
             offset = server_offset(client, api_url, clock=wall)
+            if abs(offset) > MAX_OFFSET_S:  # the synthetic item's times come from it
+                raise CheckFailed(
+                    f"the server's clock is {offset:+.0f} s from the laptop's"
+                )
             timing = {"offset_s": offset, "wall": wall, "clock": clock, "sleep": sleep}
             record.name(
                 confirm_private(
@@ -657,6 +727,7 @@ def main(
                         aws.client("dynamodb"),
                         stack.output("TableName"),
                         record,
+                        held=held,
                         **timing,
                     ),
                 ),
@@ -666,7 +737,16 @@ def main(
                 lines.append(line)
                 if timed is not None:
                     times.append(timed)
-        except (CheckFailed, PublishCleanupFailed) as exc:
+        except PublishCleanupFailed:
+            line = result(
+                "S3",
+                False,
+                f"{held.item_name}'s delete wasn't confirmed; publish kept on",
+            )
+            say(line)
+            lines.append(line)
+            code = 1
+        except CheckFailed as exc:
             say(f"SWITCH TEST FAILED: {exc}")
             code = 1
         finally:
@@ -679,9 +759,22 @@ def main(
                 if value != "off"
             }
             for name, value in left.items():
-                say(
-                    f"STOP SWITCH LEFT ON: {name} reads {value!r}. Set it back by hand: {hand_command(name)}"
-                )
+                if name == "publish" and held.may_exist:
+                    follow = (
+                        f"follow the hand fix, in order: {held.hand_fix}"
+                        if held.hand_fix
+                        else (
+                            f"its id is in the run record {record.path.name}: delete the item,"
+                            " confirm it gone with a consistent read, then set publish off"
+                        )
+                    )
+                    say(
+                        f"PUBLISH KEPT ON ON PURPOSE: the synthetic item {held.item_name} may remain; {follow}"
+                    )
+                else:
+                    say(
+                        f"STOP SWITCH LEFT ON: {name} reads {value!r}. Set it back by hand: {hand_command(name)}"
+                    )
         if times:
             say(times_table(times, when=f"{today:%Y-%m-%d}", run=args.run))
         failed = sum(" FAIL: " in line for line in lines)

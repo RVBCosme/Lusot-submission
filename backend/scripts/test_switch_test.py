@@ -3,9 +3,10 @@
 Fakes only. FakeStack is the deployed stack in memory: botocore's Stubber answers every
 AWS call (SSM, DynamoDB, CloudFormation, CloudWatch Logs and S3), each answer queued by
 StubSession's hook just before its call from the fake's state, and httpx's
-MockTransport answers the app's API, the feed's API and S3. The API sees a switch 30 s
-after its put, as its slowest container would; the analysis handler sees model-calls
-at once. Nothing reaches AWS, the API or Meta, and no folder named sealed is made.
+MockTransport answers the app's API, the feed's API and S3. Each route sees a switch a
+set delay after its put lands, 30 s by default, as the API's slowest container would;
+the analysis handler sees model-calls at once. A put can take time, and lands when it
+returns. Nothing reaches AWS, the API or Meta, and no folder named sealed is made.
 
 check:py runs this file with the scripts' dependencies. Alone, from the repo root:
     uv run --python 3.13 --with pytest --with boto3 --with httpx --with numpy
@@ -16,6 +17,7 @@ import json
 import math
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import harden
 import httpx
@@ -33,6 +35,11 @@ START = datetime(2026, 11, 3, 2, 15, tzinfo=UTC).timestamp()  # 10:15 AM in Mani
 SERVICES = ("ssm", "dynamodb", "cloudformation", "logs", "s3")
 DEMO_ID, LIVE_ID = report_ids(2, seed=9)
 SAMPLE_ID = "s0123456789"
+READS = (
+    "GET api.test.invalid/reports",
+    "GET api.test.invalid/map/pins",
+    "GET feed.test.invalid/pins.geojson",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +56,7 @@ def pin(rid: str, mode: str) -> dict:
 
 
 class FakeStack:
-    """The stack in memory, on the laptop's fake clock (no skew)."""
+    """The stack in memory, on the laptop's fake clock (no skew unless `skew_s`)."""
 
     def __init__(self, clock: Clock, *, seed: int = 0):
         self.clock = clock
@@ -57,17 +64,37 @@ class FakeStack:
         self.made: list[str] = []
         self.switches = {name: [(-math.inf, "off")] for name in harden.SWITCHES}
         self.table: dict[str, dict] = {}  # the synthetic items, by report id
+        self.ever: dict[str, dict] = {}  # every item written, for a stale read
         self.reports: dict[str, dict] = {}  # reports the API made
         self.lines: dict[str, list[dict]] = {}  # the analysis log, by report id
         self.timeline: list[tuple[float, str, object]] = []
         self.devices: list[str | None] = []  # each POST /uploads' device id
         self.files: list[bytes] = []  # each S3 post's file
+        # How long after a put each reader sees the switch.
+        self.delays = {
+            "uploads": 30.0,
+            "samples": 30.0,
+            "ask": 30.0,
+            "pins": 30.0,
+            "handler": 0.0,
+        }
+        self.put_latency_s = (
+            0.0  # each put_parameter takes this long, and lands as it returns
+        )
+        self.skew_s = 0.0  # the server's Date header, ahead of the laptop
         self.leak: set[str] = set()  # reads that show the synthetic pin anyway
         self.lose_demo: set[str] = (
             set()
         )  # reads that drop the demo pin while publish is on
         self.own_read_status = 200
         self.delete_fails = False
+        self.put_item_raises = False  # the item is stored, and the call raises anyway
+        self.raw_present = False  # head_object finds every raw photo
+        self.ask_model = False  # POST /ask answers from the model whatever the switch
+        self.read_back: str | None = None  # get_parameter's value for publish, if set
+        self.final_on: str | None = (
+            None  # the end's get_parameters reads this one as on
+        )
         self.off_put_fails: set[str] = set()  # switches whose "off" put fails
         self.raise_in_read: BaseException | None = None  # once publish is on
         self.session = StubSession(*SERVICES, on_call=self.on_aws)
@@ -77,54 +104,65 @@ class FakeStack:
         seen = self.clock() - delay_s
         return [value for at, value in self.switches[name] if at <= seen][-1]
 
-    def api_stopped(self, name: str) -> bool:
-        return self.value(name, harden.SWITCH_CACHE_S) != "off"
+    def stopped(self, name: str, reader: str) -> bool:
+        return self.value(name, self.delays[reader]) != "off"
 
     # AWS, answered by Stubber with what the fake holds.
     def on_aws(self, service: str, operation: str, params: dict) -> None:
-        now = self.clock()
-        self.timeline.append((now, f"{service}.{operation}", params))
+        self.timeline.append((self.clock(), f"{service}.{operation}", params))
         stub = self.session.stubs[service]
         if operation == "PutParameter":
             name = params["Name"].removeprefix(harden.SWITCH_PREFIX)
+            self.clock.now += self.put_latency_s  # it lands as it returns
             if params["Value"] == "off" and name in self.off_put_fails:
                 stub.add_client_error(
                     "put_parameter", "InternalServerError", http_status_code=500
                 )
                 return
-            self.switches[name].append((now, params["Value"]))
+            self.switches[name].append((self.clock(), params["Value"]))
             stub.add_response("put_parameter", {"Version": len(self.switches[name])})
         elif operation == "GetParameter":
             name = params["Name"].removeprefix(harden.SWITCH_PREFIX)
-            stub.add_response("get_parameter", {"Parameter": self.parameter(name)})
+            found = self.parameter(name)
+            if name == "publish" and self.read_back is not None:
+                found["Value"] = self.read_back
+            stub.add_response("get_parameter", {"Parameter": found})
         elif operation == "GetParameters":
             found = [
                 self.parameter(n.removeprefix(harden.SWITCH_PREFIX))
                 for n in params["Names"]
             ]
+            for entry in found:
+                if entry["Name"].endswith("/" + str(self.final_on)):
+                    entry["Value"] = "on"
             stub.add_response("get_parameters", {"Parameters": found})
         elif operation == "PutItem":
             item = {
                 k: TypeDeserializer().deserialize(v) for k, v in params["Item"].items()
             }
-            self.table[item["reportId"]] = item
-            stub.add_response("put_item", {})
+            self.table[item["reportId"]] = self.ever[item["reportId"]] = item
+            if self.put_item_raises:
+                stub.add_client_error(
+                    "put_item", "InternalServerError", http_status_code=500
+                )
+            else:
+                stub.add_response("put_item", {})
         elif operation == "DeleteItem":
             if self.delete_fails:
                 stub.add_client_error(
                     "delete_item", "InternalServerError", http_status_code=500
                 )
                 return
+            key = (params["Key"]["pk"]["S"], params["Key"]["sk"]["S"])
             self.table = {
-                rid: item
-                for rid, item in self.table.items()
-                if (item["pk"], item["sk"])
-                != (params["Key"]["pk"]["S"], params["Key"]["sk"]["S"])
+                r: i for r, i in self.table.items() if (i["pk"], i["sk"]) != key
             }
             stub.add_response("delete_item", {})
         elif operation == "GetItem":
             key = (params["Key"]["pk"]["S"], params["Key"]["sk"]["S"])
-            found = [i for i in self.table.values() if (i["pk"], i["sk"]) == key]
+            # Only a consistent read is sure to see the delete; any other may be stale.
+            held = self.table if params.get("ConsistentRead") is True else self.ever
+            found = [i for i in held.values() if (i["pk"], i["sk"]) == key]
             typed = (
                 {k: TypeSerializer().serialize(v) for k, v in found[0].items()}
                 if found
@@ -173,9 +211,12 @@ class FakeStack:
             ]
             stub.add_response("filter_log_events", {"events": events})
         elif operation == "HeadObject":
-            stub.add_client_error(
-                "head_object", service_error_code="404", http_status_code=404
-            )
+            if self.raw_present:
+                stub.add_response("head_object", {"ContentLength": 10})
+            else:
+                stub.add_client_error(
+                    "head_object", service_error_code="404", http_status_code=404
+                )
         else:
             raise AssertionError(
                 f"an AWS call the fake doesn't answer: {service}.{operation}"
@@ -191,12 +232,10 @@ class FakeStack:
 
     # HTTP: the app's API, the feed's API and S3.
     def answer(self, status: int, body: object = None) -> httpx.Response:
-        headers = {"Date": http_date(self.clock())}
-        return (
-            httpx.Response(status, json=body, headers=headers)
-            if body is not None
-            else httpx.Response(status, headers=headers)
-        )
+        headers = {"Date": http_date(self.clock() + self.skew_s)}
+        if body is None:
+            return httpx.Response(status, headers=headers)
+        return httpx.Response(status, json=body, headers=headers)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         request.read()
@@ -206,13 +245,9 @@ class FakeStack:
         )
         if url.startswith(S3_URL):
             return self.s3_post(request)
-        publish_on = self.api_stopped("publish")
-        if (
-            publish_on
-            and self.raise_in_read is not None
-            and method == "GET"
-            and path in ("/reports", "/map/pins", "/pins.geojson")
-        ):
+        publish_on = self.stopped("publish", "pins")
+        reading = method == "GET" and path in ("/reports", "/map/pins", "/pins.geojson")
+        if publish_on and self.raise_in_read is not None and reading:
             raise self.raise_in_read
         if request.url.host == "feed.test.invalid" and path == "/pins.geojson":
             shown = [] if publish_on else [LIVE_ID]
@@ -226,7 +261,7 @@ class FakeStack:
             return self.answer(204)
         if method == "POST" and path == "/uploads":
             self.devices.append(request.headers.get("X-Lusot-Device"))
-            if self.api_stopped("uploads"):
+            if self.stopped("uploads", "uploads"):
                 return self.answer(503, {"error": "uploads_paused"})
             rid = self.new_report()
             form = {
@@ -242,11 +277,11 @@ class FakeStack:
                 {"samples": [{"sampleId": SAMPLE_ID, "credit": "c", "license": "CC0"}]},
             )
         if method == "POST" and path.startswith("/samples/"):
-            if self.api_stopped("uploads"):
+            if self.stopped("uploads", "samples"):
                 return self.answer(503, {"error": "uploads_paused"})
             return self.answer(201, {"reportId": self.new_report()})
         if method == "POST" and path == "/ask":
-            paused = self.api_stopped("model-calls")
+            paused = self.stopped("model-calls", "ask") and not self.ask_model
             answer = {
                 "source": "plain_list" if paused else "model",
                 "fallback": "model_calls_paused" if paused else None,
@@ -293,8 +328,7 @@ class FakeStack:
         body = request.content
         self.files.append(body)
         rid = re.search(rb"raw/(r_[0-9a-f]{32})\.jpg", body).group(1).decode()
-        # The handler reads model-calls on every delivery: the value now.
-        if self.value("model-calls", 0) != "off":
+        if self.stopped("model-calls", "handler"):
             self.reports[rid] = {
                 "status": "failed",
                 "refusalReason": "model_calls_paused",
@@ -326,12 +360,8 @@ class FakeStack:
         ]
 
     def puts(self, name: str) -> list[tuple[float, str]]:
-        return [
-            (at, detail["Value"])
-            for at, what, detail in self.timeline
-            if what == "ssm.PutParameter"
-            and detail["Name"] == harden.SWITCH_PREFIX + name
-        ]
+        """Each put of a switch: when it returned, and its value."""
+        return [(at, value) for at, value in self.switches[name][1:]]
 
 
 def world(seed: int = 0):
@@ -349,7 +379,7 @@ def stack_of(fake):
     return load_stack(fake.session)
 
 
-def publish(fake, clock, record):
+def publish(fake, clock, record, held=None):
     return switch_test.check_publish(
         fake.client(),
         API,
@@ -362,6 +392,7 @@ def publish(fake, clock, record):
         wall=clock,
         clock=clock.mono,
         sleep=clock.sleep,
+        held=held,
     )
 
 
@@ -429,25 +460,22 @@ def test_reset_failure_prints_the_hand_command(capsys):
 
 
 def test_item_written_only_after_switch_cache():
+    # Review Focus 1: a put that takes 20 s lands as it returns, so the cache counts from then.
     clock, fake, record = world()
-    (time_, line) = publish(fake, clock, record)
+    fake.put_latency_s = 20.0
+    time_, line = publish(fake, clock, record)
     assert line.startswith("S3 pass"), line
-    [(on_at, _), (_off_at, off)] = fake.puts("publish")
+    [(on_returned, _), (_off_returned, off)] = fake.puts("publish")
     [put_at] = fake.when("dynamodb.PutItem")
     [read_back] = fake.when("ssm.GetParameter", lambda p: p["Name"].endswith("publish"))
-    assert on_at <= read_back <= put_at and off == "off"
-    assert put_at >= on_at + harden.SWITCH_CACHE_S + 5
+    assert on_returned <= read_back <= put_at and off == "off"
+    assert put_at >= on_returned + harden.SWITCH_CACHE_S + 5
     assert time_.name == "publish" and time_.act_s > 0 and time_.release_s >= 0
 
 
 def test_publish_item_is_deleted_before_the_switch_goes_off():
     clock, fake, record = world()
     publish(fake, clock, record)
-    reads = (
-        "GET api.test.invalid/reports",
-        "GET api.test.invalid/map/pins",
-        "GET feed.test.invalid/pins.geojson",
-    )
     order = [name for _, name, _ in fake.timeline]
     on = order.index("ssm.PutParameter")
     read_back = order.index("ssm.GetParameter")
@@ -456,7 +484,11 @@ def test_publish_item_is_deleted_before_the_switch_goes_off():
     get = order.index("dynamodb.GetItem")
     off = len(order) - 1 - order[::-1].index("ssm.PutParameter")
     assert on < read_back < put < delete < get < off
-    assert any(name in reads for name in order[put:delete])  # the reads, in between
+    assert any(name in READS for name in order[put:delete])  # the reads, in between
+    [(_, get_params)] = [
+        (at, p) for at, name, p in fake.timeline if name == "dynamodb.GetItem"
+    ]
+    assert get_params["ConsistentRead"] is True
     assert fake.table == {}
 
 
@@ -464,25 +496,23 @@ def test_s3_waits_for_both_caches():
     clock, fake, record = world()
     publish(fake, clock, record)
     [put_at] = fake.when("dynamodb.PutItem")
-    reads = [
-        at
-        for at, name, _ in fake.timeline
-        if at > put_at
-        and name
-        in (
-            "GET api.test.invalid/reports",
-            "GET api.test.invalid/map/pins",
-            "GET feed.test.invalid/pins.geojson",
-        )
-    ]
+    reads = [at for at, name, _ in fake.timeline if at > put_at and name in READS]
     assert reads and min(reads) >= put_at + harden.FEED_CACHE_S
 
 
-@pytest.mark.parametrize("raised", [httpx.ConnectError("dropped"), KeyboardInterrupt()])
-def test_item_deleted_before_off_when_a_read_raises(raised):
+@pytest.mark.parametrize(
+    "fault",
+    ["connect_error", "interrupt", "put_applied_then_raised"],
+)
+def test_item_deleted_before_off_when_a_read_raises(fault):
     clock, fake, record = world()
-    fake.raise_in_read = raised
-    with pytest.raises((type(raised), CheckFailed)):
+    if fault == "connect_error":
+        fake.raise_in_read = httpx.ConnectError("dropped")
+    elif fault == "interrupt":
+        fake.raise_in_read = KeyboardInterrupt()
+    else:
+        fake.put_item_raises = True  # the write landed, and the call raised anyway
+    with pytest.raises((httpx.ConnectError, KeyboardInterrupt, ClientError)):
         publish(fake, clock, record)
     [delete_at] = fake.when("dynamodb.DeleteItem")
     [(_, _), (off_at, off)] = fake.puts("publish")
@@ -493,32 +523,45 @@ def test_item_deleted_before_off_when_a_read_raises(raised):
 def test_failed_delete_keeps_publish_on(capsys):
     clock, fake, record = world()
     fake.delete_fails = True
+    held = switch_test.PublishState()
     with pytest.raises(switch_test.PublishCleanupFailed):
-        publish(fake, clock, record)
+        publish(fake, clock, record, held=held)
     assert [value for _, value in fake.puts("publish")] == ["on"]  # no "off" put
+    assert held.may_exist and held.hand_fix is not None
     out = capsys.readouterr().out
-    [path_text] = re.findall(r"\S*hand-fix-\S*\.txt", out)
+    assert str(held.hand_fix) in out
     assert "r_" not in out and "<report>" not in out
-    fix = (
-        harden.data_dir() / "ms7" / "2026-11-03" / path_text.rsplit("/", 1)[-1]
-    ).read_text()
+    fix = held.hand_fix.read_text()
     [rid] = list(fake.table)
-    assert "aws dynamodb delete-item" in fix and rid in fix
+    assert "aws dynamodb delete-item" in fix and "--consistent-read" in fix
+    assert fix.index("delete-item") < fix.index("get-item") < fix.index("put-parameter")
     assert "aws ssm put-parameter --name /lusot/stop/publish --value off" in fix
-    assert fix.index("delete-item") < fix.index("put-parameter")
+    # The key sits in its own file, which PowerShell 5.1 can't strip of its quotes.
+    [key_file] = re.findall(r"file://(\S+)", fix)[:1]
+    assert rid in Path(key_file).read_text() and rid not in fix
+
+
+def test_failed_delete_through_main_points_to_the_hand_fix(capsys):
+    clock, fake, _ = world()
+    fake.delete_fails = True
+    assert run_main(["--yes"], fake, clock) == 1
+    out = capsys.readouterr().out
+    assert "S3 FAIL" in out
+    assert "PUBLISH KEPT ON ON PURPOSE" in out and "hand-fix-" in out
+    # Never the bare command to set publish off, which would show the item.
+    assert "/lusot/stop/publish --value off" not in out
+    assert [value for _, value in fake.puts("publish")] == ["on"]
 
 
 def test_no_paid_request_before_the_cache_expires():
+    # One container stops uploads at once while another still runs samples for 30 s.
     clock, fake, record = world()
-    uploads(fake, clock, record)
+    fake.delays["uploads"] = 0.0
+    _, line = uploads(fake, clock, record)
+    assert line.startswith("S1 pass"), line
     [(on_at, _), *_] = fake.puts("uploads")
     samples = fake.when("POST api.test.invalid/samples/" + SAMPLE_ID)
-    first_503 = min(
-        at
-        for at, name, request in fake.timeline
-        if name == "POST api.test.invalid/uploads"
-        and at >= on_at + harden.SWITCH_CACHE_S
-    )
+    first_503 = min(fake.when("POST api.test.invalid/uploads", lambda r: r is not None))
     assert len(samples) == 1 and samples[0] >= first_503
     assert samples[0] >= on_at + harden.SWITCH_CACHE_S
     # S2: one question, once the cache has passed; with --no-ask, none.
@@ -538,6 +581,28 @@ def test_s1_uses_a_fresh_device_per_probe():
     assert line.startswith("S1 pass"), line
     assert len(fake.devices) >= 3 and len(set(fake.devices)) == len(fake.devices)
     assert fake.files == []  # no photo went
+    # A sample that still runs fails S1.
+    clock, fake, record = world()
+    fake.delays["samples"] = math.inf
+    _, line = uploads(fake, clock, record)
+    assert line.startswith("S1 FAIL"), line
+
+
+def test_s1_ends_once_every_container_serves_again():
+    # The probes' container serves at once, so only the cache wait keeps S2 from
+    # meeting another container that still holds the switch.
+    clock, fake, record = world()
+    fake.delays["uploads"] = 0.0
+    uploads(fake, clock, record)
+    model_calls(fake, clock, record)
+    [*_, (last_off, off)] = fake.puts("uploads")
+    [(s2_on, _), *_] = fake.puts("model-calls")
+    s2_first = min(
+        at for at in fake.when("POST api.test.invalid/uploads") if at >= s2_on
+    )
+    assert (
+        off == "off" and s2_on >= last_off + harden.SWITCH_CACHE_S and s2_first >= s2_on
+    )
 
 
 def test_s2_uses_dark_jpegs():
@@ -553,21 +618,53 @@ def test_s2_uses_dark_jpegs():
     )
     assert fake.when("s3.HeadObject")  # its raw photo was looked for, and is gone
     assert time_.name == "model-calls"
-    # A paused line that shows Meta calls fails it.
+
+
+@pytest.mark.parametrize(
+    "fault", ["paying", "raw_left", "handler_late", "model_answers", "wrong_release"]
+)
+def test_s2_fails_on_each_part(fault):
     clock, fake, record = world()
-    original = fake.s3_post
+    if (
+        fault == "wrong_release"
+    ):  # the release's photo ends otherwise, with no Meta call
+        original = fake.s3_post
 
-    def paying(request):
-        response = original(request)
-        for lines in fake.lines.values():
-            for entry in lines:
-                if entry["outcome"] == "failed/model_calls_paused":
-                    entry["meta_calls"] = 3
-        return response
+        def other(request):
+            response = original(request)
+            for rid, report in fake.reports.items():
+                if report.get("refusalReason") == "too_dark":
+                    report["refusalReason"] = "too_blurry"
+                    fake.lines[rid] = [
+                        {
+                            "reportId": rid,
+                            "outcome": "refused/too_blurry",
+                            "meta_calls": 0,
+                        }
+                    ]
+            return response
 
-    fake.s3_post = paying
+        fake.s3_post = other
+    if fault == "paying":  # a paused line that shows Meta calls
+        original = fake.s3_post
+
+        def paying(request):
+            response = original(request)
+            for lines in fake.lines.values():
+                for entry in lines:
+                    if entry["outcome"] == "failed/model_calls_paused":
+                        entry["meta_calls"] = 3
+            return response
+
+        fake.s3_post = paying
+    elif fault == "raw_left":
+        fake.raw_present = True
+    elif fault == "handler_late":  # the release's photo is still paused
+        fake.delays["handler"] = 3600.0
+    elif fault == "model_answers":
+        fake.ask_model = True
     _, line = model_calls(fake, clock, record)
-    assert line.startswith("S2 FAIL")
+    assert line.startswith("S2 FAIL"), (fault, line)
 
 
 @pytest.mark.parametrize(
@@ -595,6 +692,15 @@ def test_s3_checks_demo_pins_and_the_own_read(change):
     assert fake.when("GET feed.test.invalid/pins.geojson")
 
 
+def test_s3_stops_unless_publish_reads_back_on():
+    clock, fake, record = world()
+    fake.read_back = "off"
+    with pytest.raises(CheckFailed, match="read back"):
+        publish(fake, clock, record)
+    assert fake.when("dynamodb.PutItem") == []  # no item went
+    assert [value for _, value in fake.puts("publish")] == ["on", "off"]
+
+
 def test_mistyped_value_also_stops_uploads():
     clock, fake, record = world()
     _, line = uploads(fake, clock, record)
@@ -611,8 +717,10 @@ def test_mistyped_value_also_stops_uploads():
     assert "paused: 503" in line
     # A paused value the API ignored fails S1.
     clock, fake, record = world()
-    original = fake.api_stopped
-    fake.api_stopped = lambda name: original(name) and fake.value(name, 30) != "paused"
+    original = fake.stopped
+    fake.stopped = lambda name, reader: (
+        original(name, reader) and fake.value(name, 30) != "paused"
+    )
     _, line = uploads(fake, clock, record)
     assert line.startswith("S1 FAIL")
 
@@ -656,12 +764,29 @@ def test_run_ends_with_all_switches_off(capsys):
     ordinals, _ = harden.load_records([harden.data_dir() / "ms7" / "2026-11-03"])
     assert set(fake.made) <= set(ordinals.values())
     assert "| `publish` |" in printed  # the times table
-    # A switch left on at the end fails the run.
+    # A switch that reads on at the end fails the run, though every check passed.
     clock, fake, _ = world(seed=1)
+    fake.final_on = "uploads"
+    assert run_main(["--yes"], fake, clock) == 1
+    out = capsys.readouterr().out
+    assert "S1 pass" in out and "S2 pass" in out and "S3 pass" in out
+    assert "STOP SWITCH LEFT ON: uploads" in out
+    # A reset that fails leaves it on too.
+    clock, fake, _ = world(seed=2)
     fake.off_put_fails = {"model-calls"}
     assert run_main(["--yes"], fake, clock) == 1
     out = capsys.readouterr().out
     assert "STOP SWITCH LEFT ON" in out and "model-calls" in out
+
+
+def test_a_server_clock_far_off_stops_the_run(capsys):
+    clock, fake, _ = world()
+    fake.skew_s = 400.0
+    assert run_main(["--yes"], fake, clock) == 1
+    assert "+400 s" in capsys.readouterr().out
+    assert (
+        fake.puts("uploads") == [] and fake.puts("publish") == []
+    )  # no switch was set
 
 
 def test_without_yes_nothing_is_sent(capsys):
@@ -686,4 +811,13 @@ def test_times_table_is_quotable():
         table[4]
         == "| `publish` | 97 s, the feed's 60 s cache included | 33 s | 2026-11-03, rehearsal |"
     )
-    assert len(table) == 5
+    assert table[5] == "" and table[6].startswith(
+        "Each time runs from the put's return."
+    )
+    # A release that couldn't show says so.
+    none = [switch_test.SwitchTime("publish", 96.3, None)]
+    row = switch_test.times_table(none, when="2026-11-03", run="record").splitlines()[2]
+    assert (
+        row
+        == "| `publish` | 97 s, the feed's 60 s cache included | not shown (no live pin) | 2026-11-03, record |"
+    )
