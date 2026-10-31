@@ -1,6 +1,7 @@
 // `npm run deploy:web`: puts the web app on the stack's web bucket, behind CloudFront (MS5 Task 19, C622). The stack
 // must already hold the web resources, so `npm run deploy` comes first. In order, it:
-// 1. reads the stack name from the git-ignored backend/samconfig.toml, then the stack's outputs
+// 1. reads the stack name from the git-ignored backend/samconfig.toml, and stops unless it sets WebHosting=on (with it
+//    off the stack has no web resources); then reads the stack's outputs
 // 2. builds the app with VITE_API_URL set to the stack's ApiUrl, through the app's build script, so prebuild writes
 //    licences.txt and the bundle check runs. Vite reads VITE_PRIVACY_CONTACT from the git-ignored app/.env.local
 //    itself (an environment variable already set wins over the file), so this script never reads the contact.
@@ -17,6 +18,7 @@ import { spawn } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { webHosting } from "./deploy.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const AWS_FLAGS = ["--region", "ap-southeast-1", "--profile", "lusot", "--no-cli-pager"];
@@ -77,6 +79,12 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
     }
     const stack = /^\s*stack_name\s*=\s*"([^"]+)"/m.exec(samconfig)?.[1];
     if (!stack) throw new Stop("backend/samconfig.toml has no stack_name");
+    if (webHosting(samconfig) !== "on") {
+      throw new Stop(
+        "WebHosting isn't on in backend/samconfig.toml, so the stack has no website: set WebHosting=on, " +
+          "run npm run deploy, then deploy:web",
+      );
+    }
 
     const read = await step(
       "reading the stack's outputs",
