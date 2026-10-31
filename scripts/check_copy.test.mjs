@@ -295,3 +295,50 @@ test("importing the module runs no check", () => {
   assert.equal(run.status, 0, run.stderr);
   assert.equal(run.stdout, "");
 });
+
+// After Task 9's review.
+
+test("a level line is caught in the tables' {level} templates, in both languages", () => {
+  assert.deepEqual(ids(hitsOf("app/src/i18n/en.ts", "const a = { k: '{level} deep (MMDA level).' }\n").fails), ["level-line"]);
+  assert.deepEqual(ids(hitsOf("app/src/i18n/fil.ts", "const a = { k: '{level} ang lalim (MMDA level).' }\n").fails), ["level-line"]);
+  assert.deepEqual(hitsOf("app/src/i18n/fil.ts", "const a = { k: '{level} ang lalim sa spot na ito (MMDA level).' }\n").fails, []);
+  for (const file of ["app/src/i18n/en.ts", "app/src/i18n/fil.ts"]) {
+    const { fails } = hitsOf(file, readFileSync(join(REPO, file), "utf8"));
+    assert.deepEqual(fails, [], file);
+  }
+});
+
+test("a review hit names the word it matched, even after an allowed sentence", () => {
+  const line = "I can't tell you whether to cross or go through. The water at España is knee level, and the road beyond it is dangerous.";
+  const { reviews } = hitsOf("notes.md", `${line}\n`);
+  assert.deepEqual(
+    reviews.map((h) => [h.rule, h.match]),
+    [
+      ["whole-road", "road"],
+      ["claim-danger", "dangerous"],
+    ],
+  );
+});
+
+test("JSON with Windows line ends keeps its keys out and its values in", () => {
+  const json = '{\r\n  "a": "x",\r\n  "c":\r\n    "you can cross"\r\n}\r\n';
+  const units = textUnits("words.json", json);
+  assert.deepEqual(
+    units.map((u) => [u.line, u.text]),
+    [
+      [2, "x"],
+      [4, "you can cross"],
+    ],
+  );
+  assert.deepEqual(ids(findHits(units, rules).fails), ["crossing-phrase"]);
+});
+
+test("an answers record with no answer text is refused, so --answers can't pass on nothing", () => {
+  assert.throws(() => textUnits("a.jsonl", `${JSON.stringify({ id: "T1", answer: { text: "It is safe" } })}\n`), /a\.jsonl:1: no answer text/);
+  const { code, out } = cli(
+    { "answers.jsonl": `${JSON.stringify({ id: "T1", answer: {} })}\n`, "copy.md": "Plain.\n" },
+    () => ["--answers", "answers.jsonl", "copy.md"],
+  );
+  assert.equal(code, 2, out);
+  assert.match(out, /no answer text/);
+});

@@ -61,7 +61,7 @@ export function loadRules(path = RULES_PATH) {
     review,
     required: raw.required,
     levelLine: {
-      re: new RegExp(`\\b(${lv.levels.map(escapeRe).join("|")})[\\s-]+deep\\b`, "i"),
+      re: new RegExp(`(?:\\b(?:${lv.levels.map(escapeRe).join("|")})|\\{level\\})[\\s-]+(?:deep|ang lalim)\\b`, "i"),
       mustInclude: lv.mustInclude.map((s) => s.toLowerCase()),
       only: (lv.reviewOnlyIn ?? []).map(globRe),
     },
@@ -272,7 +272,9 @@ function pyLiterals(s) {
 function jsonValues(s) {
   const out = [];
   for (const m of s.matchAll(/"(?:[^"\\\n]|\\.)*"/g)) {
-    if (nextSolid(s.replace(/\r?\n/g, " "), m.index + m[0].length) === ":") continue;
+    let j = m.index + m[0].length;
+    while (j < s.length && /\s/.test(s[j])) j++;
+    if (s[j] === ":") continue;
     out.push({ offset: m.index, text: JSON.parse(m[0]) });
   }
   return out;
@@ -293,6 +295,9 @@ export function textUnits(file, content, rules = defaultRules()) {
         record = JSON.parse(line);
       } catch {
         throw new Error(`${name}:${n + 1}: not a JSON line`);
+      }
+      if (!rules.answers.fields.some((f) => typeof pick(record, f) === "string")) {
+        throw new Error(`${name}:${n + 1}: no answer text (${rules.answers.fields.join(", ")})`);
       }
       for (const [fields, reviewOnly] of [
         [rules.answers.fields, false],
@@ -334,7 +339,7 @@ const inAny = (file, globs) => globs.some((g) => g.test(file));
 
 function withoutAllowed(text, allowed) {
   let out = text;
-  for (const phrase of allowed) out = out.split(phrase).join(" ");
+  for (const phrase of allowed) out = out.split(phrase).join(" ".repeat(phrase.length));
   return out;
 }
 
