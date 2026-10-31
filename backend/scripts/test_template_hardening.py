@@ -54,28 +54,28 @@ def test_bucket_refuses_plain_http():
     assert "Condition" not in policy
     p = policy["Properties"]
     assert p["Bucket"] == {"Ref": "UploadBucket"}
-    statements = as_list(p["PolicyDocument"]["Statement"])
-    assert all(s["Effect"] == "Deny" for s in statements)
-    tls = [
-        s
-        for s in statements
-        if s.get("Condition") == {"Bool": {"aws:SecureTransport": "false"}}
-    ]
-    assert len(tls) == 1
-    (deny,) = tls
-    assert deny["Principal"] in ("*", {"AWS": "*"})
-    assert as_list(deny["Action"]) == ["s3:*"]
-    assert sorted(as_list(deny["Resource"]), key=str) == sorted(
-        [
-            {"Fn::GetAtt": ["UploadBucket", "Arn"]},
-            {"Fn::Sub": "${UploadBucket.Arn}/*"},
+    # This one statement and no other, so no stray Deny can lock the app out.
+    assert p["PolicyDocument"] == {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "DenyPlainHttp",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:*",
+                "Resource": [
+                    {"Fn::GetAtt": ["UploadBucket", "Arn"]},
+                    {"Fn::Sub": "${UploadBucket.Arn}/*"},
+                ],
+                "Condition": {"Bool": {"aws:SecureTransport": "false"}},
+            }
         ],
-        key=str,
-    )
+    }
 
 
 def test_region_is_asserted():
-    """D-d: a deploy anywhere but Singapore stops before it creates anything."""
+    """D-d: a deploy anywhere but Singapore fails at the change set, before the stack
+    changes. SAM's companion stack and its uploads come earlier, so they can still land."""
     rules = T.get("Rules", {})
     asserted = [
         rule

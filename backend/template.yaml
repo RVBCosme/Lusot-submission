@@ -29,8 +29,9 @@ Parameters:
 Conditions:
   HasWeb: !Equals [!Ref WebHosting, "on"]
 
-# The region (D-d): CloudFormation checks a stack's rules before it changes anything, so a
-# deploy to any other region stops there. SAM's transform passes Rules through unchanged.
+# The region (D-d): CloudFormation checks a stack's rules when it makes the change set, so a
+# deploy to any other region fails there, before the stack changes. SAM's companion stack and
+# its uploads come first. SAM's transform passes Rules through unchanged.
 Rules:
   SingaporeOnly:
     Assertions:
