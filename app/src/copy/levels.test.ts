@@ -70,7 +70,9 @@ it("the landmark lists are the categories of Table 8's wheel, people and body ro
   const body = dictOf(rulesPy, 'BODY_ROWS: Mapping[str, Reading | None] = {')
   const reads = ([, value]: [string, string]) => value.startsWith('Reading(')
   expect(WHEEL_LANDMARKS).toEqual(wheels.filter(reads).map(([key]) => key))
-  expect(PEOPLE_LANDMARKS).toEqual(people.filter(reads).map(([key]) => key))
+  // C91 (draft): an adult's ankle reads no level any more, but a pin or sample stored before it can still carry
+  // ankle as its landmark until it expires, so the app keeps that line.
+  expect(PEOPLE_LANDMARKS).toEqual(['ankle', ...people.filter(reads).map(([key]) => key)])
   // Only a body waterline that reads as a floor can decide a level (C53). The rest read nothing.
   expect(BODY_FLOORS).toEqual(body.filter(reads).map(([key]) => key))
   expect(BODY_FLOORS).toEqual(['mid_door', 'window'])

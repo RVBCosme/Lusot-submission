@@ -299,6 +299,14 @@ def test_an_ankle_adult_leaves_the_others_reading():
     )
 
 
+def test_an_ankle_adult_no_longer_disagrees_with_a_knee_adult():
+    # C91: the ankle adult reads nothing, so it can't refuse the photo against the knee adult.
+    references, drops = measured(people=(KeptPerson(1, "ankle"), KeptPerson(2, "knee")))
+    assert drops == {"person_no_reading": 1}
+    outcome, _ = combine(references)
+    assert (outcome.status, outcome.level) == ("done", "knee")
+
+
 def test_unanswered_wheel_blocks_the_body_reading():
     # Review Focus 1 (C76). Muse Spark skipped vehicle 2's wheel 4, so apply_drops
     # counted it as visible and passed on only wheel 5. Hidden wheels and a

@@ -110,7 +110,7 @@ If an alert states no class, the photo is left out of the passability metric onl
 ## 6. Reading rules that scoring must respect (plan §7 to §9, gap fix G4)
 
 - Landmark readings follow Table 8 exactly as written.
-  - **Except an adult's ankle (C91; draft, awaiting Rene's written OK):** it gives no reading, so it never sets a level. The photo's other references decide, or the photo is refused.
+  - **Except an adult's ankle (C91; draft, awaiting Rene's written OK):** it gives no reading, so it never sets a level. The photo's other references decide, or the photo is refused. It also no longer counts toward a disagreement: an ankle adult beside a knee-deep adult reads knee, where it used to refuse. A "no" on standing water with an ankle adult still gives no flood seen (C52 is unchanged).
   - Hub = half_tire, MMDA's own definition, even where a large tire's hub sits slightly above 13 in.
   - Tire only = below_gutter.
 - **In-between waterlines.** When the water sits between two marks, the reading takes the higher mark, for wheels, people and car bodies alike. Table 5 says so for wheels; prompt v1 and our own M8 labels follow the same convention. A photo that shows no street is unusable.
@@ -121,9 +121,10 @@ If an alert states no class, the photo is left out of the passability metric onl
     - A floor ("at least" a level, such as covered wheels) means that level or deeper, so it never disagrees with a deeper reading.
     - The photo is refused when an exact reading sits more than one level below the deepest reading, with a floor counted at its own level there.
     - So "at least tire" beside a chest-deep adult gives chest, while "at least tire" beside an exact half_tire refuses.
-  - **The gutter gap (Rene, Oct 28: kept):** landmarks never read `gutter`, so `tire_only` beside `rim_quarter` is two levels apart, and the photo is refused. (`ankle` beside `mid_shin` was the people pair; under the C91 draft, an ankle gives no reading.)
+  - **The gutter gap (Rene, Oct 28: kept):** landmarks never read `gutter`, so `tire_only` beside `rim_quarter` (and `ankle` beside `mid_shin`) is two levels apart, and the photo is refused.
+    - **C91 (draft, awaiting Rene's written OK):** an adult's `ankle` gives no reading, so the people pair no longer arises.
 - **People count fully (Rene, Oct 27, D13):**
-  - A standing adult can set the level alone, through Table 8's body rows.
+  - A standing adult can set the level alone, through Table 8's body rows. (C91, draft: not at `ankle`.)
   - With wheels in the photo too, the rules above apply: deepest believable reading, and refusal when readings differ by more than one level.
   - Wading adults count only when no adult in the photo is standing still. That includes a standing adult whose waterline is hidden (Rene, Oct 28).
 - **"At least tire deep"** (wheels covered, with the body waterline as a floor) is scored as `tire`. When MMDA's label is deeper, it counts as an underestimate. Passability isn't affected, because tire and deeper are all NPATV. The report gives the number of these readings. **[Claude's call]**
