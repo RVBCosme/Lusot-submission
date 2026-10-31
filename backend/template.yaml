@@ -29,6 +29,15 @@ Parameters:
 Conditions:
   HasWeb: !Equals [!Ref WebHosting, "on"]
 
+# The region (D-d): CloudFormation checks a stack's rules when it makes the change set, so a
+# deploy to any other region fails there, before the stack changes. SAM's companion stack and
+# its uploads come first. SAM's transform passes Rules through unchanged.
+Rules:
+  SingaporeOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", ap-southeast-1]
+        AssertDescription: Lusot deploys to ap-southeast-1 only.
+
 Resources:
   UploadBucket:
     Type: AWS::S3::Bucket
@@ -89,6 +98,27 @@ Resources:
                 Rules:
                   - Name: prefix
                     Value: raw/
+
+  # Plain HTTP is refused for every request to the bucket and its objects, whoever sends it
+  # (D-e, R51). It only denies, so it grants nobody anything; the upload and photo links are
+  # HTTPS already.
+  UploadBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyPlainHttp
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt UploadBucket.Arn
+              - !Sub "${UploadBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
 
   UploadQueue:
     Type: AWS::SQS::Queue
@@ -585,6 +615,8 @@ Resources:
     Properties:
       RetentionInDays: 14
 
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopUploadsParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -592,6 +624,8 @@ Resources:
       Type: String
       Value: "off"
 
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopPublishParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -599,6 +633,8 @@ Resources:
       Type: String
       Value: "off"
 
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopModelCallsParameter:
     Type: AWS::SSM::Parameter
     Properties:
