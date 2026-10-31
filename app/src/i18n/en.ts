@@ -575,7 +575,7 @@ export const EN = {
   'ask.ui.openPin': { text: 'Open this pin', reviewed: false },
   'ask.ui.example1': { text: 'Gaano kalalim ang baha sa España cor. Maceda?', reviewed: false },
   'ask.ui.example2': { text: 'May baha ba dito?', reviewed: false },
-  'ask.ui.example3': { text: 'How deep is it at Quezon Ave cor. Araneta?', reviewed: false },
+  'ask.ui.example3': { text: 'How deep is it at G. Araneta Ave cor. E. Rodriguez Sr. Ave?', reviewed: false },
   'ask.ui.questionLabel': { text: 'Your question', reviewed: false },
   'ask.ui.asking': { text: 'Looking up recent reports…', reviewed: false },
   'ask.ui.examples': { text: 'Try asking:', reviewed: false },

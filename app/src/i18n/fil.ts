@@ -572,7 +572,7 @@ export const FIL: Record<StringKey, Entry> = {
   'ask.ui.openPin': { text: 'Buksan ang pin na ito', reviewed: false },
   'ask.ui.example1': { text: 'Gaano kalalim ang baha sa España cor. Maceda?', reviewed: false },
   'ask.ui.example2': { text: 'May baha ba dito?', reviewed: false },
-  'ask.ui.example3': { text: 'Gaano kalalim sa Quezon Ave cor. Araneta?', reviewed: false },
+  'ask.ui.example3': { text: 'Gaano kalalim sa G. Araneta Ave cor. E. Rodriguez Sr. Ave?', reviewed: false },
   'ask.ui.questionLabel': { text: 'Ang tanong mo', reviewed: false },
   'ask.ui.asking': { text: 'Hinahanap ang mga recent report…', reviewed: false },
   'ask.ui.examples': { text: 'Subukang itanong:', reviewed: false },
