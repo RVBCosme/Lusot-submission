@@ -58,11 +58,11 @@ describe('the phone\'s quality check (C604)', () => {
     expect(screen.getByText(en('report.smallStill'))).toBeTruthy()
   })
 
-  it('in Taglish, the tip stays English and marked so until its Taglish is reviewed (C619)', () => {
+  it('in Taglish, the tip shows its reviewed Taglish, not the English (C619; M20, Nov 1)', () => {
     renderCheck({}, 'fil')
-    expect(FIL['retake.too_dark'].reviewed).toBe(false)
-    const tip = screen.getByText(en('retake.too_dark'))
-    expect(tip.closest('[lang]')?.getAttribute('lang')).toBe('en')
+    expect(FIL['retake.too_dark'].reviewed).toBe(true)
+    expect(screen.getByText(FIL['retake.too_dark'].text)).toBeTruthy()
+    expect(screen.queryByText(en('retake.too_dark'))).toBeNull()
     expect(screen.getByRole('button', { name: FIL['report.sendAnyway'].text })).toBeTruthy()
   })
 })
