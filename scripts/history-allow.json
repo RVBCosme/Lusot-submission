@@ -1,0 +1,22 @@
+{
+  "blobs": [
+    {
+      "blob": "4cdf89a445b7e84d2352700309440f8428be5f71",
+      "rule": "email",
+      "reason": "copyright line that the MIT licence requires word for word (R11)",
+      "path": "backend/analysis/src/lusot_analysis/models/LICENSE"
+    },
+    {
+      "blob": "7dccd7af5d94190b3a9137f31d7a413eb57184fd",
+      "rule": "email",
+      "reason": "the University of Illinois author line inside a third-party notice that Play services bundles, which the APK's licences page reproduces word for word (5fad3e9)",
+      "path": "app/scripts/apk-licences.json"
+    }
+  ],
+  "images": [
+    "backend/analysis/tests/fixtures/faces/**",
+    "app/android/app/src/main/res/**",
+    "app/public/**",
+    "docs/media/**"
+  ]
+}
