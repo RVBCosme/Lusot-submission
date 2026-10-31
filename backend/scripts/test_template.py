@@ -589,7 +589,7 @@ def test_alarms():
 
 
 def test_api_alarm_stays_5000():
-    """C735: Ask adds at most 300 counted questions an hour, well inside 5,000. The
+    """C735: Ask adds at most 60 counted questions an hour, well inside 5,000. The
     threshold MS4 left for Ask's spec to set is now set, and its comment says so."""
     p = props("ApiInvocationsAlarm")
     assert (p["Threshold"], p["Period"]) == (5000, 3600)
@@ -939,6 +939,10 @@ def test_ask_cap_alarm():
     # The code the API's global question refusal carries.
     source = API_LIMITS.read_text(encoding="utf-8")
     assert re.search(r'question:\s*\{[^}]*all:\s*"question_cap"', source)
+    # The description names the cap limits.ts sets (N1: 60 an hour, Rene, Oct 31).
+    (cap,) = re.findall(r"question:\s*\{\s*device:\s*\d+,\s*all:\s*(\d+)\s*\}", source)
+    assert cap == "60"
+    assert a["AlarmDescription"] == f"Ask Lusot refused a question at its cap of {cap} an hour."
 
 
 def test_visibility_grant_comment():
