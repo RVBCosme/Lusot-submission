@@ -24,7 +24,7 @@ const isProblem = (status: Status): status is Problem => status in PROBLEM_LINE
 // Pressing a control fills it with ink and turns its text to the page's colour (S5-R6), as on the gates' screen.
 const PRESSED = 'enabled:active:border-ink enabled:active:bg-ink enabled:active:text-surface'
 const BUTTON = `min-h-tap min-w-tap rounded-control border px-4 font-bold ${PRESSED}`
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 // The report flow's first step (C602): a live view from the rear camera, drawn inside the layout's <main>, so the
 // layout's screen-line bar stays above it; it is not a dialog, a popover or fullscreen, which would cover that bar.

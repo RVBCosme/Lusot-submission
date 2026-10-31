@@ -11,7 +11,7 @@ const THEMES: { theme: Theme; label: StringKey }[] = [
   { theme: 'dark', label: 'about.theme.dark' },
 ]
 
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 const HEADING = 'text-heading font-bold'
 
 function Section({ title, children }: { title: StringKey; children: ReactNode }) {

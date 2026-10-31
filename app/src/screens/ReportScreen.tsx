@@ -14,7 +14,7 @@ import { WaitingStep } from './report/WaitingStep'
 const PRESSED = 'enabled:active:border-ink enabled:active:bg-ink enabled:active:text-surface'
 const BUTTON = `min-h-tap min-w-tap rounded-control border px-4 font-bold ${PRESSED}`
 const PRIMARY = `${BUTTON} border-action bg-action text-on-action`
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 const REFUSED_LINE: Record<RefusedCode, StringKey> = {
   capture_too_old: 'report.tooOld',

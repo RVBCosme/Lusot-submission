@@ -28,8 +28,10 @@ export function Layout({ route, apiReady, children }: { route: Route; apiReady: 
         </div>
       )}
       {/* The key gives each route a fresh <main>, so a new screen starts at its top. The side padding, taken back by
-          the negative margin, leaves room for a focus ring at the screen's edge, which a scrolling box would clip. */}
-      <main key={routeHash(route)} className="relative -mx-2 min-h-0 flex-1 overflow-y-auto px-2 py-4">
+          the negative margin, leaves room for a focus ring at the screen's edge, which a scrolling box would clip. It is
+          a tab stop, so a keyboard can scroll a screen that has nothing else to focus, such as the privacy policy (axe's
+          scrollable-region-focusable, WCAG 2.1.1). */}
+      <main key={routeHash(route)} tabIndex={0} className="relative -mx-2 min-h-0 flex-1 overflow-y-auto px-2 py-4">
         <ErrorBoundary>{children}</ErrorBoundary>
       </main>
       <footer className="relative z-[1100] shrink-0 bg-surface">

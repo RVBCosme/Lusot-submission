@@ -7,7 +7,7 @@ import { useHeadingFocus } from '../lib/focus'
 // fetch: no API call, so it works wherever the page itself loads. The text stays English, as its authors wrote it.
 const LICENCES_URL = './licences.txt'
 const OSM_COPYRIGHT = 'https://www.openstreetmap.org/copyright'
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 type State = { kind: 'loading' } | { kind: 'ready'; text: string } | { kind: 'failed' }
 

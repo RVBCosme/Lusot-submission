@@ -9,7 +9,7 @@ export type Place = LatLng & { nudgeM: number }
 // Pressing a control fills it with ink and turns its text to the page's colour (S5-R6), as on the camera's view.
 const PRESSED = 'enabled:active:border-ink enabled:active:bg-ink enabled:active:text-surface'
 const BUTTON = `min-h-tap min-w-tap rounded-control border px-4 font-bold ${PRESSED}`
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 // The report flow's place step (C603): the pin on a small map, with the circle of how closely the phone placed the
 // person. The pin starts on the fix and may move up to 100 m from it, by a drag, a tap on the map or the arrow keys.
