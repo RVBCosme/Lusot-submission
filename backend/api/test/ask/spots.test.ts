@@ -208,7 +208,8 @@ describe("findSpotIn", () => {
 });
 
 // The exact list Meta took on Oct 31 (the voice diagnostic's call 6: HTTP 200 with these 94). A spot or road added to
-// spots.json changes it, so this fails before a deploy could send Meta a list it hasn't been shown to take.
+// spots.json changes it, so this fails before a deploy could send Meta a list it hasn't been shown to take. Update it
+// only after Meta has taken the new list in a test call.
 const TESTED_KEYWORDS = [
   "F. Ortigas St cor. Boni Ave", "EDSA cor. Aurora Blvd", "EDSA cor. Kamuning Rd", "EDSA cor. North Ave",
   "EDSA cor. Main Ave", "Taft Ave in front of PGH", "España Blvd cor. Maceda St", "España Blvd cor. Antipolo St",
@@ -233,6 +234,12 @@ describe("spotKeywords", () => {
   it("sends no keyword over Meta's 30-character limit (its 400 on Oct 31)", () => {
     expect(spotKeywords().filter((k) => k.length > 30)).toEqual([]);
     expect(spotKeywords([spot("a", "A Place Name That Is Over Thirty Chars", ["A Road Name That Is Over Thirty Chars"])])).toEqual([]);
+  });
+
+  it("counts a keyword's length in UTF-8 bytes, so a ñ counts twice", () => {
+    const thirtyChars = "España Blvd cor. Maceda Street"; // 30 characters, 31 bytes
+    expect(thirtyChars).toHaveLength(30);
+    expect(spotKeywords([spot("a", thirtyChars, ["Espana Blvd cor. Maceda Street"])])).toEqual(["Espana Blvd cor. Maceda Street"]);
   });
 
   it("gives the list Meta took on Oct 31, in that order, and no more than its 94", () => {
