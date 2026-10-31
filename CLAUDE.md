@@ -215,7 +215,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - `check:secrets`: gitleaks over the whole history, the plan-leak check and the 12-digit account-ID scan. gitleaks scans every local branch, so another worktree's leak fails it too.
   - After pulling or merging a change to `package-lock.json` or `uv.lock`, run `npm ci` and `uv sync --directory backend/analysis --locked` in that worktree before `npm run check`, or typecheck fails on a missing module.
 - **Deploy:** `npm run deploy`. It needs:
-  - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced. Git ignores it, because it holds the alarm email.
+  - `backend/samconfig.toml`, copied from `backend/samconfig.example.toml` with both placeholders replaced and WebHosting set to on or off. Git ignores it, because it holds the alarm email.
   - Docker Desktop running, and no Gradle build at the same time
   - a current AWS login
   - Before `sam deploy` (run `npm run build -w backend/api` and `sam build --parallel` first), check the image SAM built (`analysisfunction:<tag>`), not a manual `docker build`, which gets another image ID: `docker run --rm --network none --entrypoint python <image> -c "import lusot_analysis.meta_client, lusot_analysis.handler"`, then list `/var/task/prompts`.

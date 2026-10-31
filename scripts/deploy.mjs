@@ -5,7 +5,10 @@
 // 4. applies the analysis image repository's keep-the-last-3 rule (C38)
 // It stops at the first step that fails. All output passes through a mask, because
 // sam deploy prints change set ARNs and image URIs that carry the AWS account ID.
+// Before the first step, samconfig.toml must set WebHosting=on or WebHosting=off by name.
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -41,9 +44,30 @@ export function createMasker(write) {
   };
 }
 
+// The template's WebHosting as samconfig.toml's parameter_overrides sets it once: "on", "off",
+// or null. It must be there by name: a --parameter-overrides on sam deploy's command line would
+// replace that whole value, the alarm email included, and an update that leaves it out keeps the
+// stack's previous value, so neither the default nor the last deploy decides it by accident.
+export function webHosting(samconfig) {
+  const overrides = /^\s*parameter_overrides\s*=\s*"([^"]*)"/m.exec(samconfig)?.[1] ?? "";
+  const set = [...overrides.matchAll(/(?:^|\s)WebHosting=(\S*)/g)].map((match) => match[1]);
+  return set.length === 1 && (set[0] === "on" || set[0] === "off") ? set[0] : null;
+}
+
 // Deploys only when run as `node scripts/deploy.mjs`, so a test can import createMasker.
 if (import.meta.main === undefined) throw new Error("scripts/deploy.mjs needs Node 22.18 or newer");
 if (import.meta.main) {
+  let hosting = null;
+  try {
+    hosting = webHosting(readFileSync(join(backend, "samconfig.toml"), "utf8"));
+  } catch {
+    // A missing file is refused below, like one that doesn't set WebHosting.
+  }
+  if (!hosting) {
+    console.error("deploy stopped: backend/samconfig.toml's parameter_overrides must set WebHosting=on or WebHosting=off");
+    process.exit(1);
+  }
+  console.log(`> WebHosting=${hosting} (backend/samconfig.toml)`);
   for (const [cwd, command] of steps) {
     console.log(`> ${command}`);
     const code = await run(command, cwd);
