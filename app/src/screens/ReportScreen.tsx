@@ -3,6 +3,7 @@ import { PausedNotice, ResultCard } from '../components/ResultCard'
 import { T } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { useGate } from '../lib/consent'
+import { focusFell } from '../lib/focus'
 import { qualityRefusal } from '../lib/quality'
 import { retryKind, type FlowState, type RefusedCode } from '../report/flow'
 import { useReportFlow, type ReportFlow } from '../report/ReportFlowProvider'
@@ -84,8 +85,7 @@ function Flow() {
   // heading, where a screen reader starts reading (after the notice's "Continue" too, S5-R10). Focus that is
   // somewhere already stays there.
   useEffect(() => {
-    const active = document.activeElement
-    if (active !== null && active !== document.body) return
+    if (!focusFell()) return
     const heading = box.current?.querySelector('h1')
     if (heading === null || heading === undefined) return
     heading.tabIndex = -1

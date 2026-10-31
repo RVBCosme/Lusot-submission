@@ -17,6 +17,8 @@ const AT_THIS_SPOT: Record<Lang, RegExp> = { en: /at this spot/, fil: /sa spot n
 // The page's visible text, and apart from it the licence texts on the licences page.
 async function visibleText(page: Page): Promise<{ text: string; licences: string }> {
   return page.evaluate(() => {
+    // A closed Details holds the reason code and the photo's time (C610), where no report id may show either.
+    for (const details of document.querySelectorAll('details')) details.open = true
     const licences = [...document.querySelectorAll('pre')].map((pre) => pre.innerText).join('\n')
     let text = document.body.innerText
     for (const pre of document.querySelectorAll('pre')) text = text.replace(pre.innerText, '')
@@ -157,6 +159,27 @@ for (const lang of ['en', 'fil'] as const) {
       await report(page, mocks, lang, setUp, outcome)
       await check(`#/report, ${name}`)
     }
+    // A sample run refused while uploads are paused.
+    mocks.behaviour.sampleRun = 'paused'
+    await fresh(page, '/#/tested')
+    await page.getByRole('button', { name: label(lang, 'sample.run'), exact: true }).first().click()
+    await expect(page.getByRole('main')).toContainText(label(lang, 'result.paused'))
+    await check('#/tested, a sample run while uploads are paused')
+
+    // Ask Lusot, empty and with answers, a crossing question among them (the notice is already accepted).
+    await fresh(page, '/#/ask')
+    await expect(page.getByRole('heading', { name: label(lang, 'nav.ask'), level: 1 })).toBeVisible()
+    await check('#/ask')
+    for (const question of ['Baha ba sa España cor. Maceda?', 'Lusot ba ang kotse sa Quiapo?', 'Kaya ba ng truck sa Marikina?']) {
+      await page.getByRole('textbox', { name: label(lang, 'ask.ui.questionLabel') }).fill(question)
+      const answered = page.waitForResponse((response) => new URL(response.url()).pathname === '/ask')
+      await page.getByRole('button', { name: label(lang, 'ask.ui.send'), exact: true }).click()
+      await answered
+      await expect(page.getByRole('region', { name: label(lang, 'ask.ui.answer') })).toBeVisible()
+      await expect(page.getByText(label(lang, 'ask.ui.asking'))).toHaveCount(0)
+      await check(`#/ask, "${question}"`)
+    }
+
     // An upload refused while uploads are paused.
     mocks.behaviour.upload = 'paused'
     await fresh(page, '/#/report')

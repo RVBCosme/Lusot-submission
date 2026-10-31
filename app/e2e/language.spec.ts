@@ -15,20 +15,25 @@ const ENGLISH_ON_TAGLISH = (Object.keys(EN) as StringKey[])
   .filter((key) => showsEnglish('fil', key) && !EN[key].text.includes('{'))
   .map((key) => EN[key].text)
 
-// Every text node on the page that is one of those lines, and the language its nearest lang attribute gives it.
+// Every text node on the page that is one of those lines, and those whose nearest lang attribute isn't "en". The
+// screen line is on every screen, so `seen` is never 0 when the check runs.
 async function unmarked(page: Page): Promise<string[]> {
-  return page.evaluate((lines) => {
+  const { seen, bad } = await page.evaluate((lines) => {
     const wanted = new Set(lines)
     const found: string[] = []
+    let count = 0
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
       const text = node.textContent?.trim() ?? ''
       if (!wanted.has(text)) continue
+      count += 1
       const lang = node.parentElement?.closest('[lang]')?.getAttribute('lang')
       if (lang !== 'en') found.push(`${text} (lang=${lang ?? 'none'})`)
     }
-    return found
+    return { seen: count, bad: found }
   }, ENGLISH_ON_TAGLISH)
+  expect(seen, 'English lines found on the Taglish screen').toBeGreaterThan(0)
+  return bad
 }
 
 test('switching to Taglish changes the lines, keeps the screen line in English, and marks English lines', async ({
@@ -46,7 +51,7 @@ test('switching to Taglish changes the lines, keeps the screen line in English, 
   for (const key of ['nav.map', 'nav.report', 'nav.about'] as const) {
     if (FIL[key].text !== EN[key].text) await expect(nav).toContainText(FIL[key].text)
   }
-  await expect(page.getByRole('heading', { name: label('fil', 'map.empty.title') }).or(page.locator('.map-pin').first())).toBeVisible()
+  await expect(page.getByRole('heading', { name: label('fil', 'nav.map'), level: 1 })).toBeAttached()
   await expectLine(page, 'Taglish, #/map')
   expect(await unmarked(page), '#/map').toEqual([])
 

@@ -41,9 +41,12 @@ async function smallTargets(page: Page, scope: string): Promise<string[]> {
   )
 }
 
+// The page and the screen's own scrolling <main>, which would hide a too-wide screen from the page's own measure.
 async function noSidewaysScroll(page: Page, where: string): Promise<void> {
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-  expect.soft(overflow, `${where}: sideways scroll at 200% text`).toBeLessThanOrEqual(0)
+  const overflow = await page.evaluate(() =>
+    [document.documentElement, document.querySelector('main')].map((el) => (el === null ? 0 : el.scrollWidth - el.clientWidth)),
+  )
+  expect.soft(overflow, `${where}: sideways scroll at 200% text, the page and <main>`).toEqual([0, 0])
 }
 
 for (const theme of ['light', 'dark'] as const) {

@@ -1,7 +1,7 @@
 // One test per outcome of spec §4.2, from the fake camera to the result card (MS5 Task 18, U5): no flood seen, can't
 // tell, processing failed, the pause twice (a report ending failed/model_calls_paused, and a 503 uploads_paused on the
 // upload, C638), a photo taken outside Metro Manila, and the app's own "No result yet" (C601). The level row is
-// report.spec.ts. The `dark` project plays a night scene as the camera and runs only the quality-check test here.
+// report.spec.ts. The `dark` project plays a night scene as the camera and runs only the test tagged @dark.
 import { expect, OWN_ID, test, type Mocks } from './mocks'
 import { expectLine } from './screenLine'
 import { expectResult, label, send, takePhoto, toPlaceStep } from './steps'
@@ -140,7 +140,7 @@ test('no result after 10 minutes: "No result yet", never a failure, and "Check a
   expect(uploads(mocks), 'no second upload').toBe(1)
 })
 
-test('a dark photo: the quality check', async ({ page, mocks }) => {
+test('a dark photo meets the phone\'s quality check', { tag: '@dark' }, async ({ page, mocks }) => {
   // The night scene is what the camera gives: its mean grey value is under the server's too_dark cutoff of 40.
   mocks.behaviour.outcome = { kind: 'refused', reason: 'too_dark' }
   await page.goto('/#/report')

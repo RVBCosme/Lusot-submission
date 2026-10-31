@@ -802,6 +802,17 @@ describe('the location', () => {
     expect(api.of('upload')).toHaveLength(1)
   })
 
+  it('focus resting on the scrolling <main> still moves to the next step\'s heading', async () => {
+    fakeApi()
+    render(<App apiUrl={API} />)
+    await openCamera()
+    // A tap on plain text focuses <main>, a tab stop since the axe pass (Layout.tsx).
+    act(() => screen.getByRole('main').focus())
+    await shoot(10)
+    expect(document.activeElement).toBe(heading())
+    expect(heading().textContent).toBe(text('report.checkTitle'))
+  })
+
   it('a photo bright and sharp enough, or one whose pixels could not be read, goes straight to the place step', async () => {
     fakeApi()
     render(<Harness />)

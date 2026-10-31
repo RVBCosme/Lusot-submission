@@ -5,19 +5,18 @@
 // The builds go to the git-ignored .e2e-dist/<state>, never app/dist, so `cap sync` can't ship a test build. The Tested
 // page's summary is fixed at build time, so there are four builds, one per Tested state, each served on its own port
 // (e2e/fixtures/eval-results/<state>): `none` (no sealed run yet) serves every spec, and the other three serve only
-// tested.spec.ts. Only `none` runs the full build with its licences and bundle check; the others reuse its licences.txt,
-// since their fixtures carry the marker the bundle check fails on.
+// tested.spec.ts. Only `none` runs the bundle check, since the other fixtures carry the marker it fails on; each build
+// writes its own licences.txt first.
 //
 // The projects. `street`: Chromium plays a synthetic street scene (e2e/frames.ts) as the camera, and answers its own
-// permission prompts. `dark`: the same scene at night, for the quality-check tests only (their titles say "quality
-// check"). `ask`, for Ask Lusot's spec only: the street scene, with a synthetic tone (e2e/tone.ts) as the microphone.
+// permission prompts. `dark`: the same scene at night, for the tests tagged @dark only. `ask`, for Ask Lusot's spec only: the street scene, with a synthetic tone (e2e/tone.ts) as the microphone.
 // `tested-<state>`: tested.spec.ts against each build. One worker, because the machine that runs this is short of memory.
 import { defineConfig, type PlaywrightTestConfig } from '@playwright/test'
 import { DARK_FRAME, STREET_FRAME } from './e2e/frames'
 import { TONE_WAV } from './e2e/tone'
 
 const HOST = '127.0.0.1'
-// The Tested states, each with its own build and port. `none` comes first: it writes licences.txt for the others.
+// The Tested states, each with its own build and port.
 const STATES = [
   { state: 'none', port: 4871 },
   { state: 'sealed-run', port: 4872 },
@@ -25,7 +24,8 @@ const STATES = [
   { state: 'synthetic', port: 4874 },
 ] as const
 const ORIGIN = `http://${HOST}:${STATES[0].port}`
-const QUALITY_CHECK = /quality check/
+// The tests the night scene's camera runs, and no other project does.
+const DARK = /@dark/
 
 const camera = (frame: string) => [
   '--use-fake-ui-for-media-stream',
@@ -37,7 +37,7 @@ type WebServer = Extract<NonNullable<PlaywrightTestConfig['webServer']>, { comma
 
 function server({ state, port }: (typeof STATES)[number]): WebServer {
   const out = `.e2e-dist/${state}`
-  const build = state === 'none' ? 'npm run build:e2e' : `npx vite build --outDir ${out} --emptyOutDir`
+  const build = state === 'none' ? 'npm run build:e2e' : `node scripts/licences.mjs && npx vite build --outDir ${out} --emptyOutDir`
   return {
     command: `${build} && npx vite preview --outDir ${out} --host ${HOST} --port ${port} --strictPort`,
     url: `http://${HOST}:${port}`,
@@ -79,7 +79,7 @@ export default defineConfig({
     {
       name: 'street',
       testIgnore: ['ask.spec.ts', 'tested.spec.ts'],
-      grepInvert: QUALITY_CHECK,
+      grepInvert: DARK,
       use: {
         browserName: 'chromium',
         viewport: { width: 360, height: 640 },
@@ -89,7 +89,7 @@ export default defineConfig({
     {
       name: 'dark',
       testMatch: 'outcomes.spec.ts',
-      grep: QUALITY_CHECK,
+      grep: DARK,
       use: {
         browserName: 'chromium',
         viewport: { width: 360, height: 640 },

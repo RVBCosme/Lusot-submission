@@ -342,11 +342,10 @@ export class Mocks {
     return this.notFound(route)
   }
 
-  // A sample run's answer: its outcome, with its photo link whatever the outcome (N11, C637).
+  // A sample run's answer: its links only with a level, as the API gives them (backend/api/src/reports.ts); the card
+  // shows the photo from GET /samples whatever the outcome (N11, C637).
   private sampleBody(): Record<string, unknown> {
-    const facts = this.sampleFacts()
-    const body = resultBody(this.behaviour.sampleOutcome, facts)
-    return { photoUrl: facts.links!.photoUrl, ...body }
+    return resultBody(this.behaviour.sampleOutcome, this.sampleFacts())
   }
 
   private async files(route: Route): Promise<void> {

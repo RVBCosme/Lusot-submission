@@ -44,6 +44,14 @@ test('the Tested page shows what its build holds', async ({ page }, testInfo) =>
   // REPORT_URL is the placeholder until the submission repository exists, so no report link renders.
   await expect(page.getByRole('link', { name: label(L, 'tested.reportLink') })).toHaveCount(0)
 
+  // The build holds its own fixture: the marker is in its script when, and only when, a fixture was read, so a
+  // `synthetic` page with no figures proves the summary was loaded and turned away, not missing.
+  const script = await page.evaluate(async () => {
+    const src = document.querySelector('script[type="module"][src]')?.getAttribute('src') ?? ''
+    return (await fetch(src)).text()
+  })
+  expect(script.includes('LUSOT_E2E_FIXTURE'), `the ${state} build holds its fixture`).toBe(state !== 'none')
+
   const figures = FIGURES[state]
   if (figures === undefined) {
     // No sealed run yet, or a synthetic one: the page says when the results appear, and shows no figure.
