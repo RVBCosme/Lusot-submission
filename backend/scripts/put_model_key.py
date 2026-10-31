@@ -10,7 +10,9 @@ key aws/ssm, then reads it back with decryption and compares the two in memory.
 
 It prints the parameter's name, its type and the value's length, never the value. An AWS
 error is reported by its code and HTTP status only: its message can carry an ARN, and an
-ARN carries the account ID.
+ARN carries the account ID. A reply it doesn't expect, such as one without the value,
+prints its traceback instead (MS7's D-f), through the scripts' shared mask
+(guards.traceback_lines), with the key itself as <hidden>.
 
 boto3 comes with its CRT extra: the lusot profile signs in with `aws login`, and
 botocore's provider for those credentials needs the CRT.
@@ -18,17 +20,20 @@ botocore's provider for those credentials needs the CRT.
 Usage, as one PowerShell command (the shell's own copy of MODEL_API_KEY may be stale):
     $env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User');
     uv run backend/scripts/put_model_key.py
-Exit codes: 0 stored and read back; 1 an AWS error or a read-back mismatch;
-2 the key is missing or too short.
+Exit codes: 0 stored and read back; 1 an AWS error, a reply it doesn't expect or a
+read-back mismatch; 2 the key is missing or too short.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
 import boto3
+import guards
 from botocore.exceptions import BotoCoreError, ClientError
+from botocore.parsers import ResponseParserError
 
 PARAM = "/lusot/meta/model-api-key"
 MIN_KEY_LENGTH = 20  # as in the analysis stub; the real key has 48 characters (spec A8)
@@ -57,6 +62,7 @@ def main(ssm=None) -> int:
             Tier="Standard",
         )
         stored = ssm.get_parameter(Name=PARAM, WithDecryption=True)["Parameter"]
+        value, kind = stored["Value"], stored["Type"]
     except ClientError as exc:
         error = exc.response["Error"]["Code"]
         status = exc.response["ResponseMetadata"]["HTTPStatusCode"]
@@ -65,14 +71,25 @@ def main(ssm=None) -> int:
             file=sys.stderr,
         )
         return 1
-    except BotoCoreError as exc:
+    except (BotoCoreError, ResponseParserError) as exc:
+        # A reply botocore can't parse holds its whole body, the key included.
         print(f"AWS error: {type(exc).__name__}", file=sys.stderr)
         return 1
-    matches = stored["Value"] == key
-    print(
-        f"stored {PARAM} ({stored['Type']}), length {len(key)},"
-        f" read-back matches: {matches}"
-    )
+    except Exception as exc:
+        # A reply it doesn't expect, such as one without Value (D-f): the traceback,
+        # through the scripts' mask, with the key hidden as written, as repr writes it
+        # and as JSON escapes it.
+        hide = (key, repr(key)[1:-1], json.dumps(key)[1:-1])
+        for line in guards.traceback_lines(exc, hide=hide):
+            print(line, file=sys.stderr)
+        print(
+            f"AWS answered as put_model_key.py doesn't expect ({type(exc).__name__}):"
+            " the key may be stored, but it isn't checked, so run the script again",
+            file=sys.stderr,
+        )
+        return 1
+    matches = value == key
+    print(f"stored {PARAM} ({kind}), length {len(key)}, read-back matches: {matches}")
     return 0 if matches else 1
 
 
