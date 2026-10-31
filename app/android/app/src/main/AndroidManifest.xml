@@ -27,6 +27,9 @@
 
         </activity>
 
+        <!-- Kept, though Lusot has no file input (C602): Capacitor's WebView client names this authority when a page's
+             file input asks for a photo (BridgeWebChromeClient.createImageFileUri). Its paths are one cache folder
+             (res/xml/file_paths.xml, D-k), so that call would fail, and Capacitor then opens the system file picker. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
