@@ -173,8 +173,9 @@ async function openCamera(width = 1920, height = 1080) {
 }
 
 // The canvas is stubbed for the shutter only: the mock API draws its own pictures with jsdom's canvas afterwards.
-async function shoot() {
-  stubCanvas()
+// `grey` gives the still pixels of one grey value for the phone's quality check; without it, no scores are read.
+async function shoot(grey?: number) {
+  stubCanvas({ grey })
   fireEvent.click(button('camera.shutter'))
   await settle()
   vi.mocked(HTMLCanvasElement.prototype.getContext).mockRestore()
@@ -768,6 +769,48 @@ describe('the location', () => {
     await flush()
     expect(getUserMedia).toHaveBeenCalledTimes(2)
     expect(button('camera.shutter')).toBeTruthy()
+  })
+
+  it('a dark photo shows the quality check, "Retake" first: "Retake" opens a fresh camera and uploads nothing', async () => {
+    const api = fakeApi()
+    render(<Harness />)
+    await openCamera()
+    await shoot(10)
+    expect(heading().textContent).toBe(text('report.checkTitle'))
+    expect(shows('retake.too_dark')).toBe(true)
+    const buttons = within(screen.getByRole('main')).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual([text('report.retake'), text('report.sendAnyway')])
+    fireEvent.click(button('report.retake'))
+    await flush()
+    expect(getUserMedia).toHaveBeenCalledTimes(2)
+    expect(button('camera.shutter')).toBeTruthy()
+    expect(api.of('upload')).toHaveLength(0)
+  })
+
+  it('"Send anyway" never stops the photo: it goes on to the place step, and "Send" uploads it', async () => {
+    const api = fakeApi()
+    render(<Harness />)
+    await openCamera()
+    await shoot(10)
+    await act(async () => fixes.at(-1)?.resolve(FIX))
+    // The location was found underneath the check, and the photo waits for the person's choice.
+    expect(heading().textContent).toBe(text('report.checkTitle'))
+    fireEvent.click(button('report.sendAnyway'))
+    await flush()
+    expect(heading().textContent).toBe(text('place.title'))
+    await send()
+    expect(api.of('upload')).toHaveLength(1)
+  })
+
+  it('a photo bright and sharp enough, or one whose pixels could not be read, goes straight to the place step', async () => {
+    fakeApi()
+    render(<Harness />)
+    await openCamera()
+    // A flat grey of 128 is bright, but has no edges at all, so it would be too blurry: use no pixels instead.
+    await shoot()
+    await act(async () => fixes.at(-1)?.resolve(FIX))
+    expect(heading().textContent).toBe(text('place.title'))
+    expect(shows('report.checkTitle')).toBe(false)
   })
 
   it('a full-size still shows no warning', async () => {

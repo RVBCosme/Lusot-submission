@@ -358,7 +358,19 @@ describe('the shutter', () => {
     expect(photo.blob.type).toBe('image/jpeg')
     expect(photo.capturedAt).toBe('2026-10-30T09:15:30.000Z')
     expect(photo.smallStill).toBe(false)
-    expect(Object.keys(photo).sort()).toEqual(['blob', 'capturedAt', 'smallStill'])
+    // The quality check's two scores, never the pixels; with no pixels to read (this canvas fake has none), no scores.
+    expect(Object.keys(photo).sort()).toEqual(['blob', 'capturedAt', 'quality', 'smallStill'])
+    expect(photo.quality).toBeUndefined()
+  })
+
+  it('scores the still for the quality check, as two numbers and no pixel array (Task 10)', async () => {
+    stubCanvas({ grey: 20 })
+    const { onPhoto } = await openWith()
+    fireEvent.click(shutter())
+    await flush()
+    const photo = onPhoto.mock.calls[0]?.[0]
+    expect(photo.quality).toEqual({ brightness: 20, sharpness: 0 })
+    expect(Object.values(photo).some((value) => value instanceof Uint8ClampedArray)).toBe(false)
   })
 
   it('stamps the time of the press, not the time the photo finished', async () => {

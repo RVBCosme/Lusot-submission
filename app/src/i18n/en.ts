@@ -119,6 +119,20 @@ export const EN = {
     text: 'Your camera gave a smaller photo than Lusot asks for, so it may be harder to read. You can send it, or take a new photo.',
     reviewed: true,
   },
+  // The phone's quality check (C604, Task 10): a warning only, with "Retake" first and "Send anyway" second. The tips
+  // are screen-line keys (retake.), so their Taglish shows English until it is reviewed (C619).
+  'report.checkTitle': { text: 'Check the photo', reviewed: false },
+  'retake.too_dark': {
+    text: 'This photo looks too dark for Lusot to read. If you can, retake it with more light on the scene, from a dry spot.',
+    reviewed: false,
+  },
+  'retake.too_blurry': {
+    text: 'This photo looks blurry. Hold the phone still and retake it, from a dry spot.',
+    reviewed: false,
+  },
+  'report.checkNote': { text: 'Lusot checks the photo again when it arrives, so you can still send it.', reviewed: false },
+  'report.retake': { text: 'Retake', reviewed: false },
+  'report.sendAnyway': { text: 'Send anyway', reviewed: false },
   'report.newPhoto': { text: 'Take a new photo', reviewed: true },
   'report.tooOld': { text: 'This photo is more than 15 minutes old.', reviewed: true },
   'report.sendingTitle': { text: 'Sending your photo', reviewed: true },

@@ -4,8 +4,10 @@ import { T, useT } from '../../i18n'
 import type { StringKey } from '../../i18n/en'
 import { cameraProblem, inAppBrowser, openCamera, stopCamera, takeStill, type CameraProblem } from '../../lib/camera'
 import { encodeJpeg, MAX_SIDE_PX } from '../../lib/jpeg'
+import { scoreStill, type QualityScores } from '../../lib/quality'
 
-export type Photo = { blob: Blob; capturedAt: string; smallStill: boolean }
+// `quality`: the phone's scores of the still (Task 10), or undefined when they couldn't be read, which shows no check.
+export type Photo = { blob: Blob; capturedAt: string; smallStill: boolean; quality?: QualityScores }
 
 // A problem is one of the camera's four, the in-app browser (no attempt is made there), or a shutter that gave no photo.
 type Problem = CameraProblem | 'in_app' | 'capture'
@@ -130,7 +132,7 @@ export function CameraStep({ onPhoto, onStreamOpen }: { onPhoto(photo: Photo): v
       if (!alive.current) return
       const { width, height } = still
       const { blob } = await encodeJpeg(still, width, height)
-      photo = { blob, capturedAt, smallStill: Math.max(width, height) < MAX_SIDE_PX }
+      photo = { blob, capturedAt, smallStill: Math.max(width, height) < MAX_SIDE_PX, quality: scoreStill(still, width, height) }
     } catch {
       // Nothing to log: an error here could carry a frame's data or a position (CLAUDE.md). The person tries again.
       turnOff()

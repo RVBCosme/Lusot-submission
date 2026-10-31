@@ -111,6 +111,18 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Mas maliit ang photo na binigay ng camera mo kaysa sa hinihingi ng Lusot, kaya baka mas mahirap itong basahin. Puwede mo itong ipadala, o kumuha ng bagong photo.',
     reviewed: true,
   },
+  'report.checkTitle': { text: 'Tingnan ang photo', reviewed: false },
+  'retake.too_dark': {
+    text: 'Mukhang masyadong madilim ang photo na ito para mabasa ng Lusot. Kung kaya, kunan ulit na may mas maraming ilaw sa eksena, mula sa tuyong puwesto.',
+    reviewed: false,
+  },
+  'retake.too_blurry': {
+    text: 'Mukhang malabo ang photo na ito. Hawakan nang steady ang phone at kunan ulit, mula sa tuyong puwesto.',
+    reviewed: false,
+  },
+  'report.checkNote': { text: 'Titingnan ulit ng Lusot ang photo pagdating nito, kaya puwede mo pa rin itong ipadala.', reviewed: false },
+  'report.retake': { text: 'Kunan ulit', reviewed: false },
+  'report.sendAnyway': { text: 'Ipadala pa rin', reviewed: false },
   'report.newPhoto': { text: 'Kumuha ng bagong photo', reviewed: true },
   'report.tooOld': { text: 'Lampas na sa 15 minuto ang photo na ito.', reviewed: true },
   'report.sendingTitle': { text: 'Pinapadala ang photo mo', reviewed: true },

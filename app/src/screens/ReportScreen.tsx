@@ -1,12 +1,14 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { PausedNotice, ResultCard } from '../components/ResultCard'
 import { T } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { useGate } from '../lib/consent'
+import { qualityRefusal } from '../lib/quality'
 import { retryKind, type FlowState, type RefusedCode } from '../report/flow'
 import { useReportFlow, type ReportFlow } from '../report/ReportFlowProvider'
 import { routeHash } from '../router'
 import { CameraStep } from './report/CameraStep'
+import { CheckStep } from './report/CheckStep'
 import { PlaceStep, type Place } from './report/PlaceStep'
 import { WaitingStep } from './report/WaitingStep'
 
@@ -68,7 +70,15 @@ function Flow() {
   const gate = useGate('notice')
   const box = useRef<HTMLDivElement>(null)
   const { state } = flow
-  const view = viewOf(state)
+  // The phone's quality check (C604) stands in front of the place step until the person picks "Send anyway" for this
+  // photo (its shot). The location watch goes on underneath, and the photo's 15 minutes run as before.
+  const [sendAnyway, setSendAnyway] = useState<number>()
+  const checking =
+    state.step === 'place' &&
+    state.photo?.quality !== undefined &&
+    qualityRefusal(state.photo.quality) !== null &&
+    sendAnyway !== state.shot
+  const view = checking ? `check:${state.shot}` : viewOf(state)
 
   // A new step replaces the control that was pressed, and focus would fall to the page: it goes to the step's
   // heading, where a screen reader starts reading (after the notice's "Continue" too, S5-R10). Focus that is
@@ -87,7 +97,16 @@ function Flow() {
 
   return (
     <div ref={box} className="contents [&_h1]:outline-none">
-      <Step state={state} flow={flow} onSend={send} onRetry={retry} />
+      {checking && state.step === 'place' && state.photo?.quality !== undefined ? (
+        <CheckStep
+          scores={state.photo.quality}
+          smallStill={state.photo.smallStill}
+          onRetake={flow.start}
+          onSend={() => setSendAnyway(state.shot)}
+        />
+      ) : (
+        <Step state={state} flow={flow} onSend={send} onRetry={retry} />
+      )}
     </div>
   )
 }

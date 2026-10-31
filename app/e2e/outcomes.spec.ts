@@ -3,6 +3,7 @@
 // upload, C638), a photo taken outside Metro Manila, and the app's own "No result yet" (C601). The level row is
 // report.spec.ts. The `dark` project plays a night scene as the camera and runs only the quality-check test here.
 import { expect, OWN_ID, test, type Mocks } from './mocks'
+import { expectLine } from './screenLine'
 import { expectResult, label, send, takePhoto, toPlaceStep } from './steps'
 
 const L = 'en'
@@ -154,14 +155,34 @@ test('a dark photo: the quality check', async ({ page, mocks }) => {
     context.drawImage(video, 0, 0)
     const { data } = context.getImageData(0, 0, canvas.width, canvas.height)
     let sum = 0
-    for (let i = 0; i < data.length; i += 4) sum += (data[i]! * 4899 + data[i + 1]! * 9617 + data[i + 2]! * 1868 + 8192) >> 14
+    for (let i = 0; i < data.length; i += 4) sum += (data[i]! * 9798 + data[i + 1]! * 19235 + data[i + 2]! * 3735 + 16384) >> 15
     return sum / (data.length / 4)
   })
   expect(brightness, 'the dark camera is too dark to read').toBeLessThan(40)
   await takePhoto(page, L)
-  // Without a phone-side check the photo goes on, and the server's own check refuses it (C604: the server checks again).
+
+  // The phone's check (C604): the retake tip, "Retake" first and "Send anyway" second, under the screen line.
+  await expect(page.getByRole('heading', { name: label(L, 'report.checkTitle') })).toBeVisible()
+  await expect(page.getByRole('main')).toContainText(label(L, 'retake.too_dark'))
+  const buttons = page.getByRole('main').getByRole('button')
+  await expect(buttons).toHaveText([label(L, 'report.retake'), label(L, 'report.sendAnyway')])
+  await expectLine(page, 'the quality check')
+  // "Retake" opens a fresh camera and sends nothing.
+  await page.getByRole('button', { name: label(L, 'report.retake'), exact: true }).click()
+  await takePhoto(page, L)
+  await expect(page.getByRole('heading', { name: label(L, 'report.checkTitle') })).toBeVisible()
+  expect(uploads(mocks)).toBe(0)
+
+  // "Send anyway" never stops the photo: the place step, "Send", and the server's own check, which refuses it.
+  await page.getByRole('button', { name: label(L, 'report.sendAnyway'), exact: true }).click()
   await expect(page.getByRole('heading', { name: label(L, 'place.title') })).toBeVisible()
   await send(page, L)
   await expectResult(page, L, 'cant-tell')
   await expect(page.locator('article[data-outcome="cant-tell"]')).toContainText(label(L, 'reason.too_dark'))
+  expect(uploads(mocks)).toBe(1)
+})
+
+test('a bright, sharp photo meets no check and goes straight to the place step', async ({ page }) => {
+  await toPlaceStep(page, L)
+  await expect(page.getByRole('heading', { name: label(L, 'report.checkTitle') })).toHaveCount(0)
 })
