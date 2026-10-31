@@ -70,7 +70,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | Amazon Web Services | Lusot's servers, storage, queue, logs and website | Singapore; the website is also served through AWS's worldwide network |
 | Meta | AI analysis: outlining and reading photos, turning spoken questions into text, and answering questions | [Meta's locations] |
 | OpenStreetMap Foundation | place-name lookups (Nominatim) and the map's images | [OpenStreetMap's locations] |
-| Anthropic | an AI assistant (Claude) that Lusot's developer may use to check logs, flagged reports, privacy requests and the demo video | [Anthropic's locations] |
+| Anthropic | an AI assistant (Claude) that Lusot's developer may use to check logs, flagged reports, privacy requests and the demo video | the United States, and other countries Anthropic names in its privacy policy |
 
 - **The map's images.** When you open the map, your phone loads the map's images from OpenStreetMap's servers, which see your IP address, as any website does. When you place a photo's pin, the map opens around your own position, so those servers also see which area is on your screen, within about 300 m of you.
 - **Your IP address.** When you upload a photo, the notice of your upload that reaches Lusot's queue carries your IP address. If the analysis fails, that notice is kept for up to 7 days so the failure can be checked, then deleted. Service logs keep no photos, locations or IP addresses.
