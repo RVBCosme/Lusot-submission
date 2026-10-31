@@ -44,7 +44,8 @@ export default defineConfig({
   projects: [
     {
       name: 'street',
-      testIgnore: 'ask.spec.ts',
+      // MS7's live pass (live-*.spec.ts) runs only under e2e/live.config.ts, against a real site, never these mocks.
+      testIgnore: ['ask.spec.ts', 'live-*.spec.ts'],
       use: {
         browserName: 'chromium',
         viewport: { width: 360, height: 640 },
