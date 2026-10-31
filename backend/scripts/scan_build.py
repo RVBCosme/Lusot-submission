@@ -75,7 +75,10 @@ ALLOWED_PERMISSIONS = frozenset(
         "android.permission.CAMERA",
         # AndroidX core adds this one to every app, for its own non-exported receivers.
         f"{APP_ID}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
-        # RECORD_AUDIO joins only once Ask Lusot's voice runs in the APK (Task 6's names).
+        # Ask Lusot's voice (its spec §4.7, C718), in the APK since ask-app merged: Capacitor's
+        # WebView client asks for both when the page opens the microphone.
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
     }
 )
 # MS5's check-bundle.mjs:10, the same four.

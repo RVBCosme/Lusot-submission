@@ -386,3 +386,21 @@ def test_the_e2e_fixture_marker_and_android_overrides(tmp_path, monkeypatch):
     assert flags["allowBackup"] is True  # a resource reference isn't a literal false
     assert flags["loggingBehavior"] == "debug"  # the android override wins
     assert len(scan_build.flag_problems(flags)) == 2
+
+
+def test_the_repo_manifest_asks_only_for_allowed_permissions():
+    """The decided default (Task 6): the APK's permissions stay a subset of
+    ALLOWED_PERMISSIONS, so the source manifest's own must be inside it. Ask Lusot's
+    voice adds RECORD_AUDIO and MODIFY_AUDIO_SETTINGS, which Capacitor's WebView client
+    asks for together."""
+    import xml.etree.ElementTree as ET
+
+    manifest = REPO / "app" / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
+    name = "{http://schemas.android.com/apk/res/android}name"
+    declared = {
+        element.get(name) for element in ET.parse(manifest).getroot().iter("uses-permission")
+    }
+    assert "android.permission.RECORD_AUDIO" in declared
+    assert declared <= scan_build.ALLOWED_PERMISSIONS, sorted(
+        declared - scan_build.ALLOWED_PERMISSIONS
+    )
