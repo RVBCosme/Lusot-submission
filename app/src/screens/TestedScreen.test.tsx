@@ -171,7 +171,7 @@ describe('the figures', () => {
     }
   })
 
-  it('with the sealed fixture, it shows the three headline rates of shipped with their n, exact and within-one agreement, the word "indicative", and "agreement with the labels MMDA and the cities posted"', () => {
+  it('with the sealed fixture, it shows the three headline rates of shipped with their n, exact and within-one agreement, the word "indicative", and "how often Lusot agreed with the labels MMDA and the cities posted"', () => {
     renderPage({ summary: sealed(), apiUrl: '' })
     // `shipped` is geometry: its figures, not landmark's.
     expect(row('tested.figure.underestimation').textContent).toContain('10 of 80 (12.5%)')
@@ -190,7 +190,7 @@ describe('the figures', () => {
     ] as const) {
       expect(row(key).textContent, key).toContain(text('tested.indicative'))
     }
-    expect(pageText()).toContain('agreement with the labels MMDA and the cities posted')
+    expect(pageText()).toContain('how often Lusot agreed with the labels MMDA and the cities posted')
     expect(shows('tested.shipped.geometry')).toBe(true)
     expect(pageText()).toContain('From the sealed run on Jan 1, 2000.')
     expect(shows('tested.pending')).toBe(false)
@@ -328,14 +328,13 @@ describe('words', () => {
     }
   })
 
-  it('every new Tested and sample line has a Taglish draft, waiting for review, with the same placeholders', () => {
-    const newKeys = (Object.keys(EN) as StringKey[]).filter(
-      (key) => (key.startsWith('tested.') || key.startsWith('sample.')) && !EN[key].reviewed,
-    )
-    expect(newKeys.length).toBeGreaterThan(20)
+  it('every Tested and sample line has a Taglish line, reviewed by Rene (Oct 31), with the same placeholders', () => {
+    const keys = (Object.keys(EN) as StringKey[]).filter((key) => key.startsWith('tested.') || key.startsWith('sample.'))
+    expect(keys.length).toBeGreaterThan(20)
     const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort()
-    for (const key of newKeys) {
-      expect(FIL[key].reviewed, key).toBe(false)
+    for (const key of keys) {
+      expect(EN[key].reviewed, key).toBe(true)
+      expect(FIL[key].reviewed, key).toBe(true)
       expect(FIL[key].text, key).not.toBe('')
       expect(placeholders(FIL[key].text), key).toEqual(placeholders(EN[key].text))
     }

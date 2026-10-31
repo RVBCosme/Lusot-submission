@@ -152,12 +152,25 @@ describe('the page', () => {
     expect(pre?.getAttribute('lang')).toBe('en')
   })
 
-  it('has new lines in both languages, each waiting for Rene to review it', () => {
+  it('has its lines in both languages, each reviewed by Rene (Oct 31)', () => {
     for (const key of NEW_KEYS) {
-      expect(EN[key].reviewed, `en ${key}`).toBe(false)
-      expect(FIL[key].reviewed, `fil ${key}`).toBe(false)
+      expect(EN[key].reviewed, `en ${key}`).toBe(true)
+      expect(FIL[key].reviewed, `fil ${key}`).toBe(true)
       expect(EN[key].text, `en ${key}`).not.toBe('')
       expect(FIL[key].text, `fil ${key}`).not.toBe('')
     }
+  })
+
+  it("credits OpenStreetMap as its copyright page does: the data under the ODbL, the tiles under the Tile Usage Policy", () => {
+    // Checked against openstreetmap.org/copyright and the OSMF attribution guidelines on Oct 31: the ODbL covers the
+    // data, and neither page gives the tiles a licence.
+    expect(EN['licences.osm'].text).toBe(
+      'Map data © OpenStreetMap contributors, under the Open Database License (ODbL). The map tiles come from ' +
+        'OpenStreetMap, under its Tile Usage Policy.',
+    )
+    expect(FIL['licences.osm'].text).toBe(
+      'Ang map data ay © OpenStreetMap contributors, sa ilalim ng Open Database License (ODbL). Ang mga map tile ay ' +
+        'mula sa OpenStreetMap, ayon sa Tile Usage Policy nito.',
+    )
   })
 })
