@@ -1,7 +1,34 @@
-// Tests for the output mask in deploy.mjs. Run: node --test "scripts/*.test.mjs"
+// Tests for the output mask and the WebHosting check in deploy.mjs. Run: node --test "scripts/*.test.mjs"
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createMasker } from "./deploy.mjs";
+import { createMasker, webHosting } from "./deploy.mjs";
+
+const overrides = (value) => `[default.deploy.parameters]\nparameter_overrides = "${value}"\n`;
+
+test("WebHosting is read from samconfig.toml's parameter_overrides", () => {
+  assert.equal(webHosting(overrides("AlarmEmail=a BucketSuffix=abc123 WebHosting=off")), "off");
+  assert.equal(webHosting(overrides("WebHosting=on AlarmEmail=a BucketSuffix=abc123")), "on");
+});
+
+test("a samconfig.toml that doesn't set WebHosting=on or off by name gives null", () => {
+  for (const text of [
+    overrides("AlarmEmail=a BucketSuffix=abc123"),
+    overrides("AlarmEmail=a WebHosting=true"),
+    overrides("AlarmEmail=a WebHosting=On"),
+    overrides("AlarmEmail=a NoWebHosting=off"),
+    overrides("WebHosting=on WebHosting=off"),
+    `# WebHosting=on\n${overrides("AlarmEmail=a")}`,
+    "",
+  ]) {
+    assert.equal(webHosting(text), null, text);
+  }
+});
+
+test("the example samconfig sets WebHosting=on", () => {
+  const example = readFileSync(new URL("../backend/samconfig.example.toml", import.meta.url), "utf8");
+  assert.equal(webHosting(example), "on");
+});
 
 // Feeds chunks to a masker and records what it writes.
 function feed(...chunks) {
