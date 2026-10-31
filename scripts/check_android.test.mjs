@@ -1,37 +1,46 @@
 // Tests for the Android app's file provider (MS7 Task 15, D-k). Run: node --test "scripts/*.test.mjs"
-// It reads the manifest and the provider's paths file only; nothing here builds the APK.
+// It reads the manifest and the provider's paths file only; nothing here builds the APK, so the
+// library manifests merged in at build time aren't seen.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const MAIN = new URL("../app/android/app/src/main/", import.meta.url);
-const manifest = readFileSync(new URL("AndroidManifest.xml", MAIN), "utf8");
+const stripComments = (xml) => xml.replace(/<!--[\s\S]*?-->/g, "");
+const manifest = stripComments(readFileSync(new URL("AndroidManifest.xml", MAIN), "utf8"));
 
-// The <provider> elements, each with its attributes and its <meta-data> children.
-function providers(xml) {
-  return [...xml.matchAll(/<provider\b([^>]*)>([\s\S]*?)<\/provider>/g)].map(([, attrs, body]) => ({ attrs, body }));
+// An attribute's value, in either quote and with any spaces around `=`. The name must stand
+// alone, so `path` is never read out of `data-path` or `android:path`.
+function attr(attrs, name) {
+  const m = new RegExp(`(?:^|\\s)${name.replace(/[.:]/g, "\\$&")}\\s*=\\s*(["'])(.*?)\\1`).exec(attrs);
+  return m?.[2];
 }
 
-const attr = (attrs, name) => new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1];
-
 test("exposes no broad file path", () => {
-  const fileProviders = providers(manifest).filter((p) => attr(p.attrs, "android:name") === "androidx.core.content.FileProvider");
-  // Kept: Capacitor's WebView client names the <package>.fileprovider authority for a file input.
-  assert.equal(fileProviders.length, 1, "the FileProvider is kept, once");
-  const [provider] = fileProviders;
+  // Every <provider>, however it is written: exactly one, the FileProvider.
+  const providers = [...manifest.matchAll(/<provider\b([^>]*)>([\s\S]*?)<\/provider>/g)].map(([, attrs, body]) => ({ attrs, body }));
+  assert.equal((manifest.match(/<provider\b/g) ?? []).length, 1, "exactly one provider, in its long form");
+  assert.equal(providers.length, 1);
+  const [provider] = providers;
+  // Kept, as D-k decided; Capacitor's WebView client names this authority for a capture input.
+  assert.equal(attr(provider.attrs, "android:name"), "androidx.core.content.FileProvider");
   assert.equal(attr(provider.attrs, "android:authorities"), "${applicationId}.fileprovider");
   assert.equal(attr(provider.attrs, "android:exported"), "false");
-  const resource = /android:name="android\.support\.FILE_PROVIDER_PATHS"\s+android:resource="@xml\/([A-Za-z0-9_]+)"/.exec(provider.body)?.[1];
+  const meta = [...provider.body.matchAll(/<meta-data\b([^>]*)>/g)].map(([, attrs]) => attrs);
+  assert.equal(meta.length, 1, "one meta-data, the paths file");
+  assert.equal(attr(meta[0], "android:name"), "android.support.FILE_PROVIDER_PATHS");
+  const resource = /^@xml\/([A-Za-z0-9_]+)$/.exec(attr(meta[0], "android:resource") ?? "")?.[1];
   assert.ok(resource, "the provider names its paths file");
 
-  const paths = readFileSync(new URL(`res/xml/${resource}.xml`, MAIN), "utf8").replace(/<!--[\s\S]*?-->/g, "");
+  const raw = readFileSync(new URL(`res/xml/${resource}.xml`, MAIN), "utf8");
+  const paths = stripComments(raw);
+  assert.doesNotMatch(paths, /&/, "no entity, which the build would decode into another path");
   assert.doesNotMatch(paths, /<external-path\b/);
-  assert.doesNotMatch(paths, /\bpath="\.?\/?"/, 'no path="." (or an empty one) at a root');
-  const entries = [...paths.matchAll(/<([a-z-]+-path)\b([^>]*)\/?>/g)].map(([, tag, attrs]) => ({ tag, path: attr(attrs, "path") }));
-  assert.ok(entries.length > 0, "the paths file shares something, or the provider would have no use");
-  for (const { tag, path } of entries) {
-    // Only the app's own cache: never files, external storage, media or the device root.
-    assert.equal(tag, "cache-path", `<${tag}> points outside the app's cache`);
-    assert.ok(path && !path.startsWith("/") && !path.split("/").includes("..") && !/^\.?\/?$/.test(path), `cache path "${path}" is not one subfolder`);
-  }
+  assert.doesNotMatch(paths, /\bpath\s*=\s*(["'])\.?\/?\1/, 'no path="." (or an empty one) at a root');
+  const entries = [...paths.matchAll(/<([A-Za-z-]+-path)\b([^>]*)\/?>/g)].map(([, tag, attrs]) => ({ tag, path: attr(attrs, "path") }));
+  // One subfolder of the app's own cache, named plainly: never files, external storage, media,
+  // the device root, the cache root, or a way out of it.
+  assert.equal(entries.length, 1, "the provider shares one folder");
+  assert.equal(entries[0].tag, "cache-path", `<${entries[0].tag}> points outside the app's cache`);
+  assert.match(entries[0].path ?? "", /^[A-Za-z0-9_-]+\/$/, `cache path "${entries[0].path}" is not one plain subfolder`);
 });
