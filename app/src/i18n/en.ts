@@ -24,6 +24,8 @@ export const EN = {
   'lang.switch': { text: 'Language', reviewed: true },
   // MS1's banner for a build made without VITE_API_URL (R31).
   'layout.noApi': { text: 'This build has no API address, so it cannot upload.', reviewed: true },
+  // Offline (C621, Task 16): the app's own files work, the rest needs the network.
+  'layout.offline': { text: "You're offline. The map, reports and samples need the network.", reviewed: false },
   'layout.noApiDetail': { text: 'VITE_API_URL is not set. Put it in app/.env.local, then build again.', reviewed: true },
   // The fallback where a screen that crashed would have been (S5-R5). The nav and the screen line stay.
   'layout.errorFallback': { text: 'This screen could not be shown. Choose another screen from the bar below.', reviewed: true },

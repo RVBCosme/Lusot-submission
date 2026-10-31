@@ -3,6 +3,7 @@ import { T } from '../i18n'
 import { routeHash, type Route } from '../router'
 import { BottomNav } from './BottomNav'
 import { ErrorBoundary } from './ErrorBoundary'
+import { OfflineBanner } from '../components/OfflineBanner'
 import { LanguageSwitch } from './LanguageSwitch'
 import { ScreenLine } from './ScreenLine'
 
@@ -27,6 +28,7 @@ export function Layout({ route, apiReady, children }: { route: Route; apiReady: 
           </p>
         </div>
       )}
+      <OfflineBanner />
       {/* The key gives each route a fresh <main>, so a new screen starts at its top. The side padding, taken back by
           the negative margin, leaves room for a focus ring at the screen's edge, which a scrolling box would clip. It is
           a tab stop, so a keyboard can scroll a screen that has nothing else to focus, such as the privacy policy (axe's

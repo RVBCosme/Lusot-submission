@@ -7,6 +7,7 @@ import type { Place } from '../screens/report/PlaceStep'
 import {
   flowReducer,
   firstWindow,
+  holdsPhotoOrReport,
   initialFlow,
   LINK_LIFE_MS,
   linkReusable,
@@ -370,5 +371,29 @@ describe('ownPinOf', () => {
       { ...LEVEL, published: false },
     ]
     for (const result of none) expect(ownPinOf(result, SENT), JSON.stringify(result)).toBeUndefined()
+  })
+})
+
+describe('holdsPhotoOrReport, which holds a new deploy back (Task 16, Review Focus 4)', () => {
+  const photo = { blob: new Blob(['x'], { type: 'image/jpeg' }), capturedAt: '2026-10-31T08:00:00.000Z', smallStill: false }
+  it('is false on the camera, and on a place or problem step that no longer holds a photo', () => {
+    expect(holdsPhotoOrReport({ step: 'camera', shot: 0, fix: { status: 'idle' } })).toBe(false)
+    expect(holdsPhotoOrReport({ step: 'place', shot: 0, fix: { status: 'idle' } })).toBe(false)
+    expect(holdsPhotoOrReport({ step: 'problem', shot: 0, problem: { kind: 'other' } })).toBe(false)
+  })
+  it('is true with a photo in hand, while sending or waiting, and on the result', () => {
+    expect(holdsPhotoOrReport({ step: 'place', shot: 0, fix: { status: 'idle' }, photo })).toBe(true)
+    expect(holdsPhotoOrReport({ step: 'problem', shot: 0, problem: { kind: 'paused' }, photo })).toBe(true)
+    const waiting = {
+      step: 'waiting' as const,
+      shot: 0,
+      reportId: 'r_0123456789abcdef0123456789abcdef',
+      sent: { lat: 14.6, lng: 121, accuracyM: 10, capturedAt: photo.capturedAt },
+      uploadedAt: 0,
+      window: { startedAt: 0, startElapsedMs: 0, deadlineAt: 600_000 },
+      timedOut: false,
+    }
+    expect(holdsPhotoOrReport(waiting)).toBe(true)
+    expect(holdsPhotoOrReport({ ...waiting, timedOut: true })).toBe(true)
   })
 })

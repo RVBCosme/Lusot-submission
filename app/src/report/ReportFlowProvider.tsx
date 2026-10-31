@@ -25,6 +25,7 @@ import type { Photo } from '../screens/report/CameraStep'
 import type { Place } from '../screens/report/PlaceStep'
 import {
   flowReducer,
+  holdsPhotoOrReport,
   initialFlow,
   linkReusable,
   OWN_PIN_LIFE_MS,
@@ -38,6 +39,13 @@ import {
   type Problem,
   type UploadLink,
 } from './flow'
+
+// Whether the report flow holds a photo or a report id now, for the service worker's registration, which runs outside
+// React (src/main.tsx). There is one flow per app.
+let flowBusy = false
+export function reportFlowBusy(): boolean {
+  return flowBusy
+}
 
 export type ReportFlow = {
   state: FlowState
@@ -72,6 +80,10 @@ function seenOffline(problem: Problem): Problem {
 // failure is told apart by its type and shown as a line.
 export function ReportFlowProvider({ apiUrl, children }: { apiUrl: string; children: ReactNode }) {
   const [state, dispatch] = useReducer(flowReducer, initialFlow)
+  // What the service worker's registration reads before it reloads for a new deploy (src/pwa.ts).
+  useEffect(() => {
+    flowBusy = holdsPhotoOrReport(state)
+  }, [state])
   const [ownPin, setOwnPin] = useState<OwnPin>()
   // The state as last rendered, for the handlers, which stay the same from render to render. Written before the
   // browser paints, so a press always reads the step it sees.

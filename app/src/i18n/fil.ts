@@ -18,6 +18,7 @@ export const FIL: Record<StringKey, Entry> = {
   'lang.fil': { text: 'Taglish', reviewed: true },
   'lang.switch': { text: 'Wika', reviewed: true },
   'layout.noApi': { text: 'Walang API address ang build na ito, kaya hindi ito makakapag-upload.', reviewed: true },
+  'layout.offline': { text: 'Offline ka. Kailangan ng internet ng mapa, ng mga report at ng mga sample.', reviewed: false },
   'layout.noApiDetail': {
     text: 'Hindi naka-set ang VITE_API_URL. Ilagay ito sa app/.env.local, saka i-build ulit.',
     reviewed: true,

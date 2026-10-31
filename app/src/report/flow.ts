@@ -234,6 +234,14 @@ export function firstWindow(at: number): PollWindow {
   return { startedAt: at, startElapsedMs: 0, deadlineAt: at + POLL.windowMs }
 }
 
+// Whether the flow holds a photo or a report id: a new deploy's worker waits until it doesn't (src/pwa.ts), so a
+// reload never drops a photo, an upload or a wait (Review Focus 4).
+export function holdsPhotoOrReport(state: FlowState): boolean {
+  if (state.step === 'camera') return false
+  if (state.step === 'place' || state.step === 'problem') return state.photo !== undefined
+  return true
+}
+
 // An upload under way, or a wait still polling, goes on when the person leaves the screen.
 export function survivesLeaving(state: FlowState): boolean {
   return state.step === 'sending' || (state.step === 'waiting' && !state.timedOut)

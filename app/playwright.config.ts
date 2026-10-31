@@ -64,7 +64,7 @@ export default defineConfig({
   outputDir: './test-results',
   use: {
     baseURL: ORIGIN,
-    // The app has no service worker (S5-R20); blocking one is harmless and keeps it from answering ahead of the routes.
+    // The app's service worker (Task 16) is blocked, so it can't answer ahead of the routes in mocks.ts.
     serviceWorkers: 'block',
     // What a failed run leaves to read: the trace and a screenshot, in the git-ignored test-results. The pictures are the
     // synthetic street scene and the answers are the suite's own, so they hold nothing real.
