@@ -283,9 +283,9 @@ Resources:
           INCHES_SHOWN: "false"
           # Ask Lusot's two (C701), read only on POST /ask: the key's parameter name, never the key.
           MODEL_KEY_PARAM: /lusot/meta/model-api-key
-          # Identifies the app to Nominatim (its usage policy). The site's address is appended
-          # once MS5's web host exists; never an email address.
-          NOMINATIM_USER_AGENT: Lusot/1.0
+          # Identifies the app to Nominatim (its usage policy) by name and the site's address;
+          # never an email address.
+          NOMINATIM_USER_AGENT: !Sub "Lusot/1.0 (+https://${WebDistribution.DomainName})"
       Events:
         CreateUpload:
           Type: HttpApi

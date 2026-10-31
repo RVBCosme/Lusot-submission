@@ -206,9 +206,11 @@ def test_api_environment():
     assert env["MODEL_KEY_PARAM"] == "/lusot/meta/model-api-key"
     analysis = props("AnalysisFunction")["Environment"]["Variables"]
     assert env["MODEL_KEY_PARAM"] == analysis["MODEL_KEY_PARAM"]
-    # Identifies the app to Nominatim (its usage policy); the site's address is appended
-    # once MS5's web host exists, and never an email address.
-    assert env["NOMINATIM_USER_AGENT"] == "Lusot/1.0"
+    # Identifies the app to Nominatim (its usage policy) by name and the site's address,
+    # never an email address.
+    assert env["NOMINATIM_USER_AGENT"] == {
+        "Fn::Sub": "Lusot/1.0 (+https://${WebDistribution.DomainName})"
+    }
     assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
     assert env["FEED_INDEX_NAME"] == "feed-index"
     # A literal string, never a parameter (C515): YAML's bare false would be a bool.
