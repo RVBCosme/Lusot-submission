@@ -287,37 +287,46 @@ describe('renderAnswer, the vehicle and the cards', () => {
 describe('renderAnswer, "dito"', () => {
   const HERE = { name: 'here', source: 'here' } as const
 
-  it('"dito" says "from you", and its Taglish no-report line is "Walang recent report dito." once reviewed', () => {
+  it('"dito" says "from you", and its no-report line gives the 300 m and the window, in Taglish once reviewed', () => {
     const lines = renderAnswer(answer({ place: HERE }), en, NOW)
     expect(lines[0]).toMatchObject({ key: 'ask.answer.summaryHereMany', text: { text: '3 reports within 300 m of you in the last 3 hours.' } })
     expect(lines.find((line) => line.key === 'ask.answer.whereHere')?.text.text).toBe('Photo taken 25 min ago, 120 m from you.')
     expect(keys(lines)).not.toContain('ask.answer.where')
 
     const none = answer({ kind: 'no_reports', place: HERE, ...EMPTY })
-    expect(renderAnswer(none, en, NOW)[0].text.text).toBe('No recent reports near you in the last 3 hours.')
-    // Unreviewed, a screen-line key's Taglish shows its English line (C619, C724).
-    expect(renderAnswer(none, fil, NOW)[0].text).toEqual({ text: 'No recent reports near you in the last 3 hours.', lang: 'en' })
-    withEntry(FIL, 'ask.answer.noReportsHere', { ...FIL['ask.answer.noReportsHere'], reviewed: true }, () => {
-      expect(renderAnswer(none, fil, NOW)[0].text).toEqual({ text: 'Walang recent report dito.', lang: 'fil' })
+    expect(renderAnswer(none, en, NOW)[0].text.text).toBe('No recent reports within 300 m of you in the last 3 hours.')
+    expect(renderAnswer(none, fil, NOW)[0].text).toEqual({
+      text: 'Walang recent report sa loob ng 300 m mula sa iyo sa nakaraang 3 oras.',
+      lang: 'fil',
+    })
+    // Waiting for review, a screen-line key's Taglish shows its English line (C619, C724).
+    withEntry(FIL, 'ask.answer.noReportsHere', { ...FIL['ask.answer.noReportsHere'], reviewed: false }, () => {
+      expect(renderAnswer(none, fil, NOW)[0].text).toEqual({
+        text: 'No recent reports within 300 m of you in the last 3 hours.',
+        lang: 'en',
+      })
     })
   })
 })
 
 describe('renderAnswer, both languages', () => {
   it('an English line on a Taglish screen fills its time and window in English too', () => {
-    const lines = renderAnswer(answer(), fil, NOW)
+    // Both lines are reviewed now, so make them wait for review here.
+    withEntry(FIL, 'ask.answer.summaryMany', { ...FIL['ask.answer.summaryMany'], reviewed: false }, () => {
+      withEntry(FIL, 'ask.answer.where', { ...FIL['ask.answer.where'], reviewed: false }, () => {
+        const lines = renderAnswer(answer(), fil, NOW)
 
-    expect(lines[0].text).toEqual({ text: `3 reports within 300 m of ${SPOT} in the last 3 hours.`, lang: 'en' })
-    expect(lines.find((line) => line.key === 'ask.answer.where')?.text).toEqual({
-      text: `Photo taken 25 min ago, 120 m from ${SPOT}.`,
-      lang: 'en',
+        expect(lines[0].text).toEqual({ text: `3 reports within 300 m of ${SPOT} in the last 3 hours.`, lang: 'en' })
+        expect(lines.find((line) => line.key === 'ask.answer.where')?.text).toEqual({
+          text: `Photo taken 25 min ago, 120 m from ${SPOT}.`,
+          lang: 'en',
+        })
+      })
     })
     // Once reviewed, the Taglish line takes the Taglish age and window.
-    withEntry(FIL, 'ask.answer.where', { ...FIL['ask.answer.where'], reviewed: true }, () => {
-      const where = renderAnswer(answer(), fil, NOW).find((line) => line.key === 'ask.answer.where')?.text
-      expect(where?.lang).toBe('fil')
-      expect(where?.text).toContain(fil('result.age.minutes', { min: 25 }).text)
-    })
+    const where = renderAnswer(answer(), fil, NOW).find((line) => line.key === 'ask.answer.where')?.text
+    expect(where?.lang).toBe('fil')
+    expect(where?.text).toContain(fil('result.age.minutes', { min: 25 }).text)
   })
 
   it('every rendered line passes the banned-word test, and every level line has "at this spot" or "sa spot na ito"', () => {
@@ -333,17 +342,18 @@ describe('renderAnswer, both languages', () => {
         (kind) => answer({ kind, place: null, ...EMPTY }),
       ),
     ]
-    // Every ask.* line reviewed in Taglish too, so the drafts are checked as well as the English fallbacks.
-    const reviewed = Object.fromEntries(
+    // The ask.* lines are reviewed now. One pass makes them all wait for review, so the English fallbacks are checked,
+    // and the other leaves them reviewed, so the Taglish is checked too.
+    const waiting = Object.fromEntries(
       Object.entries(FIL)
         .filter(([key]) => key.startsWith('ask.'))
-        .map(([key, entry]) => [key, { ...entry, reviewed: true }]),
+        .map(([key, entry]) => [key, { ...entry, reviewed: false }]),
     )
     const original = { ...FIL }
     try {
-      for (const pass of [false, true]) {
+      for (const reviewed of [false, true]) {
         Object.assign(FIL, original)
-        if (pass) Object.assign(FIL, reviewed)
+        if (!reviewed) Object.assign(FIL, waiting)
         for (const t of [en, fil]) {
           for (const a of answers) {
             const lines = renderAnswer(a, t, NOW)
