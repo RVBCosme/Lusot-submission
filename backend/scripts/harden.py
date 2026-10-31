@@ -123,8 +123,8 @@ PRIVATE_FOR_S = 30  # through the report index's 404s
 FREE_TIER_REGION = "us-east-1"  # the Free Tier API answers only there
 BUDGET_LIMIT_USD = 5  # C25's budget, made at sign-up, outside the template
 CREDIT_FALL_FLAG_USD = 0.25  # a day: faster than cents a day goes to Rene at once
-# C32's id anywhere, file names included: MS7 prints none (C812).
-_ANY_REPORT_ID = re.compile(r"r_[0-9a-fA-F]{32}")
+# C32's id anywhere, file names included: MS7 prints none (C812). The scripts' one copy.
+_ANY_REPORT_ID = guards.ANY_REPORT_ID
 _WHOLE_SECONDS = re.compile(r"[0-9]+")
 _INVOCATION_ALARMS = {
     "AnalysisInvocationsAlarm": "AnalysisFunction",

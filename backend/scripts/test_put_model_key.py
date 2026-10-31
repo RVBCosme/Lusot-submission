@@ -3,9 +3,12 @@
 Run: uv run --with pytest --with boto3 pytest backend/scripts/test_put_model_key.py
 """
 
+import json
+
 import put_model_key
 import pytest
 from botocore.exceptions import ClientError
+from botocore.parsers import ResponseParserError
 
 NAME = "/lusot/meta/model-api-key"
 KEY = "Zq7" + "x9Lm" * 11 + "T"  # 48 characters, like the real key (spec A8)
@@ -202,3 +205,31 @@ def test_an_unexpected_reply_prints_a_traceback_without_the_key(
         assert f"arn:aws:ssm:ap-southeast-1:<account>:parameter{NAME}: <hidden>" in err
     assert not any(piece in out + err for piece in fragments(KEY))
     assert ACCOUNT not in out + err
+
+
+def test_a_reply_botocore_cannot_parse_prints_one_line(monkeypatch, capsys):
+    """Its message holds the reply's whole body, the decrypted key included."""
+    monkeypatch.setenv("MODEL_API_KEY", KEY)
+    unparsed = ResponseParserError(f'invalid JSON received: b\'{{"Value": "{KEY}"\'')
+
+    assert put_model_key.main(OddSSM(unparsed)) == 1
+
+    out, err = capsys.readouterr()
+    assert err == "AWS error: ResponseParserError\n"
+    assert not any(piece in out + err for piece in fragments(KEY))
+
+
+@pytest.mark.parametrize("form", ["repr", "json"])
+def test_an_escaped_key_is_hidden_too(monkeypatch, capsys, form):
+    """A key with a control character, as one pasted with Ctrl+V once held, echoed as
+    repr or JSON writes it."""
+    key = KEY[:24] + "\x16" + KEY[24:]
+    written = repr(key)[1:-1] if form == "repr" else json.dumps(key)[1:-1]
+    assert written != key
+    monkeypatch.setenv("MODEL_API_KEY", key)
+
+    assert put_model_key.main(OddSSM(RuntimeError(f"reply: {written}"))) == 1
+
+    out, err = capsys.readouterr()
+    assert "RuntimeError: reply: <hidden>" in err
+    assert not any(piece in out + err for piece in fragments(KEY))

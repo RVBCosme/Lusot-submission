@@ -87,16 +87,18 @@ anything is read.
 
 It prints results, counts and timings only. It never prints a photo's name, a path,
 a report id, the API's, a form's or the queue's URL, the account ID or an image URI.
-An AWS error shows its code and HTTP status. A botocore, httpx or OS error shows only
-its class name, since its message can hold a reply's body, a URL or a photo's path.
+An AWS error shows its code and HTTP status. A botocore, httpx or OS error, or a
+reply botocore can't parse, shows only its class name, since its message can hold a
+reply's body, a URL or a photo's path.
 Every printed line passes through the scripts' shared output mask (guards.py), which
 replaces each run of 12 digits with <account>, except inside a standalone report id,
 which passes whole (and which this run never prints). An AWS error, or any other
 error the run didn't expect, such as a reply without a field it reads, also prints
 its traceback first (MS7's D-f), through guards.traceback_lines: every report id in
 it, wherever it sits, shows as <report>, so an ARN or an object key in its message
-shows no account ID and no id. Log lines are read, never printed, and so is a device
-id. A sealed path is refused by guards.py's rule too.
+shows no account ID and no id, and each frame names its source file without its
+folders. Log lines are read, never printed, and so is a device id. A sealed path is
+refused by guards.py's rule too.
 
 It always uses the lusot profile, never AWS_PROFILE. boto3 comes with its CRT extra:
 that profile signs in with `aws login`, and botocore's provider for those credentials
@@ -131,6 +133,7 @@ import guards
 import httpx
 import numpy as np
 from botocore.exceptions import BotoCoreError, ClientError
+from botocore.parsers import ResponseParserError
 from ops_common import REGION, STACK, lusot_session, stack_outputs
 from spend_loader import load_spend
 
@@ -322,9 +325,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         status = exc.response["ResponseMetadata"]["HTTPStatusCode"]
         say(f"SMOKE FAILED: AWS error in {exc.operation_name}: {error} (HTTP {status})")
         return 1
-    except (BotoCoreError, httpx.HTTPError, httpx.InvalidURL, OSError) as exc:
+    except (
+        BotoCoreError,
+        ResponseParserError,
+        httpx.HTTPError,
+        httpx.InvalidURL,
+        OSError,
+    ) as exc:
         # Never the message: an OSError's holds the path of the photo it was reading,
-        # an httpx error's its URL, and a botocore parse error's the reply's body.
+        # an httpx error's its URL, and a reply botocore can't parse its whole body.
         say(f"SMOKE FAILED: {type(exc).__name__}")
         return 1
     except Exception as exc:
@@ -1269,7 +1278,7 @@ def check_stop_switch(session: boto3.Session, http: httpx.Client, api_url: str) 
             ssm.put_parameter(
                 Name=STOP_UPLOADS, Value="off", Type="String", Overwrite=True
             )
-        except (BotoCoreError, ClientError):
+        except Exception:  # any failure, so the warning never goes missing
             say(
                 "STOP SWITCH LEFT ON. Set it back by hand: aws ssm put-parameter"
                 f" --name {STOP_UPLOADS} --value off --type String --overwrite"
