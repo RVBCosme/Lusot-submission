@@ -58,6 +58,21 @@ test("12-digit runs are reported by path and line, never by their digits", () =>
   assert.doesNotMatch(out, /[0-9]{12}/);
 });
 
+test("an ID in the console's dashed groups of four is reported and masked", () => {
+  const dashed = `${ID.slice(0, 4)}-${ID.slice(4, 8)}-${ID.slice(8)}`;
+  const uuid = `0f${ID.slice(0, 6)}-${ID.slice(0, 4)}-${ID.slice(4, 8)}-${ID.slice(8)}-${ID}`;
+  const { code, out } = scan({
+    "docs/account.md": `account ${dashed}\n`,
+    [`notes-${dashed}.md`]: "clean\n",
+    "docs/other.md": `uuid ${uuid.replace(ID, "a".repeat(12))}\n${dashed}-1\n1${dashed}\n`,
+  });
+  assert.equal(code, 1);
+  assert.match(out, /^docs\/account\.md:1$/m);
+  assert.match(out, /^notes-<account>\.md \(file name\)$/m);
+  assert.doesNotMatch(out, /other\.md/);
+  assert.doesNotMatch(out, /[0-9]{4}-[0-9]{4}-[0-9]{4}/);
+});
+
 test("longer and shorter digit runs pass", () => {
   const { code, out } = scan({ "notes.txt": `${ID}3\n${ID.slice(1)}\n` });
   assert.equal(code, 0);

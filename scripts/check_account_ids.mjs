@@ -1,6 +1,6 @@
 // The account-ID scan (R39, R45), part of `npm run check:secrets`. AWS account IDs are 12
 // digits, so any run of exactly 12 digits in the repo's files, or in their paths, fails the
-// check. Hex tokens of 32 or more characters (commit SHAs, SHA-256 digests) are ignored
+// check, and so do 12 digits in dashed groups of four, as the AWS console shows an ID. Hex tokens of 32 or more characters (commit SHAs, SHA-256 digests) are ignored
 // first: a 12-digit run inside one is part of a hash, not an ID. It reads what git lists
 // (tracked and untracked, minus ignored files) and skips lockfiles (R15), files that aren't
 // text, and directory entries such as a nested repo or worktree. Text is UTF-8, or UTF-16
@@ -15,15 +15,22 @@ import { basename } from "node:path";
 // the `g` flag, so use it only with `replace`, never with `test` or `exec`.
 export const LONG_HEX = /(?<![0-9a-f])[0-9a-f]{32,}(?![0-9a-f])/gi;
 export const TWELVE_DIGITS = /(?<![0-9])[0-9]{12}(?![0-9])/;
+// The same 12 digits as the AWS console's account menu shows them, in groups of four. A group
+// of a UUID, which a hex digit and a dash sit next to, is left alone.
+export const DASHED_ID = /(?<![0-9]|[0-9a-f]-)[0-9]{4}-[0-9]{4}-[0-9]{4}(?![0-9]|-[0-9a-f])/i;
 
-// Replaces each run of exactly 12 digits with `<account>`, for any path or text printed.
+// Replaces each run of exactly 12 digits, dashed or not, with `<account>`, for any path or
+// text printed.
 export function maskDigits(text) {
-  return text.replace(new RegExp(TWELVE_DIGITS.source, "g"), "<account>");
+  return text
+    .replace(new RegExp(DASHED_ID.source, "g"), "<account>")
+    .replace(new RegExp(TWELVE_DIGITS.source, "g"), "<account>");
 }
 
-// True when `text` holds a 12-digit run outside a long hex token.
+// True when `text` holds a 12-digit run, dashed or not, outside a long hex token.
 export function hasTwelveDigits(text) {
-  return TWELVE_DIGITS.test(text.replace(LONG_HEX, ""));
+  const bare = text.replace(LONG_HEX, "");
+  return TWELVE_DIGITS.test(bare) || DASHED_ID.test(bare);
 }
 
 const LOCKFILES = new Set(["uv.lock", "package-lock.json", "requirements.lock.txt"]);

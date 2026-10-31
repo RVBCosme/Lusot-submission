@@ -322,7 +322,7 @@ test("fails closed without the plan", () =>
   withRepo((repo) => {
     repo.commit("start", { "a.txt": "a\n" });
     const allow = repo.allow();
-    const exportRun = repo.scan(["--export", "--allow", allow], { env: { CI: "true" } });
+    const exportRun = repo.scan(["--export"], { env: { CI: "true" } });
     assert.equal(exportRun.code, 2);
     assert.match(exportRun.out, /plan text not found/);
     const ciRun = repo.scan(["--allow", allow], { env: { CI: "true" } });
@@ -350,7 +350,7 @@ test("never prints what it found", () =>
     });
     const { code, out } = repo.scan(["--allow", repo.allow(), "--plan", repo.file("plan.txt", plan.text)]);
     assert.equal(code, 1);
-    assert.match(out, /^[0-9a-f]{7}:exports\/bill-<account>\.csv twelve-digit$/m);
+    assert.match(out, /^[0-9a-f]{7}:exports\/bill-<account>\.csv twelve-digit-path$/m);
     for (const planted of [ID, email, "ops.lead", AWS_LINK, "console.aws", META_BILLING, plan.number, ...plan.lines.slice(0, 6)]) {
       assert.ok(!out.includes(planted), "the output holds a planted value");
     }
@@ -365,7 +365,8 @@ test("a clean history exits 0", () =>
     const allow = repo.allow({ images: ["app/public/**"] });
     const inProcess = repo.scan(["--allow", allow, "--plan", plan]);
     assert.equal(inProcess.code, 0, inProcess.out);
-    assert.match(inProcess.out, /^history scan: 2 commit\(s\), 3 blob\(s\) read: clean$/m);
+    assert.match(inProcess.out, /^plan rules: 1 section-24 number\(s\), 20 plan line\(s\) of 60\+ characters$/m);
+    assert.match(inProcess.out, /^history scan: 2 commit\(s\), 0 tag\(s\), 3 blob\(s\) read: clean$/m);
     // The command itself, as `node scripts/check_history.mjs` runs it.
     const run = spawnSync(process.execPath, [script, "--refs", "main", "--allow", allow, "--plan", plan], {
       cwd: repo.dir,
@@ -374,4 +375,162 @@ test("a clean history exits 0", () =>
     });
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.match(run.stdout, /: clean$/m);
+  }));
+
+test("a path's later blob is checked too", () =>
+  withRepo((repo) => {
+    repo.commit("media", { "notes/shot.png": PNG, ".env": "A=\n" });
+    const first = repo.git(["rev-parse", "HEAD:notes/shot.png"]);
+    const env = repo.git(["rev-parse", "HEAD:.env"]);
+    const allow = repo.allow({
+      blobs: [
+        { blob: first, rule: "image", reason: "a reviewed image" },
+        { blob: env, rule: "never-commit", reason: "an empty template" },
+      ],
+    });
+    assert.equal(repo.scan(["--allow", allow], { env: { CI: "true" } }).code, 0);
+    const later = repo.commit("swap", { "notes/shot.png": Buffer.concat([PNG, Buffer.from([1])]), ".env": "A=real\n" });
+    const { code, out } = repo.scan(["--allow", allow], { env: { CI: "true" } });
+    assert.equal(code, 1);
+    assert.match(out, new RegExp(`^${short(later)}:notes/shot\\.png image$`, "m"));
+    assert.match(out, new RegExp(`^${short(later)}:\\.env never-commit$`, "m"));
+    assert.match(out, /^allow-listed: 2 hit\(s\)$/m);
+  }));
+
+test("an allow-list entry covers its own rule only", () =>
+  withRepo((repo) => {
+    const added = repo.commit("licence", { LICENSE: `(c) <${mail("author", "lusot-team.test")}> ${ID}\n` });
+    const blob = repo.git(["rev-parse", "HEAD:LICENSE"]);
+    const allow = repo.allow({ blobs: [{ blob, rule: "email", reason: "a required notice" }] });
+    const { code, out } = repo.scan(["--allow", allow], { env: { CI: "true" } });
+    assert.equal(code, 1);
+    assert.match(out, new RegExp(`^${short(added)}:LICENSE twelve-digit$`, "m"));
+    assert.doesNotMatch(out, /LICENSE email/);
+  }));
+
+test("a blob that is also at a sealed path is never read", () =>
+  withRepo((repo) => {
+    const secret = `copied ${ID} ${mail("someone", "lusot-team.test")}\n`;
+    repo.commit("copy first", { "notes/copy.txt": secret });
+    const blob = repo.git(["rev-parse", "HEAD:notes/copy.txt"]);
+    repo.stageBlob("x/sealed/copy.txt", secret);
+    repo.commit("then seal it");
+    const calls = [];
+    const spy = (args, input) => {
+      const output = repo.run(args, input);
+      calls.push({ args: args.join(" "), input: input === undefined ? "" : String(input), output: output.toString("latin1") });
+      return output;
+    };
+    const { code, out } = repo.scan(["--allow", repo.allow()], { env: { CI: "true" }, git: spy });
+    assert.equal(code, 1);
+    assert.ok(calls.every((c) => !c.args.includes(blob) && !c.input.includes(blob)), "the shared blob was asked for");
+    assert.ok(calls.every((c) => !c.output.includes("copied ")), "git handed back the sealed text");
+    assert.match(out, /^1 blob\(s\) not read: also at a sealed path$/m);
+    assert.doesNotMatch(out, /copy\.txt (twelve-digit|email)/);
+  }));
+
+test("git config can't change what it reads", () =>
+  withRepo((repo) => {
+    const root = repo.commit("root", { "root.txt": `first ${ID}\n` });
+    repo.git(["checkout", "-q", "-b", "side"]);
+    repo.commit("side", { "b.txt": "b\n" });
+    repo.git(["checkout", "-q", "main"]);
+    repo.commit("main", { "c.txt": "c\n" });
+    repo.git(["merge", "-q", "--no-ff", "--no-commit", "side"]);
+    writeFileSync(join(repo.dir, "evil.txt"), `value ${ID}\n`);
+    repo.git(["add", "evil.txt"]);
+    repo.git(["commit", "-q", "-m", "merge side"]);
+    const merge = repo.git(["rev-parse", "HEAD"]);
+    for (const [key, value] of [["log.showRoot", "false"], ["log.diffMerges", "combined"], ["log.showSignature", "true"], ["color.ui", "always"], ["log.mailmap", "true"]]) {
+      repo.git(["config", key, value]);
+    }
+    const { code, out } = repo.scan(["--allow", repo.allow()], { env: { CI: "true" } });
+    assert.equal(code, 1, out);
+    assert.match(out, new RegExp(`^${short(root)}:root\\.txt twelve-digit$`, "m"));
+    assert.match(out, new RegExp(`^${short(merge)}:evil\\.txt twelve-digit$`, "m"));
+    assert.match(out, /^identities: author example\.com 4; committer example\.com 4; tagger none$/m);
+  }));
+
+test("a 12-digit run is skipped only in a blob that sits in lockfiles alone", () =>
+  withRepo((repo) => {
+    repo.commit("locks", { "package-lock.json": `{"integrity": "x${ID}"}\n`, "backend/scripts/a.py.lock": `h ${ID}x\n` });
+    const copied = repo.commit("copy", { "notes.txt": `{"integrity": "x${ID}"}\n` });
+    const { code, out } = repo.scan(["--allow", repo.allow()], { env: { CI: "true" } });
+    assert.equal(code, 1);
+    assert.match(out, new RegExp(`^[0-9a-f]{7}:(package-lock\\.json|notes\\.txt) twelve-digit$`, "m"));
+    assert.doesNotMatch(out, /a\.py\.lock/);
+    assert.equal(out.match(/ twelve-digit$/gm).length, 1);
+    assert.ok(copied);
+  }));
+
+test("--export runs with the plan, takes no --allow, and fails on a plan with no section-24 number", () =>
+  withRepo((repo) => {
+    repo.commit("start", { "a.txt": "a\n" });
+    const plan = fakePlan();
+    // The committed allow-list is scripts/history-allow.json; this repo holds none of its blobs.
+    const run = repo.scan(["--export", "--plan", repo.file("plan.txt", plan.text)], { env: { CI: "true" } });
+    assert.equal(run.code, 0, run.out);
+    assert.match(run.out, /^plan rules: 1 section-24 number\(s\), 20 plan line\(s\)/m);
+    assert.equal(repo.scan(["--export", "--plan", repo.file("plan2.txt", plan.text), "--allow", repo.allow()]).code, 2);
+    const no24 = repo.file("plan3.txt", plan.lines.join("\n"));
+    const noNumber = repo.scan(["--export", "--plan", no24]);
+    assert.equal(noNumber.code, 2);
+    assert.match(noNumber.out, /no section-24 number/);
+    assert.equal(repo.scan(["--plan", no24, "--allow", repo.allow()]).code, 0);
+  }));
+
+test("reads annotated tag messages, and every branch with --all", () =>
+  withRepo((repo) => {
+    repo.commit("start", { "a.txt": "a\n" });
+    repo.git(["tag", "-a", "v1", "-m", `release for ${ID}`]);
+    const tag = repo.git(["rev-parse", "v1"]);
+    repo.git(["checkout", "-q", "-b", "side"]);
+    const side = repo.commit("side", { "side.txt": `side ${ID}\n` });
+    repo.git(["checkout", "-q", "main"]);
+    const mainOnly = repo.scan(["--refs", "main", "--allow", repo.allow()], { env: { CI: "true" } });
+    assert.equal(mainOnly.code, 0, mainOnly.out);
+    const all = repo.scan(["--refs", "--all", "--allow", repo.allow()], { env: { CI: "true" } });
+    assert.equal(all.code, 1);
+    assert.match(all.out, new RegExp(`^${short(tag)} tag-message twelve-digit$`, "m"));
+    assert.match(all.out, new RegExp(`^${short(side)}:side\\.txt twelve-digit$`, "m"));
+    assert.match(all.out, /, 1 tag\(s\), /);
+  }));
+
+test("a git failure or a blob git can't read exits 2, with no stack and no output", () =>
+  withRepo((repo) => {
+    repo.commit("start", { "a.txt": `${ID}\n` });
+    const bad = repo.scan(["--refs", "no-such-branch", "--allow", repo.allow()], { env: { CI: "true" } });
+    assert.equal(bad.code, 2);
+    assert.match(bad.out, /^history scan stopped: git log failed \(exit 128\)$/m);
+    const missing = (args, input) => {
+      if (args[0] !== "cat-file" || args[1] !== "--batch") return repo.run(args, input);
+      return Buffer.from(String(input).split("\n").filter(Boolean).map((id) => `${id} missing\n`).join(""));
+    };
+    const partial = repo.scan(["--allow", repo.allow()], { env: { CI: "true" }, git: missing });
+    assert.equal(partial.code, 2);
+    assert.match(partial.out, /couldn't read 1 blob\(s\)/);
+    assert.doesNotMatch(bad.out + partial.out, /[0-9]{12}|at .*\.mjs/);
+  }));
+
+test("link and address edge cases", () =>
+  withRepo((repo) => {
+    const signinBare = "acme-" + "prod.signin.aws." + "amazon.com";
+    const added = repo.commit("docs", {
+      "docs/sentence.md": `Read ${META_DOCS.replace("/models", "")}. And ${META_SUPPORT}.\n`,
+      "docs/remote.md": `git clone ${mail("git", "github.com")}:owner/repo.git\n`,
+      "docs/region.md": "the us-east-1.signin.aws." + "amazon.com host\n",
+      "docs/protocol.md": `<a href="//console.aws.${"amazon.com"}/iam">x</a>\n`,
+      "docs/query.md": `console.aws.${"amazon.com"}?region=ap-southeast-1\n`,
+      "docs/alias.md": `sign in at ${signinBare}\n`,
+      "docs/utf16.txt": Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`id ${ID}\n`, "utf16le")]),
+      "docs/sha.md": `commit ${"ab" + ID + "c".repeat(26)}\n`,
+      [`docs/${mail("person", "lusot-team.test")}.md`]: "x\n",
+    });
+    const { code, out } = repo.scan(["--allow", repo.allow()], { env: { CI: "true" } });
+    assert.equal(code, 1);
+    const c = short(added);
+    for (const path of ["protocol", "query", "alias"]) assert.match(out, new RegExp(`^${c}:docs/${path}\\.md console-link$`, "m"));
+    assert.match(out, new RegExp(`^${c}:docs/utf16\\.txt twelve-digit$`, "m"));
+    assert.match(out, new RegExp(`^${c}:docs/.*\\.md email-path$`, "m"));
+    assert.doesNotMatch(out, /sentence\.md|remote\.md|region\.md|sha\.md/);
   }));
