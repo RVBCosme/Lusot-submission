@@ -1,5 +1,5 @@
 // S13: once every exact copy of the screen line is taken out, no copy pattern matches anything MS4's
-// routes say, in any answer they can give (Important 15).
+// routes say, in any answer they can give (Important 15). Ask Lusot's POST /ask joins them (its Task 12).
 import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { CopyObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
@@ -8,14 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SCREEN_LINE } from "../src/copy";
 import type { JsonResponse } from "../src/http";
 import { awsError } from "./awsError";
-import { coldHandler, DEMO_ID, DEMO_PIN, ddbMock, NOW, PIN, request, resetMocks, s3Mock, serve, stubApiEnv, UPLOAD } from "./routeFixtures";
+import { ASK_HERE, coldHandler, DEMO_ID, DEMO_PIN, ddbMock, NOW, PIN, request, resetMocks, s3Mock, serve, stubApiEnv, UPLOAD } from "./routeFixtures";
 
 // Written out here, not imported, so a changed SCREEN_LINE fails the second test.
 const LINE = "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.";
 const COPY_PATTERNS = [/safe/i, /ligtas/i, /\bcross/i, /tawid/i, /\b(roads?|streets?|routes?|kalsada|daan)\b/i];
-// Data fields (a place is a street and city, spec §4.5, so it isn't MS4's wording) and machine fields
-// (presigned URLs and the signed form, whose signatures and base64 can match a pattern by chance).
-const LEFT_OUT = new Set(["credit", "place", "event", "license", "photoUrl", "overlayUrl", "layersUrl", "upload"]);
+// Data fields (a place is a street and city, spec §4.5, so it isn't MS4's wording; an answer's place.name and
+// suggestions are spot or OpenStreetMap names, such as "Maginhawa Street", not Lusot's wording either) and
+// machine fields (presigned URLs and the signed form, whose signatures and base64 can match a pattern by chance).
+const LEFT_OUT = new Set(["credit", "place", "event", "license", "suggestions", "photoUrl", "overlayUrl", "layersUrl", "upload"]);
 
 // MS1's six details and MS4's two (uploads.ts).
 const DETAILS = {
@@ -71,6 +72,20 @@ interface Case {
 }
 
 const upload = (body: string): Case => ({ routeKey: "POST /uploads", fields: { body } });
+const ask = (body: unknown): Case => ({ routeKey: "POST /ask", fields: { body: typeof body === "string" ? body : JSON.stringify(body) } });
+const DITO = { question: "May baha ba dito?", here: ASK_HERE };
+
+// Ask's details (request.ts).
+const ASK_DETAILS = {
+  "body must be JSON": "not json",
+  "body must be a JSON object": "42",
+  "question must be a string": "{}",
+  "question must be 1 to 300 characters": JSON.stringify({ question: " " }),
+  "here must be an object": JSON.stringify({ question: "May baha ba?", here: "dito" }),
+  "here.lat must be a number from -90 to 90": JSON.stringify({ ...DITO, here: { ...ASK_HERE, lat: 91 } }),
+  "here.lng must be a number from -180 to 180": JSON.stringify({ ...DITO, here: { ...ASK_HERE, lng: 181 } }),
+  "here.accuracyM must be a number from 0 to 100": JSON.stringify({ ...DITO, here: { ...ASK_HERE, accuracyM: 101 } }),
+};
 
 const CASES: Case[] = [
   upload(JSON.stringify(UPLOAD)),
@@ -127,6 +142,21 @@ const CASES: Case[] = [
   { routeKey: "POST /samples/{sampleId}", stopped: ["uploads"] },
   { routeKey: "POST /samples/{sampleId}", setup: () => s3Mock.on(CopyObjectCommand).rejects(denied()) },
 
+  ask(DITO),
+  { ...ask(DITO), stopped: ["model-calls"] },
+  ask({ ...DITO, here: { lat: 14.61443, lng: 120.99802, accuracyM: 20 } }), // in Metro Manila, with no pin near
+  ask({ ...DITO, here: { lat: 14.2, lng: 121.1, accuracyM: 20 } }), // outside Metro Manila
+  ask({ question: "May baha ba dito?" }),
+  ask({ question: "Taft Avenue" }), // a road with several listed spots
+  { ...ask({ question: "Maginhawa Street" }), stopped: ["nominatim"] },
+  ask({ question: "Ano ang ulam mamaya?" }),
+  { ...ask({ question: "May baha ba?" }), stopped: ["model-calls"] },
+  ...Object.values(ASK_DETAILS).map(ask),
+  { ...ask(DITO), setup: refuseCount(false) },
+  { ...ask(DITO), setup: refuseCount(true) },
+  { ...ask(DITO), setup: () => ddbMock.on(QueryCommand).rejects(denied()) },
+  { ...ask(DITO), setup: () => ddbMock.on(UpdateCommand).rejects(denied()) },
+
   { routeKey: "GET /nope" },
 ];
 
@@ -165,6 +195,20 @@ const ANSWERS = [
   "POST /samples/{sampleId} 429 global_cap",
   "POST /samples/{sampleId} 503 uploads_paused",
   "POST /samples/{sampleId} 500 internal",
+  "POST /ask 200 model reports",
+  "POST /ask 200 plain_list reports",
+  "POST /ask 200 model no_reports",
+  "POST /ask 200 model outside_metro_manila",
+  "POST /ask 200 model no_location",
+  "POST /ask 200 model place_too_broad",
+  "POST /ask 200 model lookup_unavailable",
+  "POST /ask 200 model off_topic",
+  "POST /ask 200 plain_list no_place",
+  ...Object.keys(ASK_DETAILS).map((detail) => `POST /ask 400 bad_request: ${detail}`),
+  "POST /ask 429 question_limit",
+  "POST /ask 429 question_cap",
+  "POST /ask 503 ask_unavailable",
+  "POST /ask 500 internal",
   "GET /nope 404 not_found",
 ];
 
@@ -173,6 +217,7 @@ function answer(routeKey: string, res: JsonResponse): string {
   let code = "";
   if (typeof body.error === "string") code = body.detail === undefined ? body.error : `${body.error}: ${body.detail}`;
   else if (body.saved === true) code = "saved";
+  else if (body.answer !== undefined) code = `${body.answer.source} ${body.answer.kind}`;
   return `${routeKey} ${res.statusCode} ${code}`.trim();
 }
 
@@ -188,6 +233,7 @@ beforeEach(() => {
   stubApiEnv();
   vi.setSystemTime(Date.parse(NOW));
   vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "log").mockImplementation(() => {}); // Ask's log line and its spend line
 });
 
 afterEach(() => {
