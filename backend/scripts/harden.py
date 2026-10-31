@@ -380,15 +380,17 @@ def confirm_private(
     offset_s: float,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    wall: Callable[[], float] = time.time,
 ) -> None:
     """C803's precondition: one report at OUTSIDE_POINT, with no photo, must read
     `private` before a run sends any photo.
 
     GET /reports/{id} is read every 1 s through 404s, since the report index can lag a
     new report, for up to 30 s. Any other mode, any other answer, or no report by then
-    raises CheckFailed. No message names the report.
+    raises CheckFailed. No message names the report. `wall` is the laptop's clock that
+    `offset_s` corrects.
     """
-    body = upload_body(OUTSIDE_POINT, captured_at=server_now(offset_s))
+    body = upload_body(OUTSIDE_POINT, captured_at=server_now(offset_s, clock=wall))
     posted = http.post(
         f"{api_url}/uploads", json=body, headers={smoke_upload.DEVICE_HEADER: device_id}
     )
