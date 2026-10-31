@@ -598,8 +598,9 @@ def remove_item(
             [
                 "# MS7's switch test left its synthetic item, so publish is still on.",
                 "# In order: delete the item, check that the read finds no Item, then set publish off.",
-                f"aws dynamodb delete-item --table-name {table} --key file://{key_file} {CLI}",
-                f"aws dynamodb get-item --table-name {table} --key file://{key_file} --consistent-read {CLI}",
+                # Quoted: a data folder's path can hold a space.
+                f'aws dynamodb delete-item --table-name {table} --key "file://{key_file}" {CLI}',
+                f'aws dynamodb get-item --table-name {table} --key "file://{key_file}" --consistent-read {CLI}',
                 hand_command("publish"),
             ],
         )

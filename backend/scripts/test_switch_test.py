@@ -537,7 +537,10 @@ def test_failed_delete_keeps_publish_on(capsys):
     assert fix.index("delete-item") < fix.index("get-item") < fix.index("put-parameter")
     assert "aws ssm put-parameter --name /lusot/stop/publish --value off" in fix
     # The key sits in its own file, which PowerShell 5.1 can't strip of its quotes.
-    [key_file] = re.findall(r"file://(\S+)", fix)[:1]
+    # Quoted, so a data folder with a space in its path (as on the laptop) stays one argument.
+    key_files = re.findall(r'"file://([^"]+)"', fix)
+    assert len(key_files) == 2 and len(set(key_files)) == 1
+    [key_file] = key_files[:1]
     assert rid in Path(key_file).read_text() and rid not in fix
 
 
