@@ -13,7 +13,7 @@ import { POLL, pollReport } from '../lib/poll'
 import { MOCK_FILES_ORIGIN, type Scenario } from '../mock/fixtures'
 import { createMockFetch } from '../mock/mockFetch'
 import type { FlowState, OwnPin } from '../report/flow'
-import { ReportFlowProvider, useOwnPin, useReportFlow, useSeenOnMap } from '../report/ReportFlowProvider'
+import { ReportFlowProvider, useOwnPin, useReportFlow, useSeenOnMap, reportFlowBusy } from '../report/ReportFlowProvider'
 import { useRoute } from '../router'
 import { deferred, fakeStream, showFrame, stubCanvas } from '../test/camera'
 import { ReportScreen } from './ReportScreen'
@@ -173,8 +173,9 @@ async function openCamera(width = 1920, height = 1080) {
 }
 
 // The canvas is stubbed for the shutter only: the mock API draws its own pictures with jsdom's canvas afterwards.
-async function shoot() {
-  stubCanvas()
+// `grey` gives the still pixels of one grey value for the phone's quality check; without it, no scores are read.
+async function shoot(grey?: number) {
+  stubCanvas({ grey })
   fireEvent.click(button('camera.shutter'))
   await settle()
   vi.mocked(HTMLCanvasElement.prototype.getContext).mockRestore()
@@ -768,6 +769,71 @@ describe('the location', () => {
     await flush()
     expect(getUserMedia).toHaveBeenCalledTimes(2)
     expect(button('camera.shutter')).toBeTruthy()
+  })
+
+  it('a dark photo shows the quality check, "Retake" first: "Retake" opens a fresh camera and uploads nothing', async () => {
+    const api = fakeApi()
+    render(<Harness />)
+    await openCamera()
+    await shoot(10)
+    expect(heading().textContent).toBe(text('report.checkTitle'))
+    expect(shows('retake.too_dark')).toBe(true)
+    const buttons = within(screen.getByRole('main')).getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual([text('report.retake'), text('report.sendAnyway')])
+    fireEvent.click(button('report.retake'))
+    await flush()
+    expect(getUserMedia).toHaveBeenCalledTimes(2)
+    expect(button('camera.shutter')).toBeTruthy()
+    expect(api.of('upload')).toHaveLength(0)
+  })
+
+  it('"Send anyway" never stops the photo: it goes on to the place step, and "Send" uploads it', async () => {
+    const api = fakeApi()
+    render(<Harness />)
+    await openCamera()
+    await shoot(10)
+    await act(async () => fixes.at(-1)?.resolve(FIX))
+    // The location was found underneath the check, and the photo waits for the person's choice.
+    expect(heading().textContent).toBe(text('report.checkTitle'))
+    fireEvent.click(button('report.sendAnyway'))
+    await flush()
+    expect(heading().textContent).toBe(text('place.title'))
+    await send()
+    expect(api.of('upload')).toHaveLength(1)
+  })
+
+  it('tells the service worker the flow is busy once it holds a photo, and free again after "Retake"', async () => {
+    fakeApi()
+    render(<Harness />)
+    await openCamera()
+    expect(reportFlowBusy()).toBe(false)
+    await shoot(10)
+    expect(reportFlowBusy()).toBe(true)
+    fireEvent.click(button('report.retake'))
+    await flush()
+    expect(reportFlowBusy()).toBe(false)
+  })
+
+  it('focus resting on the scrolling <main> still moves to the next step\'s heading', async () => {
+    fakeApi()
+    render(<App apiUrl={API} />)
+    await openCamera()
+    // A tap on plain text focuses <main>, a tab stop since the axe pass (Layout.tsx).
+    act(() => screen.getByRole('main').focus())
+    await shoot(10)
+    expect(document.activeElement).toBe(heading())
+    expect(heading().textContent).toBe(text('report.checkTitle'))
+  })
+
+  it('a photo whose pixels could not be read goes straight to the place step, with no check', async () => {
+    fakeApi()
+    render(<Harness />)
+    await openCamera()
+    // No pixels to read gives no scores (a bright, sharp photo's path is the e2e street project's).
+    await shoot()
+    await act(async () => fixes.at(-1)?.resolve(FIX))
+    expect(heading().textContent).toBe(text('place.title'))
+    expect(shows('report.checkTitle')).toBe(false)
   })
 
   it('a full-size still shows no warning', async () => {

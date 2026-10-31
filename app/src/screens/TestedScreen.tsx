@@ -6,7 +6,7 @@ import { useHeadingFocus } from '../lib/focus'
 import { type ConfigurationName, rateText, REPORT_URL, SUMMARY, type Summary } from '../lib/summary'
 import { formatDate } from '../lib/time'
 
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 // The shipped configuration's figures, in the order the rules report them first (rules §7): the three headline rates,
 // then M1's level agreement when the summary has it.

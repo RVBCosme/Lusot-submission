@@ -72,6 +72,13 @@ describe.each(['en', 'fil'] as const)('in %s', (lang) => {
     expectOneScreenLine()
   })
 
+  // Task 18's axe pass found the privacy page's scrolling <main> with nothing a keyboard could focus to scroll it.
+  it('the screen that scrolls is a tab stop, so a keyboard can scroll a screen with nothing else to focus', () => {
+    renderApp({ hash: '#/privacy', lang })
+
+    expect(screen.getByRole('main').tabIndex).toBe(0)
+  })
+
   it('the nav has 5 links named by the string table, each with an icon', () => {
     renderApp({ lang })
 

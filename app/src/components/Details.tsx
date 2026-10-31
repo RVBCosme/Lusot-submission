@@ -32,7 +32,7 @@ export function Details({
   if (code === undefined && time === undefined && items.length === 0) return null
   return (
     <details className="mt-4">
-      <summary className="flex min-h-tap cursor-pointer items-center text-action underline underline-offset-4">
+      <summary className="flex min-h-tap min-w-tap cursor-pointer items-center text-action underline underline-offset-4">
         <T k="result.details" />
       </summary>
       <div className="pb-2 text-small text-ink-2">

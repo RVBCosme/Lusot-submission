@@ -25,7 +25,7 @@ const BUTTON =
 const CHIP =
   'inline-flex min-h-tap items-center rounded-control border border-outline px-3 text-left ' +
   'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50'
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 // What the screen shows under the controls: the last answer, with when it came (its photos' ages count from then), or
 // the line for why there is none.

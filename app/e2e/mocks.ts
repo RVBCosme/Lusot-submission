@@ -11,6 +11,7 @@ import {
   ASK_TRANSCRIPT,
   askReply,
   isoSeconds,
+  levelKeyOf,
   levelLayers,
   MOCK_FILES_ORIGIN,
   pendingBody,
@@ -19,6 +20,8 @@ import {
   pinSpecs,
   resultBody,
   sampleList,
+  savedSample,
+  type Outcome,
   type PinSpec,
   type ReportFacts,
 } from '../src/mock/fixtures'
@@ -31,6 +34,10 @@ const TILE_ORIGIN = 'https://tile.openstreetmap.org'
 export const OWN_ID = 'r_7f3a9c1e5b2d48f6a0c4e8b1d3f57a92'
 // The one live pin the map holds by default: the mock's knee reading, 10 minutes old.
 export const LIVE_PIN: PinSpec = pinSpecs()[0]!
+// The mock's demo pin: an above-chest reading from 2009, with its credit, place and event (N2).
+export const DEMO_PIN: PinSpec = pinSpecs().find((pin) => pin.mode === 'demo')!
+// The report a sample's run makes (POST /samples/{sampleId}'s 201).
+export const SAMPLE_RUN_ID = 'r_9b8a7c6d5e4f40312a1b2c3d4e5f6a7b'
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -45,10 +52,23 @@ export interface Behaviour {
   upload: 'ok' | 'paused'
   // How many reads of the person's own report still answer "processing" before the result; Infinity never answers.
   pendingReads: number
+  // What the person's own report ends as (spec §4.2), and its mode: `private` is a photo taken outside Metro Manila.
+  outcome: Outcome
+  mode: 'live' | 'private'
+  // How many of the photo's POSTs to S3 fail as a lost connection before one goes through.
+  s3Failures: number
+  // How long every answer from the API and the S3 stand-in waits, in ms: a slow network (CDP throttling doesn't slow
+  // answers that a route fulfils).
+  delayMs: number
   // What GET /map/pins holds. The person's own pin is never in it, as before the API has caught up.
   pins: PinSpec[]
-  // How many samples GET /samples lists.
-  sampleCount: number
+  // How many samples GET /samples lists, or 'error' for a GET /samples that fails.
+  sampleCount: number | 'error'
+  // POST /samples/{sampleId}: a run (201), the saved result while model calls are paused (200, MS4's C527), or MS1's
+  // 503 uploads_paused.
+  sampleRun: 'run' | 'saved' | 'paused'
+  // What a sample's run reads.
+  sampleOutcome: Outcome
 }
 
 // One request the app made to the API or the S3 stand-in, for a test to read. The upload's JSON body and the S3 form's
@@ -91,13 +111,26 @@ const TILE = png(256, 256, [226, 230, 224])
 const PHOTO = png(400, 300, [108, 128, 138])
 
 export class Mocks {
-  readonly behaviour: Behaviour = { upload: 'ok', pendingReads: 0, pins: [LIVE_PIN], sampleCount: 3 }
+  readonly behaviour: Behaviour = {
+    upload: 'ok',
+    pendingReads: 0,
+    outcome: { kind: 'level', key: 'knee' },
+    mode: 'live',
+    s3Failures: 0,
+    delayMs: 0,
+    pins: [LIVE_PIN],
+    sampleCount: 3,
+    sampleRun: 'run',
+    sampleOutcome: { kind: 'level', key: 'knee' },
+  }
   // Requests no route answered: any request to a host outside this machine, and any path the answers don't know.
   readonly unrouted: string[] = []
   readonly requests: Logged[] = []
 
   private readonly startedAt = Date.now()
   private uploaded = false
+  // Each live pin's flag count, as POST /reports/{id}/flag has counted it.
+  private readonly flagged = new Map<string, number>()
   private capturedAt: string | undefined
   private gpsAccuracyM: number | undefined
   private gate: Promise<void> | undefined
@@ -133,7 +166,8 @@ export class Mocks {
     await this.context.route(`${API_ORIGIN}/**`, (route) => this.api(route))
   }
 
-  private reply(route: Route, status: number, body?: unknown, headers: Record<string, string> = {}): Promise<void> {
+  private async reply(route: Route, status: number, body?: unknown, headers: Record<string, string> = {}): Promise<void> {
+    if (this.behaviour.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.behaviour.delayMs))
     return route.fulfill({
       status,
       headers: { ...CORS, ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
@@ -180,13 +214,26 @@ export class Mocks {
   }
 
   private ownFacts(): ReportFacts {
+    const { mode, outcome } = this.behaviour
     return {
       reportId: OWN_ID,
-      mode: 'live',
-      published: true,
+      mode,
+      // Only a level read in Metro Manila is published (MS4's C506, D14).
+      published: mode === 'live' && outcome.kind === 'level',
       capturedAt: this.capturedAt ?? isoSeconds(Date.now()),
       gpsAccuracyM: this.gpsAccuracyM,
       links: this.links(OWN_ID),
+    }
+  }
+
+  // The links a sample's result carries: its photo whatever the outcome (N11), and the overlay with a level.
+  private sampleFacts(): ReportFacts {
+    return {
+      reportId: SAMPLE_RUN_ID,
+      mode: 'sample',
+      published: false,
+      capturedAt: isoSeconds(this.startedAt),
+      links: this.links(SAMPLE_RUN_ID),
     }
   }
 
@@ -223,6 +270,7 @@ export class Mocks {
 
     if (method === 'GET' && pathname === '/samples') {
       this.log(route)
+      if (this.behaviour.sampleCount === 'error') return this.reply(route, 500, { message: 'Internal Server Error' })
       const samples = sampleList(this.behaviour.sampleCount).map(({ sampleId, credit, license, place, date, event }) => ({
         sampleId,
         credit,
@@ -249,6 +297,30 @@ export class Mocks {
       return this.reply(route, status, status === 200 && spoken ? { ...body, transcript: ASK_TRANSCRIPT } : body, wait)
     }
 
+    // A sample's run (MS4's C512, C527): one POST per tap, which the samples spec counts.
+    const sample = /^\/samples\/([A-Za-z0-9_-]+)$/.exec(pathname)
+    if (method === 'POST' && sample !== null) {
+      this.log(route)
+      const spec = sampleList(typeof this.behaviour.sampleCount === 'number' ? this.behaviour.sampleCount : 0).find(
+        (candidate) => candidate.sampleId === sample[1],
+      )
+      if (spec === undefined) return this.reply(route, 404, { error: 'not_found' })
+      if (this.behaviour.sampleRun === 'paused') return this.reply(route, 503, { error: 'uploads_paused' })
+      if (this.behaviour.sampleRun === 'saved') return this.reply(route, 200, savedSample(spec))
+      return this.reply(route, 201, { reportId: SAMPLE_RUN_ID })
+    }
+
+    // A flag on a live pin counts once per phone; a demo pin, or one off the map, is not found (MS4's C511, C522).
+    const flag = /^\/reports\/([A-Za-z0-9_-]+)\/flag$/.exec(pathname)
+    if (method === 'POST' && flag !== null) {
+      this.log(route)
+      const spec = this.behaviour.pins.find((pin) => pin.id === flag[1])
+      if (spec === undefined || spec.mode !== 'live') return this.reply(route, 404, { error: 'not_found' })
+      const flags = this.flagged.get(spec.id) ?? spec.flags + 1
+      this.flagged.set(spec.id, flags)
+      return this.reply(route, 200, { flags })
+    }
+
     const read = /^\/reports\/([A-Za-z0-9_-]+)$/.exec(pathname)
     if (method === 'GET' && read !== null) {
       this.log(route)
@@ -259,14 +331,21 @@ export class Mocks {
           this.behaviour.pendingReads -= 1
           return this.reply(route, 200, pendingBody('processing', this.ownFacts()))
         }
-        return this.reply(route, 200, resultBody({ kind: 'level', key: 'knee' }, this.ownFacts()))
+        return this.reply(route, 200, resultBody(this.behaviour.outcome, this.ownFacts()))
       }
+      if (id === SAMPLE_RUN_ID) return this.reply(route, 200, this.sampleBody())
       const spec = this.behaviour.pins.find((pin) => pin.id === id)
       if (spec !== undefined) return this.reply(route, 200, resultBody({ kind: 'level', key: spec.key }, this.pinFacts(spec)))
       return this.reply(route, 404, { error: 'not_found' })
     }
 
     return this.notFound(route)
+  }
+
+  // A sample run's answer: its links only with a level, as the API gives them (backend/api/src/reports.ts); the card
+  // shows the photo from GET /samples whatever the outcome (N11, C637).
+  private sampleBody(): Record<string, unknown> {
+    return resultBody(this.behaviour.sampleOutcome, this.sampleFacts())
   }
 
   private async files(route: Route): Promise<void> {
@@ -280,6 +359,10 @@ export class Mocks {
       const body = request.postDataBuffer()?.toString('latin1') ?? ''
       const formFields = [...body.matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map((match) => match[1]!)
       this.log(route, { formFields })
+      if (this.behaviour.s3Failures > 0) {
+        this.behaviour.s3Failures -= 1
+        return route.abort('connectionreset')
+      }
       this.uploaded = true
       return this.reply(route, 204)
     }
@@ -288,7 +371,12 @@ export class Mocks {
       const layers = /^\/layers\/([A-Za-z0-9_-]+)\.json$/.exec(pathname)
       if (layers !== null) {
         const id = layers[1]!
-        const key = id === OWN_ID ? 'knee' : this.behaviour.pins.find((pin) => pin.id === id)?.key
+        const key =
+          id === OWN_ID
+            ? levelKeyOf(this.behaviour.outcome)
+            : id === SAMPLE_RUN_ID
+              ? levelKeyOf(this.behaviour.sampleOutcome)
+              : this.behaviour.pins.find((pin) => pin.id === id)?.key
         if (key !== undefined) return this.reply(route, 200, levelLayers(key))
       }
       if (/^\/(photo|overlay|samples)\/[A-Za-z0-9_-]+\.png$/.test(pathname)) {

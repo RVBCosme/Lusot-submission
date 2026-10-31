@@ -1,8 +1,8 @@
 // The report flow's state, from photo to result, as a reducer with no side effects (ReportFlowProvider runs the
 // camera's location watch, the upload and the poll, and dispatches what happens). The order: the camera (C602),
 // whose first frame starts the location watch (C603); the place step; sending; waiting; then the result or a
-// problem. Task 10's on-phone quality check is dropped, so there is no check step: the server's own check refuses a
-// dark or blurry photo (C604).
+// problem. The phone's quality check (C604, Task 10) is a view in front of the place step (ReportScreen.tsx), not a
+// step here: it only warns, and the server checks again.
 //
 // What it keeps (spec §4.4): the photo only until its upload succeeds or 15 minutes pass; a position only until the
 // upload succeeds, then the sent one for the own pin until the result comes; the report id only until the result
@@ -232,6 +232,14 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
 // The first poll after an upload: from the start of the schedule, and 600 s at most (C601).
 export function firstWindow(at: number): PollWindow {
   return { startedAt: at, startElapsedMs: 0, deadlineAt: at + POLL.windowMs }
+}
+
+// Whether the flow holds a photo or a report id: a new deploy's worker takes over at once, but the page's reload into
+// it waits until the flow doesn't (src/pwa.ts), so a reload never drops a photo, an upload or a wait (Review Focus 4).
+export function holdsPhotoOrReport(state: FlowState): boolean {
+  if (state.step === 'camera') return false
+  if (state.step === 'place' || state.step === 'problem') return state.photo !== undefined
+  return true
 }
 
 // An upload under way, or a wait still polling, goes on when the person leaves the screen.

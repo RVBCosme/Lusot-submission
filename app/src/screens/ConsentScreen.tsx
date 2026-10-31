@@ -79,7 +79,7 @@ export function ConsentScreen({
         </button>
       </div>
       <p className="mt-4">
-        <a href="#/privacy" className="inline-flex min-h-tap items-center text-action underline underline-offset-4">
+        <a href="#/privacy" className="inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4">
           <T k="consent.readPolicy" />
         </a>
       </p>

@@ -2,7 +2,9 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
 import { configDefaults } from 'vitest/config'
+import { pwaOptions } from './pwa.config.ts'
 
 // The Tested page reads MS6's results through `@eval-results` (app/src/lib/summary.ts): the repo's eval/results, which
 // exists only from the sealed run, so its globs give {} until then. LUSOT_E2E_SUMMARY=<state> points it at
@@ -16,7 +18,7 @@ function evalResults(state: string | undefined): string {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), VitePWA(pwaOptions)],
   resolve: {
     alias: { '@eval-results': evalResults(process.env.LUSOT_E2E_SUMMARY) },
   },
