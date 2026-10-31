@@ -329,7 +329,7 @@ Resources:
           FEED_INDEX_NAME: feed-index
           # A literal, never a parameter (C515): MS6's post-gate commit sets it to "true".
           INCHES_SHOWN: "false"
-          # Ask Lusot's two (C701), read only on POST /ask: the key's parameter name, never the key.
+          # Ask Lusot's two (C701), read only on its two routes: the key's parameter name, never the key.
           MODEL_KEY_PARAM: /lusot/meta/model-api-key
           # Identifies the app to Nominatim (its usage policy) by name and, with the website on,
           # the site's address; never an email address.
@@ -380,13 +380,19 @@ Resources:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /samples/{sampleId}
-        # Ask Lusot, typed only (Oct 30): no voice route.
+        # Ask Lusot: a typed question, and a spoken one as WAV in base64 (its spec §5.1, §5.2).
         AskTyped:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /ask
+        AskVoice:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /ask/voice
         Feed:
           Type: HttpApi
           Properties:

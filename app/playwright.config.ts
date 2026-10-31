@@ -5,10 +5,12 @@
 // The build goes to the git-ignored .e2e-dist/none, never app/dist, so `cap sync` can't ship a test build. One build
 // serves every spec: the Tested page's summary is fixed at build time, and `none` is the state with no sealed run yet.
 //
-// One project, `street`: Chromium plays a synthetic street scene (e2e/frames.ts) as the camera, and answers its own
-// permission prompts. One worker, because the machine that runs this is short of memory.
+// Two projects. `street`: Chromium plays a synthetic street scene (e2e/frames.ts) as the camera, and answers its own
+// permission prompts. `ask`, for Ask Lusot's spec only: the same, with a synthetic tone (e2e/tone.ts) as the microphone.
+// One worker, because the machine that runs this is short of memory.
 import { defineConfig } from '@playwright/test'
 import { STREET_FRAME } from './e2e/frames'
+import { TONE_WAV } from './e2e/tone'
 
 const PORT = 4871
 const ORIGIN = `http://127.0.0.1:${PORT}`
@@ -42,6 +44,7 @@ export default defineConfig({
   projects: [
     {
       name: 'street',
+      testIgnore: 'ask.spec.ts',
       use: {
         browserName: 'chromium',
         viewport: { width: 360, height: 640 },
@@ -50,6 +53,23 @@ export default defineConfig({
             '--use-fake-ui-for-media-stream',
             '--use-fake-device-for-media-stream',
             `--use-file-for-fake-video-capture=${STREET_FRAME}`,
+          ],
+        },
+      },
+    },
+    {
+      name: 'ask',
+      testMatch: 'ask.spec.ts',
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 360, height: 640 },
+        permissions: ['camera', 'geolocation', 'microphone'],
+        launchOptions: {
+          args: [
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            `--use-file-for-fake-video-capture=${STREET_FRAME}`,
+            `--use-file-for-fake-audio-capture=${TONE_WAV}`,
           ],
         },
       },

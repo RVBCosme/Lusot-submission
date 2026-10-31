@@ -1,5 +1,6 @@
 // S13: once every exact copy of the screen line is taken out, no copy pattern matches anything MS4's
-// routes say, in any answer they can give (Important 15). Ask Lusot's POST /ask joins them (its Task 12).
+// routes say, in any answer they can give (Important 15). Ask Lusot's POST /ask and POST /ask/voice join them (its
+// Task 12).
 import { ConditionalCheckFailedException, TransactionCanceledException } from "@aws-sdk/client-dynamodb";
 import { CopyObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
@@ -8,15 +9,44 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SCREEN_LINE } from "../src/copy";
 import type { JsonResponse } from "../src/http";
 import { awsError } from "./awsError";
-import { ASK_HERE, coldHandler, DEMO_ID, DEMO_PIN, ddbMock, NOW, PIN, request, resetMocks, s3Mock, serve, stubApiEnv, UPLOAD } from "./routeFixtures";
+import {
+  ASK_HERE,
+  coldHandler,
+  DEMO_ID,
+  DEMO_PIN,
+  ddbMock,
+  hearing,
+  NOW,
+  PIN,
+  request,
+  resetMocks,
+  s3Mock,
+  serve,
+  stubApiEnv,
+  UPLOAD,
+  VOICE_AUDIO,
+  wavBase64,
+} from "./routeFixtures";
 
 // Written out here, not imported, so a changed SCREEN_LINE fails the second test.
 const LINE = "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.";
 const COPY_PATTERNS = [/safe/i, /ligtas/i, /\bcross/i, /tawid/i, /\b(roads?|streets?|routes?|kalsada|daan)\b/i];
 // Data fields (a place is a street and city, spec §4.5, so it isn't MS4's wording; an answer's place.name and
-// suggestions are spot or OpenStreetMap names, such as "Maginhawa Street", not Lusot's wording either) and
-// machine fields (presigned URLs and the signed form, whose signatures and base64 can match a pattern by chance).
-const LEFT_OUT = new Set(["credit", "place", "event", "license", "suggestions", "photoUrl", "overlayUrl", "layersUrl", "upload"]);
+// suggestions are spot or OpenStreetMap names, such as "Maginhawa Street", not Lusot's wording either; a spoken
+// answer's transcript is the speaker's own words, which the app masks, AskL-Q11) and machine fields (presigned URLs
+// and the signed form, whose signatures and base64 can match a pattern by chance).
+const LEFT_OUT = new Set([
+  "credit",
+  "place",
+  "event",
+  "license",
+  "suggestions",
+  "transcript",
+  "photoUrl",
+  "overlayUrl",
+  "layersUrl",
+  "upload",
+]);
 
 // MS1's six details and MS4's two (uploads.ts).
 const DETAILS = {
@@ -74,6 +104,8 @@ interface Case {
 const upload = (body: string): Case => ({ routeKey: "POST /uploads", fields: { body } });
 const ask = (body: unknown): Case => ({ routeKey: "POST /ask", fields: { body: typeof body === "string" ? body : JSON.stringify(body) } });
 const DITO = { question: "May baha ba dito?", here: ASK_HERE };
+const voice = (body: unknown): Case => ({ routeKey: "POST /ask/voice", fields: { body: typeof body === "string" ? body : JSON.stringify(body) } });
+const SPOKEN = { audio: VOICE_AUDIO, here: ASK_HERE };
 
 // Ask's details (request.ts).
 const ASK_DETAILS = {
@@ -157,6 +189,21 @@ const CASES: Case[] = [
   { ...ask(DITO), setup: () => ddbMock.on(QueryCommand).rejects(denied()) },
   { ...ask(DITO), setup: () => ddbMock.on(UpdateCommand).rejects(denied()) },
 
+  voice(SPOKEN),
+  { ...voice(SPOKEN), stopped: ["model-calls"] },
+  { ...voice(SPOKEN), setup: () => hearing("") },
+  { ...voice(SPOKEN), setup: () => hearing(503) },
+  voice("not json"),
+  voice("42"),
+  voice({ ...SPOKEN, here: "dito" }),
+  voice({ audio: "not base64!" }),
+  voice({ audio: wavBase64(0.2) }),
+  voice({ audio: wavBase64(15.5) }),
+  { ...voice(SPOKEN), setup: refuseCount(false) },
+  { ...voice(SPOKEN), setup: refuseCount(true) },
+  { ...voice(SPOKEN), setup: () => ddbMock.on(QueryCommand).rejects(denied()) },
+  { ...voice(SPOKEN), setup: () => ddbMock.on(UpdateCommand).rejects(denied()) },
+
   { routeKey: "GET /nope" },
 ];
 
@@ -209,6 +256,20 @@ const ANSWERS = [
   "POST /ask 429 question_cap",
   "POST /ask 503 ask_unavailable",
   "POST /ask 500 internal",
+  "POST /ask/voice 200 model reports",
+  "POST /ask/voice 200 model no_speech",
+  "POST /ask/voice 400 bad_request: body must be JSON",
+  "POST /ask/voice 400 bad_request: body must be a JSON object",
+  "POST /ask/voice 400 bad_request: here must be an object",
+  "POST /ask/voice 400 bad_audio",
+  "POST /ask/voice 422 audio_too_short",
+  "POST /ask/voice 422 audio_too_long",
+  "POST /ask/voice 429 question_limit",
+  "POST /ask/voice 429 question_cap",
+  "POST /ask/voice 503 voice_paused",
+  "POST /ask/voice 503 voice_failed",
+  "POST /ask/voice 503 ask_unavailable",
+  "POST /ask/voice 500 internal",
   "GET /nope 404 not_found",
 ];
 
@@ -244,7 +305,9 @@ afterEach(() => {
 });
 
 describe("copy", () => {
-  it("keeps every route's bodies free of the banned words, crossing advice and whole-road wording", async () => {
+  // Its own timeout: every case imports a cold handler, so the module caches (switches, the key, the clients) never
+  // carry over, and the whole run takes about 4 s alone, close to vitest's 5 s default on a loaded machine.
+  it("keeps every route's bodies free of the banned words, crossing advice and whole-road wording", { timeout: 30_000 }, async () => {
     const seen = new Set<string>();
     const said: string[] = [];
     for (const { routeKey, fields, stopped, setup } of CASES) {

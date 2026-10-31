@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import androidIgnore from '../android/.gitignore?raw'
 import buildGradle from '../android/app/build.gradle?raw'
 import manifestXml from '../android/app/src/main/AndroidManifest.xml?raw'
 import config from '../capacitor.config.ts'
@@ -41,6 +42,19 @@ describe('android/app/build.gradle', () => {
     expect(buildGradle).toContain(`versionName "${pkg.version}"`)
     expect(buildGradle).toMatch(/^\s*versionCode\s+1\s*$/m)
   })
+
+  it('signs a release build only from the git-ignored keystore.properties, and holds no signing secret itself', () => {
+    expect(buildGradle).toContain("rootProject.file('keystore.properties')")
+    for (const key of ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']) {
+      expect(buildGradle, key).toContain(`keystoreProperties['${key}']`)
+    }
+    expect(buildGradle).toMatch(/release\s*\{\s*signingConfig signingConfigs\.release/)
+    // No password, alias or keystore path written into the file: every value comes from keystoreProperties.
+    expect(buildGradle).not.toMatch(/(storePassword|keyPassword|keyAlias)\s+["']/)
+    expect(buildGradle).not.toMatch(/storeFile\s+file\(\s*["']/)
+    expect(buildGradle).not.toMatch(/\.(jks|keystore|p12)\b/)
+    expect(androidIgnore.split(/\r?\n/)).toEqual(expect.arrayContaining(['keystore.properties', '*.jks', '*.keystore', '*.p12']))
+  })
 })
 
 describe('AndroidManifest.xml', () => {
@@ -59,6 +73,17 @@ describe('AndroidManifest.xml', () => {
     const permissions = [...manifest.getElementsByTagName('uses-permission')].map((e) => attr(e, 'name'))
     expect(permissions).toContain('android.permission.CAMERA')
     expect(attr(usesFeature('android.hardware.camera'), 'required')).toBe('false')
+  })
+
+  it('asks for the microphone with RECORD_AUDIO and MODIFY_AUDIO_SETTINGS, and does not require a microphone', () => {
+    // Capacitor's WebView client asks Android for both together when the page opens a microphone stream, and refuses
+    // the stream if either is missing (Ask Lusot's Task 17). Android reads them only directly under <manifest>.
+    const permissions = [...manifest.getElementsByTagName('uses-permission')]
+      .filter((e) => e.parentNode === manifest.documentElement)
+      .map((e) => attr(e, 'name'))
+    expect(permissions).toContain('android.permission.RECORD_AUDIO')
+    expect(permissions).toContain('android.permission.MODIFY_AUDIO_SETTINGS')
+    expect(attr(usesFeature('android.hardware.microphone'), 'required')).toBe('false')
   })
 
   it('does not require a GPS, so a store would not filter out a phone with network location only', () => {

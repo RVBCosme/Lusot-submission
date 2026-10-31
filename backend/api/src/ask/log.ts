@@ -1,6 +1,6 @@
 // Ask's one log line per question (spec §4.9, C721). Only these fields are ever written, so a question, a
 // transcript, a place, a point, a device id, a report id or a key can't reach the log through it. `msg` is the
-// line's own ("ask"). audio_ms and transcribe_ms are the spoken route's, which Ask doesn't serve yet (typed only).
+// line's own ("ask"). audio_ms and transcribe_ms are the spoken route's (route "ask_voice").
 export const ASK_LOG_FIELDS = [
   "route",
   "status",

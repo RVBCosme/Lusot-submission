@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from 'react'
 
-// The app's hash routes (C620), with #/licences for C636. Hash routes need no rewrite rule on any host, and work
-// the same in the APK and offline.
+// The app's hash routes (C620), with #/licences for C636 and Ask Lusot's #/ask in MS5's fifth slot. Hash routes need
+// no rewrite rule on any host, and work the same in the APK and offline.
 export type Route =
   | { name: 'map' }
   | { name: 'report' }
@@ -9,9 +9,10 @@ export type Route =
   | { name: 'about' }
   | { name: 'privacy' }
   | { name: 'licences' }
+  | { name: 'ask' }
   | { name: 'pin'; id: string }
 
-const PAGES = ['map', 'report', 'tested', 'about', 'privacy', 'licences'] as const
+const PAGES = ['map', 'report', 'tested', 'about', 'privacy', 'licences', 'ask'] as const
 
 // A pin's public id is its report id (MS4's C504). The app navigates only to pins it read from the API.
 const PIN_ID = /^[A-Za-z0-9_-]{1,64}$/

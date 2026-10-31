@@ -1,3 +1,4 @@
+import { AskScreen } from './ask/AskScreen'
 import { LanguageProvider } from './i18n'
 import { Layout } from './layout/Layout'
 import { apiBaseUrl } from './lib/api'
@@ -34,6 +35,8 @@ function Screen({ route, apiUrl }: { route: Route; apiUrl: string }) {
       return <PrivacyScreen />
     case 'licences':
       return <LicencesScreen />
+    case 'ask':
+      return <AskScreen apiUrl={apiUrl} />
     case 'pin':
       // The pin screen asks the API for a pin's report only for an id that `GET /map/pins` holds (S5-R5).
       return <PinScreen apiUrl={apiUrl} id={route.id} />
