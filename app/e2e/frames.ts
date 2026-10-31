@@ -1,12 +1,18 @@
-// The fake camera's picture for the end-to-end suite (MS5 Task 18). Chromium's --use-file-for-fake-video-capture plays a
-// Y4M file as the camera, so this writes one: a street-like scene (sky, a row of buildings, a road, a parked car and a
-// person, with water over the lower road) drawn from rectangles and circles. Nothing here is a photograph, and no real
-// place or person is in it. The file goes to the git-ignored e2e/.frames/ before the browser starts (global-setup.ts).
+// The fake camera's pictures for the end-to-end suite (MS5 Task 18). Chromium's --use-file-for-fake-video-capture plays a
+// Y4M file as the camera, so this writes two: a street-like scene (sky, a row of buildings, a road, a parked car and a
+// person, with water over the lower road) drawn from rectangles and circles, and the same scene at night, too dark to
+// read (the `dark` project's camera). Nothing here is a photograph, and no real place or person is in it. The files go
+// to the git-ignored e2e/.frames/ before the browser starts (global-setup.ts).
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 export const FRAMES_DIR = fileURLToPath(new URL('./.frames/', import.meta.url))
 export const STREET_FRAME = fileURLToPath(new URL('./.frames/street.y4m', import.meta.url))
+export const DARK_FRAME = fileURLToPath(new URL('./.frames/dark.y4m', import.meta.url))
+
+// The dark scene keeps this share of each colour: its mean grey value is about 15, well under the server's 40 for
+// too_dark (quality.py), so the phone's quality check, once it exists, finds it too dark.
+const DARK_GAIN = 0.12
 
 // 1,600 px on the longer side, so the still isn't "too small" (C602) and the place step shows no warning.
 const WIDTH = 1600
@@ -83,13 +89,17 @@ function colourAt(x: number, y: number, phase: number): Rgb {
 const clamp = (value: number) => (value < 0 ? 0 : value > 255 ? 255 : Math.round(value))
 
 // One frame as I420: the Y plane, then U and V at half size in each direction (BT.601, full range, as C420jpeg says).
-function frame(phase: number): Buffer {
+// `gain` scales every colour, so the dark scene is the street scene with the light gone.
+function frame(phase: number, gain: number): Buffer {
   const lumaSize = WIDTH * HEIGHT
   const chromaSize = (WIDTH / 2) * (HEIGHT / 2)
   const out = Buffer.alloc(lumaSize + 2 * chromaSize)
   for (let y = 0; y < HEIGHT; y += 1) {
     for (let x = 0; x < WIDTH; x += 1) {
-      const [r, g, b] = colourAt(x, y, phase)
+      const [r0, g0, b0] = colourAt(x, y, phase)
+      const r = r0 * gain
+      const g = g0 * gain
+      const b = b0 * gain
       out[y * WIDTH + x] = clamp(0.299 * r + 0.587 * g + 0.114 * b)
       if (x % 2 === 0 && y % 2 === 0) {
         const at = lumaSize + (y / 2) * (WIDTH / 2) + x / 2
@@ -101,12 +111,17 @@ function frame(phase: number): Buffer {
   return out
 }
 
-// Writes the street frame, the same bytes every time.
-export function writeFrames(): void {
-  mkdirSync(FRAMES_DIR, { recursive: true })
+function y4m(gain: number): Buffer {
   const header = Buffer.from(`YUV4MPEG2 W${WIDTH} H${HEIGHT} F30:1 Ip A1:1 C420jpeg XYSCSS=420JPEG\n`, 'latin1')
   const marker = Buffer.from('FRAME\n', 'latin1')
   const parts: Buffer[] = [header]
-  for (let i = 0; i < FRAME_COUNT; i += 1) parts.push(marker, frame(i))
-  writeFileSync(STREET_FRAME, Buffer.concat(parts))
+  for (let i = 0; i < FRAME_COUNT; i += 1) parts.push(marker, frame(i, gain))
+  return Buffer.concat(parts)
+}
+
+// Writes the street frame and the dark one, the same bytes every time.
+export function writeFrames(): void {
+  mkdirSync(FRAMES_DIR, { recursive: true })
+  writeFileSync(STREET_FRAME, y4m(1))
+  writeFileSync(DARK_FRAME, y4m(DARK_GAIN))
 }

@@ -295,11 +295,11 @@ describe("the overlay's new lines", () => {
   ] as const
   const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort()
 
-  it('exist in both languages, start unreviewed, and keep to the product rules', () => {
+  it('exist in both languages, reviewed by Rene (Oct 31), and keep to the product rules', () => {
     for (const key of KEYS) {
       for (const [lang, entry] of [['en', EN[key]], ['fil', FIL[key]]] as const) {
         expect(entry.text.trim(), `${lang} ${key}`).not.toBe('')
-        expect(entry.reviewed, `${lang} ${key}`).toBe(false)
+        expect(entry.reviewed, `${lang} ${key}`).toBe(true)
         expect(entry.text, `${lang} ${key}`).not.toMatch(/safe|ligtas/i)
         expect(entry.text, `${lang} ${key}`).not.toMatch(/(roads?|routes?|streets?|cross|approach)|kalsada|tumawid/i)
       }

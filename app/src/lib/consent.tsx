@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import consentText from '../content/consent.en.md?raw'
 import { navigate } from '../router'
 import { ConsentScreen, type GateKind } from '../screens/ConsentScreen'
+import { focusFell } from './focus'
 import { readItem, writeItem } from './storage'
 
 // Kept on the phone as { adult: true, notice?: <version> } (C607).
@@ -85,7 +86,7 @@ export function GateProvider({ children }: { children: ReactNode }) {
     if (open !== null) return
     const target = opener.current
     opener.current = null
-    const lost = document.activeElement === null || document.activeElement === document.body
+    const lost = focusFell()
     if (target?.isConnected && lost) target.focus()
   }, [open])
 

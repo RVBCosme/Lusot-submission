@@ -43,13 +43,25 @@ export function showFrame(video: HTMLVideoElement, width = 1920, height = 1080):
 // A canvas with a recording 2D context. `blobBytes` is the size of each JPEG that toBlob hands back, in order, the
 // last one repeating; `null` is a canvas that can't encode. `qualities` lists the quality each toBlob asked for.
 // With `hold`, toBlob waits until the test calls `finish()`, so a test can act while a photo is being encoded.
-export function stubCanvas({ blobBytes = [1000], hold = false }: { blobBytes?: (number | null)[]; hold?: boolean } = {}) {
+// With `grey`, the context also reads back pixels, all of that grey value, for the phone's quality check (Task 10).
+export function stubCanvas({
+  blobBytes = [1000],
+  hold = false,
+  grey,
+}: { blobBytes?: (number | null)[]; hold?: boolean; grey?: number } = {}) {
   const sizes = [...blobBytes]
   const qualities: unknown[] = []
   const waiting: (() => void)[] = []
   const canvases: HTMLCanvasElement[] = []
-  const context = {
+  const context: { drawImage: ReturnType<typeof vi.fn>; getImageData?: ReturnType<typeof vi.fn> } = {
     drawImage: vi.fn(),
+  }
+  if (grey !== undefined) {
+    context.getImageData = vi.fn((_x: number, _y: number, width: number, height: number) => ({
+      width,
+      height,
+      data: new Uint8ClampedArray(width * height * 4).fill(grey),
+    }))
   }
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
     canvases.push(this)

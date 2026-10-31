@@ -17,7 +17,7 @@ import {
 import { useSeenOnMap } from '../report/ReportFlowProvider'
 import { routeHash } from '../router'
 
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 const BUTTON =
   'inline-flex min-h-tap items-center rounded-control border-2 border-outline px-4 font-bold ' +
   'active:border-ink active:bg-ink active:text-surface'

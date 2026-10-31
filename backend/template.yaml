@@ -17,7 +17,26 @@ Parameters:
   AppOrigins:
     Type: CommaDelimitedList
     Default: "https://localhost,http://localhost:5173,http://localhost:4173"
-    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers). The template adds the website's origin.
+    Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers). With WebHosting on, the template adds the website's origin.
+  # Oct 31: AWS refused the account's first CloudFront distribution until it verifies the
+  # account, so the website can be left out. samconfig.toml sets it by name (npm run deploy).
+  WebHosting:
+    Type: String
+    AllowedValues: ["on", "off"]
+    Default: "on"
+    Description: on serves the website from WebBucket through CloudFront; off leaves the web resources and outputs out.
+
+Conditions:
+  HasWeb: !Equals [!Ref WebHosting, "on"]
+
+# The region (D-d): CloudFormation checks a stack's rules when it makes the change set, so a
+# deploy to any other region fails there, before the stack changes. SAM's companion stack and
+# its uploads come first. SAM's transform passes Rules through unchanged.
+Rules:
+  SingaporeOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", ap-southeast-1]
+        AssertDescription: Lusot deploys to ap-southeast-1 only.
 
 Resources:
   UploadBucket:
@@ -39,13 +58,17 @@ Resources:
         CorsRules:
           # GET lets the app fetch a report's layersUrl (MS5's N14).
           - AllowedMethods: [GET, POST]
-            # AppOrigins and the website's origin (C622), the same list as the API's.
-            AllowedOrigins: !Split
-              - ","
-              - !Sub
-                - "${Origins},https://${WebDomain}"
-                - Origins: !Join [",", !Ref AppOrigins]
-                  WebDomain: !GetAtt WebDistribution.DomainName
+            # AppOrigins and the website's origin (C622), or AppOrigins alone with WebHosting off;
+            # the same list as the API's.
+            AllowedOrigins: !If
+              - HasWeb
+              - !Split
+                - ","
+                - !Sub
+                  - "${Origins},https://${WebDomain}"
+                  - Origins: !Join [",", !Ref AppOrigins]
+                    WebDomain: !GetAtt WebDistribution.DomainName
+              - !Ref AppOrigins
       LifecycleConfiguration:
         Rules:
           - Id: raw-1-day
@@ -75,6 +98,27 @@ Resources:
                 Rules:
                   - Name: prefix
                     Value: raw/
+
+  # Plain HTTP is refused for every request to the bucket and its objects, whoever sends it
+  # (D-e, R51). It only denies, so it grants nobody anything; the upload and photo links are
+  # HTTPS already.
+  UploadBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyPlainHttp
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt UploadBucket.Arn
+              - !Sub "${UploadBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
 
   UploadQueue:
     Type: AWS::SQS::Queue
@@ -224,13 +268,17 @@ Resources:
           version: "1.0"
         paths: {}
         x-amazon-apigateway-cors:
-          # AppOrigins and the website's origin (C622), as a list, the same as the bucket's.
-          allowOrigins: !Split
-            - ","
-            - !Sub
-              - "${Origins},https://${WebDomain}"
-              - Origins: !Join [",", !Ref AppOrigins]
-                WebDomain: !GetAtt WebDistribution.DomainName
+          # AppOrigins and the website's origin (C622), or AppOrigins alone with WebHosting off;
+          # as a list, the same as the bucket's.
+          allowOrigins: !If
+            - HasWeb
+            - !Split
+              - ","
+              - !Sub
+                - "${Origins},https://${WebDomain}"
+                - Origins: !Join [",", !Ref AppOrigins]
+                  WebDomain: !GetAtt WebDistribution.DomainName
+            - !Ref AppOrigins
           allowMethods: [GET, POST]
           # The app's random device id (C508), and a 429's Retry-After (C522).
           allowHeaders: [content-type, x-lusot-device]
@@ -281,11 +329,14 @@ Resources:
           FEED_INDEX_NAME: feed-index
           # A literal, never a parameter (C515): MS6's post-gate commit sets it to "true".
           INCHES_SHOWN: "false"
-          # Ask Lusot's two (C701), read only on POST /ask: the key's parameter name, never the key.
+          # Ask Lusot's two (C701), read only on its two routes: the key's parameter name, never the key.
           MODEL_KEY_PARAM: /lusot/meta/model-api-key
-          # Identifies the app to Nominatim (its usage policy) by name and the site's address;
-          # never an email address.
-          NOMINATIM_USER_AGENT: !Sub "Lusot/1.0 (+https://${WebDistribution.DomainName})"
+          # Identifies the app to Nominatim (its usage policy) by name and, with the website on,
+          # the site's address; never an email address.
+          NOMINATIM_USER_AGENT: !If
+            - HasWeb
+            - !Sub "Lusot/1.0 (+https://${WebDistribution.DomainName})"
+            - Lusot/1.0
       Events:
         CreateUpload:
           Type: HttpApi
@@ -329,13 +380,19 @@ Resources:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /samples/{sampleId}
-        # Ask Lusot, typed only (Oct 30): no voice route.
+        # Ask Lusot: a typed question, and a spoken one as WAV in base64 (its spec §5.1, §5.2).
         AskTyped:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /ask
+        AskVoice:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /ask/voice
         Feed:
           Type: HttpApi
           Properties:
@@ -558,6 +615,8 @@ Resources:
     Properties:
       RetentionInDays: 14
 
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopUploadsParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -565,6 +624,8 @@ Resources:
       Type: String
       Value: "off"
 
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopPublishParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -572,6 +633,8 @@ Resources:
       Type: String
       Value: "off"
 
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopModelCallsParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -581,6 +644,8 @@ Resources:
 
   # Ask Lusot's place lookup (its spec §4.8): the off switch Nominatim's usage policy asks for.
   # On, places resolve from the spot list only.
+  # A deploy that changes this parameter in the template resets it to "off", over a value
+  # set by hand. After a deploy during an incident, read every switch again.
   StopNominatimParameter:
     Type: AWS::SSM::Parameter
     Properties:
@@ -817,8 +882,10 @@ Resources:
   # `npm run deploy:web` fills it. Neither the bucket nor the distribution logs requests, so no
   # visitor's IP address is kept (PRIV-Q9, the 7-day rule). Like the upload bucket, these four take
   # CloudFormation's default Delete policies; the bucket must be emptied before the stack is deleted.
+  # All four exist only with WebHosting on.
   WebBucket:
     Type: AWS::S3::Bucket
+    Condition: HasWeb
     Properties:
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
@@ -836,6 +903,7 @@ Resources:
 
   WebOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
+    Condition: HasWeb
     Properties:
       OriginAccessControlConfig:
         Name: !Sub "${AWS::StackName}-web"
@@ -846,6 +914,7 @@ Resources:
 
   WebDistribution:
     Type: AWS::CloudFront::Distribution
+    Condition: HasWeb
     Properties:
       DistributionConfig:
         Enabled: true
@@ -877,6 +946,7 @@ Resources:
   # CloudFront may read the bucket, for this distribution only.
   WebBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    Condition: HasWeb
     Properties:
       Bucket: !Ref WebBucket
       PolicyDocument:
@@ -906,10 +976,13 @@ Outputs:
     Value: !GetAtt UploadQueue.QueueName
   DeadLetterQueueName:
     Value: !GetAtt DeadLetterQueue.QueueName
-  # The website, and what `npm run deploy:web` uploads to and invalidates.
+  # The website, and what `npm run deploy:web` uploads to and invalidates; with WebHosting on only.
   WebUrl:
+    Condition: HasWeb
     Value: !Sub "https://${WebDistribution.DomainName}"
   WebBucketName:
+    Condition: HasWeb
     Value: !Ref WebBucket
   WebDistributionId:
+    Condition: HasWeb
     Value: !Ref WebDistribution

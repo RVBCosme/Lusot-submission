@@ -106,6 +106,8 @@ describe('the policy', () => {
     ['the access logs are none kept', /the website's access logs\s*none kept: access logging is off/],
     ['demo pins come from consented or openly licensed photos', /people who agreed to share their photos for this, or from openly licensed photos/],
     ['the credits ending pauses analysis and bills nothing', /When the credits run out, analysis pauses[\s\S]*Nothing is billed beyond the credits\./],
+    ['Meta receives a spoken question\'s voice clip', /Meta receives a spoken question's voice clip and may keep it under its own terms\./],
+    ['people in a photo are covered by the legitimate-interest basis', /People who appear in a photo haven't agreed to anything\. For them, Lusot relies on its legitimate interest in showing how deep the water is at one spot \(Section 12\(f\) of the Data Privacy Act\)/],
   ])('says %s', (_what, pattern) => {
     expect(renderPolicy().textContent).toMatch(pattern)
   })

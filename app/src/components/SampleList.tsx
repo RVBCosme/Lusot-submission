@@ -8,6 +8,7 @@ import { useGate } from '../lib/consent'
 import { creditStatesChange } from '../lib/credit'
 import { getDeviceId } from '../lib/device'
 import { POLL, pollReport } from '../lib/poll'
+import { focusFell } from '../lib/focus'
 import { photoDateLine } from '../lib/time'
 import { PausedNotice, ResultCard } from './ResultCard'
 
@@ -269,8 +270,7 @@ function SampleItem({
   useEffect(() => {
     if (shown.current === phase) return
     shown.current = phase
-    const active = document.activeElement
-    if (active !== null && active !== document.body) return
+    if (!focusFell()) return
     box.current?.focus({ preventScroll: true })
   }, [phase])
 

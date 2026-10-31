@@ -73,7 +73,7 @@ const ICON: Partial<Record<Outcome, { name: string; Icon: LucideIcon }>> = {
   noResult: { name: 'no-result', Icon: HourglassIcon },
 }
 
-const LINK = 'inline-flex min-h-tap items-center text-action underline underline-offset-4'
+const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 const BUTTON =
   'mt-3 inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
   'active:bg-ink active:text-surface'

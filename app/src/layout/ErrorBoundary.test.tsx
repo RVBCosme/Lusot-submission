@@ -88,7 +88,7 @@ it('keeps the header, the nav and the screen line when the screen crashes, and s
   const main = screen.getByRole('main')
   expect(within(main).getByRole('alert').textContent).toBe(EN['layout.errorFallback'].text)
   expect(within(screen.getByRole('banner')).getByText('Lusot')).toBeTruthy()
-  expect(within(screen.getByRole('navigation')).getAllByRole('link')).toHaveLength(4)
+  expect(within(screen.getByRole('navigation')).getAllByRole('link')).toHaveLength(5)
   const line = screen.getByText(SCREEN_LINE)
   expect(line.getAttribute('lang')).toBe('en')
   expect(main.contains(line)).toBe(false)

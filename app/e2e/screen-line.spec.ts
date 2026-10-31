@@ -6,14 +6,15 @@
 // Every route and dialog is visited at 360 x 640 and 390 x 844, in English and Taglish: the map and its list, a pin's
 // screen and the flag dialog, Tested and its 18+ check, About, the privacy page, the licences page, and the report flow at
 // each step the fake camera, the fake fix and the routes in mocks.ts can reach: the notice, the camera view, the place
-// step, sending, waiting, the result, and a problem. The map's OpenStreetMap credit gets the same check on the map and
-// on the place step. The page is never scrolled to bring the line into view: it must be there already. The licences page's
-// licence texts are never scanned for words (S5-R23); only the line on that page is checked.
+// step, sending, waiting, the result, and a problem; then Ask Lusot, empty and with an answer. The map's OpenStreetMap
+// credit gets the same check on the map and on the place step. The page is never scrolled to bring the line into view: it
+// must be there already. The licences page's licence texts are never scanned for words (S5-R23); only the line on that
+// page is checked.
 import type { Page } from '@playwright/test'
 import { expect, LIVE_PIN, test } from './mocks'
+import { expectLine, LINE } from './screenLine'
 import { acceptNotice, label, takePhoto, type Lang } from './steps'
 
-const LINE = 'Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.'
 const SIZES = [
   { width: 360, height: 640 },
   { width: 390, height: 844 },
@@ -22,47 +23,6 @@ const LANGS: { lang: Lang; name: string }[] = [
   { lang: 'en', name: 'English' },
   { lang: 'fil', name: 'Taglish' },
 ]
-
-type LineReading = { inView: boolean; onTop: boolean; inDialog: boolean; lang: string | null }
-
-// Every paragraph that is the screen line, as the browser sees it now.
-function readLines(page: Page): Promise<LineReading[]> {
-  return page.evaluate((line) => {
-    const readings: LineReading[] = []
-    for (const el of document.querySelectorAll('p')) {
-      if (el.textContent?.trim() !== line) continue
-      const box = el.getBoundingClientRect()
-      const inView =
-        box.width > 0 &&
-        box.height > 0 &&
-        box.top >= 0 &&
-        box.left >= 0 &&
-        box.bottom <= window.innerHeight &&
-        box.right <= window.innerWidth
-      const y = box.top + box.height / 2
-      const onTop =
-        inView &&
-        [box.left + box.width / 2, box.left + 2, box.right - 2].every((x) => {
-          const hit = document.elementFromPoint(x, y)
-          return hit !== null && (hit === el || el.contains(hit))
-        })
-      readings.push({ inView, onTop, inDialog: el.closest('dialog') !== null, lang: el.getAttribute('lang') })
-    }
-    return readings
-  }, LINE)
-}
-
-// The line is inside the viewport and on top, and stays English (C619). An open flag dialog is a modal <dialog> in the
-// browser's top layer, over the bar, so it carries its own line (S5-R5): there are two on the page, and the dialog's is the
-// one on top.
-async function expectLine(page: Page, where: string, dialog = false): Promise<void> {
-  const lines = await readLines(page)
-  const shown = lines.filter((reading) => reading.inView && reading.onTop)
-  expect.soft(shown.length, `${where}: the screen line is inside the viewport and on top`).toBeGreaterThan(0)
-  expect.soft(lines.length, `${where}: how many screen lines the page holds`).toBe(dialog ? 2 : 1)
-  if (dialog) expect.soft(shown.some((reading) => reading.inDialog), `${where}: the dialog's own line is the one on top`).toBe(true)
-  for (const reading of shown) expect.soft(reading.lang, `${where}: the line is marked English`).toBe('en')
-}
 
 // The credit of OpenStreetMap's tiles is visible without scrolling, above the screen-line bar, and nothing covers it.
 async function expectCredit(page: Page, where: string): Promise<void> {
@@ -173,6 +133,15 @@ for (const size of SIZES) {
       await button('place.send').click()
       await expect(page.getByRole('heading', { name: label(lang, 'report.notSent') })).toBeVisible()
       await expectLine(page, at('#/report, a problem'))
+
+      // Ask Lusot, empty and then with an answer (the notice is already accepted). ask.spec.ts checks it in both themes.
+      await page.goto('/#/ask')
+      await expect(page.getByRole('heading', { name: label(lang, 'nav.ask'), level: 1 })).toBeVisible()
+      await expectLine(page, at('#/ask'))
+      await page.getByRole('textbox', { name: label(lang, 'ask.ui.questionLabel') }).fill('Baha ba sa España cor. Maceda?')
+      await button('ask.ui.send').click()
+      await expect(page.getByRole('region', { name: label(lang, 'ask.ui.answer') })).toBeVisible()
+      await expectLine(page, at('#/ask, an answer'))
     })
   }
 }

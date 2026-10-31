@@ -5,7 +5,7 @@
 #     "httpx>=0.28.1",
 # ]
 # ///
-"""Cloud check of the deployed POST /ask, typed questions only (Ask Lusot plan Task 19).
+"""Cloud check of the deployed POST /ask, and with --voice POST /ask/voice (Ask Lusot plan Task 19).
 
 It posts five typed questions to the stack's API, one at a time, in this order:
 1. a listed spot, by its name in backend/api/src/data/spots.json
@@ -26,9 +26,16 @@ report id, a question, a device id, a coordinate, the API's URL or an account nu
 source, kind and an error code print only when they are lowercase words, and every
 printed line passes through the scripts' shared output mask (guards.py), which replaces
 each run of 12 digits with <account>. A failure shows its class name, or an AWS error's
-code and HTTP status, never its message. The script takes no path.
+code and HTTP status, never its message. The script takes no path but a --voice clip's.
 
-It judges three things: every question got HTTP 200 with a readable kind, each within
+With --voice WAV (repeatable), it posts only those clips, each to POST /ask/voice as the
+app sends it (the WAV as base64), labelled "voice 1", "voice 2" and so on. It never
+prints a clip's path or the transcript that comes back, and refuses a clip under a folder
+named sealed before anything is read. A voice run judges only that every clip got HTTP
+200 with a readable kind within 10 s; the API's log line has the transcription's own
+timing (transcribe_ms).
+
+The typed run judges three things: every question got HTTP 200 with a readable kind, each within
 10 s at the client, and the listed spot's answer came from the model (source "model").
 A listed spot needs no Nominatim, so that answer is the run's one proof that the
 deployed function reads the key and calls Meta; a plain list there fails the run. The
@@ -36,20 +43,22 @@ kinds themselves (Bacoor outside_metro_manila, the others reports or no_reports 
 live pins allow, a landmark's place_too_broad) and the other questions' sources are for
 whoever reads the output.
 
-Usage: uv run backend/scripts/ask_cloud_check.py
-Exit codes: 0 every question was answered within 10 s and the listed spot by the model,
-1 a question wasn't, the listed spot's answer wasn't the model's, or the stack's API URL
-couldn't be read.
+Usage: uv run backend/scripts/ask_cloud_check.py [--voice WAV]...
+Exit codes: 0 every question was answered within 10 s and (typed) the listed spot by the
+model, 1 a question wasn't, the listed spot's answer wasn't the model's, a clip couldn't
+be read, or the stack's API URL couldn't be read, 2 a sealed path or a bad argument.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
 import re
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import guards
 import httpx
@@ -70,12 +79,14 @@ class CheckFailed(Exception):
 
 @dataclass(frozen=True)
 class Ask:
-    """One typed question. `label` names it in the output, so the output never needs its
-    text; `here` is the point the app would send with it, if any."""
+    """One question, typed or (with `audio`, a WAV's bytes) spoken. `label` names it in
+    the output, so the output never needs its text or its clip's path; `here` is the
+    point the app would send with it, if any."""
 
     label: str
     text: str
     here: Mapping[str, float] | None = None
+    audio: bytes | None = None
 
 
 # The question whose answer must come from the model: see the module's docstring.
@@ -105,11 +116,22 @@ def main(
     """Run the check. `api_url`, `transport` and `clock` are for the tests: by default
     the URL is the stack's ApiUrl output, the transport is IPv4 only and the clock is
     time.monotonic."""
-    argparse.ArgumentParser(description=__doc__.splitlines()[0]).parse_args(argv)
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--voice",
+        action="append",
+        type=Path,
+        metavar="WAV",
+        help="post this clip to POST /ask/voice instead of the typed questions (repeatable)",
+    )
+    voice = parser.parse_args(argv).voice
+    if voice:
+        guards.refuse_sealed(*voice)
     began = clock()
     try:
+        questions = spoken(voice) if voice else QUESTIONS
         url = stack_api_url() if api_url is None else api_url
-        results = run(url, QUESTIONS, transport=transport, clock=clock)
+        results = run(url, questions, transport=transport, clock=clock)
     except CheckFailed as exc:
         say(f"ASK CHECK FAILED: {exc}")
         return 1
@@ -120,6 +142,12 @@ def main(
             f" within {WITHIN_S} s"
         )
         return 1
+    if voice:
+        say(
+            f"ASK CHECK OK in {clock() - began:.1f} s: {len(results)} spoken questions,"
+            f" each HTTP 200 within {WITHIN_S} s"
+        )
+        return 0
     if not model_answered(results):
         say("ASK CHECK FAILED: the listed spot's answer was not the model's")
         return 1
@@ -128,6 +156,19 @@ def main(
         f" HTTP 200 within {WITHIN_S} s, the listed spot's from the model"
     )
     return 0
+
+
+def spoken(paths: Sequence[Path]) -> tuple[Ask, ...]:
+    """One spoken question for each clip, labelled by its place in the run. A clip that
+    can't be read is CheckFailed, naming the error's class, never the path."""
+    questions = []
+    for n, path in enumerate(paths, 1):
+        try:
+            audio = path.read_bytes()
+        except OSError as exc:
+            raise CheckFailed(f"a --voice clip can't be read ({type(exc).__name__})") from None
+        questions.append(Ask(f"voice {n}", "", audio=audio))
+    return tuple(questions)
 
 
 def stack_api_url() -> str:
@@ -151,7 +192,8 @@ def run(
     transport: httpx.BaseTransport | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> list[dict]:
-    """Post each question to POST /ask with its own device id, and print and return its
+    """Post each question to POST /ask (a spoken one to POST /ask/voice) with its own
+    device id, and print and return its
     label, status, source, kind, error and seconds, timed at the client.
 
     `source` and `kind` come from a 200's answer, `error` from another reply's error
@@ -173,7 +215,11 @@ def run(
 def post_question(
     http: httpx.Client, api_url: str, ask: Ask, clock: Callable[[], float]
 ) -> dict:
-    body: dict = {"question": ask.text}
+    if ask.audio is None:
+        route, body = "/ask", {"question": ask.text}
+    else:
+        # As the app sends it (its spec §5.2): the WAV as base64 in JSON.
+        route, body = "/ask/voice", {"audio": base64.b64encode(ask.audio).decode("ascii")}
     if ask.here is not None:
         body["here"] = dict(ask.here)
     headers = {DEVICE_HEADER: str(uuid.uuid4())}
@@ -186,7 +232,7 @@ def post_question(
     }
     began = clock()
     try:
-        response = http.post(f"{api_url}/ask", json=body, headers=headers)
+        response = http.post(f"{api_url}{route}", json=body, headers=headers)
     except httpx.HTTPError as exc:
         # Never the message: it can hold an address.
         result |= {"error": type(exc).__name__, "seconds": clock() - began}

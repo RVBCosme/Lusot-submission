@@ -3,6 +3,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_OUTPUT_TOKENS } from "../src/ask/agent";
 import type { LimitDeps } from "../src/limits";
 import {
   costOf,
@@ -111,9 +112,9 @@ const COSTS: [Usage, string, number][] = [
   [{ spark_input_tokens: 1234, spark_output_tokens: 567 }, "0.00395225", 3953], // a mixed call
   [{ sam_images: 7, spark_input_tokens: 1000, spark_output_tokens: 200 }, "0.0196", 19600], // test_spend.py's level case
   [{ audio_seconds: 7, spark_input_tokens: 3, spark_output_tokens: 3 }, "0.0003665", 367],
-  // The most one question can use: 3 turns of 2,000 input and 800 output tokens. max_output_tokens
-  // covers reasoning, which Meta bills as output, so reasoning has no price of its own.
-  [{ spark_input_tokens: 6000, spark_output_tokens: 2400 }, "0.0177", 17700],
+  // The most one question can use: 3 turns of 2,000 input and MAX_OUTPUT_TOKENS (1,200, C739) output
+  // tokens. max_output_tokens covers reasoning, which Meta bills as output, so reasoning has no price of its own.
+  [{ spark_input_tokens: 6000, spark_output_tokens: 3 * MAX_OUTPUT_TOKENS }, "0.0228", 22800],
   // Task 2's probe: 65,918 in and 9,863 out (6,021 of them reasoning); the counter went up $0.124316.
   [{ spark_input_tokens: 65918, spark_output_tokens: 9863 }, "0.12431525", 124316],
 ];

@@ -1,4 +1,4 @@
-// POST /ask (typed only, Oct 30): the handler in spec §4.1's order, over class-free fakes. A fake Meta replays the
+// POST /ask and POST /ask/voice: the handlers in spec §4.1's order, over class-free fakes. A fake Meta replays the
 // fixtures in test/fixtures/meta/ (Task 2's shapes), a manual clock stands for the time, and the two DynamoDB
 // clients and SSM are aws-sdk-client-mock instance mocks. No network, no AWS, no key.
 import { createHash } from "node:crypto";
@@ -10,19 +10,20 @@ import { DynamoDBDocumentClient, GetCommand, UpdateCommand, type UpdateCommandIn
 import { mockClient } from "aws-sdk-client-mock";
 import type { Response } from "openai/resources/responses/responses";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import { type AskDeps, askTyped, NCR_BOUNDS, SPEND_CLIENT_CONFIG, SPEND_STOP_PARAM } from "../../src/ask/handler";
+import { type AskDeps, askTyped, askVoice, LANGUAGE_BIAS, NCR_BOUNDS, SPEND_CLIENT_CONFIG, SPEND_STOP_PARAM } from "../../src/ask/handler";
 import { BUDGET } from "../../src/ask/deadline";
 import { ASK_LOG_FIELDS } from "../../src/ask/log";
-import { type Meta, type MetaCall, type MetaDeps, MetaError } from "../../src/ask/meta";
+import { type Meta, type MetaCall, type MetaDeps, MetaError, type TranscribeOptions } from "../../src/ask/meta";
 import type { Geocoder } from "../../src/ask/nominatim";
-import { parseQuestion } from "../../src/ask/request";
-import { SPOTS } from "../../src/ask/spots";
+import { parseQuestion, parseVoice } from "../../src/ask/request";
+import { SPOTS, spotKeywords } from "../../src/ask/spots";
 import ncr from "../../src/data/ncr.json";
 import type { JsonResponse } from "../../src/http";
 import { retryAfterS } from "../../src/limits";
 import { inMetroManila } from "../../src/metroManila";
 import type { ModelKey } from "../../src/modelKey";
 import type { PublicPin } from "../../src/pins";
+import { costOf, toMicro } from "../../src/spend";
 import { createStopSwitch } from "../../src/stopSwitch";
 import { awsError } from "../awsError";
 
@@ -69,13 +70,27 @@ let clock: number;
 type Step = { reply: Fixture | Error; takes?: number; tries?: (number | null)[] };
 const step = (reply: Fixture | Error, over: Omit<Step, "reply"> = {}): Step => ({ reply, ...over });
 
+// A transcription's scripted answer: the transcript, or the error it throws, as Step's replies are.
+type Heard = { reply: string | Error; takes?: number; tries?: (number | null)[] };
+const TRANSCRIBE = "muse-voice-transcribe-1.0";
+
 // One Meta per question, as the handler's factory makes it. A MetaError is thrown with its status; any other
-// error is thrown after a 200, as an answer the SDK couldn't read would be.
+// error is thrown after a 200, as an answer the SDK couldn't read would be. Its transcriptions come from w.heard.
 function fakeMeta(steps: Step[]): { meta: Meta; bodies: Record<string, unknown>[] } {
   const calls: MetaCall[] = [];
   const bodies: Record<string, unknown>[] = [];
   const meta: Meta = {
     calls,
+    async transcribe(wav, opts, deadline, byMs) {
+      w.transcribed.push({ wav, opts, byMs, left: deadline.remainingMs(byMs) });
+      const next = w.heard.shift();
+      if (next === undefined) throw new Error("the test scripted no transcript");
+      for (const status of next.tries ?? []) calls.push({ model: TRANSCRIBE, status, ms: 0 });
+      clock += next.takes ?? 0;
+      calls.push({ model: TRANSCRIBE, status: next.reply instanceof MetaError ? next.reply.status : 200, ms: 0 });
+      if (next.reply instanceof Error) throw next.reply;
+      return { transcript: next.reply, audioDurationMs: 2000 };
+    },
     async respond(body) {
       bodies.push(JSON.parse(JSON.stringify(body)));
       const next = steps.shift();
@@ -125,6 +140,8 @@ type World = {
   geocode: Mock<Geocoder["geocode"]>;
   modelKey: { get: Mock<ModelKey["get"]>; drop: Mock<ModelKey["drop"]> };
   createMeta: Mock<AskDeps["createMeta"]>;
+  heard: Heard[];
+  transcribed: { wav: Uint8Array; opts: TranscribeOptions; byMs: number; left: number }[];
   lines: string[];
 };
 let w: World;
@@ -154,6 +171,35 @@ function deps(over: Partial<AskDeps> = {}): AskDeps {
 
 const ask = (body: unknown, over: Partial<AskDeps> = {}, device: string | undefined = DEVICE): Promise<JsonResponse> =>
   askTyped({ body: typeof body === "string" || body === undefined ? body : JSON.stringify(body), device }, deps(over));
+
+// A 16-bit PCM WAV of `seconds`, mono at 16 kHz unless told otherwise. Its samples spell a sentinel, so any copy of
+// the audio's bytes in a log or a write shows.
+const AUDIO_SENTINEL = "Sentinelaudio!";
+function clip(seconds: number, { rate = 16000, channels = 1 } = {}): Uint8Array {
+  const block = channels * 2;
+  const dataBytes = Math.round(seconds * rate) * block;
+  const out = new Uint8Array(44 + dataBytes);
+  const view = new DataView(out.buffer);
+  const ascii = (at: number, text: string) => out.set(Uint8Array.from(text, (c) => c.charCodeAt(0)), at);
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  ascii(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * block, true);
+  view.setUint16(32, block, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, dataBytes, true);
+  for (let at = 44; at + AUDIO_SENTINEL.length <= out.length; at += AUDIO_SENTINEL.length) ascii(at, AUDIO_SENTINEL);
+  return out;
+}
+const audio = (seconds = 2, opts?: { rate?: number; channels?: number }) => Buffer.from(clip(seconds, opts)).toString("base64");
+
+const speak = (body: unknown, over: Partial<AskDeps> = {}, device: string | undefined = DEVICE): Promise<JsonResponse> =>
+  askVoice({ body: typeof body === "string" || body === undefined ? body : JSON.stringify(body), device }, deps(over));
 
 const parsed = (res: JsonResponse) => JSON.parse(res.body);
 const askLines = () => w.lines.filter((line) => line.startsWith("{") && JSON.parse(line).msg === "ask").map((line) => JSON.parse(line));
@@ -202,6 +248,8 @@ beforeEach(() => {
       w.bodies = fake.bodies;
       return fake.meta;
     }),
+    heard: [{ reply: QUESTION }],
+    transcribed: [],
     lines,
   };
 });
@@ -963,6 +1011,380 @@ describe("the log line (spec §4.9)", () => {
     const capLines = w.lines.slice(before).filter((line) => line.includes("question_cap"));
     expect(capLines).toHaveLength(1);
     expect(JSON.parse(capLines[0])).toMatchObject({ msg: "ask", status: 429, code: "question_cap" });
+  });
+});
+
+describe("POST /ask/voice: requests (spec §5.2, §5.4)", () => {
+  it.each([
+    ["no body", undefined, "body must be JSON"],
+    ["malformed JSON", "{not json", "body must be JSON"],
+    ["a list", "[]", "body must be a JSON object"],
+    ["here that isn't an object", { audio: audio(), here: "dito" }, "here must be an object"],
+    ["here with accuracyM 101", { audio: audio(), here: { ...HERE, accuracyM: 101 } }, "here.accuracyM must be a number from 0 to 100"],
+  ])("%s gives 400 bad_request, with no count and no Meta call", async (_name, body, detail) => {
+    const res = await speak(body);
+
+    expect(res.statusCode).toBe(400);
+    expect(parsed(res)).toEqual({ error: "bad_request", detail });
+    expectUntouched();
+    expect(lastAskLine()).toMatchObject({ route: "ask_voice", status: 400, code: "bad_request" });
+  });
+
+  it.each([
+    ["no audio", {}],
+    ["audio that isn't text", { audio: 7 }],
+    ["audio that isn't base64", { audio: "not base64!" }],
+    ["base64 that isn't a WAV", { audio: Buffer.from("not a wav file at all").toString("base64") }],
+    ["stereo", { audio: audio(2, { channels: 2 }) }],
+    ["44.1 kHz", { audio: audio(2, { rate: 44100 }) }],
+  ])("%s gives 400 bad_audio, with no count and no Meta call", async (_name, body) => {
+    const res = await speak(body);
+
+    expect(res.statusCode).toBe(400);
+    expect(parsed(res)).toEqual({ error: "bad_audio" });
+    expectUntouched();
+  });
+
+  it("a body over 1.1 MB gives 400 bad_audio before it is parsed", async () => {
+    const body = JSON.stringify({ audio: audio(2), pad: "x".repeat(1_100_000) });
+
+    const res = await speak(body);
+
+    expect(res.statusCode).toBe(400);
+    expect(parsed(res)).toEqual({ error: "bad_audio" });
+    expect(parseVoice(body)).toEqual({ error: "bad_audio" });
+    // 1,100,000 bytes exactly is read; the limit counts bytes, not characters.
+    const fits = JSON.stringify({ audio: audio(2) });
+    expect(parseVoice(fits + " ".repeat(1_100_000 - fits.length))).toMatchObject({ audio: expect.any(Uint8Array) });
+    expect(parseVoice(fits + "ñ".repeat((1_100_000 - fits.length) / 2 + 1))).toEqual({ error: "bad_audio" });
+  });
+
+  it("0.4 s gives 422 audio_too_short and 15.1 s 422 audio_too_long, uncounted", async () => {
+    expect(parsed(await speak({ audio: audio(0.4) }))).toEqual({ error: "audio_too_short" });
+    const long = await speak({ audio: audio(15.1) });
+
+    expect(long.statusCode).toBe(422);
+    expect(parsed(long)).toEqual({ error: "audio_too_long" });
+    expectUntouched();
+  });
+
+  it("keeps here's three fields, and the audio's bytes", () => {
+    const bytes = clip(1);
+    const body = JSON.stringify({ audio: Buffer.from(bytes).toString("base64"), here: { ...HERE, extra: 1 } });
+    expect(parseVoice(body)).toEqual({ audio: bytes, here: HERE });
+  });
+});
+
+describe("POST /ask/voice: the switches, the spend stop and the caps", () => {
+  it("model-calls on gives 503 voice_paused, uncounted, with no Meta call", async () => {
+    w.stopped.add("model-calls");
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(503);
+    expect(parsed(res)).toEqual({ error: "voice_paused" });
+    expect(counterKeys()).toEqual([]);
+    expect(w.createMeta).not.toHaveBeenCalled();
+    expect(w.modelKey.get).not.toHaveBeenCalled();
+    expect(spendMock.calls()).toHaveLength(0);
+    expect(lastAskLine()).toMatchObject({ route: "ask_voice", status: 503, code: "voice_paused", meta_calls: 0 });
+  });
+
+  it("an unreadable switch counts as on", async () => {
+    ssmMock.on(GetParameterCommand).rejects(awsError("AccessDeniedException", 400));
+
+    const res = await speak({ audio: audio() }, { isStopped: createStopSwitch(ssm, "/lusot/stop/") });
+
+    expect(parsed(res)).toEqual({ error: "voice_paused" });
+    expect(counterKeys()).toEqual([]);
+    expect(w.createMeta).not.toHaveBeenCalled();
+  });
+
+  it("the spend stop gives 503 voice_paused with the count given back, no Meta call, and sets the switch", async () => {
+    spendMock.on(GetCommand).resolves({ Item: { pk: "spend#meta", micro_usd: 60_000_000, seeded: true } });
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(503);
+    expect(parsed(res)).toEqual({ error: "voice_paused" });
+    // Counted, then given back: the spend counter is read only for a question that passed the caps.
+    const hash = createHash("sha256").update(DEVICE).digest("hex");
+    const device = `question#${hash}#2026-10-30T10`;
+    expect(counterKeys()).toEqual([device, "question#ALL#2026-10-30T10", device, "question#ALL#2026-10-30T10"]);
+    const steps = ddbMock.commandCalls(UpdateCommand).map((call) => call.args[0].input.ExpressionAttributeValues?.[":minusOne"] ?? 1);
+    expect(steps).toEqual([1, 1, -1, -1]);
+    expect(w.createMeta).not.toHaveBeenCalled();
+    expect(pauses()).toEqual([{ name: "/lusot/stop/model-calls", value: "on", overwrite: true }]);
+    expect(linesWith("spend_stop")).toEqual([{ msg: "spend_stop", source: "ask", total_usd: "60", stop_usd: "60" }]);
+  });
+
+  it("a refused question never reads the spend counter", async () => {
+    ddbMock.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+      if (!String(input.Key?.pk).includes("#ALL#")) throw conditionFailed();
+      return {};
+    });
+
+    await speak({ audio: audio() });
+
+    expect(spendMock.calls()).toHaveLength(0);
+  });
+
+  it("a give-back that fails still answers voice_paused, and logs it by its name", async () => {
+    spendMock.on(GetCommand).resolves({});
+    ddbMock.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+      if (input.ExpressionAttributeValues?.[":minusOne"] !== undefined) throw awsError("ProvisionedThroughputExceededException", 400);
+      return {};
+    });
+
+    const res = await speak({ audio: audio() });
+
+    expect(parsed(res)).toEqual({ error: "voice_paused" });
+    expect(linesWith("question_give_back_failed")).toEqual([
+      expect.objectContaining({ msg: "question_give_back_failed", error: "ProvisionedThroughputExceededException" }),
+    ]);
+  });
+
+  it("a refused device gives 429 question_limit with Retry-After, and nothing is transcribed", async () => {
+    ddbMock.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+      if (!String(input.Key?.pk).includes("#ALL#")) throw conditionFailed();
+      return {};
+    });
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(429);
+    expect(parsed(res)).toEqual({ error: "question_limit" });
+    expect(res.headers["retry-after"]).toBe(String(retryAfterS(START_S)));
+    expect(w.createMeta).not.toHaveBeenCalled();
+  });
+
+  it("a full hour gives 429 question_cap, and the device's count back", async () => {
+    ddbMock.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+      if (String(input.Key?.pk).includes("#ALL#")) throw conditionFailed();
+      return {};
+    });
+
+    const res = await speak({ audio: audio() });
+
+    expect(parsed(res)).toEqual({ error: "question_cap" });
+    expect(counterKeys()).toHaveLength(3);
+    expect(w.createMeta).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /ask/voice: the transcript (spec §4.7)", () => {
+  it("transcribes with the spot names and the language bias, then answers the transcript, which comes back", async () => {
+    const res = await speak({ audio: audio(2) });
+
+    expect(res.statusCode).toBe(200);
+    const body = parsed(res);
+    expect(Object.keys(body).sort()).toEqual(["answer", "transcript"]);
+    expect(body.transcript).toBe(QUESTION);
+    expect(body.answer).toMatchObject({ source: "model", kind: "reports", place: { name: ESPANA.name, source: "spots" } });
+    expect(w.transcribed).toHaveLength(1);
+    expect(w.transcribed[0].wav).toEqual(clip(2));
+    expect(w.transcribed[0].opts).toEqual({ keywords: spotKeywords(SPOTS), languageBias: ["Tagalog", "English"] });
+    expect(LANGUAGE_BIAS).toEqual(["Tagalog", "English"]);
+    expect(w.transcribed[0].byMs).toBe(BUDGET.transcribeBy);
+    expect(w.transcribed[0].left).toBe(BUDGET.transcribeBy);
+    // The model reads the transcript as the question.
+    const first = w.bodies[0] as { input: { content: { text: string }[] }[] };
+    expect(first.input[0].content[1].text).toBe(QUESTION);
+    // Counted once, the device first, before the transcription.
+    const hash = createHash("sha256").update(DEVICE).digest("hex");
+    expect(counterKeys()).toEqual([`question#${hash}#2026-10-30T10`, "question#ALL#2026-10-30T10"]);
+    expect(lastAskLine()).toMatchObject({
+      route: "ask_voice",
+      status: 200,
+      source: "model",
+      kind: "reports",
+      meta_calls: 3,
+      audio_ms: 2000,
+      transcribe_ms: 0,
+    });
+  });
+
+  it("the transcript is trimmed, and the answer reads it as a typed question would", async () => {
+    w.heard = [{ reply: "  May baha ba dito?\n" }];
+    w.steps.splice(0, w.steps.length, step(callReply({ place: "", here: true })), step(verdictReply()));
+
+    const res = await speak({ audio: audio(), here: HERE });
+
+    expect(parsed(res).transcript).toBe("May baha ba dito?");
+    expect(parsed(res).answer).toMatchObject({ kind: "reports", place: { source: "here" } });
+  });
+
+  it("an empty transcript gives no_speech and an empty transcript, with no model call", async () => {
+    w.heard = [{ reply: " \n " }];
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(200);
+    expect(parsed(res).transcript).toBe("");
+    expect(parsed(res).answer).toMatchObject({ kind: "no_speech", crossing: false, vehicle: null, reports: [], demo: [], cited: [] });
+    expect(w.bodies).toHaveLength(0);
+    expect(w.nearbyPins).not.toHaveBeenCalled();
+    expect(lastAskLine()).toMatchObject({ route: "ask_voice", status: 200, kind: "no_speech", meta_calls: 1 });
+  });
+
+  it.each([
+    ["fails", { reply: new MetaError(503), tries: [503] }],
+    ["is late", { reply: new MetaError(null), takes: BUDGET.transcribeBy }],
+    ["can't be read", { reply: new MetaError(null) }],
+  ])("a transcription that %s gives 503 voice_failed, counted, with no model call", async (_name, heard) => {
+    w.heard = [heard];
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(503);
+    expect(parsed(res)).toEqual({ error: "voice_failed" });
+    expect(counterKeys()).toHaveLength(2);
+    expect(w.bodies).toHaveLength(0);
+    expect(lastAskLine()).toMatchObject({ route: "ask_voice", status: 503, code: "voice_failed", meta_status: heard.reply.status });
+  });
+
+  it.each([401, 402, 403])("a %i from the transcription gives voice_failed and drops the key", async (status) => {
+    w.heard = [{ reply: new MetaError(status) }];
+
+    const res = await speak({ audio: audio() });
+
+    expect(parsed(res)).toEqual({ error: "voice_failed" });
+    expect(w.modelKey.drop).toHaveBeenCalledOnce();
+    expect(lastAskLine()).toMatchObject({ meta_status: status });
+  });
+
+  it("the transcription's 4 s count from the handler's start", async () => {
+    w.modelKey.get.mockImplementation(async () => {
+      clock += 500;
+      return KEY;
+    });
+
+    await speak({ audio: audio() });
+
+    expect(w.transcribed[0].left).toBe(BUDGET.transcribeBy - 500);
+  });
+
+  it("a key that can't be read gives voice_failed, with no Meta made", async () => {
+    w.modelKey.get.mockRejectedValue(awsError("AccessDeniedException", 400));
+
+    const res = await speak({ audio: audio() });
+
+    expect(parsed(res)).toEqual({ error: "voice_failed" });
+    expect(w.createMeta).not.toHaveBeenCalled();
+  });
+
+  it("a turn-1 fallback after the transcript gives the plain list, with the transcript", async () => {
+    w.steps.splice(0, w.steps.length, step(new MetaError(503)));
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(200);
+    expect(parsed(res)).toMatchObject({ transcript: QUESTION, answer: { source: "plain_list", fallback: "model_error", kind: "reports" } });
+  });
+
+  it("a pins read that fails gives 503 ask_unavailable", async () => {
+    w.nearbyPins.mockRejectedValue(awsError("AccessDeniedException", 400));
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(503);
+    expect(parsed(res)).toEqual({ error: "ask_unavailable" });
+  });
+});
+
+describe("POST /ask/voice: spend (spec C736)", () => {
+  const micro = (usage: Parameters<typeof costOf>[0]) => toMicro(costOf(usage));
+
+  it("records the clip's whole seconds with the turns' tokens", async () => {
+    await speak({ audio: audio(2.3) });
+
+    // 3 s of audio (2.3 s, rounded up) and the two turns' 3,182 in and 765 out.
+    const expected = micro({ audio_seconds: 3, spark_input_tokens: 3182, spark_output_tokens: 765 });
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([expected]);
+  });
+
+  it("no speech records the audio only", async () => {
+    w.heard = [{ reply: "" }];
+
+    await speak({ audio: audio(2) });
+
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([micro({ audio_seconds: 2 })]);
+  });
+
+  it("a clip between whole seconds is billed by the next whole second", async () => {
+    await speak({ audio: audio(48_001 / 16_000) }); // 3.0000625 s
+
+    const expected = micro({ audio_seconds: 4, spark_input_tokens: 3182, spark_output_tokens: 765 });
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([expected]);
+  });
+
+  it("a transcription that throws after its 200 answers 500 internal, and still records the audio", async () => {
+    w.heard = [{ reply: new TypeError("an answer it couldn't read") }];
+
+    const res = await speak({ audio: audio(2) });
+
+    expect(res.statusCode).toBe(500);
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([micro({ audio_seconds: 2 })]);
+    expect(lastAskLine()).toMatchObject({ route: "ask_voice", status: 500, error: "TypeError" });
+  });
+
+  it("a model path that throws after the transcript records the audio, and Muse Spark's tries only at the unreported amount", async () => {
+    w.steps.splice(0, w.steps.length, step(new TypeError("an answer it couldn't read")));
+
+    const res = await speak({ audio: audio(2) });
+
+    expect(res.statusCode).toBe(500);
+    // One Spark try that may have been billed; the transcription's 200 isn't charged as one.
+    const expected = micro({ audio_seconds: 2, spark_input_tokens: 20_000, spark_output_tokens: 4_000 });
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([expected]);
+  });
+
+  it("a refused transcription records nothing, and one that may have been billed records the audio", async () => {
+    w.heard = [{ reply: new MetaError(429), tries: [503] }];
+    await speak({ audio: audio(2) });
+    expect(spendWrites()).toEqual([]);
+
+    w.heard = [{ reply: new MetaError(null), tries: [429] }];
+    await speak({ audio: audio(2) });
+    expect(spendWrites().map((input) => input.ExpressionAttributeValues?.[":n"])).toEqual([micro({ audio_seconds: 2 })]);
+  });
+});
+
+describe("POST /ask/voice: privacy (spec AK7)", () => {
+  const SENTINEL_HEARD = "Sentinelheardword baha ba sa España cor. Maceda?";
+  const SENTINEL_DEVICE = "device-5e771ne1-0123456789";
+  const SENTINEL_HERE = { lat: 14.6095123, lng: 120.9894123, accuracyM: 20 };
+
+  it("no transcript, audio, coordinate or device id reaches a log line or a DynamoDB call", async () => {
+    const body = { audio: audio(2), here: SENTINEL_HERE };
+    w.heard = [{ reply: SENTINEL_HEARD }, { reply: SENTINEL_HEARD }, { reply: new MetaError(500) }, { reply: "" }];
+    w.steps.splice(0, w.steps.length, step(callReply()), step(verdictReply()), step(new MetaError(503)));
+    for (let i = 0; i < 4; i++) await speak(body, {}, SENTINEL_DEVICE);
+    w.stopped.add("model-calls");
+    await speak(body, {}, SENTINEL_DEVICE);
+
+    expect(askLines()).toHaveLength(5);
+    const logged = w.lines.join("\n");
+    const hash = createHash("sha256").update(SENTINEL_DEVICE).digest("hex");
+    const secrets = ["Sentinelheardword", AUDIO_SENTINEL, body.audio.slice(80, 160), "14.6095123", "120.9894123", SENTINEL_DEVICE, hash];
+    for (const secret of [...secrets, ESPANA.name, "España"]) expect(logged, secret).not.toContain(secret);
+    const stored = JSON.stringify([...ddbMock.calls(), ...spendMock.calls(), ...ssmMock.calls()].map((call) => call.args[0].input));
+    for (const secret of secrets.slice(0, -1)) expect(stored, secret).not.toContain(secret);
+  });
+
+  it("logs one line per request with only the spec's keys", async () => {
+    const allowed = ["msg", ...ASK_LOG_FIELDS];
+    await speak({ audio: audio() });
+    await speak("{not json");
+    await speak({ audio: audio(0.2) });
+    w.heard = [{ reply: new MetaError(503) }];
+    await speak({ audio: audio() });
+
+    expect(askLines()).toHaveLength(4);
+    for (const line of askLines()) {
+      expect(line.route).toBe("ask_voice");
+      for (const key of Object.keys(line)) expect(allowed, key).toContain(key);
+    }
   });
 });
 

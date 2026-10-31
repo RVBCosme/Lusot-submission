@@ -84,7 +84,7 @@ describe('the notice', () => {
   it("shows consent.en.md's heading and bullets, and no checkbox, button, link or screen line from the Markdown", () => {
     renderScreen('notice')
 
-    expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo')
+    expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo or question')
     expect(within(notice()).getAllByRole('listitem')).toHaveLength(7)
     expect(notice().querySelector('input, button, a')).toBeNull()
     expect(notice().textContent).not.toContain(SCREEN_LINE)
@@ -111,6 +111,7 @@ describe('the notice', () => {
     ['the original is deleted after analysis', /Your original waits in a private storage area until the analysis ends, and is then deleted\./],
     ['data is kept 7 days', /for 7 days/],
     ['the map images show OpenStreetMap the area, within about 300 m', /Placing the pin loads OpenStreetMap's map images[^.]*the area on your screen, within about 300 m of you\./],
+    ['a spoken question goes to Meta as a voice clip', /for a spoken question, its voice clip of up to 15 seconds, which Meta's speech service turns into text\./],
     ['no accounts, no names', /No accounts, no names\./],
   ])('says %s', (_what, pattern) => {
     renderScreen('notice')
@@ -121,7 +122,7 @@ describe('the notice', () => {
     renderScreen('notice', { lang: 'fil' })
 
     expect(notice().getAttribute('lang')).toBe('en')
-    expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo')
+    expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo or question')
     // The M20 review passed the controls' Taglish, so they show it unmarked, as the page's own language.
     for (const key of ['consent.continue', 'consent.notNow', 'consent.readPolicy', 'consent.adult'] as const) {
       expect(FIL[key].reviewed, key).toBe(true)

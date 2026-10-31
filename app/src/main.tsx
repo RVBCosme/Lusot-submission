@@ -6,6 +6,8 @@ import './index.css'
 import App from './App.tsx'
 import { rootErrorOptions } from './lib/rootErrors'
 import { applyTheme, storedTheme } from './lib/theme'
+import { registerServiceWorker } from './pwa'
+import { reportFlowBusy } from './report/ReportFlowProvider'
 
 // The theme chosen on About, before the first paint, so a dark choice never flashes light (C624).
 applyTheme(storedTheme())
@@ -16,3 +18,6 @@ createRoot(document.getElementById('root')!, rootErrorOptions).render(
     <App />
   </StrictMode>,
 )
+
+// The installable web app's worker, on the web only, held while the report flow holds a photo or a report id.
+void registerServiceWorker(reportFlowBusy)

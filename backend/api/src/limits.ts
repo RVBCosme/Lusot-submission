@@ -61,18 +61,30 @@ export async function take(
   if (!(await increment(device, LIMITS[bucket].device, expiresAt, deps))) return refuse(LIMIT_CODES[bucket].device, nowS);
   if (!(await increment(`${bucket}#ALL#${hour}`, LIMITS[bucket].all, expiresAt, deps))) {
     // The hour refused it, so the device's count goes back.
-    await deps.ddb.send(
-      new UpdateCommand({
-        TableName: deps.limitsTableName,
-        Key: { pk: device },
-        UpdateExpression: "ADD #n :minusOne",
-        ExpressionAttributeNames: { "#n": "n" },
-        ExpressionAttributeValues: { ":minusOne": -1 },
-      }),
-    );
+    await decrement(device, deps);
     return refuse(LIMIT_CODES[bucket].all, nowS);
   }
   return null;
+}
+
+// Gives back one that `take` counted in the same hour, the device's and the hour's in all: Ask Lusot's spoken question
+// that its spend stop pauses after it was counted, which its spec doesn't count (§5.4).
+export async function giveBack(bucket: Bucket, deviceHeader: string | undefined, nowS: number, deps: LimitDeps): Promise<void> {
+  const hour = utcHour(nowS);
+  await decrement(`${bucket}#${hashDevice(deviceKey(deviceHeader))}#${hour}`, deps);
+  await decrement(`${bucket}#ALL#${hour}`, deps);
+}
+
+async function decrement(pk: string, deps: LimitDeps): Promise<void> {
+  await deps.ddb.send(
+    new UpdateCommand({
+      TableName: deps.limitsTableName,
+      Key: { pk },
+      UpdateExpression: "ADD #n :minusOne",
+      ExpressionAttributeNames: { "#n": "n" },
+      ExpressionAttributeValues: { ":minusOne": -1 },
+    }),
+  );
 }
 
 // Adds 1 to the counter while it is under the limit. False when the condition refuses it.

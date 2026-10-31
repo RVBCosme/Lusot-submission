@@ -207,11 +207,59 @@ describe("findSpotIn", () => {
   });
 });
 
+// The exact list Meta took on Oct 31 (the voice diagnostic's call 6: HTTP 200 with these 94). A spot or road added to
+// spots.json changes it, so this fails before a deploy could send Meta a list it hasn't been shown to take. Update it
+// only after Meta has taken the new list in a test call.
+const TESTED_KEYWORDS = [
+  "F. Ortigas St cor. Boni Ave", "EDSA cor. Aurora Blvd", "EDSA cor. Kamuning Rd", "EDSA cor. North Ave",
+  "EDSA cor. Main Ave", "Taft Ave in front of PGH", "España Blvd cor. Maceda St", "España Blvd cor. Antipolo St",
+  "Marcos Highway at SM Marikina", "EDSA cor. Shaw Blvd", "EDSA cor. P. Tuazon Blvd", "Roxas Blvd cor. EDSA",
+  "Roxas Blvd cor. Pedro Gil St", "UN Ave cor. Taft Ave", "G. Araneta Ave cor. Baloy St", "Samat St cor. Don Jose St",
+  "Taft Ave cor. Quirino Ave", "Roxas Blvd at the US Embassy", "Roxas Blvd cor. T.M. Kalaw Ave", "3S Center, Dalandanan",
+  "Toyota Dalandanan", "F. Ortigas Street", "Boni Avenue", "F. Ortigas", "Boni", "EDSA", "Aurora Boulevard",
+  "Kamuning Road", "Kamuning", "Gregorio Araneta Avenue", "E. Rodriguez Sr. Avenue", "G. Araneta Avenue", "Araneta",
+  "E. Rodriguez", "Colonel Bonny Serrano Avenue", "Col. Bonny Serrano Avenue", "Bonny Serrano Avenue", "North Avenue",
+  "North Ave", "Quezon Avenue", "Biak na Bato Street", "Quezon Ave", "Biak na Bato", "Main Avenue", "Main Ave",
+  "Taft Avenue", "Taft Ave", "Taft", "España Boulevard", "A. Maceda Street", "España", "España Blvd", "Maceda",
+  "Antipolo Street", "Marcos Highway", "Shaw Boulevard", "Shaw", "P. Tuazon Boulevard", "P. Tuazon",
+  "Ninoy Aquino Avenue", "Dr. A. Santos Avenue", "Dr. Arcadio Santos Avenue", "Sucat Road", "Roxas Boulevard",
+  "Roxas Blvd", "Roxas", "Pedro Gil Street", "Pedro Gil", "United Nations Avenue", "UN Avenue", "UN Ave",
+  "Baloy Street", "Santo Domingo Avenue", "Calamba Street", "Sto. Domingo Avenue", "Sto. Domingo", "Samat Street",
+  "Don Jose Street", "Samat", "Don Jose", "N. S. Amoranto Sr. Avenue", "Amoranto", "NS Amoranto", "Quirino Avenue",
+  "Kalaw Avenue", "Kalaw", "T.M. Kalaw Avenue", "Senator Gil J. Puyat Avenue", "Gil Puyat Avenue", "Buendia",
+  "Maria Clara Street", "Ma. Clara", "Victor Medina Street", "Kabihasnan",
+];
+
 describe("spotKeywords", () => {
-  it("gives the display names, for transcription", () => {
-    const names = spotKeywords();
-    expect(names).toEqual(SPOTS.map((s) => s.name));
-    expect(names).toContain("España Blvd cor. Maceda St");
-    expect(spotKeywords([spot("a", "A Place", [])])).toEqual(["A Place"]);
+  it("sends no keyword over Meta's 30-character limit (its 400 on Oct 31)", () => {
+    expect(spotKeywords().filter((k) => k.length > 30)).toEqual([]);
+    expect(spotKeywords([spot("a", "A Place Name That Is Over Thirty Chars", ["A Road Name That Is Over Thirty Chars"])])).toEqual([]);
+  });
+
+  it("counts a keyword's length in UTF-8 bytes, so a ñ counts twice", () => {
+    const thirtyChars = "España Blvd cor. Maceda Street"; // 30 characters, 31 bytes
+    expect(thirtyChars).toHaveLength(30);
+    expect(spotKeywords([spot("a", thirtyChars, ["Espana Blvd cor. Maceda Street"])])).toEqual(["Espana Blvd cor. Maceda Street"]);
+  });
+
+  it("gives the list Meta took on Oct 31, in that order, and no more than its 94", () => {
+    expect(TESTED_KEYWORDS).toHaveLength(94);
+    expect(spotKeywords()).toEqual(TESTED_KEYWORDS);
+  });
+
+  it("gives the names that fit first, then each spot's roads, each once", () => {
+    const spots = [
+      spot("a", "A Place", ["Main Road", "Side St"]),
+      spot("b", "A Corner Whose Name Is Over Thirty Chars", ["Side St", "Far Road"]),
+      spot("c", "Far Road", ["Last Road"]),
+    ];
+    expect(spotKeywords(spots)).toEqual(["A Place", "Far Road", "Main Road", "Side St", "Last Road"]);
+  });
+
+  it("keeps at most 94, dropping roads before names", () => {
+    const many = Array.from({ length: 100 }, (_, i) => spot(`s${i}`, `Place ${i}`, [`Road ${i}`]));
+    const keywords = spotKeywords(many);
+    expect(keywords).toHaveLength(94);
+    expect(keywords.every((k) => k.startsWith("Place "))).toBe(true);
   });
 });

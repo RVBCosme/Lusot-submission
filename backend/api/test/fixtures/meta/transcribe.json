@@ -1,0 +1,14 @@
+{
+  "sessionId": "session_fixture_1",
+  "transcript": "Gaano kalalim ang baha sa España cor. Maceda?",
+  "audioDurationMs": 3700,
+  "turns": [
+    {
+      "turnId": 1,
+      "startMs": 240,
+      "endMs": 3460,
+      "transcript": "Gaano kalalim ang baha sa España cor. Maceda?",
+      "speaker": "A"
+    }
+  ]
+}

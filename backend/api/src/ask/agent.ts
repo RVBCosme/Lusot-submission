@@ -26,7 +26,8 @@ export type Forms = { turn1: Turn1Form; final: FinalForm };
 
 const MODEL = "muse-spark-1.3";
 const ANSWER_NAME = "ask_answer_v1";
-const MAX_OUTPUT_TOKENS = 800;
+// Every turn's cap, reasoning included (C739): 800 cut T4's turn 1 off on Oct 31 (685 of the 800 were reasoning).
+export const MAX_OUTPUT_TOKENS = 1200;
 const MAX_TOOL_CALLS = 2; // the model may call get_reports once more, never a third time (C703)
 const KEY_REJECTED = new Set([401, 402, 403]);
 

@@ -6,6 +6,14 @@ import { dropLine, landmarkLine, levelFromLine, type Translate } from '../copy/w
 import type { Text } from '../i18n'
 import type { OverlayData, OverlayRef, Point, Polygon } from '../lib/api'
 
+// The overlay draws itself (C615): the first layer at once and the last at 2,000 ms, the others evenly between.
+export const REVEAL_MS = 2000
+
+// The time between one layer and the next, for a drawing of `count` layers, so layer i shows at i x step.
+export function revealStep(count: number): number {
+  return count <= 1 ? 0 : REVEAL_MS / (count - 1)
+}
+
 export type LayerKind = 'water' | 'outline' | 'rim_outline' | 'box' | 'fitted_rim' | 'waterline' | 'label'
 
 type Rim = NonNullable<OverlayRef['rim']>

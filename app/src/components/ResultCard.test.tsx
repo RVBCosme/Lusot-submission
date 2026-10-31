@@ -20,6 +20,7 @@ import { pollReport } from '../lib/poll'
 import { writeItem } from '../lib/storage'
 import { createMockFetch } from '../mock/mockFetch'
 import { levelLayers, scenarioNames, type Scenario } from '../mock/fixtures'
+import { prefersReducedMotion } from '../test/motion'
 import { PausedNotice, ResultCard } from './ResultCard'
 
 // The overlay fetches the layers file through the app's fetch. A test points it at the mock that made the report,
@@ -56,6 +57,8 @@ const APPROACH =
 beforeEach(() => {
   localStorage.clear()
   net.fetch = () => Promise.reject(new TypeError('No network in the test environment'))
+  // The card's overlay is checked in its final frame (C615's draw-in is OverlayView.test.tsx's).
+  prefersReducedMotion(true)
 })
 
 afterEach(async () => {

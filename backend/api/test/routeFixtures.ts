@@ -1,6 +1,6 @@
-// The handler's nine routes over class mocks, for handler.test.ts and copy.test.ts (Task 10): the
+// The handler's ten routes over class mocks, for handler.test.ts and copy.test.ts (Task 10): the
 // environment it builds from, a new container per call, each route's event, and a success answer for
-// every AWS call the routes make, Ask Lusot's Muse Spark calls included.
+// every AWS call the routes make, Ask Lusot's Muse Spark and transcription calls included.
 import { readFileSync } from "node:fs";
 import { CopyObjectCommand, GetObjectCommand, type GetObjectCommandOutput, S3Client } from "@aws-sdk/client-s3";
 import { GetParameterCommand, type GetParameterCommandInput, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
@@ -24,7 +24,7 @@ export const ddbMock = mockClient(DynamoDBDocumentClient);
 export const s3Mock = mockClient(S3Client);
 export const ssmMock = mockClient(SSMClient);
 
-// index.ts's route() and test_template.py's test_routes_match_the_api_router hold these nine.
+// index.ts's route() and test_template.py's test_routes_match_the_api_router hold these ten.
 export const ROUTE_KEYS = [
   "POST /uploads",
   "GET /reports/{id}",
@@ -35,6 +35,7 @@ export const ROUTE_KEYS = [
   "GET /samples",
   "POST /samples/{sampleId}",
   "POST /ask",
+  "POST /ask/voice",
 ] as const;
 export type RouteKey = (typeof ROUTE_KEYS)[number];
 
@@ -142,6 +143,29 @@ export const UPLOAD = { lat: 14.6095, lng: 120.9894, gpsAccuracyM: 12, capturedA
 // Ask Lusot's: the model key's parameter, and a location at PIN's spot.
 export const MODEL_KEY_PARAM = "/lusot/meta/model-api-key";
 export const ASK_HERE = { lat: 14.6095, lng: 120.9894, accuracyM: 20 };
+// What the fake transcription hears in every clip, unless a test says otherwise (`hearing`). Its "dito" makes turn 1
+// ask about the location sent; its first word is a sentinel no log may hold.
+export const TRANSCRIPT = "Transcriptsentinel may baha ba dito?";
+
+// A clip of `seconds` of silence, as the app sends it: 16 kHz mono 16-bit PCM WAV, in base64.
+export function wavBase64(seconds: number): string {
+  const dataBytes = Math.round(seconds * 16000) * 2;
+  const wav = Buffer.alloc(44 + dataBytes);
+  wav.write("RIFF", 0, "ascii");
+  wav.writeUInt32LE(36 + dataBytes, 4);
+  wav.write("WAVEfmt ", 8, "ascii");
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(16000, 24);
+  wav.writeUInt32LE(32000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36, "ascii");
+  wav.writeUInt32LE(dataBytes, 40);
+  return wav.toString("base64");
+}
+export const VOICE_AUDIO = wavBase64(2);
 
 // Each route's request, which the success answers below take to a 200 or a 201.
 const ROUTE_EVENTS: Record<RouteKey, Partial<APIGatewayProxyEventV2>> = {
@@ -154,6 +178,7 @@ const ROUTE_EVENTS: Record<RouteKey, Partial<APIGatewayProxyEventV2>> = {
   "GET /samples": {},
   "POST /samples/{sampleId}": { pathParameters: { sampleId: SAMPLE_ID } },
   "POST /ask": { body: JSON.stringify({ question: "May baha ba dito?", here: ASK_HERE }) },
+  "POST /ask/voice": { body: JSON.stringify({ audio: VOICE_AUDIO, here: ASK_HERE }) },
 };
 
 // An HTTP API payload 2.0 event, as API Gateway sends it to the handler.
@@ -218,7 +243,7 @@ export interface Serve {
   before?: () => void;
 }
 
-// A success answer for every AWS call the nine routes make, and Muse Spark's for Ask.
+// A success answer for every AWS call the ten routes make, and Meta's for Ask.
 export function serve({ stored = [PIN, DEMO_PIN], stopped = [], before = () => {} }: Serve = {}): void {
   ssmMock.on(GetParameterCommand).callsFake((input: GetParameterCommandInput) => {
     if (input.Name === MODEL_KEY_PARAM) return { Parameter: { Value: "test-model-key-0000000000000000000000" } };
@@ -231,7 +256,7 @@ export function serve({ stored = [PIN, DEMO_PIN], stopped = [], before = () => {
     before();
     return input.Key?.pk === "spend#meta" ? { Item: { pk: "spend#meta", micro_usd: 3_000_000, seeded: true } } : {};
   });
-  vi.stubGlobal("fetch", museSpark);
+  hearing(TRANSCRIPT);
   ddbMock.on(QueryCommand).callsFake((input: QueryCommandInput) => {
     before();
     const values = input.ExpressionAttributeValues ?? {};
@@ -251,6 +276,16 @@ export function serve({ stored = [PIN, DEMO_PIN], stopped = [], before = () => {
     return { Body: objectBody(MANIFEST) };
   });
   s3Mock.on(CopyObjectCommand).callsFake(written);
+}
+
+// Meta through fetch from here on: the transcription hears `heard`, or answers that HTTP status, and Muse Spark
+// answers as museSpark does.
+export function hearing(heard: string | number): void {
+  vi.stubGlobal("fetch", async (url: string | URL | Request, init?: RequestInit) => {
+    if (String(url) !== "https://api.meta.ai/v1/asr/transcribe") return museSpark(url, init);
+    const answer = typeof heard === "string" ? { ...metaFixture("transcribe"), transcript: heard } : { error: { message: "refused" } };
+    return new Response(JSON.stringify(answer), { status: typeof heard === "string" ? 200 : heard, headers: { "content-type": "application/json" } });
+  });
 }
 
 const metaFixture = (name: string): { output: Record<string, unknown>[] } & Record<string, unknown> =>

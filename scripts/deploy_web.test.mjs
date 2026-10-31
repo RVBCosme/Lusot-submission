@@ -29,7 +29,7 @@ const SAMCONFIG = [
   'stack_name = "lusot-test"',
   'region = "ap-southeast-1"',
   "[default.deploy.parameters]",
-  `parameter_overrides = "AlarmEmail=${CONTACT} BucketSuffix=abc123"`,
+  `parameter_overrides = "AlarmEmail=${CONTACT} BucketSuffix=abc123 WebHosting=on"`,
 ].join("\n");
 
 // app/dist as the build leaves it today, in kind: the page, the licences, the manifest and the icons, and under
@@ -354,6 +354,19 @@ test("a missing samconfig.toml stops the run before any call", async () => {
   assert.match(err, /samconfig\.toml/);
 });
 
+test("with WebHosting off, or not set, the run stops before any call and says why", async () => {
+  for (const samconfig of [
+    SAMCONFIG.replace("WebHosting=on", "WebHosting=off"),
+    SAMCONFIG.replace(" WebHosting=on", ""),
+  ]) {
+    const { code, argvs, err } = await deploy({ samconfig });
+    assert.equal(code, 1);
+    assert.deepEqual(argvs, []);
+    assert.match(err, /WebHosting isn't on in backend\/samconfig\.toml/);
+    assert.ok(!err.includes(CONTACT), err);
+  }
+});
+
 test("a stack without the web outputs stops the run before the build", async () => {
   const { code, argvs, err } = await deploy({
     answer: (argv) =>
@@ -364,4 +377,36 @@ test("a stack without the web outputs stops the run before the build", async () 
   assert.equal(code, 1);
   assert.equal(argvs.length, 1);
   assert.match(err, /WebBucketName/);
+});
+
+// The web app's service worker (MS5 Task 16). A browser that fetched the new sw.js while the old pages were still
+// live would precache the old page under the new revision, and blank once the old assets went. So sw.js goes up
+// alone, after the new pages are live and invalidated, is invalidated itself, and only then do the old assets go.
+test("the service worker goes up last, after the new pages are live, and before the old assets go", async () => {
+  const files = [...DIST, "sw.js", "workbox-NEW.js"];
+  const { code, argvs } = await deploy({ files });
+  assert.equal(code, 0);
+  const { uploads } = syncEffects(argvs, files, files);
+  assert.equal(uploads.some((upload) => upload.key === "sw.js"), false, "no sync uploads sw.js");
+  // Its Workbox chunk goes up with the pages, no-cache.
+  assert.deepEqual(
+    uploads.filter((upload) => upload.key === "workbox-NEW.js").map(({ type, cache }) => ({ type, cache })),
+    [{ type: "text/javascript", cache: "no-cache" }],
+  );
+  const at = (find) => argvs.findIndex(find);
+  const pagesWait = at((argv) => argv.includes("invalidation-completed"))
+  const worker = at((argv) => argv[1] === "s3" && argv[2] === "cp")
+  assert.deepEqual(argvs[worker], [
+    "aws", "s3", "cp", "app/dist/sw.js", `s3://${BUCKET}/sw.js`,
+    "--content-type", "text/javascript", "--cache-control", "no-cache", "--only-show-errors", ...FLAGS,
+  ]);
+  const workerInvalidation = at((argv) => argv.includes("create-invalidation") && argv.includes("/sw.js"));
+  const workerWait = argvs.findLastIndex((argv) => argv.includes("invalidation-completed"));
+  const removal = at((argv, i) => i > pagesWait && isAssetsSync(argv) && argv.includes("--delete"));
+  assert.ok(pagesWait < worker && worker < workerInvalidation && workerInvalidation < workerWait && workerWait < removal,
+    "pages live, then sw.js, its invalidation and its wait, then the old assets");
+  assert.deepEqual(argvs[workerInvalidation].slice(argvs[workerInvalidation].indexOf("--paths"), -FLAGS.length - 4), ["--paths", "/sw.js"]);
+  // No sync deletes the live sw.js before the new one replaces it.
+  const { deletes } = syncEffects(argvs, files.filter((file) => file !== "sw.js"), files);
+  assert.equal(deletes.some((gone) => gone.key === "sw.js"), false);
 });

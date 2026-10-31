@@ -1,6 +1,6 @@
 """Tests for backend/template.yaml: MS4's routes, APIs, tables, CORS, throttles,
 lifecycle, retentions, alarms and role grants (MS4 spec §4.3 to §4.7; plan Task 1),
-and Ask Lusot's route, grants, switch and alarms (Ask plan Task 13, typed only).
+and Ask Lusot's two routes, grants, switch and alarms (Ask plan Task 13).
 
 They read the template through cfn_template.load_template, so nothing reaches AWS.
 check:py runs this file with the scripts' dependencies. Alone, from the repo root:
@@ -100,11 +100,13 @@ def bucket_paths(*prefixes):
     return {f"${{UploadBucket.Arn}}/{prefix}/*" for prefix in prefixes}
 
 
-def resolve(value, params, attrs):
-    """What CloudFormation makes of Ref, Fn::GetAtt, Fn::Join, Fn::Split and Fn::Sub
-    in `value`, given parameter values and resource attributes: enough for the CORS lists."""
+def resolve(value, params, attrs, conditions=None):
+    """What CloudFormation makes of Ref, Fn::GetAtt, Fn::Join, Fn::Split, Fn::Sub and Fn::If
+    in `value`, given parameter values, resource attributes and condition values: enough for
+    the CORS lists and the Nominatim User-Agent."""
+    conditions = conditions or {}
     if isinstance(value, list):
-        return [resolve(item, params, attrs) for item in value]
+        return [resolve(item, params, attrs, conditions) for item in value]
     if not (isinstance(value, dict) and len(value) == 1):
         return value
     ((fn, arg),) = value.items()
@@ -113,22 +115,54 @@ def resolve(value, params, attrs):
     if fn == "Fn::GetAtt":
         return attrs[tuple(arg)]
     if fn == "Fn::Join":
-        return arg[0].join(resolve(arg[1], params, attrs))
+        return arg[0].join(resolve(arg[1], params, attrs, conditions))
     if fn == "Fn::Split":
-        return resolve(arg[1], params, attrs).split(arg[0])
+        return resolve(arg[1], params, attrs, conditions).split(arg[0])
     if fn == "Fn::Sub":
         text, names = arg if isinstance(arg, list) else (arg, {})
-        names = {k: resolve(v, params, attrs) for k, v in names.items()}
-        return re.sub(r"\$\{([^}]+)\}", lambda m: names[m.group(1)], text)
+        names = {k: resolve(v, params, attrs, conditions) for k, v in names.items()}
+
+        def name(m):
+            key = m.group(1)
+            return names[key] if key in names else attrs[tuple(key.split(".", 1))]
+
+        return re.sub(r"\$\{([^}]+)\}", name, text)
+    if fn == "Fn::If":
+        condition, on, off = arg
+        return resolve(on if conditions[condition] else off, params, attrs, conditions)
     return value
 
 
-def cors_origins(value, app_origins):
+def cors_origins(value, app_origins, web=True):
     return resolve(
         value,
         {"AppOrigins": app_origins},
-        {("WebDistribution", "DomainName"): WEB_DOMAIN},
+        {("WebDistribution", "DomainName"): WEB_DOMAIN} if web else {},
+        {"HasWeb": web},
     )
+
+
+def unguarded(value):
+    """The web resources `value` names outside the on branch of an Fn::If on HasWeb. With
+    WebHosting off they don't exist, and CloudFormation refuses a template that names one."""
+    found = set()
+    if isinstance(value, list):
+        for item in value:
+            found |= unguarded(item)
+    elif isinstance(value, dict):
+        for key, arg in value.items():
+            if key == "Fn::If" and arg[0] == "HasWeb":
+                found |= unguarded(arg[2])
+                continue
+            if key == "Ref" and isinstance(arg, str):
+                found.add(arg)
+            elif key == "Fn::GetAtt":
+                found.add(arg[0])
+            elif key == "Fn::Sub":
+                text = arg[0] if isinstance(arg, list) else arg
+                found.update(re.findall(r"\$\{([A-Za-z0-9]+)", text))
+            found |= unguarded(arg)
+    return found & set(WEB_RESOURCES)
 
 
 def references(value):
@@ -160,20 +194,24 @@ def test_routes():
         "GET /samples",
         "POST /samples/{sampleId}",
         "POST /ask",
+        "POST /ask/voice",
     }
     assert route_keys("FeedApi") == {"GET /pins.geojson"}
 
 
 def test_ask_routes():
-    """Ask ships typed only (Oct 30): one AskTyped event on HttpApi, and no voice route."""
+    """Ask's two routes on HttpApi: AskTyped and AskVoice, POST only, and no other."""
     events = props("ApiFunction")["Events"]
     assert events.get("AskTyped") == {
         "Type": "HttpApi",
         "Properties": {"ApiId": {"Ref": "HttpApi"}, "Method": "POST", "Path": "/ask"},
     }
-    assert "AskVoice" not in events
+    assert events.get("AskVoice") == {
+        "Type": "HttpApi",
+        "Properties": {"ApiId": {"Ref": "HttpApi"}, "Method": "POST", "Path": "/ask/voice"},
+    }
     deployed = route_keys("HttpApi") | route_keys("FeedApi")
-    assert {key for key in deployed if "/ask" in key} == {"POST /ask"}
+    assert {key for key in deployed if "/ask" in key} == {"POST /ask", "POST /ask/voice"}
 
 
 def test_routes_match_the_api_router():
@@ -183,7 +221,7 @@ def test_routes_match_the_api_router():
     assert router, "route() is missing from index.ts"
     cases = set(re.findall(r'^\s*case "([^"]+)":', router.group(0), re.MULTILINE))
     deployed = route_keys("HttpApi") | route_keys("FeedApi")
-    assert len(deployed) == 9
+    assert len(deployed) == 10
     assert cases == deployed
 
 
@@ -201,16 +239,17 @@ def test_api_environment():
         "MODEL_KEY_PARAM",
         "NOMINATIM_USER_AGENT",
     }
-    # Ask's two (C701), read only on POST /ask. The key's name, never the key; the
+    # Ask's two (C701), read only on its two routes. The key's name, never the key; the
     # analysis function reads the same parameter.
     assert env["MODEL_KEY_PARAM"] == "/lusot/meta/model-api-key"
     analysis = props("AnalysisFunction")["Environment"]["Variables"]
     assert env["MODEL_KEY_PARAM"] == analysis["MODEL_KEY_PARAM"]
-    # Identifies the app to Nominatim (its usage policy) by name and the site's address,
-    # never an email address.
-    assert env["NOMINATIM_USER_AGENT"] == {
-        "Fn::Sub": "Lusot/1.0 (+https://${WebDistribution.DomainName})"
-    }
+    # Identifies the app to Nominatim (its usage policy) by name and, with the website on,
+    # the site's address; never an email address.
+    agent = env["NOMINATIM_USER_AGENT"]
+    attrs = {("WebDistribution", "DomainName"): WEB_DOMAIN}
+    assert resolve(agent, {}, attrs, {"HasWeb": True}) == f"Lusot/1.0 (+https://{WEB_DOMAIN})"
+    assert resolve(agent, {}, {}, {"HasWeb": False}) == "Lusot/1.0"
     assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
     assert env["FEED_INDEX_NAME"] == "feed-index"
     # A literal string, never a parameter (C515): YAML's bare false would be a bool.
@@ -340,7 +379,8 @@ def test_cors():
 
 
 def test_cors_origins_add_the_website():
-    """C622: the API and the photo bucket allow AppOrigins and the website's origin."""
+    """C622: the API and the photo bucket allow AppOrigins and the website's origin, or
+    AppOrigins alone with WebHosting off."""
     api = props("HttpApi")["DefinitionBody"]["x-amazon-apigateway-cors"]["allowOrigins"]
     (rule,) = props("UploadBucket")["CorsConfiguration"]["CorsRules"]
     bucket = rule["AllowedOrigins"]
@@ -358,6 +398,46 @@ def test_cors_origins_add_the_website():
         # AppOrigins stays a list: a deploy that passes other origins keeps each one.
         other = ["https://a.example", "https://b.example"]
         assert cors_origins(origins, other) == [*other, web]
+        # Off: no CloudFront origin, and still a list.
+        assert cors_origins(origins, default, web=False) == default
+        assert cors_origins(origins, other, web=False) == other
+
+
+def test_web_hosting_switch():
+    """Oct 31: AWS refused the account's first CloudFront distribution until it verifies the
+    account, so WebHosting can leave the website out. On by default; npm run deploy needs it
+    set by name in samconfig.toml."""
+    p = T["Parameters"]["WebHosting"]
+    assert p["Type"] == "String"
+    assert p["AllowedValues"] == ["on", "off"]
+    assert p["Default"] == "on"
+    # Strings, never YAML 1.1's booleans (C309).
+    assert all(isinstance(value, str) for value in [*p["AllowedValues"], p["Default"]])
+    assert T["Conditions"] == {"HasWeb": {"Fn::Equals": [{"Ref": "WebHosting"}, "on"]}}
+
+
+def test_only_the_website_needs_the_switch():
+    """Off leaves out the four web resources and the three outputs deploy:web reads, and
+    nothing else."""
+    assert {name for name, r in RES.items() if "Condition" in r} == set(WEB_RESOURCES)
+    assert all(RES[name]["Condition"] == "HasWeb" for name in WEB_RESOURCES)
+    outputs = T["Outputs"]
+    web_outputs = {"WebUrl", "WebBucketName", "WebDistributionId"}
+    assert {name for name, o in outputs.items() if "Condition" in o} == web_outputs
+    assert all(outputs[name]["Condition"] == "HasWeb" for name in web_outputs)
+
+
+def test_nothing_left_in_names_the_website():
+    """With WebHosting off, every resource and output left in must name no web resource,
+    except in the on branch of an Fn::If on HasWeb."""
+    for name, r in RES.items():
+        if r.get("Condition") == "HasWeb":
+            continue
+        assert not unguarded(r), name
+        assert not set(as_list(r.get("DependsOn", []))) & set(WEB_RESOURCES), name
+    for name, o in T["Outputs"].items():
+        if o.get("Condition") != "HasWeb":
+            assert not unguarded(o), name
 
 
 def test_web_bucket():
