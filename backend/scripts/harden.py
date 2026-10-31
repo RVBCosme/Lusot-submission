@@ -381,9 +381,10 @@ def confirm_private(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     wall: Callable[[], float] = time.time,
-) -> None:
+) -> str:
     """C803's precondition: one report at OUTSIDE_POINT, with no photo, must read
-    `private` before a run sends any photo.
+    `private` before a run sends any photo. It returns the report's id, for the run's
+    private record.
 
     GET /reports/{id} is read every 1 s through 404s, since the report index can lag a
     new report, for up to 30 s. Any other mode, any other answer, or no report by then
@@ -408,7 +409,7 @@ def confirm_private(
                 != "private"
             ):
                 raise CheckFailed("test point is not private")
-            return
+            return rid
         if response.status_code != 404:
             raise CheckFailed(f"GET /reports: {smoke_upload.got(response)}")
         if clock() - began >= PRIVATE_FOR_S:

@@ -3,7 +3,8 @@
 Fakes only: FakeStack answers the API and S3 through httpx's MockTransport, on one
 fake clock, and botocore's Stubber answers CloudWatch Logs, S3 and CloudFormation
 (stubs.py). Nothing reaches AWS, the API or Meta, and no folder named sealed is made.
-The fake forms' credential, token and signature are built at run time.
+The fake forms' credential, token and signature are built at run time. The checks get
+the clock's wall time and its monotonic time apart, so one used for the other fails.
 
 check:py runs this file with the scripts' dependencies. Alone, from the repo root:
     uv run --python 3.13 --with pytest --with boto3 --with httpx --with numpy
@@ -14,7 +15,6 @@ import base64
 import email.policy
 import hashlib
 import json
-import random
 from collections import Counter
 from datetime import UTC, datetime
 from email.parser import BytesParser
@@ -69,7 +69,7 @@ def policy_of(key: str, expires_s: float, **changes) -> dict:
         {"bucket": "lusot-uploads"},
         {"X-Amz-Algorithm": "AWS4-HMAC-SHA256"},
         {"X-Amz-Credential": CREDENTIAL},
-        {"X-Amz-Date": "20261103T021500Z"},
+        {"X-Amz-Date": f"{DAY}T021500Z"},
         {"key": key},
     ]
     stamp = datetime.fromtimestamp(int(expires_s), UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -88,7 +88,7 @@ def form_fields(key: str, issued_s: float) -> dict[str, str]:
         "bucket": "lusot-uploads",
         "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
         "X-Amz-Credential": CREDENTIAL,
-        "X-Amz-Date": "20261103T021500Z",
+        "X-Amz-Date": f"{DAY}T021500Z",
         "X-Amz-Security-Token": "-".join(("stub", "session", str(int(issued_s)))),
         "key": key,
         "Policy": policy,
@@ -118,13 +118,15 @@ class FakeStack:
     """The API and the bucket as the checks meet them, on the laptop's fake clock.
 
     The server's clock is the laptop's plus `skew_s`. Report ids come from stubs'
-    report_ids, in order, so a test can queue Stubber answers for them.
+    report_ids, in order, so a test can queue Stubber answers for them. Answers carry
+    a Date header and the API's own error bodies.
     """
 
     def __init__(self, clock: Clock, *, skew_s: float = 0.0, seed: int = 0):
         self.clock, self.skew_s = clock, skew_s
         self.ids = iter(report_ids(40, seed=seed))
         self.made: list[str] = []
+        self.issued: list[dict[str, str]] = []  # every form the API handed out
         self.reports: dict[str, dict] = {}
         self.links: dict[
             str, tuple[str, float]
@@ -132,7 +134,8 @@ class FakeStack:
         self.counts: Counter = Counter()
         self.requests: list[httpx.Request] = []
         self.bodies: list[dict] = []  # each POST /uploads body
-        self.posts: list[tuple[dict, tuple[bytes, str] | None, int]] = []
+        # Each S3 post: its fields, its file, the status, and the server's time.
+        self.posts: list[tuple[dict, tuple[bytes, str] | None, int, float]] = []
         self.honour_expiry = True
         self.honour_key = True
         self.honour_type = True
@@ -150,8 +153,7 @@ class FakeStack:
     def handle(self, request: httpx.Request) -> httpx.Response:
         request.read()
         self.requests.append(request)
-        url = str(request.url)
-        if url.startswith(S3_URL):
+        if str(request.url).startswith(S3_URL):
             return self.s3_post(request)
         path = request.url.path
         if request.method == "OPTIONS" and path == "/uploads":
@@ -163,7 +165,7 @@ class FakeStack:
             return (
                 self.answer(200, report)
                 if report
-                else self.answer(404, {"message": "Not Found"})
+                else self.answer(404, {"error": "not_found"})
             )
         return self.answer(500)
 
@@ -182,6 +184,7 @@ class FakeStack:
         self.made.append(rid)
         self.reports[rid] = {"status": "pending", "mode": "private", "published": False}
         fields = form_fields(f"raw/{rid}.jpg", now)
+        self.issued.append(fields)
         self.links[fields["Policy"]] = (fields["key"], now)
         upload = {"url": S3_URL, "fields": fields}
         return self.answer(201, {"reportId": rid, "upload": upload, "expiresInS": 300})
@@ -196,7 +199,7 @@ class FakeStack:
             or (self.honour_type and fields.get("Content-Type") != "image/jpeg")
         )
         status = 403 if refused else 204
-        self.posts.append((fields, file, status))
+        self.posts.append((fields, file, status, self.server_s()))
         if refused:
             text = "<Error><Code>AccessDenied</Code><Message>x</Message></Error>"
             return httpx.Response(
@@ -241,12 +244,10 @@ def setup(*, skew_s: float = 0.0, start: float = LAPTOP_START, seed: int = 0):
         log_group="lusot-analysis-log-group",
         since_ms=int((start - 300) * 1000),
     )
-    record = harden.RunRecord(clock_folder(), "upload_checks", "K")
+    record = harden.RunRecord(
+        harden.data_dir() / "ms7" / "2026-11-03", "upload_checks", "K"
+    )
     return clock, fake, session, stack, record
-
-
-def clock_folder():
-    return harden.data_dir() / "ms7" / "2026-11-03"
 
 
 def issued(fake, stack, record, clock, *, offset_s=0.0):
@@ -258,6 +259,11 @@ def issued(fake, stack, record, clock, *, offset_s=0.0):
         offset_s=offset_s,
         wall=clock,
     )
+
+
+def found_object(session) -> None:
+    """Queue one head_object that finds the object."""
+    session.stubs["s3"].add_response("head_object", {"ContentLength": 10})
 
 
 def test_policy_is_decoded_and_checked():
@@ -288,6 +294,13 @@ def test_policy_is_decoded_and_checked():
     assert (
         len(upload_checks.policy_problems(png, issued_s=issued_s, report_id=rid)) == 1
     )
+    # A zone-less expiration would read as the laptop's local time: a problem.
+    zoneless = policy_of(key, issued_s + 300)
+    zoneless["expiration"] = zoneless["expiration"].removesuffix("Z")
+    assert (
+        len(upload_checks.policy_problems(zoneless, issued_s=issued_s, report_id=rid))
+        == 1
+    )
     with pytest.raises(CheckFailed):
         upload_checks.decode_policy({"Policy": "not base64!"})
     with pytest.raises(CheckFailed):
@@ -296,10 +309,10 @@ def test_policy_is_decoded_and_checked():
 
 def test_server_epoch_reads_the_date_header():
     response = httpx.Response(201, headers={"Date": "Tue, 03 Nov 2026 02:15:00 GMT"})
-    assert (
-        upload_checks.server_epoch(response)
-        == datetime(2026, 11, 3, 2, 15, tzinfo=UTC).timestamp()
-    )
+    expected = datetime(2026, 11, 3, 2, 15, tzinfo=UTC).timestamp()
+    assert upload_checks.server_epoch(response) == expected
+    zoneless = httpx.Response(201, headers={"Date": "Tue, 03 Nov 2026 02:15:00 -0000"})
+    assert upload_checks.server_epoch(zoneless) == expected  # read as GMT
     with pytest.raises(CheckFailed):
         upload_checks.server_epoch(httpx.Response(201))
 
@@ -316,16 +329,21 @@ def test_hold_uses_server_time_under_skew():
     assert late() - 101 < deadline  # by the laptop's clock it would end 101 s early
 
 
-def test_not_a_jpeg_never_starts_like_one():
+def test_not_a_jpeg_never_starts_like_one(monkeypatch):
     for seed in range(100):
         data = upload_checks.not_a_jpeg(seed=seed)
         assert len(data) == 4096
         assert data[:3] != b"\xff\xd8\xff"
-    # Even a seed whose bytes start like a JPEG is changed.
-    for seed in range(100_000):
-        if random.Random(seed).randbytes(3) == b"\xff\xd8\xff":
-            assert upload_checks.not_a_jpeg(3, seed=seed)[:3] != b"\xff\xd8\xff"
-            break
+
+    class LikeAJpeg:  # random bytes that happen to start as a JPEG does
+        def __init__(self, seed):
+            pass
+
+        def randbytes(self, n):
+            return (b"\xff\xd8\xff" + bytes(n))[:n]
+
+    monkeypatch.setattr(upload_checks.random, "Random", LikeAJpeg)
+    assert upload_checks.not_a_jpeg(8)[:3] == b"\x00\xd8\xff"
 
 
 def test_k1_control_reads_its_result():
@@ -333,7 +351,7 @@ def test_k1_control_reads_its_result():
     link = issued(fake, stack, record, clock)
     log_answer(session, [line(link.report_id, "refused/too_dark", meta_calls=0)])
     result = upload_checks.k1_control(
-        fake.client(), stack, link, clock=clock, sleep=clock.sleep
+        fake.client(), stack, link, clock=clock.mono, sleep=clock.sleep
     )
     assert result.startswith("K1 pass")
     session.done()
@@ -348,7 +366,7 @@ def test_k1_control_reads_its_result():
     }
     log_answer(session, [line(link.report_id, "done/no_flood_seen", meta_calls=8)])
     result = upload_checks.k1_control(
-        fake.client(), stack, link, clock=clock, sleep=clock.sleep
+        fake.client(), stack, link, clock=clock.mono, sleep=clock.sleep
     )
     assert result.startswith("K1 FAIL")
     # And so does a too_dark line without meta_calls 0.
@@ -356,51 +374,59 @@ def test_k1_control_reads_its_result():
     link = issued(fake, stack, record, clock)
     log_answer(session, [line(link.report_id, "refused/too_dark")])
     result = upload_checks.k1_control(
-        fake.client(), stack, link, clock=clock, sleep=clock.sleep
+        fake.client(), stack, link, clock=clock.mono, sleep=clock.sleep
     )
     assert result.startswith("K1 FAIL")
 
 
-def k3(fake, session, stack, record, clock, *, skew_s=0.0, lines=()):
-    link = issued(fake, stack, record, clock, offset_s=skew_s)
+def k3(fake, stack, record, clock):
+    link = issued(fake, stack, record, clock, offset_s=fake.skew_s)
     return link, lambda: upload_checks.k3_expired(
         fake.client(),
         stack,
         link,
-        offset_s=skew_s,
+        offset_s=fake.skew_s,
         wall=clock,
-        clock=clock,
+        clock=clock.mono,
         sleep=clock.sleep,
     )
 
 
 def test_k3_expects_403_and_no_object():
-    clock, fake, session, stack, record = setup()
-    link, run = k3(fake, session, stack, record, clock)
+    # Review Focus 3: with the laptop 101 s fast, the post waits for the server's time.
+    clock, fake, session, stack, record = setup(skew_s=-101)
+    link, run = k3(fake, stack, record, clock)
     missing_object(session)
     for _ in range(7):  # log_lines waits 30 s, every 5 s, for any line
         log_answer(session)
     result = run()
     assert result.startswith("K3 pass"), result
-    fields, _, status = fake.posts[-1]
+    fields, _, status, posted_at = fake.posts[-1]
     assert status == 403 and fields == link.form["fields"]
-    assert fake.server_s() >= link.issued_s + 330
+    assert link.issued_s + 330 <= posted_at < link.issued_s + 331
     session.done()
     # A 204 fails it.
     clock, fake, session, stack, record = setup()
     fake.honour_expiry = False
-    link, run = k3(fake, session, stack, record, clock)
+    link, run = k3(fake, stack, record, clock)
+    assert run().startswith("K3 FAIL")
+    # So does a raw object after the 403.
+    clock, fake, session, stack, record = setup()
+    link, run = k3(fake, stack, record, clock)
+    found_object(session)
+    for _ in range(7):
+        log_answer(session)
     assert run().startswith("K3 FAIL")
 
 
 def test_k3_report_stays_pending():
     clock, fake, session, stack, record = setup()
-    link, run = k3(fake, session, stack, record, clock)
+    link, run = k3(fake, stack, record, clock)
     missing_object(session)
     log_answer(session, [line(link.report_id, "failed/photo_missing")])
     assert run().startswith("K3 FAIL")  # an analysis ran
     clock, fake, session, stack, record = setup()
-    link, run = k3(fake, session, stack, record, clock)
+    link, run = k3(fake, stack, record, clock)
     fake.reports[link.report_id] = {
         "status": "failed",
         "refusalReason": "photo_missing",
@@ -413,33 +439,44 @@ def test_k3_report_stays_pending():
 
 def test_k4_changes_only_the_key():
     clock, fake, session, stack, record = setup()
-    third, fourth = (
+    second, third = (
         issued(fake, stack, record, clock),
         issued(fake, stack, record, clock),
     )
     missing_object(session)
     missing_object(session)
-    result = upload_checks.k4_other_key(fake.client(), stack, third, fourth)
+    result = upload_checks.k4_other_key(fake.client(), stack, second, third)
     assert result.startswith("K4 pass"), result
-    fields, _, status = fake.posts[-1]
+    fields, _, status, _ = fake.posts[-1]
     assert status == 403
     assert {k: v for k, v in fields.items() if k != "key"} == {
-        k: v for k, v in third.form["fields"].items() if k != "key"
+        k: v for k, v in second.form["fields"].items() if k != "key"
     }
-    assert fields["key"] == fourth.form["fields"]["key"] != third.form["fields"]["key"]
+    assert fields["key"] == third.form["fields"]["key"] != second.form["fields"]["key"]
     session.done()
     clock, fake, session, stack, record = setup()
     fake.honour_key = False
-    third, fourth = (
+    second, third = (
         issued(fake, stack, record, clock),
         issued(fake, stack, record, clock),
     )
-    assert upload_checks.k4_other_key(fake.client(), stack, third, fourth).startswith(
+    assert upload_checks.k4_other_key(fake.client(), stack, second, third).startswith(
+        "K4 FAIL"
+    )
+    # An object at either key fails it too.
+    clock, fake, session, stack, record = setup()
+    second, third = (
+        issued(fake, stack, record, clock),
+        issued(fake, stack, record, clock),
+    )
+    missing_object(session)
+    found_object(session)
+    assert upload_checks.k4_other_key(fake.client(), stack, second, third).startswith(
         "K4 FAIL"
     )
 
 
-def a1(fake, stack, record, clock, **kwargs):
+def a1(fake, stack, record, clock):
     return upload_checks.a1_device_limit(
         fake.client(),
         stack,
@@ -447,7 +484,6 @@ def a1(fake, stack, record, clock, **kwargs):
         offset_s=fake.skew_s,
         wall=clock,
         sleep=clock.sleep,
-        **kwargs,
     )
 
 
@@ -464,6 +500,7 @@ def test_a1_counts_to_eleven():
     def refusing(error, retry_after):
         def handle(request):
             request.read()
+            date = {"Date": http_date(LAPTOP_START)}
             if request.method == "POST" and handle.n < 10:
                 handle.n += 1
                 rid = report_ids(11)[handle.n]
@@ -471,10 +508,11 @@ def test_a1_counts_to_eleven():
                     "url": S3_URL,
                     "fields": form_fields(f"raw/{rid}.jpg", LAPTOP_START),
                 }
-                return httpx.Response(
-                    201, json={"reportId": rid, "upload": form, "expiresInS": 300}
-                )
-            headers = {} if retry_after is None else {"Retry-After": retry_after}
+                body = {"reportId": rid, "upload": form, "expiresInS": 300}
+                return httpx.Response(201, json=body, headers=date)
+            headers = date | (
+                {} if retry_after is None else {"Retry-After": retry_after}
+            )
             return httpx.Response(429, json={"error": error}, headers=headers)
 
         handle.n = 0
@@ -498,12 +536,19 @@ def test_a1_counts_to_eleven():
 
 
 def test_a1_waits_for_room_in_the_hour():
-    near_end = datetime(2026, 11, 3, 2, 58, 30, tzinfo=UTC).timestamp()  # 90 s left
+    next_hour = datetime(2026, 11, 3, 3, 0, tzinfo=UTC).timestamp()
+    near_end = next_hour - 90  # 90 s of the hour left
     clock, fake, _session, stack, record = setup(start=near_end)
     assert a1(fake, stack, record, clock).startswith("A1 pass")
-    next_hour = datetime(2026, 11, 3, 3, 0, tzinfo=UTC).timestamp()
     first = datetime.fromisoformat(fake.bodies[0]["capturedAt"]).timestamp()
     assert first >= next_hour
+    # Review Focus 3: the laptop, 101 s fast, reads 03:00:30 while the server's hour
+    # has 71 s left, so A1 must wait by the server's clock.
+    clock, fake, _session, stack, record = setup(skew_s=-101, start=next_hour + 30)
+    assert a1(fake, stack, record, clock).startswith("A1 pass")
+    assert clock.slept, "A1 didn't wait for the server's next hour"
+    sent = [datetime.fromisoformat(b["capturedAt"]).timestamp() for b in fake.bodies]
+    assert min(sent) >= next_hour and len({int(s) // 3600 for s in sent}) == 1
     # With room left, it starts at once.
     clock, fake, _session, stack, record = setup()
     assert a1(fake, stack, record, clock).startswith("A1 pass")
@@ -536,11 +581,11 @@ def test_a3_and_a4():
         record,
         offset_s=0,
         wall=clock,
-        clock=clock,
+        clock=clock.mono,
         sleep=clock.sleep,
     )
     assert result.startswith("A3 pass"), result
-    fields, (data, content_type), status = fake.posts[-1]
+    _, (data, content_type), status, _ = fake.posts[-1]
     assert (
         status == 204 and content_type == "image/jpeg" and data[:3] != b"\xff\xd8\xff"
     )
@@ -554,7 +599,7 @@ def test_a3_and_a4():
         record,
         offset_s=0,
         wall=clock,
-        clock=clock,
+        clock=clock.mono,
         sleep=clock.sleep,
     )
     assert result.startswith("A3 FAIL")
@@ -563,7 +608,7 @@ def test_a3_and_a4():
     missing_object(session)
     result = upload_checks.a4_png(fake.client(), stack, record, offset_s=0, wall=clock)
     assert result.startswith("A4 pass"), result
-    fields, (_, content_type), status = fake.posts[-1]
+    fields, (_, content_type), status, _ = fake.posts[-1]
     assert (fields["Content-Type"], content_type, status) == (
         "image/png",
         "image/png",
@@ -577,8 +622,16 @@ def test_a3_and_a4():
 
 def test_without_yes_nothing_is_sent(capsys):
     for run in ("link", "abuse"):
-        assert upload_checks.main([run], session=object(), http=object()) == 0
+        # 2, so a forgotten --yes never reads as a pass; no session or client is used.
+        assert upload_checks.main([run], session=object(), http=object()) == 2
     assert "--yes" in capsys.readouterr().out
+
+
+def test_a_sealed_data_folder_is_refused(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("LUSOT_DATA_DIR", str(tmp_path / "sealed" / "data"))
+    assert upload_checks.main(["link", "--yes"], session=object(), http=object()) == 2
+    assert capsys.readouterr().out.startswith("refused:")
+    assert not (tmp_path / "sealed").exists()
 
 
 def outputs():
@@ -589,9 +642,20 @@ def outputs():
     }
 
 
-def test_checks_print_no_report_id(capsys, tmp_path):
+def run_main(argv, fake, session, clock):
+    return upload_checks.main(
+        argv,
+        session=session,
+        http=fake.client(),
+        wall=clock,
+        clock=clock.mono,
+        sleep=clock.sleep,
+    )
+
+
+def test_checks_print_no_report_id(capsys):
     """Review Focus 2: both subcommands, run on fakes, print no id and no form field."""
-    printed, made, values = "", [], set()
+    printed, made, issued_forms = "", [], []
     # link: the precondition, K1, K4's two, then K3 (Task 3's defaults).
     clock = Clock(LAPTOP_START)
     fake = FakeStack(clock)
@@ -599,24 +663,17 @@ def test_checks_print_no_report_id(capsys, tmp_path):
     stack_answers(session, outputs())
     ids = report_ids(5)
     log_answer(session, [line(ids[1], "refused/too_dark", meta_calls=0)])
-    missing_object(session)
-    missing_object(session)
-    missing_object(session)
+    for _ in range(3):  # K4's two keys, then K3's
+        missing_object(session)
     for _ in range(7):
         log_answer(session)
-    code = upload_checks.main(
-        ["link", "--yes"],
-        session=session,
-        http=fake.client(),
-        wall=clock,
-        clock=clock,
-        sleep=clock.sleep,
-    )
+    code = run_main(["link", "--yes"], fake, session, clock)
     printed += capsys.readouterr().out
     assert code == 0, printed
     session.done()
+    assert "K2 pass: 4 links" in printed  # every link the run was issued
     made += fake.made
-    values |= {fields[name] for fields, _, _ in fake.posts for name in SIGNED}
+    issued_forms += fake.issued
     # abuse: the precondition, A1's ten, A3, A4 (A2's upload is refused).
     clock = Clock(LAPTOP_START + 3600)
     fake = FakeStack(clock, seed=1)
@@ -625,28 +682,28 @@ def test_checks_print_no_report_id(capsys, tmp_path):
     ids = report_ids(13, seed=1)
     log_answer(session, [line(ids[11], "failed/bad_file")])
     missing_object(session)
-    code = upload_checks.main(
-        ["abuse", "--yes"],
-        session=session,
-        http=fake.client(),
-        wall=clock,
-        clock=clock,
-        sleep=clock.sleep,
-    )
+    code = run_main(["abuse", "--yes"], fake, session, clock)
     printed += capsys.readouterr().out
     assert code == 0, printed
     session.done()
     made += fake.made
-    values |= {fields[name] for fields, _, _ in fake.posts for name in SIGNED}
-    assert len(made) == 5 + 13
-    for secret in [*made, *values, S3_URL, API]:
+    issued_forms += fake.issued
+    assert len(made) == len(issued_forms) == 5 + 13
+    secrets = [
+        *made,
+        *(form[name] for form in issued_forms for name in SIGNED),
+        S3_URL,
+        API,
+    ]
+    for secret in secrets:
         assert secret not in printed
-    assert "r_" not in printed
+    # Not even an id the mask had to catch: the lines are built without one.
+    assert "r_" not in printed and "<report>" not in printed
     for check in ("K1", "K2", "K3", "K4", "A1", "A2", "A3", "A4"):
         assert f"{check} pass" in printed
-    # The ids are kept, privately, in each run's record.
+    # Every report made, the preconditions' included, is in a run's private record.
     ordinals, _ = harden.load_records([harden.data_dir() / "ms7" / "2026-11-03"])
-    assert set(made) <= set(ordinals.values()) | {made[0], made[5]}
+    assert set(made) == set(ordinals.values())
     assert all(name[0] in "KA" for name in ordinals)
 
 
@@ -664,14 +721,6 @@ def test_the_run_stops_before_any_photo_unless_private(capsys):
     fake.upload = live_upload
     session = StubSession("logs", "s3", "cloudformation")
     stack_answers(session, outputs())
-    code = upload_checks.main(
-        ["link", "--yes"],
-        session=session,
-        http=fake.client(),
-        wall=clock,
-        clock=clock,
-        sleep=clock.sleep,
-    )
-    assert code == 1
+    assert run_main(["link", "--yes"], fake, session, clock) == 1
     assert fake.posts == []  # no photo went
     assert "not private" in capsys.readouterr().out

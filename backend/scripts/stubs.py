@@ -39,14 +39,19 @@ class StubSession:
 
 
 class Clock:
-    """One fake clock, for wall time and monotonic time alike; sleep moves it on."""
+    """A fake clock: calling it gives wall time, `mono` a monotonic time that starts at
+    1,000 s, so code that mixes the two is caught; sleep moves both on."""
 
     def __init__(self, now: float = 0.0):
         self.now = now
+        self.start = now
         self.slept: list[float] = []
 
     def __call__(self) -> float:
         return self.now
+
+    def mono(self) -> float:
+        return self.now - self.start + 1000.0
 
     def sleep(self, seconds: float) -> None:
         self.slept.append(seconds)

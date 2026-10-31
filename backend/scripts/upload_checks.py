@@ -34,12 +34,13 @@ each run first confirms that a new report there reads private, before any file g
 
 It prints one line per check and counts only, through harden.say: reports by ordinal
 (K#1, A#1), never a report id, a form field or a URL. The ids go into the run's private
-record in LUSOT_DATA_DIR\\ms7\\<date>\\. Without --yes it prints what it would send and
-stops, with no network call.
+record in LUSOT_DATA_DIR\\ms7\\<date>\\, the precondition's report among them. Each
+check's line prints as it ends. Without --yes it prints what it would send and stops,
+with no network call.
 
 Usage: uv run backend/scripts/upload_checks.py <link|abuse> [--yes]
-Exit codes: 0 every check passed, or nothing was sent; 1 a check failed; 2 refused by
-a guard (a sealed data folder).
+Exit codes: 0 every check passed; 1 a check failed; 2 nothing was sent, without --yes,
+or refused by a guard (a sealed data folder, or run records that clash).
 """
 
 from __future__ import annotations
@@ -51,8 +52,8 @@ import random
 import re
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 
 import httpx
@@ -107,7 +108,7 @@ PLANS = {
         " about 7 minutes"
     ),
     "abuse": (
-        "abuse: 14 POST /uploads at OUTSIDE_POINT from 5 devices (the precondition, A1's"
+        "abuse: 15 POST /uploads at OUTSIDE_POINT from 5 devices (the precondition, A1's"
         " 11, A2's stale one, A3 and A4), random bytes posted as a JPEG and one PNG form"
         " post, no Meta call; about 3 minutes"
     ),
@@ -121,9 +122,9 @@ class Link:
     time it was issued at, from the answer's Date header."""
 
     name: str
-    report_id: str
-    form: dict
-    issued_s: float
+    report_id: str = field(repr=False)  # never printed, a traceback's repr included
+    form: dict = field(repr=False)  # the signed form
+    issued_s: float = 0.0
 
 
 def decode_policy(fields: dict[str, str]) -> dict:
@@ -143,10 +144,15 @@ def policy_problems(policy: dict, *, issued_s: float, report_id: str) -> list[st
     from 1 byte to 10 MB. No problem names the key."""
     problems = []
     try:
-        expires_s = datetime.fromisoformat(policy["expiration"]).timestamp()
+        expires = datetime.fromisoformat(policy["expiration"])
     except (KeyError, TypeError, ValueError):
-        problems.append("it has no readable expiration")
+        expires = None
+    if (
+        expires is None or expires.tzinfo is None
+    ):  # a zone-less time could pass as UTC+8
+        problems.append("it has no readable expiration in UTC")
     else:
+        expires_s = expires.timestamp()
         if expires_s > issued_s + LINK_S + DATE_SLACK_S:
             problems.append(
                 f"it expires {expires_s - issued_s:.0f} s after it was issued"
@@ -187,6 +193,8 @@ def server_epoch(response: httpx.Response) -> float:
         raise CheckFailed(
             f"HTTP {response.status_code} without a readable Date header"
         ) from None
+    if when.tzinfo is None:  # an HTTP date is in GMT
+        when = when.replace(tzinfo=UTC)
     return when.timestamp()
 
 
@@ -256,11 +264,15 @@ def result(check: str, ok: bool, detail: str) -> str:
 
 
 def checked(check: str, run: Callable[[], str]) -> str:
-    """One check's line; a CheckFailed inside it fails that check alone."""
+    """One check's line, printed as soon as it ends, so a long run shows its progress
+    and keeps it if a later check stops the run. A CheckFailed inside it fails that
+    check alone."""
     try:
-        return run()
+        line = run()
     except CheckFailed as exc:
-        return result(check, False, str(exc))
+        line = result(check, False, str(exc))
+    say(line)
+    return line
 
 
 def final_outcome(
@@ -521,16 +533,19 @@ def run_link(
     clock,
     sleep,
 ) -> list[str]:
-    """K1 to K4, in the order K1, K4, K3, with one device for the run's five uploads."""
+    """K1 to K4, in the order K1, K4, K3, with one device for the run's five uploads.
+    K2 reads every link the run was issued, last."""
     device = record.device(new_device_id())
-    confirm_private(
-        http,
-        stack.api_url,
-        device_id=device,
-        offset_s=offset_s,
-        clock=clock,
-        sleep=sleep,
-        wall=wall,
+    record.name(
+        confirm_private(
+            http,
+            stack.api_url,
+            device_id=device,
+            offset_s=offset_s,
+            clock=clock,
+            sleep=sleep,
+            wall=wall,
+        )
     )
 
     def link() -> Link:
@@ -540,17 +555,17 @@ def run_link(
 
     first = link()
     k1 = checked("K1", lambda: k1_control(http, stack, first, clock=clock, sleep=sleep))
-    third, fourth = link(), link()
-    k4 = checked("K4", lambda: k4_other_key(http, stack, third, fourth))
-    second = link()
+    second, third = link(), link()
+    k4 = checked("K4", lambda: k4_other_key(http, stack, second, third))
+    fourth = link()
     k3 = checked(
         "K3",
         lambda: k3_expired(
-            http, stack, second, offset_s=offset_s, wall=wall, clock=clock, sleep=sleep
+            http, stack, fourth, offset_s=offset_s, wall=wall, clock=clock, sleep=sleep
         ),
     )
     k2 = checked("K2", lambda: k2_policies([first, second, third, fourth]))
-    return [k1, k2, k3, k4]
+    return [k1, k4, k3, k2]
 
 
 def run_abuse(
@@ -564,14 +579,16 @@ def run_abuse(
     sleep,
 ) -> list[str]:
     """A1 to A4, each with its own device id, after the precondition with its own."""
-    confirm_private(
-        http,
-        stack.api_url,
-        device_id=record.device(new_device_id()),
-        offset_s=offset_s,
-        clock=clock,
-        sleep=sleep,
-        wall=wall,
+    record.name(
+        confirm_private(
+            http,
+            stack.api_url,
+            device_id=record.device(new_device_id()),
+            offset_s=offset_s,
+            clock=clock,
+            sleep=sleep,
+            wall=wall,
+        )
     )
     timing = {"offset_s": offset_s, "wall": wall}
     return [
@@ -609,14 +626,18 @@ def main(
         if not args.yes:
             say(PLANS[args.run])
             say("nothing sent: add --yes to run it")
-            return 0
+            return 2  # so a forgotten --yes never reads as a pass
         today = datetime.fromtimestamp(wall(), PHT)
-        record = RunRecord(
-            data_dir() / "ms7" / f"{today:%Y-%m-%d}",
-            "upload_checks",
-            LETTERS[args.run],
-            clock=lambda: datetime.fromtimestamp(wall(), PHT),
-        )
+        try:
+            record = RunRecord(
+                data_dir() / "ms7" / f"{today:%Y-%m-%d}",
+                "upload_checks",
+                LETTERS[args.run],
+                clock=lambda: datetime.fromtimestamp(wall(), PHT),
+            )
+        except CheckFailed as exc:  # a sealed path, or clashing records
+            say(f"refused: {exc}")
+            return 2
         client = http if http is not None else ipv4_client()
         try:
             stack = load_stack(session if session is not None else lusot_session())
@@ -638,8 +659,6 @@ def main(
             say(f"run record: {record.save().name}")
             if http is None:
                 client.close()
-        for line in lines:
-            say(line)
         failed = sum(" FAIL: " in line for line in lines)
         say(
             f"UPLOAD CHECKS FAILED: {failed} of {len(lines)}"
