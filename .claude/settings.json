@@ -28,7 +28,15 @@
       "Read(//c/Systems/Lusot/lusot-data/set_a/raw/**)",
       "Edit(//c/Systems/Lusot/lusot-data/set_a/raw/**)",
       "Read(//c/Systems/Lusot/lusot-data/a_neg/raw/**)",
-      "Edit(//c/Systems/Lusot/lusot-data/a_neg/raw/**)"
+      "Edit(//c/Systems/Lusot/lusot-data/a_neg/raw/**)",
+      "Read(./backend/samconfig.toml)",
+      "Read(./**/.env)",
+      "Read(./**/.env.local)",
+      "Read(./**/.env.*.local)",
+      "Edit(./**/package-lock.json)",
+      "Edit(./**/uv.lock)",
+      "Edit(./**/*.py.lock)",
+      "Edit(./**/requirements.lock.txt)"
     ]
   }
 }
