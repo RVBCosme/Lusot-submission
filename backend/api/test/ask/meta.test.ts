@@ -463,6 +463,14 @@ describe("what it keeps", () => {
     expect(logged()[0]).not.toContain(KEY);
   });
 
+  it("a field that shares 8 characters in a row with the key, such as a masked key, is logged as null", async () => {
+    replies = [{ status: 401, body: { error: { message: "m", type: "auth", code: "sentinel...0000", param: "key-0000" } } }];
+
+    await failure(createMeta(deps()).respond(body(), deadline(), BUDGET.modelBy));
+
+    expect(JSON.parse(logged()[0])).toMatchObject({ error_type: "auth", error_code: null, error_param: null });
+  });
+
   it("the fixtures carry a placeholder for every id, call_id and encrypted_content", () => {
     const found: string[] = [];
     const walk = (node: unknown): void => {
@@ -592,6 +600,15 @@ describe("transcribe", () => {
       },
     ]);
     expect(logged().join("\n")).not.toContain("ASR keyword");
+  });
+
+  it("a 4xx body without the error wrapper is read the same way, as the SDK reads one", async () => {
+    replies = [{ status: 400, body: { message: "keyword too long", type: "invalid_request_error", code: "too_long", param: "keywords" } }];
+
+    await failure(createMeta(deps()).transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));
+
+    expect(JSON.parse(logged()[0])).toMatchObject({ error_type: "invalid_request_error", error_code: "too_long", error_param: "keywords" });
+    expect(logged().join("\n")).not.toContain("keyword too long");
   });
 
   it("a 5xx's body is never read, and its line has no error fields", async () => {

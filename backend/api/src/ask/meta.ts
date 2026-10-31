@@ -69,8 +69,16 @@ class HttpFailure extends Error {
 }
 
 // A 4xx's client-safe fields for its log line: Meta's error type, code and param, each only when it is a short
-// identifier without the key in it, else null. The message is never read: it can echo the key or the question.
+// identifier that shares no 8 characters in a row with the key (so neither the key nor a masked piece of it), else
+// null. The message is never read: it can echo the key or the question.
 const SAFE_FIELD = /^[A-Za-z0-9_.:[\]-]{1,64}$/;
+const KEY_RUN = 8;
+
+function sharesKeyRun(value: string, key: string): boolean {
+  if (value.includes(key)) return true;
+  for (let i = 0; i + KEY_RUN <= value.length; i++) if (key.includes(value.slice(i, i + KEY_RUN))) return true;
+  return false;
+}
 
 function errorFields(err: unknown, key: string): Record<string, string | null> {
   const status = statusOf(err);
@@ -79,7 +87,8 @@ function errorFields(err: unknown, key: string): Record<string, string | null> {
     | { type?: unknown; code?: unknown; param?: unknown }
     | null
     | undefined;
-  const safe = (value: unknown) => (typeof value === "string" && SAFE_FIELD.test(value) && !value.includes(key) ? value : null);
+  const safe = (value: unknown) =>
+    typeof value === "string" && SAFE_FIELD.test(value) && !sharesKeyRun(value, key) ? value : null;
   return { error_type: safe(error?.type), error_code: safe(error?.code), error_param: safe(error?.param) };
 }
 
@@ -170,7 +179,10 @@ export function createMeta(deps: MetaDeps): Meta {
           // A 4xx's body is read for errorFields alone; any other error's body is never read, so the connection is freed.
           let error: unknown;
           if (res.status >= 400 && res.status <= 499) {
-            error = ((await res.json().catch(() => undefined)) as { error?: unknown } | undefined)?.error;
+            // The body's `error` object, else the body itself when it is an object, as the SDK reads one.
+            const body: unknown = await res.json().catch(() => undefined);
+            const object = typeof body === "object" && body !== null ? (body as { error?: unknown }) : undefined;
+            error = object?.error ?? object;
           } else {
             await res.body?.cancel().catch(() => {});
           }
