@@ -165,6 +165,7 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
   - The commit history starts on Oct 28, 2026. Lusot was developed in a private repository and carried over with its full history (MS8-Q1, MS8-Q2), so docs that name the private repository or link to it point at a page judges can't open.
   - Under MS8-Q1 (b), `commit-map.csv`, attached to the GitHub Release, maps the hashes cited in the docs to this repository's. It is linked by its full Release URL, never by a relative link.
   - `docs/superpowers/` holds each milestone's spec and plan, `docs/log/` the daily work log, and `docs/PROGRESS.md` the board.
+  - The line on authors, as drafted: "Two authors appear in the history: Rene, under his GitHub no-reply address, and `Claude <noreply@anthropic.com>` on the 66 commits that Claude Code made itself on Oct 30 and 31. Both are kept as they were."
 - MS1's line, kept: "Rene Vincent Cosme built Lusot as a solo entry, with Claude Code (Anthropic) as a coding assistant." Added: no other person built, labelled or submitted it (M5); Claude subagents filled Set A's look columns and M8's labels, on Rene's waiver (§9).
 
 ### 14. Credits

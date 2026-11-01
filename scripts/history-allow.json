@@ -11,6 +11,60 @@
       "rule": "email",
       "reason": "the University of Illinois author line inside a third-party notice that Play services bundles, which the APK's licences page reproduces word for word (5fad3e9)",
       "path": "app/scripts/apk-licences.json"
+    },
+    {
+      "blob": "1ae798f072afed00f52848d2b86fe65e80db509d",
+      "rule": "twelve-digit",
+      "reason": "a test fixture number in an old version of this test. Not the AWS account ID: the tracker compared every version against the live account ID without printing either (Nov 2, about 4:5x AM, under Rene's delegation)",
+      "path": "backend/analysis/tests/test_run_pipeline.py"
+    },
+    {
+      "blob": "387f286e7d9c5e6a8e3bcfced5c55449c51af7b8",
+      "rule": "twelve-digit",
+      "reason": "a test fixture number in an old version of this test. Not the AWS account ID: the tracker compared every version against the live account ID without printing either (Nov 2, about 4:5x AM, under Rene's delegation)",
+      "path": "backend/analysis/tests/test_run_pipeline.py"
+    },
+    {
+      "blob": "681ff504607fd641a773a484c103c09d0f50ed83",
+      "rule": "twelve-digit",
+      "reason": "a test fixture number in an old version of this test. Not the AWS account ID: the tracker compared every version against the live account ID without printing either (Nov 2, about 4:5x AM, under Rene's delegation)",
+      "path": "backend/analysis/tests/test_run_pipeline.py"
+    },
+    {
+      "blob": "1f58b3d67158481dec43aceaeaf8aca75939c41e",
+      "rule": "email",
+      "reason": "placeholder addresses at example.invalid, a name reserved by RFC 2606, in an old version of this test (checked by the tracker, Nov 2, about 4:5x AM)",
+      "path": "backend/analysis/tests/test_run_sealed.py"
+    },
+    {
+      "blob": "1f723180e2e14f20c338ef3ba1635776fce6f0a8",
+      "rule": "email",
+      "reason": "placeholder addresses at example.invalid, a name reserved by RFC 2606, in an old version of this test (checked by the tracker, Nov 2, about 4:5x AM)",
+      "path": "backend/analysis/tests/test_run_sealed.py"
+    },
+    {
+      "blob": "48f810f468436067d669bbe880ed0ae7553b874c",
+      "rule": "email",
+      "reason": "placeholder addresses at example.invalid, a name reserved by RFC 2606, in an old version of this test (checked by the tracker, Nov 2, about 4:5x AM)",
+      "path": "backend/analysis/tests/test_run_sealed.py"
+    },
+    {
+      "blob": "6687a86a2facadfcd67dc99883745c0e60a57775",
+      "rule": "email",
+      "reason": "placeholder addresses at example.invalid, a name reserved by RFC 2606, in an old version of this test (checked by the tracker, Nov 2, about 4:5x AM)",
+      "path": "backend/analysis/tests/test_run_sealed.py"
+    },
+    {
+      "blob": "a448cdaebb5a2ba92530b6d8a0680541a0005d85",
+      "rule": "email",
+      "reason": "placeholder addresses at example.invalid, a name reserved by RFC 2606, in an old version of this test (checked by the tracker, Nov 2, about 4:5x AM)",
+      "path": "backend/analysis/tests/test_run_sealed.py"
+    },
+    {
+      "blob": "675d8d0afa5ac669f3049ce44ed487b051f62afd",
+      "rule": "email",
+      "reason": "an npm package author's public metadata (domain izs.me) in an old package-lock.json (checked by the tracker, Nov 2, about 4:5x AM)",
+      "path": "package-lock.json"
     }
   ],
   "images": [
