@@ -1,0 +1,191 @@
+{
+  "archive": {
+    "file": "lusot-sealed.7z",
+    "sha256": "35ca26bdff088bac179c6ac4cf59c2dccfa9954501eecf9f420b4694a959cf27",
+    "size": 22328221
+  },
+  "audit": "PASS",
+  "copy_check": {
+    "matched_sealed": 0,
+    "rehash_ok": "20/20"
+  },
+  "date": "2026-11-02T03:10:34+08:00",
+  "dev_files": {
+    "a_neg_manifest": "f6480439140306b26669e02043addbae0b5ae424e3babbebaa4b1a5764039ad8",
+    "set_a_m8": "fc592a3b5ee885e98e80543eb8c288df29327690ed581e79aba34afa322ef154",
+    "set_a_manifest": "4ada2972a197f6368ccd14a79b93d8d71d5639006bbf274f80524d35c7e6e4f1"
+  },
+  "git": {
+    "commit": "cd9605766686437539423e974bd232a692a9fe99",
+    "dirty": false
+  },
+  "inputs": {
+    "a_neg_log": "75b4620e3b18d75b7ba3b147c0b00474201cfcf639aac0ddff263f4912fb9b46",
+    "m8": "77601bbe3a65163a957d9e40dd9d22182be3bd0133e37af14756887684650875",
+    "set_a_log": "d63c2202733a00e4034b8cdac08d3e350941014ef0e980f5a7d8a1b64e2d7531"
+  },
+  "missing_m8_photo_rows": 0,
+  "python": "3.13.18",
+  "seed": 20261030,
+  "sets": {
+    "A": {
+      "dev": {
+        "events": 3,
+        "facts": {
+          "decodes": {
+            "yes": 10
+          },
+          "duplicate": {
+            "no": 10
+          },
+          "label_in_image": {
+            "no": 10
+          },
+          "match": {
+            "same_post": 10
+          },
+          "metro_manila": {
+            "yes": 10
+          },
+          "poster_kind": {
+            "city": 10
+          },
+          "reference_visible": {
+            "both": 1,
+            "person": 4,
+            "wheel": 5
+          }
+        },
+        "rows": 10
+      },
+      "groups": {
+        "other": {
+          "dev": {
+            "events": 3,
+            "rows": 10
+          },
+          "events": 8,
+          "moved": null,
+          "rows": 17,
+          "sealed": {
+            "events": 5,
+            "rows": 7
+          }
+        }
+      },
+      "sealed": {
+        "events": 5,
+        "facts": {
+          "decodes": {
+            "yes": 7
+          },
+          "duplicate": {
+            "no": 7
+          },
+          "label_in_image": {
+            "no": 7
+          },
+          "match": {
+            "same_post": 7
+          },
+          "metro_manila": {
+            "yes": 7
+          },
+          "poster_kind": {
+            "city": 7
+          },
+          "reference_visible": {
+            "both": 2,
+            "wheel": 5
+          }
+        },
+        "rows": 7
+      },
+      "share": "7/17",
+      "share_in_range": true
+    },
+    "A-neg": {
+      "dev": {
+        "events": 9,
+        "facts": {
+          "decodes": {
+            "yes": 10
+          },
+          "duplicate": {
+            "no": 10
+          },
+          "label_in_image": {
+            "no": 10
+          },
+          "match": {
+            "": 10
+          },
+          "metro_manila": {
+            "yes": 10
+          },
+          "poster_kind": {
+            "other": 10
+          },
+          "reference_visible": {
+            "both": 7,
+            "wheel": 3
+          },
+          "surface": {
+            "dry": 7,
+            "wet": 3
+          }
+        },
+        "rows": 10
+      },
+      "groups": {
+        "other": {
+          "dev": {
+            "events": 9,
+            "rows": 10
+          },
+          "events": 14,
+          "moved": null,
+          "rows": 15,
+          "sealed": {
+            "events": 5,
+            "rows": 5
+          }
+        }
+      },
+      "sealed": {
+        "events": 5,
+        "facts": {
+          "decodes": {
+            "yes": 5
+          },
+          "duplicate": {
+            "no": 5
+          },
+          "label_in_image": {
+            "no": 5
+          },
+          "match": {
+            "": 5
+          },
+          "metro_manila": {
+            "yes": 5
+          },
+          "poster_kind": {
+            "other": 5
+          },
+          "reference_visible": {
+            "both": 4,
+            "person": 1
+          },
+          "surface": {
+            "dry": 5
+          }
+        },
+        "rows": 5
+      },
+      "share": "5/15",
+      "share_in_range": true
+    }
+  },
+  "tool": "eval/data/split.py"
+}
