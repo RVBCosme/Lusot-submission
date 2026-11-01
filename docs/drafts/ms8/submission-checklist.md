@@ -142,6 +142,9 @@ Filled in once Rene has seen the form (O1).
 - [ ] The app's count of unreviewed lines is 0: `LUSOT_RELEASE=1 npm run copy:review -w app` (S11)
 - [ ] The repository is public, its CI has passed, and a fresh clone runs the one command with exit 0 (S3, S8)
 - [ ] The licence file is in place (M22)
+- [ ] The README's credits list was rebuilt from the live `samples/manifest.json` after the last sample change, and names exactly the samples the app shows: CC0 or CC BY only, none SA, NC or ND, each with its credit line (R7, R9, R10; C617)
+- [ ] The README and the write-up say what Set A is (17 photos credited to Manila city offices, found through news reposts on X; government works under RA 8293 §176, private evaluation only, no photo in the repository), and that Claude subagents filled its look columns and M8's labels on Rene's waiver, recorded in `eval/rules.md`'s change log
+- [ ] The README's judge path and the write-up's Demo section carry the pause line, with Ask Lusot's pause answer, and the exact end of the credits' 10-day window is known from Meta's Billing page (R16; MS9-Q1)
 - [ ] The APK release and its SHA-256 match the build that MS7 scanned
 - [ ] The demo-ready check passed within the past hour (C919)
 - [ ] The event page was rechecked today (C916)

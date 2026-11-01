@@ -72,9 +72,10 @@ Draft: "Lusot is a live flood map for Metro Manila. A photo taken in the app get
 - **Geometry with a release gate:** inches show only if geometry meets the targets in `eval/rules.md` §8 on the sealed run. Result: `[passed or not, with the figures, from the report]`.
 - **The sealed evaluation:**
   - the rules were written before any result was seen
-  - Set A holds only photos that MMDA or a city posted itself, split by flood event, so no event sits on both sides (W18)
+  - Set A is 17 photos credited to Manila city offices, found through news reposts on X, and split by flood event, so no event sits on both sides (W18). They are government works (Republic Act 8293, §176), used for private evaluation only; no photo is in the repository.
+  - the depth labels are the city offices' own posted words; Claude subagents filled the photo-description ("look") columns and M8's labels, on Rene's written waiver (`eval/rules.md`'s change log)
   - one run on the frozen pipeline; both configurations scored as the ablation, against a baseline row
-  - every figure has its n and is called indicative
+  - with 17 photos in all, every figure has its n and is called indicative
   - the per-photo results are committed without photos, and one command rebuilds every table byte for byte
   - `[the headline figures with their n]`
 - **Engineering:**
@@ -98,6 +99,7 @@ Draft: "Lusot is a live flood map for Metro Manila. A photo taken in the app get
   - install the APK
   - rebuild the report with one command
 - **Holding up live:** the stack stays up through the finals, with alarms, budget alerts and stop switches watched (MS9). Photo to pin takes about `[median from latency.jsonl]` s, measured, never promised (C631).
+- **If new analyses are paused** (the judge guide; the README's judge path says the same): the hackathon's model credits are valid for a 10-day window that may end during judging, and Lusot then pauses rather than bill a card (MS9-Q1). A sample then shows its saved result, marked as saved, with its date. A new photo gets the app's paused line. Ask Lusot answers a typed question with the plain list of nearby reports, and spoken questions are off until analyses resume. The map, the Tested page, the video and the one command keep working.
 - **The video:** 2:40, with English captions throughout, and every photo credited. Its first cut was tested on three people who hadn't seen Lusot (M23).
 
 ### The bonus entry (M33), only if the submission form offers the field

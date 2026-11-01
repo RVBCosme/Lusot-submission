@@ -27,7 +27,9 @@ Numbered, one line each, so a judge can start all four within a minute (C913):
 
    Then one line for a pause (C913; MS9's N4). It holds whatever MS9-Q1 decides, because the README can't change after the cutoff (C921). Draft:
 
-   "If new analyses are paused (the hackathon's model credits may run out during judging), the sample shows `[the app's paused line, MS5's string, as MS9's N1 asks]` instead of a new reading. Everything already stored still works: the map and its pins, the Tested page's figures, the samples' photos, the video, and the one command below. `[Only if MS9's N2 ships: a sample's saved result is marked as saved, with its date.]`"
+   "If new analyses are paused, a sample shows its saved result, marked as saved, with its date, instead of a new reading, and a new photo gets `[the app's paused line, MS5's string, as MS9's N1 asks]`. The hackathon's model credits are valid for a 10-day window that may end during judging, and Lusot then pauses rather than bill a card (MS9-Q1). Ask Lusot answers a typed question with the plain list of nearby reports, and spoken questions are off until analyses resume. Everything already stored still works: the map and its pins, the Tested page's figures, the samples' photos, the video, and the one command below."
+
+   (MS9's N2 is active since Rene's spending limits answered MS9-Q1 with a pause, Oct 29: the saved, dated sample result is MS5's C617 and MS4's C527. The Ask behaviour is the Ask Lusot spec's §4.5: the plain list with no Meta call, and a 503 `voice_paused` for a spoken question. The judge guide in the write-up's Demo section says the same.)
 3. **Watch the video** (2:40, English captions): `[video link]`
 4. **Rebuild the evaluation report.** This needs Python 3.9 or newer, and no key, network or install:
 
@@ -73,7 +75,7 @@ A table, filled only from `summary.json` (C901), for the configuration that ship
 | The release gate for inches | `[passed, or not passed and why]` | — | — |
 | The self-check | `[shipped or not; decided Oct 31]` | — | — |
 
-Words under the table (draft): "These are agreement figures with the labels MMDA and the cities posted, mapped by rules written before any result was seen ([`eval/rules.md`](../../../eval/rules.md)). The sealed set has about `[n]` photos, so every figure is indicative. The full report, with every table, chart and exclusion, is `eval/results/report/report.md`." (In the final README this is a relative link; the folder exists only from the sealed run.) If rules §10's one disclosed rerun happened, its figures are shown beside the first run's, with the reason (MS6's C421).
+Words under the table (draft): "These are agreement figures with the depth labels that Manila's city offices posted with their photos, mapped by rules written before any result was seen ([`eval/rules.md`](../../../eval/rules.md)). The sealed set has about `[n]` photos, so every figure is indicative. The full report, with every table, chart and exclusion, is `eval/results/report/report.md`." (In the final README this is a relative link; the folder exists only from the sealed run.) If rules §10's one disclosed rerun happened, its figures are shown beside the first run's, with the reason (MS6's C421).
 
 ### 5. Limits: read these before trusting a pin
 
@@ -125,7 +127,9 @@ How they are called, one line each: the Meta Model API through the OpenAI SDK at
 ### 9. The evaluation
 
 - The rules were written before any result was seen: `eval/rules.md`, version `[v]`, approved by Rene on `[date]`.
-- The sets: Set A (photos MMDA or a city posted itself, split by flood event into `[n]` development and `[n]` sealed photos); A-neg (`[n]`); Set B (synthetic waterlines on `[n]` cars and `[n]` crops); Set D (`[if it rained]`).
+- The sets: Set A, 17 photos credited to Manila city offices, found through news reposts on X, split by flood event into `[n]` development and `[n]` sealed photos; A-neg (`[n]`); Set B (synthetic waterlines on `[n]` cars and `[n]` crops); Set D (`[if it rained]`). With this few photos, every figure is indicative and carries its n.
+- Who labelled Set A: the depth labels are the city offices' own posted words, mapped by the rules. Claude subagents filled the photo-description ("look") columns and M8's labels, on Rene's written waiver (`eval/rules.md`'s change log, `[v0.9 row]`).
+- The line on rights, word for word: "Set A's photos are government works (Republic Act 8293, §176), used for private evaluation only; no photo is in this repository." The committed per-photo results hold IDs, labels and Lusot's outputs, with no photo, post link or spot name.
 - One sealed run on `[date]`, at the freeze tag `[tag]`. The per-photo results are committed in `eval/results/`; no photos are.
 - The ablation: landmark only, against landmark plus geometry, `[and without the self-check, if it shipped]`.
 - The one command, again, with what "identical" proves.
@@ -161,12 +165,12 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
   - The commit history starts on Oct 28, 2026. Lusot was developed in a private repository and carried over with its full history (MS8-Q1, MS8-Q2), so docs that name the private repository or link to it point at a page judges can't open.
   - Under MS8-Q1 (b), `commit-map.csv`, attached to the GitHub Release, maps the hashes cited in the docs to this repository's. It is linked by its full Release URL, never by a relative link.
   - `docs/superpowers/` holds each milestone's spec and plan, `docs/log/` the daily work log, and `docs/PROGRESS.md` the board.
-- MS1's line, kept: "Rene Vincent Cosme built Lusot as a solo entry, with Claude Code (Anthropic) as a coding assistant." Added: no one else built, labelled or submitted it (M5).
+- MS1's line, kept: "Rene Vincent Cosme built Lusot as a solo entry, with Claude Code (Anthropic) as a coding assistant." Added: no other person built, labelled or submitted it (M5); Claude subagents filled Set A's look columns and M8's labels, on Rene's waiver (§9).
 
 ### 14. Credits
 
 MS1's table as it stands, except that its OpenStreetMap row is replaced by the map line below (the row must not call the tiles' cartography CC BY-SA 2.0), plus:
-- the sample and demo photos: a credits file listing, for CC0 and CC BY photos, the title, author, licence and source link; for consented M9 photos, the donor's chosen credit line and "used with permission", with no source link; and, for each photo, the note that Lusot blurred it and drew outlines (CC BY's change notice; MS5's C617)
+- the sample and demo photos: a credits file listing, for CC0 and CC BY photos, the title, author, licence and source link; for consented M9 photos, the donor's chosen credit line and "used with permission", with no source link; and, for each photo, the note that Lusot blurred it and drew outlines (CC BY's change notice; MS5's C617). **Rebuild this list from the live `samples/manifest.json` after the last sample change** (samples removed or seeded from Set C on Nov 2 or later), so it names exactly the samples the app shows, no more and no fewer. On Nov 2 the tracker checked 38 CC0 and 4 CC BY 2.0, none SA, NC or ND.
 - the map: OpenStreetMap data under the Open Database License (ODbL), with the attribution "© OpenStreetMap contributors" linking to openstreetmap.org/copyright (MS5's C612)
 - the Metro Manila boundary, with its source and licence (MS4-Q1)
 - Leaflet (BSD-2-Clause), the fonts (OFL; the font row's copyright line is to check against the font repository before Nov 4), Lucide icons (ISC), and any other library MS5 adds
