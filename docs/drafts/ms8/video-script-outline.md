@@ -4,8 +4,7 @@
 >
 > - Rene records the footage and his own voice-over (M23). The cut follows MS8-Q8. Rene checks every caption (M30) and every Taglish line (M20).
 > - **Target 2:40, never over 3:00.** The 20 s of buffer is the plan's, because the finals judges watch the video live.
-> - Every voice-over line below is a draft for Rene to say in his own words.
-> - **No sealed figures (Nov 2):** Rene parked Set A at about 2:4x AM, Nov 2, so there is no sealed run. The video follows MS8-Q4's "evaluation marked as pending" path and shows no evaluation figure at all. Development results never stand in for sealed ones (MS6). Lusot "can give a reading"; nothing claims accuracy.
+> - Every voice-over line below is a draft for Rene to say in his own words. Every number is `[from the evaluation report]` until the sealed run is committed (C901).
 
 ## Rules for every frame and every line
 
@@ -94,15 +93,15 @@ A capture inside Metro Manila becomes a real public pin for 3 hours, so it is fi
 
 **Proves:** Meta tooling (voice, tool calling, Taglish), and the bonus entry (M33, only if the submission form offers it). Nothing on screen or in the voice-over names that award or a prize amount.
 
-### Scene 6, 1:30 to 1:55: the system, and its evaluation (pending)
+### Scene 6, 1:30 to 1:55: the system and its numbers
 
 | Part | On screen (source) | Voice-over beat (draft) |
 |---|---|---|
-| 1:30 to 1:38 | A card: three Meta models, one job each: `sam-3.1` for masks, `muse-spark-1.3` for landmarks and tool calls, `muse-voice-transcribe-1.0` for spoken Taglish | About 50 words across the scene: "Three Meta models, one job each. Code does the measuring: the models never output inches. The scoring rules were fixed before any result existed. The sealed evaluation is still pending, so this video shows no score. Lusot can give a reading at one spot, with its evidence, or say it can't tell." The rules' first drafts date from Oct 26, so the line never says when they were written (C909). |
+| 1:30 to 1:38 | A card: three Meta models, one job each: `sam-3.1` for masks, `muse-spark-1.3` for landmarks and tool calls, `muse-voice-transcribe-1.0` for spoken Taglish | About 55 words across the scene: "Three Meta models, one job each. Code does the measuring: the models never output inches. The scoring rules were fixed before any result existed. `[n]` government-posted photos, split by flood event, stayed sealed until the frozen pipeline ran on them `[once, or once more with both results disclosed, if rules §10's rerun happened]`. `[One sentence with the headline figures and their n, from the report.]` One command rebuilds every table." The rules' first drafts date from Oct 26, so the line never says when they were written (C909). |
 | 1:38 to 1:45 | The new figure of the wheel landmarks and rim geometry (C920), not the plan's Figure 3 | (continues) |
-| 1:45 to 1:55 | A card in place of the numbers, with no figure on it: "Evaluation: pending". Under it: the scoring rules, fixed in advance (`eval/rules.md`, version `[v]`); "No inches until the sealed run passes the release gate." Small type: "Development checks used photos with weak labels. They aren't results." Then one line naming any should-have that was dropped (C905, item 8). | (continues) |
+| 1:45 to 1:55 | A numbers card from `summary.json` only: underestimation, passability agreement and coverage, each as "k of n"; Set B's median error with its n; the release gate's decision. Small type: "Agreement with posted labels · indicative". Then one line naming any should-have that was dropped (C905, item 8). | (continues) |
 
-**Proves:** technical depth, and honesty about what isn't measured yet.
+**Proves:** technical depth and honest error.
 
 ### Scene 7, 1:55 to 2:20: real people used it
 
@@ -124,7 +123,7 @@ If no quote came, the scene shows the user test only (C13). No tester appears on
 
 **Proves:** a memorable close that claims no more than the product does.
 
-**Voice-over total:** about 295 words, about 1.8 a second on average, and no scene above about 2.3.
+**Voice-over total:** about 300 words, about 1.9 a second on average, and no scene above about 2.3.
 
 ## Captions (M30, C908)
 
@@ -149,7 +148,7 @@ If no quote came, the scene shows the user test only (C13). No tester appears on
 - **The backup recording** (spec §4, item 3): one uncut screen recording of the live flow on the deployed site:
   - the map, then a sample run from Tested, then the result, then a pin's detail
   - Ask Lusot, typed
-  - the Tested page
+  - the Tested page's figures
 
   It is used only if the live demo fails in the final round (M25), and it follows the same frame rules.
 

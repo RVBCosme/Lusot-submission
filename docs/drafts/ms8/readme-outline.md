@@ -1,10 +1,9 @@
 # README outline for judges (draft)
 
-> **Claude's draft, Oct 29, 2026, for MS8** ([spec](../../superpowers/specs/2026-10-29-ms8-submit-design.md): C901, C907, C912, C913, C920). The final README replaces today's root `README.md` on Nov 4. Rene approves its wording (M20).
+> **Claude's draft, Oct 29, 2026, for MS8** ([spec](../../superpowers/specs/2026-10-29-ms8-submit-design.md): C901, C907, C912, C913, C920). The final README replaces today's root `README.md` on Nov 4 and is written from the committed evaluation report. Rene approves its wording (M20).
 >
-> - **No sealed figures (Nov 2):** Rene parked Set A at about 2:4x AM, Nov 2, so there is no sealed run. The README follows MS8-Q4's "evaluation marked as pending" path: the method, the rules and the one command, with no figures. Development results never stand in for sealed ones (MS6).
-> - **Placeholders:** brackets name the file or decision that fills them. No number is invented, and none is typed in by hand without its source (C901). No bracket holds an evaluation figure.
-> - **Copy rules for every line below:** only the 9 levels and MMDA's 3 classes; "at this spot"; never "safe" in any form; no crossing advice; never a whole road or route; never "MMDA's 9 levels"; never "first"; never an accuracy claim of any kind: Lusot "can give a reading", or says it can't tell. Lead with the whole system, never "upload a photo, get an answer".
+> - **Placeholders:** `[from the evaluation report]` means `eval/results/report/summary.json` or `report.md` only. Other brackets name the file or decision that fills them. No number is invented, and none is typed in by hand without its source (C901).
+> - **Copy rules for every line below:** only the 9 levels and MMDA's 3 classes; "at this spot"; never "safe" in any form; no crossing advice; never a whole road or route; never "MMDA's 9 levels"; never "first"; never "accuracy" for Set A (it is agreement with posted labels, and indicative). Lead with the whole system, never "upload a photo, get an answer".
 > - **Links** are relative (D6), except the live URL, the video, the APK release and outside sources.
 
 ---
@@ -21,15 +20,26 @@
 
 ### 1. Judge path: 60 seconds
 
-Numbered, one line each, so a judge can start all three within a minute (C913). The pending path takes C913's fourth step, the one command, out of the minute: with no saved results it can't rebuild a report, so it moves to §9.
+Numbered, one line each, so a judge can start all four within a minute (C913):
 
 1. **Open the live app:** `[live URL]`, on a phone or a desktop. No account needed.
 2. **Run a sample:** open **Tested**, pick a sample, press **Run this sample**, and confirm you are 18 or older. The real pipeline reads a credited flood photo, which takes about `[median seconds, from eval/results/latency.jsonl]` (median of `[n]` runs). A sample never reaches the map.
 
    Then one line for a pause (C913; MS9's N4). It holds whatever MS9-Q1 decides, because the README can't change after the cutoff (C921). Draft:
 
-   "If new analyses are paused (the hackathon's model credits may run out during judging), the sample shows `[the app's paused line, MS5's string, as MS9's N1 asks]` instead of a new reading. Everything already stored still works: the map and its pins, the Tested page, the samples' photos and the video. `[Only if MS9's N2 ships: a sample's saved result is marked as saved, with its date.]`"
+   "If new analyses are paused (the hackathon's model credits may run out during judging), the sample shows `[the app's paused line, MS5's string, as MS9's N1 asks]` instead of a new reading. Everything already stored still works: the map and its pins, the Tested page's figures, the samples' photos, the video, and the one command below. `[Only if MS9's N2 ships: a sample's saved result is marked as saved, with its date.]`"
 3. **Watch the video** (2:40, English captions): `[video link]`
+4. **Rebuild the evaluation report.** This needs Python 3.9 or newer, and no key, network or install:
+
+   ```sh
+   git clone https://github.com/RVBCosme/Lusot-submission lusot
+   cd lusot
+   python eval/run_eval.py --from-saved   # python3 on macOS and many Linux systems
+   ```
+
+   On Windows, where only the launcher may be installed: `py eval/run_eval.py --from-saved`.
+
+   Expected: the headline counts, then `identical`, with exit code 0. *(Paste the real last lines from C919's clean-clone run.)*
 
 Then one line for Android: "Android APK: `[GitHub Release link]` (SHA-256 `[…]`). The web URL is the main path; the APK is the same app." (C917, M15)
 
@@ -42,21 +52,28 @@ Two or three sentences, each with a source checked in `docs/research/` and its l
 - On Aug 9, 2026, GMA News carried two lists from different publishers, with different scopes: MMDA's 2:02 PM list named 4 flooded spots, and Quezon City's 2:20 PM list held 38 street entries, in the same gauge words. The source is the plan-update check, §5 of `docs/research/2026-10-27-plan-update-check.md`, not the alert index, whose Aug 9 lists are the morning ones.
 - MMDA's alert lists name the spots it reports, and crowd reports, such as MapaKalamidad's, come as a photo, a location and the reporter's own description; Lusot can give a reading at other spots too. (The last clause is Lusot's own framing, not a sourced fact. The idea is plan §3's, in new words, and Task 3 records the sources for the first two.)
 
-Then, honestly (plan §19): "Reading flood depth from objects of known size is established research (FloodVision and others; see `docs/research/`). Lusot adds MMDA's own gauge and classes, Metro Manila's streets, Taglish, a live map of expiring pins, and evaluation rules published before any result." Never "first". No MDPI figure is quoted (C14).
+Then, honestly (plan §19): "Reading flood depth from objects of known size is established research (FloodVision and others; see `docs/research/`). Lusot adds MMDA's own gauge and classes, Metro Manila's streets, Taglish, a live map of expiring pins, and an open evaluation." Never "first". No MDPI figure is quoted (C14).
 
 ### 3. See it work
 
 - `docs/media/overlay.gif`: the overlay drawing itself on a sample (C920). Under it, the credit line: "`[title]` by `[author]`, `[CC0 or CC BY x.0]`, `[source link]`. Lusot blurred faces and plates and drew the outlines."
 - One sentence on what the GIF shows: the water, each wheel or person with its reading (a reference the pipeline dropped shows its reason, never a level), then the level, the landmark and the class.
 
-### 4. The evaluation is pending
+### 4. The numbers
 
-No table and no figures (MS8-Q4's pending path). Draft:
+A table, filled only from `summary.json` (C901), for the configuration that ships, then the other:
 
-"Lusot's sealed evaluation is pending, so this README gives no results. Its scoring rules were fixed before any result was seen ([`eval/rules.md`](../../../eval/rules.md)), and §9 below gives the method. During development, the build was checked on development photos with weak labels. Those checks guided the work, but they aren't results, and no figure from them is given here. What Lusot claims is narrower: at one spot it can give a reading, with the evidence drawn on the photo, or it says it can't tell."
+| | Shipped configuration `[landmark only, or with geometry]` | The other | n |
+|---|---|---|---|
+| Underestimation: Lusot's level was shallower than the posted label | `[k of n (p%)]` | `[…]` | `[n answered]` |
+| Passability agreement | `[…]` | `[…]` | `[n]` |
+| Coverage: photos answered, out of every scored photo. Refusals and processing failures both count against it (rules §7). | `[…]` | `[…]` | `[n scored]` |
+| Exact level agreement, and within one level | `[…]` *(once MS6 adds them, N1)* | `[…]` | `[n]` |
+| Set B median error, geometry | `[x in, over n wheels]` | — | `[n wheels]` |
+| The release gate for inches | `[passed, or not passed and why]` | — | — |
+| The self-check | `[shipped or not; decided Oct 31]` | — | — |
 
-- **Inches stay off.** Rules §8's release gate needs the sealed run, so pins show the level and the landmark, never inches.
-- `[If the self-check shipped (decided Oct 31): one line saying that it is on, with no figure.]`
+Words under the table (draft): "These are agreement figures with the labels MMDA and the cities posted, mapped by rules written before any result was seen ([`eval/rules.md`](../../../eval/rules.md)). The sealed set has about `[n]` photos, so every figure is indicative. The full report, with every table, chart and exclusion, is `eval/results/report/report.md`." (In the final README this is a relative link; the folder exists only from the sealed run.) If rules §10's one disclosed rerun happened, its figures are shown beside the first run's, with the reason (MS6's C421).
 
 ### 5. Limits: read these before trusting a pin
 
@@ -64,8 +81,7 @@ No table and no figures (MS8-Q4's pending path). Draft:
 - It needs a parked car's wheel or an adult in view. Without one, it says it can't tell.
 - Dark, blurry or rain-streaked photos are refused.
 - People on foot get the level only. MMDA's classes are for vehicles (plan §9).
-- No inches: the release gate needs the sealed run, which is pending (rules §8).
-- The sealed evaluation is pending, so no figure says how often Lusot's readings match a posted label.
+- Inches show only if geometry passed its release gate: `[status]`.
 - Faces are blurred before Meta receives a photo, but the blur can miss very small, side-on, covered or dark faces (W25).
 - Pins fade after 1 hour and leave the map at 3 hours.
 - **The weakness register,** W1 to W28. MS7 drafts this "Known limits" section (its C821), and MS8 keeps it, checked against `docs/PROGRESS.md` §3 on Nov 4. Each row is Done, with its evidence link, or explained in one line (plan §18).
@@ -82,7 +98,7 @@ No table and no figures (MS8-Q4's pending path). Draft:
   2. the quality check again
   3. SAM 3.1 masks, one short phrase per request: `[SAM_PHRASES in backend/analysis/src/lusot_analysis/meta_client.py, as frozen]`
   4. numbered boxes drawn on the photo. Muse Spark 1.3 says, by box number, where the water line falls on each wheel or person, as categories in strict structured output; models never output inches.
-  5. code turns the landmarks into one of the 9 levels and MMDA's class. Rim geometry would add a range in inches only after the release gate passed, and the gate waits for the sealed run.
+  5. code turns the landmarks into one of the 9 levels and MMDA's class. Rim geometry adds a range in inches only if the release gate passed.
   6. combining: the deepest believable reading wins, and readings more than one level apart mean a refusal (D13)
   7. publishing: faces and plates blurred again with SAM's masks before storage, the raw photo deleted, and the pin set to expire
 - **The figure** of the wheel landmarks and rim geometry (`docs/media/wheel-landmarks.svg`, C920).
@@ -95,7 +111,7 @@ No table and no figures (MS8-Q4's pending path). Draft:
 | `muse-spark-1.3` | Names the landmarks from the numbered boxes (strict structured output), and runs Ask Lusot's tool calls |
 | `muse-voice-transcribe-1.0` | Transcribes spoken Taglish questions |
 
-How they are called, one line each: the Meta Model API through the OpenAI SDK at `https://api.meta.ai/v1`; SAM streamed; retries only on 429, 500 and 503, with backoff and jitter; prompts and schemas in versioned files; while the hackathon credits last, every call runs on them (D10). That wording holds after the credits lapse, whatever MS9-Q1 decides, and matches the privacy texts (MS9's N3). On voice: Muse Voice Transcribe lists code-switching among 25 evaluated languages; Lusot was tried on spoken Taglish questions (`[what MS6 ran, such as 10 spoken questions, with no score: the pending path quotes no accuracy figure]`).
+How they are called, one line each: the Meta Model API through the OpenAI SDK at `https://api.meta.ai/v1`; SAM streamed; retries only on 429, 500 and 503, with backoff and jitter; prompts and schemas in versioned files; while the hackathon credits last, every call runs on them (D10). That wording holds after the credits lapse, whatever MS9-Q1 decides, and matches the privacy texts (MS9's N3). On voice: Muse Voice Transcribe lists code-switching among 25 evaluated languages; Lusot tests it on Taglish questions (`[MS6's result]`).
 
 ### 8. Ask Lusot
 
@@ -106,21 +122,13 @@ How they are called, one line each: the Meta Model API through the OpenAI SDK at
 - It sorts a vehicle into MMDA's classes, and goes no finer than that.
 - `[One real example question and answer, copied from a test run, never invented.]`
 
-### 9. The evaluation (pending)
+### 9. The evaluation
 
-- **Its status, first and plainly:** "The sealed evaluation is pending. No sealed run has happened, and nothing here reports one."
 - The rules were written before any result was seen: `eval/rules.md`, version `[v]`, approved by Rene on `[date]`.
-- The method, as the rules fix it, in the future tense and with no counts: a sealed set of flood photos that MMDA or a city posted itself, split by flood event so no event sits on both sides; one run on the frozen pipeline; the ablation, landmark only against landmark plus geometry `[and without the self-check, if it shipped]`; Set B's synthetic waterlines on parked cars for the inch gate; every figure with its n, and called indicative.
-- The one command (it needs Python 3.9 or newer, and no key, network or install):
-
-  ```sh
-  git clone https://github.com/RVBCosme/Lusot-submission lusot
-  cd lusot
-  python eval/run_eval.py --rules-version   # python3 on macOS and many Linux systems
-  ```
-
-  `--rules-version` prints the scoring rules' version that the scorer is pinned to. After a sealed run, `python eval/run_eval.py --from-saved` rebuilds every table from the committed per-photo results and checks them against the committed report. No results are committed yet, so today it stops with `invalid: run.json:0: the folder has no run.json` and exit code 2 (checked on `ms8-submit` at 85385a3, Nov 2). *(Paste the real output from C919's clean-clone run, for both lines.)* On Windows, where only the launcher may be installed, use `py` in place of `python`.
-- During development the build was checked on development photos with weak labels. Those checks aren't results, and none is quoted (MS6: they stay private).
+- The sets: Set A (photos MMDA or a city posted itself, split by flood event into `[n]` development and `[n]` sealed photos); A-neg (`[n]`); Set B (synthetic waterlines on `[n]` cars and `[n]` crops); Set D (`[if it rained]`).
+- One sealed run on `[date]`, at the freeze tag `[tag]`. The per-photo results are committed in `eval/results/`; no photos are.
+- The ablation: landmark only, against landmark plus geometry, `[and without the self-check, if it shipped]`.
+- The one command, again, with what "identical" proves.
 
 ### 10. Engineering
 
@@ -177,7 +185,6 @@ MIT for Lusot's own code (MS7-Q4, Rene, Nov 1, 2026; M22). Third-party parts kee
 ## Checks before the final README is committed
 
 - [ ] Every bracket is filled from its named source, or its line is cut
-- [ ] No evaluation figure appears anywhere, from development, a test or a probe (MS8-Q4's pending path), and no line claims accuracy
 - [ ] MS7's copy check (its C819, with C922's changes) finds no fail in the file, and Rene has seen each review hit. The safety line appears word for word at the top and in the footer.
 - [ ] The link check (`scripts/check_links.mjs`, C922) passes: no relative link to a missing file, and no link to the private development repository
 - [ ] Every link works, checked on the private push and again once the repository is public (C902, C919)
