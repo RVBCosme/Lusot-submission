@@ -15,6 +15,7 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
 
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,8 @@ from make_voice_clips import (
 
 REPO = Path(__file__).resolve().parents[2]
 REVISION = "0123456789abcdef0123456789abcdef01234567"
+SEALED = r"^refused: a path inside a folder named sealed$"
+IN_REPO = r"^refused: a path inside the repo$"
 # Invented words that must reach no output line: a script, and the notes beside it.
 SCRIPT = "INVENTED-SCRIPT-WORDS"
 LONG_SCRIPT = "INVENTED-LONG-SCRIPT"  # the stub makes it 20 s
@@ -286,17 +289,71 @@ def test_main_refuses_a_model_that_isnt_16_khz(tmp_path):
     assert not (out / "v1.wav").exists()
 
 
+def test_main_runs_the_ffmpeg_path_which_returned_not_the_bare_name(tmp_path, monkeypatch):
+    # Windows searches Python's folder and the working folder before PATH for a bare name, so the path that
+    # shutil.which resolved is the one that runs.
+    seen = []
+
+    def fake_pink_noise(n, seed, *, ffmpeg):
+        seen.append(ffmpeg)
+        return np.random.default_rng(seed).standard_normal(n)
+
+    resolved = {"ffmpeg": r"C:\tools\ffmpeg\ffmpeg.exe", "my-ffmpeg": r"D:\bin\my-ffmpeg.exe"}
+    monkeypatch.setattr(make_voice_clips, "pink_noise", fake_pink_noise)
+    monkeypatch.setattr(make_voice_clips.shutil, "which", resolved.get)
+    manifest = write_manifest(tmp_path, [entry(1)])
+
+    assert main(argv_for(manifest, tmp_path / "a"), synthesize=Stubs().synthesize) == 0
+    assert main(argv_for(manifest, tmp_path / "b", "--ffmpeg", "my-ffmpeg"), synthesize=Stubs().synthesize) == 0
+
+    assert seen == [r"C:\tools\ffmpeg\ffmpeg.exe", r"D:\bin\my-ffmpeg.exe"]
+
+
+def test_a_clip_that_fails_deletes_the_older_file_of_its_id(tmp_path, capsys):
+    # A later harness run reads <out>/<wav>; a failed clip must not leave an older one there to be used instead.
+    out = tmp_path / "clips"
+    out.mkdir()
+    for n in (1, 2, 3, 4, 5):
+        (out / f"v{n}.wav").write_bytes(b"older clip")
+    (out / "other.wav").write_bytes(b"not in the manifest")
+
+    def synth(text, *, seed, revision):
+        if text == LONG_SCRIPT:
+            return 0.3 * np.ones(20 * RATE), RATE  # past 15 s
+        if text == "SILENT":
+            return np.zeros(RATE), RATE
+        if text == "SLOW-RATE":
+            return 0.3 * np.ones(22050), 22050
+        return 0.3 * np.sin(2 * np.pi * 440 * np.arange(RATE) / RATE), RATE
+
+    stubs = Stubs()
+    stubs.synthesize = synth
+    entries = [entry(1), entry(2, text=LONG_SCRIPT), entry(3, text="SILENT"), entry(4, text="SLOW-RATE"), entry(5)]
+
+    code, _, _ = run(tmp_path, entries, stubs=stubs, out=out)
+
+    assert code == 1
+    assert sorted(p.name for p in out.iterdir()) == ["other.wav", "v1.wav", "v5.wav"]
+    for name in ("v1.wav", "v5.wav"):
+        assert (out / name).read_bytes() != b"older clip"  # rewritten
+    assert (out / "other.wav").read_bytes() == b"not in the manifest"  # nothing else is touched
+    assert "3 failed" in capsys.readouterr().out
+
+
 # --- main: the refusals, all before any synthesis ----------------------------------------------
 
 
-def refused(tmp_path, capsys, argv, stubs=None):
+def refused(tmp_path, capsys, argv, stubs=None, *, why):
+    """Runs main to a refusal (exit 2) before any synthesis. `why` is a regex the printed line must match, so a refusal
+    for another reason (a manifest that doesn't exist, say) can't pass as the one under test."""
     stubs = stubs or Stubs()
     with pytest.raises(SystemExit) as exit_:
         main(argv, synthesize=stubs.synthesize, noise=stubs.noise)
     assert exit_.value.code == 2
     assert stubs.synth_calls == [] and stubs.noise_calls == []
     printed = capsys.readouterr().out
-    assert printed.startswith("refused:") or "refused:" in printed
+    assert printed.startswith("refused: ")
+    assert re.search(why, printed), printed
     for secret in (SCRIPT, NOTE, str(tmp_path)):
         assert secret not in printed
     return printed
@@ -310,8 +367,10 @@ def argv_for(manifest, out, *extra, revision=REVISION):
 def test_a_sealed_manifest_or_output_is_refused(tmp_path, capsys, sealed):
     manifest = write_manifest(tmp_path, [entry(1)])
 
-    refused(tmp_path, capsys, argv_for(tmp_path / sealed / "m.json", tmp_path / "clips"))
-    refused(tmp_path, capsys, argv_for(manifest, tmp_path / sealed / "clips"))
+    # Neither path exists, so each would be refused anyway (a manifest that can't be read, say); the printed reason
+    # is what proves the sealed rule did it.
+    refused(tmp_path, capsys, argv_for(tmp_path / sealed / "m.json", tmp_path / "clips"), why=SEALED)
+    refused(tmp_path, capsys, argv_for(manifest, tmp_path / sealed / "clips"), why=SEALED)
     assert not (tmp_path / "clips").exists()  # nothing was made, and no sealed folder was either
     assert not (tmp_path / sealed).exists()
 
@@ -320,9 +379,7 @@ def test_an_unreviewed_entry_is_refused_with_its_count_only(tmp_path, capsys):
     entries = [entry(1), entry(2, reviewed=False), entry(3, reviewed="true")]
     manifest = write_manifest(tmp_path, entries)
 
-    printed = refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips"))
-
-    assert "2 of 3" in printed and "not reviewed" in printed
+    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips"), why=r"2 of 3 manifest entries are not reviewed$")
     assert not (tmp_path / "clips").exists()
 
 
@@ -330,62 +387,69 @@ def test_a_path_inside_the_repo_is_refused(tmp_path, capsys):
     manifest = write_manifest(tmp_path, [entry(1)])
     inside = REPO / "zz-voice-clips-must-not-exist"
 
-    refused(tmp_path, capsys, argv_for(manifest, inside))
-    refused(tmp_path, capsys, argv_for(REPO / "zz-manifest.json", tmp_path / "clips"))
+    # The manifest in the repo doesn't exist either, so only the printed reason shows the repo rule refused it.
+    refused(tmp_path, capsys, argv_for(manifest, inside), why=IN_REPO)
+    refused(tmp_path, capsys, argv_for(REPO / "zz-manifest.json", tmp_path / "clips"), why=IN_REPO)
     assert not inside.exists()
 
 
 def test_a_missing_manifest_is_refused(tmp_path, capsys):
-    printed = refused(tmp_path, capsys, argv_for(tmp_path / "nope.json", tmp_path / "clips"))
-
-    assert "manifest" in printed
-
-
-@pytest.mark.parametrize("content", ["{ not json", "[]", json.dumps({"scripts": []}), json.dumps({"scripts": "x"})])
-def test_a_manifest_that_isnt_usable_is_refused_without_quoting_it(tmp_path, capsys, content):
-    path = tmp_path / "m.json"
-    path.write_text(content)
-
-    refused(tmp_path, capsys, argv_for(path, tmp_path / "clips"))
+    refused(tmp_path, capsys, argv_for(tmp_path / "nope.json", tmp_path / "clips"), why=r"the manifest can't be read as JSON$")
 
 
 @pytest.mark.parametrize(
-    "bad",
+    ("content", "why"),
     [
-        {"wav": "..\\outside.wav"},
-        {"wav": "sub/v1.wav"},
-        {"wav": "v1.mp3"},
-        {"wav": 5},
-        {"id": ""},
-        {"id": "has space"},
-        {"text": ""},
-        {"text": 7},
+        ("{ not json", r"can't be read as JSON$"),
+        ("[]", r"the manifest has no scripts$"),
+        (json.dumps({"scripts": []}), r"the manifest has no scripts$"),
+        (json.dumps({"scripts": "x"}), r"the manifest has no scripts$"),
     ],
 )
-def test_a_bad_entry_is_refused(tmp_path, capsys, bad):
+def test_a_manifest_that_isnt_usable_is_refused_without_quoting_it(tmp_path, capsys, content, why):
+    path = tmp_path / "m.json"
+    path.write_text(content)
+
+    refused(tmp_path, capsys, argv_for(path, tmp_path / "clips"), why=why)
+
+
+@pytest.mark.parametrize(
+    ("bad", "why"),
+    [
+        ({"wav": "..\\outside.wav"}, r"entry V1 has a bad clip name$"),
+        ({"wav": "sub/v1.wav"}, r"entry V1 has a bad clip name$"),
+        ({"wav": "v1.mp3"}, r"entry V1 has a bad clip name$"),
+        ({"wav": 5}, r"entry V1 has a bad clip name$"),
+        ({"id": ""}, r"entry 1 has no usable id$"),
+        ({"id": "has space"}, r"entry 1 has no usable id$"),
+        ({"text": ""}, r"entry V1 has no text$"),
+        ({"text": 7}, r"entry V1 has no text$"),
+    ],
+)
+def test_a_bad_entry_is_refused(tmp_path, capsys, bad, why):
     manifest = write_manifest(tmp_path, [entry(1, **bad)])
 
-    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips"))
+    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips"), why=why)
 
 
 def test_a_repeated_wav_name_is_refused(tmp_path, capsys):
     manifest = write_manifest(tmp_path, [entry(1), entry(2, wav="v1.wav")])
 
-    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips"))
+    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips"), why=r"the manifest repeats a clip name$")
 
 
 @pytest.mark.parametrize("revision", ["main", "", "abc123", "G" * 40, "0" * 39, "0" * 41])
 def test_the_revision_must_be_a_full_commit_hash(tmp_path, capsys, revision):
     manifest = write_manifest(tmp_path, [entry(1)])
 
-    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips", revision=revision))
+    refused(tmp_path, capsys, argv_for(manifest, tmp_path / "clips", revision=revision), why=r"full commit hash")
 
 
 def test_relative_paths_are_refused(tmp_path, capsys):
     manifest = write_manifest(tmp_path, [entry(1)])
 
-    refused(tmp_path, capsys, argv_for("m12-scripts.json", tmp_path / "clips"))
-    refused(tmp_path, capsys, argv_for(manifest, "clips"))
+    refused(tmp_path, capsys, argv_for("m12-scripts.json", tmp_path / "clips"), why=r"take absolute paths$")
+    refused(tmp_path, capsys, argv_for(manifest, "clips"), why=r"take absolute paths$")
 
 
 # --- the real synthesis function, with fake torch and transformers ---------------------------------

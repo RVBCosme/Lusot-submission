@@ -37,7 +37,9 @@ clip as a 16 kHz mono 16-bit WAV, the form POST /ask/voice takes (backend/api/sr
   is unusable, and a --revision that is not a 40-digit hex commit hash.
 - **Printed:** one line per clip, its manifest id, its length and its SNR. Never a
   script, a note, a path or a transcript. A clip outside the handler's 0.5 to 15 s, or
-  a silent one, is reported as failed and not written; the exit code is then 1.
+  a silent one, is reported as failed and not written, and any older file of its name
+  in --out is deleted, so a later harness run cannot read stale audio; the exit code is
+  then 1.
 
 Torch and Transformers are imported inside `synthesize` only, so the tests that check
 the rest of this file run without them (check:py has numpy but not torch).
@@ -217,9 +219,12 @@ def main(
         refuse("--revision is the model's full commit hash (40 hex digits)")
     entries = load_entries(args.manifest)
     if noise is None:
-        if shutil.which(args.ffmpeg) is None:
+        # The path shutil.which found, not the bare name: Windows searches Python's folder and the working folder
+        # before PATH for a bare name, so a different ffmpeg.exe could run.
+        found = shutil.which(args.ffmpeg)
+        if found is None:
             refuse("FFmpeg isn't installed or isn't on PATH (see --ffmpeg)")
-        noise = functools.partial(pink_noise, ffmpeg=args.ffmpeg)
+        noise = functools.partial(pink_noise, ffmpeg=found)
 
     args.out.mkdir(parents=True, exist_ok=True)
     written = failed = 0
@@ -227,24 +232,27 @@ def main(
         seed = args.seed + index
         speech, rate = synthesize(text, seed=seed, revision=args.revision)
         seconds = len(speech) / RATE
+        problem, mixed = None, None
         if rate != RATE:
-            guards.say(f"{eid}: failed, the model's rate is {rate} Hz, not {RATE} Hz")
+            problem = f"the model's rate is {rate} Hz, not {RATE} Hz"
         elif not MIN_S <= seconds <= MAX_S:
-            guards.say(f"{eid}: failed, {seconds:.2f} s is outside the handler's {MIN_S:g} to {MAX_S:g} s")
+            problem = f"{seconds:.2f} s is outside the handler's {MIN_S:g} to {MAX_S:g} s"
         else:
             try:
                 mixed = mix_at_snr(speech, noise(len(speech), seed), args.snr_db)
             except ValueError:
-                guards.say(f"{eid}: failed, the speech or the noise is silent")
-                failed += 1
-                continue
-            achieved = 10 * math.log10(power(speech) / power(mixed - speech))
-            peak = float(np.max(np.abs(mixed)))
-            write_wav(args.out / wav, mixed * (PEAK / peak) if peak > PEAK else mixed)
-            guards.say(f"{eid}: {seconds:.2f} s, SNR {achieved:.1f} dB")
-            written += 1
+                problem = "the speech or the noise is silent"
+        if mixed is None:
+            # An older clip of this id must not stand in for it: the harness reads <out>/<wav> by name.
+            (args.out / wav).unlink(missing_ok=True)
+            guards.say(f"{eid}: failed, {problem}")
+            failed += 1
             continue
-        failed += 1
+        achieved = 10 * math.log10(power(speech) / power(mixed - speech))
+        peak = float(np.max(np.abs(mixed)))
+        write_wav(args.out / wav, mixed * (PEAK / peak) if peak > PEAK else mixed)
+        guards.say(f"{eid}: {seconds:.2f} s, SNR {achieved:.1f} dB")
+        written += 1
     guards.say(f"voice clips: {written} written, {failed} failed")
     return 1 if failed else 0
 

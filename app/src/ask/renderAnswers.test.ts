@@ -76,11 +76,22 @@ describe('renderRecord', () => {
     expect(out.rendered.fil).not.toBe(out.rendered.en)
   })
 
-  it("renders at the record's own run time, so a card's age is the run's and not the clock's", () => {
+  it("renders an older record, which has no `at`, at its run time, so a card's age is the run's and not the clock's", () => {
     const later = record('Q1', answer(), { run: '2026-11-02T04:00:00.000Z' }) // 145 min after the photo
 
     expect(renderRecord(record('Q1')).rendered.en).toContain('Photo taken 25 min ago,')
     expect(renderRecord(later).rendered.en).toContain('Photo taken 2 h 25 min ago,')
+  })
+
+  it("renders at the question's own start time `at`, not the run's, because its fixture pins were placed then", () => {
+    // The run began at RUN (02:00); this question started 40 min later, and its pin was placed 25 min before that.
+    const fixturePin = report({ capturedAt: '2026-11-02T02:15:00Z' })
+    const input = record('Q4', answer({ reports: [fixturePin], deepestId: fixturePin.id }), { at: '2026-11-02T02:40:00.000Z' })
+
+    expect(renderRecord(input).rendered.en).toContain('Photo taken 25 min ago,')
+    // Read at the run's start instead, the pin would be 15 min in the future: its card would read "just now".
+    expect(renderRecord({ ...input, at: undefined }).rendered.en).toContain('Photo taken just now,')
+    expect(Object.keys(renderRecord(input))).toContain('at') // kept, like every field
   })
 
   it('keeps a spoken record\'s transcript as it is, for the review only', () => {
@@ -97,6 +108,8 @@ describe('renderRecord', () => {
     ['an answer of an unknown kind, which words nothing', record('Q10', answer({ kind: 'mystery' as AskAnswer['kind'] })), /Q10/],
     ['no run time', record('Q11', answer(), { run: undefined }), /Q11/],
     ['a run time that is no date', record('Q12', answer(), { run: 'yesterday' }), /Q12/],
+    ['an `at` that is no date, though the run time is good', record('Q14', answer(), { at: 'yesterday' }), /Q14/],
+    ['an `at` that is not text', record('Q15', answer(), { at: 5 }), /Q15/],
     ['no id', { ...record('x'), id: undefined }, /id/],
   ])('fails loudly, naming the record, for %s', (_name, input, named) => {
     expect(() => renderRecord(input as Record<string, unknown>)).toThrow(named)
@@ -116,16 +129,17 @@ describe('renderAnswersJsonl', () => {
 
     const out = renderAnswersJsonl(`${lines.map((l) => JSON.stringify(l)).join('\n')}\n`)
 
-    const parsed = out.trimEnd().split('\n').map((l) => JSON.parse(l))
-    expect(out.endsWith('\n')).toBe(true)
+    const parsed = out.jsonl.trimEnd().split('\n').map((l) => JSON.parse(l))
+    expect(out.jsonl.endsWith('\n')).toBe(true)
     expect(parsed.map((p) => p.id)).toEqual(['Q1', 'Q2'])
     expect(parsed[1].rendered.en.length).toBeGreaterThan(0)
+    expect(out).toMatchObject({ rendered: 2, skipped: 0 })
   })
 
   it('accepts blank lines and CRLF, and fails on a line that is not JSON, naming its number', () => {
     const ok = JSON.stringify(record('Q1'))
 
-    expect(JSON.parse(renderAnswersJsonl(`${ok}\r\n\r\n${ok}\r\n`).split('\n')[1]).id).toBe('Q1')
+    expect(JSON.parse(renderAnswersJsonl(`${ok}\r\n\r\n${ok}\r\n`).jsonl.split('\n')[1]).id).toBe('Q1')
     expect(() => renderAnswersJsonl(`${ok}\n{not json\n`)).toThrow(/line 2/)
   })
 
@@ -134,10 +148,30 @@ describe('renderAnswersJsonl', () => {
     expect(() => renderAnswersJsonl('\n\n')).toThrow(/no records/)
   })
 
-  it('names the record that cannot be rendered and writes nothing for the file', () => {
+  it('names a 200 whose answer cannot be rendered, and renders nothing for the file', () => {
     const text = `${JSON.stringify(record('Q1'))}\n${JSON.stringify(record('Q2', null))}\n`
 
-    expect(() => renderAnswersJsonl(text)).toThrow(/Q2/)
+    expect(() => renderAnswersJsonl(text)).toThrow(/Q2/) // status 200, answer null
+    expect(() => renderAnswersJsonl(`${JSON.stringify(record('Q3', { kind: 'reports' }))}\n`)).toThrow(/Q3/)
+    expect(() => renderAnswersJsonl(`${JSON.stringify(record('Q4', null, { status: undefined }))}\n`)).toThrow(/Q4/)
+  })
+
+  it('leaves out a record whose question failed (a status that is not 200, and no answer), and counts it', () => {
+    const failed = (id: string, status: number) => JSON.stringify(record(id, null, { status, pass: false }))
+    const text = [JSON.stringify(record('Q1')), failed('Q2', 503), failed('Q3', 500), JSON.stringify(record('Q5'))].join('\n')
+
+    const out = renderAnswersJsonl(`${text}\n`)
+
+    expect(out).toMatchObject({ rendered: 2, skipped: 2 })
+    expect(out.jsonl.trimEnd().split('\n').map((l) => JSON.parse(l).id)).toEqual(['Q1', 'Q5'])
+  })
+
+  it('still renders a record with a status that is not 200 but an answer, and refuses a file where every record failed', () => {
+    const odd = JSON.stringify(record('Q1', answer(), { status: 206 }))
+    expect(renderAnswersJsonl(`${odd}\n`)).toMatchObject({ rendered: 1, skipped: 0 })
+
+    const allFailed = `${JSON.stringify(record('Q2', null, { status: 503 }))}\n${JSON.stringify(record('Q3', null, { status: 500 }))}\n`
+    expect(() => renderAnswersJsonl(allFailed)).toThrow(/no records.*2 .*failed/)
   })
 })
 
@@ -168,8 +202,9 @@ describe('renderAnswersFile', () => {
   const lines = `${[record('Q1'), record('Q2', answer({ kind: 'no_reports', count: 0, reports: [], deepestId: null, cited: [] }))]
     .map((r) => JSON.stringify(r))
     .join('\n')}\n`
-  type FakeIo = { resolve: FileIo['resolve']; read: Mock<FileIo['read']>; write: Mock<FileIo['write']> }
+  type FakeIo = { repo: string; resolve: FileIo['resolve']; read: Mock<FileIo['read']>; write: Mock<FileIo['write']> }
   const io = (over: Partial<FakeIo> = {}): FakeIo => ({
+    repo: 'C:\\repo\\lusot',
     resolve: (p) => p,
     read: vi.fn<FileIo['read']>(() => lines),
     write: vi.fn<FileIo['write']>(),
@@ -185,12 +220,38 @@ describe('renderAnswersFile', () => {
     expect(fake.write).toHaveBeenCalledTimes(1)
     const [path, text] = fake.write.mock.calls[0] as [string, string]
     expect(path).toBe('C:\\data\\ask\\2026-11-02\\answers.rendered.jsonl')
-    expect(text).toBe(renderAnswersJsonl(lines))
+    expect(text).toBe(renderAnswersJsonl(lines).jsonl)
     expect(done.records).toBe(2)
+    expect(done.skipped).toBe(0)
     expect(done.out).toBe(path)
-    // Counts, never text: the numbers of lines, and the path.
-    expect(Object.keys(done).sort()).toEqual(['linesEn', 'linesFil', 'out', 'records'])
+    // Counts, never text: the numbers of records, failed questions left out and lines, and the path.
+    expect(Object.keys(done).sort()).toEqual(['linesEn', 'linesFil', 'out', 'records', 'skipped'])
     expect(done.linesEn).toBeGreaterThan(done.records)
+  })
+
+  it('counts the failed questions it leaves out, and writes only the rest', () => {
+    const failedLine = JSON.stringify(record('Q9', null, { status: 503 }))
+    const fake = io({ read: vi.fn(() => `${lines}${failedLine}\n`) })
+
+    const done = renderAnswersFile(FILE, fake)
+
+    expect(done).toMatchObject({ records: 2, skipped: 1 })
+    expect((fake.write.mock.calls[0] as [string, string])[1]).toBe(renderAnswersJsonl(lines).jsonl)
+  })
+
+  it('refuses a path inside the repo before it reads anything, as answersPath does, as given or made absolute', () => {
+    const inside = io()
+    expect(() => renderAnswersFile('C:\\repo\\lusot\\out\\answers.jsonl', inside)).toThrow(/inside the repo/)
+    expect(() => renderAnswersFile('c:/REPO/lusot/answers.jsonl', inside)).toThrow(/inside the repo/) // case and slashes
+    expect(() => renderAnswersFile('C:\\repo\\lusot', inside)).toThrow(/inside the repo/)
+    const relative = io({ resolve: () => 'C:\\repo\\lusot\\data\\answers.jsonl' })
+    expect(() => renderAnswersFile('data\\answers.jsonl', relative)).toThrow(/inside the repo/)
+    for (const f of [inside, relative]) {
+      expect(f.read).not.toHaveBeenCalled()
+      expect(f.write).not.toHaveBeenCalled()
+    }
+    // A sibling folder that only starts with the repo's name is outside it.
+    expect(() => renderAnswersFile('C:\\repo\\lusot-data\\ask\\answers.jsonl', io())).not.toThrow()
   })
 
   it('refuses a sealed path before it reads anything, as given or as made absolute', () => {

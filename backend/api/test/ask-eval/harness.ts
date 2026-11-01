@@ -271,6 +271,10 @@ const ANSWER_KINDS: Record<Answer["kind"], true> = {
 };
 const WAV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.wav$/i; // a file name in the voice folder, never a path
 const ENTRY_ID = /^[A-Za-z0-9_-]{1,32}$/;
+const PLAIN_WORD = /^[A-Za-z0-9_]{1,32}$/;
+const BYTE_ORDER_MARK = 0xfeff; // U+FEFF, the first character of a file read as UTF-8 that starts with a BOM
+// The keys of `Expect`, which the checks read.
+const EXPECT_KEYS: ReadonlySet<string> = new Set(["kind", "placeSource", "placeId", "crossing", "vehicle", "count", "deepest", "demo", "suggestions"]);
 
 // A path with a part named sealed, as given or made absolute (the same rule as answersPath's, on strings only).
 function refuseSealedPath(what: string, path: string): void {
@@ -285,6 +289,12 @@ function voiceExpect(id: string, raw: unknown, geocodes: GeocodeFixture[]): Expe
   const bad = (field: string) => new HarnessRefused(`refused: voice manifest entry ${id} has a bad ${field}`);
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw bad("expect");
   const x = raw as Record<string, unknown>;
+  // A key the checks don't read would be a check that never runs (a typo in "count"), so it is refused. It is named
+  // only when it is a plain word: the manifest's own text is never echoed.
+  const unknown = Object.keys(x).find((key) => !EXPECT_KEYS.has(key));
+  if (unknown !== undefined) {
+    throw new HarnessRefused(`refused: voice manifest entry ${id} has an unknown key in expect: ${PLAIN_WORD.test(unknown) ? unknown : "(not a plain word)"}`);
+  }
   if (typeof x.kind !== "string" || !Object.hasOwn(ANSWER_KINDS, x.kind)) throw bad("kind");
   if (typeof x.crossing !== "boolean") throw bad("crossing");
   if (!["light", "heavy", "on_foot", null].includes(x.vehicle as string | null)) throw bad("vehicle");
@@ -315,7 +325,9 @@ function loadVoiceAsks(voice: VoiceOptions, fixture: PinsFixture, geocodes: Geoc
   refuseSealedPath("voice manifest", voice.manifest);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(voice.manifest, "utf8"));
+    // Windows PowerShell 5.1 writes UTF-8 with a byte order mark, which JSON.parse refuses (make_voice_clips.py reads it too).
+    const text = readFileSync(voice.manifest, "utf8");
+    parsed = JSON.parse(text.charCodeAt(0) === BYTE_ORDER_MARK ? text.slice(1) : text);
   } catch {
     throw new HarnessRefused("refused: the voice manifest can't be read as JSON");
   }
@@ -597,6 +609,8 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
 
       const record = {
         run,
+        // This question's own start: its fixture pins are placed at its read, so a card's age is rendered at this time.
+        at: new Date(started).toISOString(),
         id: q.id,
         route: q.route,
         ms,

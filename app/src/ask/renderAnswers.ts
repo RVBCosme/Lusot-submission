@@ -4,10 +4,13 @@
 // app uses, one line of text per answer line, joined by a newline. scripts/check_copy.mjs --answers reads exactly
 // those two fields as product copy, and the record's `transcript` for review only (scripts/copy-rules.json).
 //
-// Rendering needs a clock, for a card's age ("25 min ago"). Each record is rendered at its own `run` time, the moment
-// the harness started the run, so the ages are the ones the run's fixture pins had (they sit `minutesAgo` before it).
-// A record that can't be rendered stops the whole file with the record's id: none is skipped, and no message holds any
-// of its text.
+// Rendering needs a clock, for a card's age ("25 min ago"). The harness places each question's fixture pins when that
+// question reads them, so each record is rendered at its own `at`, the question's start. A record from before the
+// harness saved `at` falls back to `run`, the start of the whole run, which reads a later question's cards too young.
+//
+// A question that failed (a status other than 200, so no answer) has nothing to render: it is left out and counted.
+// Anything else that can't be rendered, a 200 included, stops the whole file with the record's id, and no message holds
+// any of its text.
 import { makeT } from '../i18n'
 import type { AskAnswer } from '../lib/api'
 import { renderAnswer } from './render'
@@ -36,11 +39,13 @@ function isRenderable(a: unknown): a is AskAnswer {
 export function renderRecord(record: Record<string, unknown>): RenderedRecord {
   const id = record.id
   if (typeof id !== 'string' || id === '') throw new Error('an answers record has no id')
-  const run = typeof record.run === 'string' ? Date.parse(record.run) : Number.NaN
-  if (Number.isNaN(run)) throw new Error(`record ${id}: no run time to render at`)
+  // The question's own start, else (an older record) the run's.
+  const clock = record.at === undefined ? record.run : record.at
+  const time = typeof clock === 'string' ? Date.parse(clock) : Number.NaN
+  if (Number.isNaN(time)) throw new Error(`record ${id}: no ${record.at === undefined ? 'run' : 'start'} time to render at`)
   if (!isRenderable(record.answer)) throw new Error(`record ${id}: the answer can't be rendered (missing or malformed)`)
 
-  const now = new Date(run)
+  const now = new Date(time)
   const lines = (lang: 'en' | 'fil'): string => {
     try {
       return renderAnswer(record.answer as AskAnswer, makeT(lang), now)
@@ -55,10 +60,16 @@ export function renderRecord(record: Record<string, unknown>): RenderedRecord {
   return { ...record, rendered }
 }
 
-// A whole answers.jsonl: every record rendered, one JSON line each, in order. Blank lines are allowed (and CRLF), a
-// line that isn't a JSON object stops the file with its number, and a file with no record is refused.
-export function renderAnswersJsonl(text: string): string {
+// A question that failed: a status other than 200 and no answer (the harness writes `answer: null` for any non-200).
+const questionFailed = (record: Record<string, unknown>): boolean =>
+  typeof record.status === 'number' && record.status !== 200 && record.answer === null
+
+// A whole answers.jsonl: every record rendered, one JSON line each, in order, and the number of failed questions left
+// out. Blank lines are allowed (and CRLF), a line that isn't a JSON object stops the file with its number, and a file
+// with nothing to render is refused.
+export function renderAnswersJsonl(text: string): { jsonl: string; rendered: number; skipped: number } {
   const out: string[] = []
+  let skipped = 0
   text.split(/\r?\n/).forEach((line, index) => {
     if (line.trim() === '') return
     let record: unknown
@@ -70,10 +81,16 @@ export function renderAnswersJsonl(text: string): string {
     if (typeof record !== 'object' || record === null || Array.isArray(record)) {
       throw new Error(`answers file: line ${index + 1} is not a JSON object`)
     }
+    if (questionFailed(record as Record<string, unknown>)) {
+      skipped++
+      return
+    }
     out.push(JSON.stringify(renderRecord(record as Record<string, unknown>)))
   })
-  if (out.length === 0) throw new Error('answers file: no records')
-  return `${out.join('\n')}\n`
+  if (out.length === 0) {
+    throw new Error(skipped === 0 ? 'answers file: no records' : `answers file: no records to render (${skipped} failed questions left out)`)
+  }
+  return { jsonl: `${out.join('\n')}\n`, rendered: out.length, skipped }
 }
 
 // One path part names sealed as Windows reads it: in any case, by its name before any ":" (the NTFS stream
@@ -95,26 +112,41 @@ export function renderedPathFor(answersFile: string): string {
   return `${answersFile.slice(0, cut + 1)}answers.rendered.jsonl`
 }
 
-// The disk, as renderAnswersFile needs it: the run test passes Node's, a test passes fakes. This module imports no Node
-// API, since the app's own build has no Node types.
-export type FileIo = { resolve(path: string): string; read(path: string): string; write(path: string, text: string): void }
+// The disk, as renderAnswersFile needs it: the run test passes Node's, a test passes fakes. `repo` is the repo's root.
+// This module imports no Node API, since the app's own build has no Node types.
+export type FileIo = {
+  repo: string
+  resolve(path: string): string
+  read(path: string): string
+  write(path: string, text: string): void
+}
+
+// A path as compared for "inside the repo": slashes forward, no trailing slash, and lower case, as the harness's
+// answersPath compares them.
+const compared = (path: string): string => path.replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase()
 
 // The file step of `npm run ask:render`: reads the answers file, writes answers.rendered.jsonl beside it, and gives the
-// counts back (records, and the English and Filipino lines they hold), never any text. A sealed path is refused, as
-// given and as made absolute, before anything is read; nothing is written unless every record rendered.
+// counts back (records rendered, failed questions left out, and the English and Filipino lines), never any text. A
+// sealed path, or one inside the repo (where git could pick the answers up), is refused, as given and as made
+// absolute, before anything is read; nothing is written unless every record that has an answer rendered.
 export function renderAnswersFile(
   file: string,
   io: FileIo,
-): { out: string; records: number; linesEn: number; linesFil: number } {
+): { out: string; records: number; skipped: number; linesEn: number; linesFil: number } {
   const absolute = io.resolve(file)
   refuseSealed(file, absolute)
+  const repo = compared(io.repo)
+  for (const form of [file, absolute]) {
+    const path = compared(form)
+    if (path === repo || path.startsWith(`${repo}/`)) throw new Error('refused: the path is inside the repo')
+  }
   const out = renderedPathFor(absolute)
-  const text = renderAnswersJsonl(io.read(file))
-  io.write(out, text)
-  const rendered = text
+  const done = renderAnswersJsonl(io.read(file))
+  io.write(out, done.jsonl)
+  const rendered = done.jsonl
     .trimEnd()
     .split('\n')
     .map((line) => (JSON.parse(line) as RenderedRecord).rendered)
   const count = (lang: 'en' | 'fil') => rendered.reduce((n, r) => n + r[lang].split('\n').length, 0)
-  return { out, records: rendered.length, linesEn: count('en'), linesFil: count('fil') }
+  return { out, records: done.rendered, skipped: done.skipped, linesEn: count('en'), linesFil: count('fil') }
 }

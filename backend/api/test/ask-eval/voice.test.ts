@@ -247,7 +247,7 @@ describe("the spoken run", () => {
     // The typed record's fields, plus the transcript (review only) and the clip's and transcription's timings.
     expect(Object.keys(lines[0]).sort()).toEqual(
       [
-        "answer", "audio_ms", "checks", "error", "est_usd", "fallback", "final", "id", "input_tokens", "meta_calls", "meta_status", "ms",
+        "answer", "at", "audio_ms", "checks", "error", "est_usd", "fallback", "final", "id", "input_tokens", "meta_calls", "meta_status", "ms",
         "output_tokens", "pass", "reasoning_tokens", "route", "run", "source", "spend", "status", "transcribe_ms", "transcript",
       ].sort(),
     );
@@ -297,6 +297,37 @@ describe("the spoken run", () => {
     expect(answerLines()[0]).toMatchObject({ id: "V1", pass: false, checks: { place: false } });
     expect(printed).toContain("ask-eval: places heard right 2 of 3 (synthetic clips)");
     expect(printed.at(-1)).toBe("ask-eval: run failed");
+  });
+
+  it("fails a spoken question whose count differs from the manifest's", async () => {
+    scriptMetas();
+    const list = entries();
+    // The fixtures give V1's spot two live reports; the manifest says three.
+    list[0].expect = { kind: "reports", placeSource: "spots", placeId: "espana-maceda", crossing: false, vehicle: null, count: 3 };
+    writeManifest(list);
+
+    const summary = await runHarness(options());
+
+    expect(summary).toMatchObject({ asked: 3, passed: 2, failed: 1, placesHeard: 3 });
+    expect(answerLines()[0]).toMatchObject({ id: "V1", pass: false, checks: { place: true, kind: true, count: false } });
+    expect(answerLines()[0].answer).toMatchObject({ count: 2 });
+  });
+
+  it("saves each question's own start time, which a later card's age is read at", async () => {
+    scriptMetas();
+    let ticks = Date.parse("2026-11-02T02:00:00Z");
+    const now = () => ++ticks; // 1 ms for every read of the clock, so each question starts later than the one before
+
+    await runHarness(options({ now }));
+
+    const lines = answerLines();
+    const times = lines.map((line) => Date.parse(String(line.at)));
+    expect(times.every(Number.isFinite)).toBe(true);
+    expect(String(lines[0].at)).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    const run = Date.parse(String(lines[0].run));
+    expect(times[0]).toBeGreaterThan(run);
+    expect(times[1]).toBeGreaterThan(times[0]);
+    expect(times[2]).toBeGreaterThan(times[1]);
   });
 
   it("judges a question with no place by its kind: heard right when the kind is the expected one", async () => {
@@ -442,13 +473,43 @@ describe("the spoken run's refusals", () => {
     await expect(runHarness(options())).resolves.toMatchObject({ asked: 3 });
   });
 
-  it("refuses a voice folder or a manifest path with a part named sealed, in every spelling", async () => {
+  // Neither folder exists, so without its guard each path would still be refused, as unreadable. The message is what
+  // proves the sealed rule did it: each half names its own path and the rule.
+  it("refuses a voice folder or a manifest path with a part named sealed, in every spelling, by the sealed rule", async () => {
     for (const sealed of ["sealed", "Sealed", "SEALED.", "sealed ", "sealed::$INDEX_ALLOCATION"]) {
-      await refusal({ voice: { dir: join(root, sealed, "clips"), manifest } });
-      await refusal({ voice: { dir: voiceDir, manifest: join(root, sealed, "m12-scripts.json") } });
+      const folder = await refusal({ voice: { dir: join(root, sealed, "clips"), manifest } });
+      expect(folder.message, sealed).toBe("refused: the voice folder is inside a folder named sealed");
+      const file = await refusal({ voice: { dir: voiceDir, manifest: join(root, sealed, "m12-scripts.json") } });
+      expect(file.message, sealed).toBe("refused: the voice manifest is inside a folder named sealed");
     }
-    // Nothing was read there: the folder was never made.
-    expect(existsSync(join(root, "sealed"))).toBe(false);
+  });
+
+  it("refuses a manifest entry's expect with a key the checks don't read, naming the entry and the key only", async () => {
+    const list = entries();
+    list[1].expect = { kind: "reports", placeSource: "here", crossing: false, vehicle: null, coutn: 1 };
+    writeManifest(list);
+
+    const error = await refusal();
+
+    expect(error.message).toBe("refused: voice manifest entry V2 has an unknown key in expect: coutn");
+  });
+
+  it("names an unknown key only when it is a plain word, so no text of the manifest is echoed", async () => {
+    const list = entries();
+    list[0].expect = { kind: "reports", crossing: false, vehicle: null, [`${NOTE} with spaces`]: 1 };
+    writeManifest(list);
+
+    const error = await refusal();
+
+    expect(error.message).toBe("refused: voice manifest entry V1 has an unknown key in expect: (not a plain word)");
+  });
+
+  it("reads a manifest that starts with a UTF-8 byte order mark, as Windows PowerShell writes one", async () => {
+    scriptMetas();
+    // The three bytes EF BB BF, written as bytes, before the JSON.
+    writeFileSync(manifest, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), readFileSync(manifest)]));
+
+    await expect(runHarness(options())).resolves.toMatchObject({ asked: 3, passed: 3 });
   });
 });
 

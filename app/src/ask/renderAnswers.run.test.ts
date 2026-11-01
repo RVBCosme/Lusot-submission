@@ -16,12 +16,14 @@ const ANSWERS = process.env.LUSOT_ASK_ANSWERS
 describe.skipIf(!ANSWERS)("Ask Lusot's saved answers, worded for the copy check", () => {
   it('writes answers.rendered.jsonl beside the answers file', () => {
     const done = renderAnswersFile(ANSWERS ?? '', {
+      repo: resolve(import.meta.dirname, '../../..'), // this file is app/src/ask/
       resolve,
       read: (path) => readFileSync(path, 'utf8'),
       write: (path, text) => writeFileSync(path, text, 'utf8'),
     })
 
     console.log(`ask:render: ${done.records} records, ${done.linesEn} English lines, ${done.linesFil} Filipino lines`)
+    console.log(`ask:render: ${done.skipped} failed questions left out (no answer to render)`)
     console.log('ask:render: written beside the answers file as answers.rendered.jsonl')
     expect(done.records).toBeGreaterThan(0)
   })
