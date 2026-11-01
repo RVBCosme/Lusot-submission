@@ -1,9 +1,10 @@
 """Tests for the tuning module: the cutoffs, their start values and the change log (C310).
 
 Expected numbers come from START, never the live TUNING, so a later tuning can't break
-them. Four tests read TUNING, and none has a number of its own: each untuned name
-still equals START's value, MS3a's five constants equal TUNING's values, the change
-log names TUNING's version, and TUNING's effort and drawing are known values.
+them. Five tests read TUNING, and none expects a number of its own: each untuned name
+still equals START's value, MS3a's five constants equal TUNING's values, the touch
+check is no looser than START's (C331), the change log names TUNING's version, and
+TUNING's effort and drawing are known values.
 """
 
 from dataclasses import asdict, fields, replace
@@ -66,6 +67,36 @@ def test_ms3a_cutoffs_read_the_tuning_module():
     assert quality_refusal(scores, START) is None
     assert quality_refusal(scores, replace(START, brightness_min=50.0)) == "too_dark"
     assert quality_refusal(scores, replace(START, sharpness_min=150.0)) == "too_blurry"
+
+
+def _relaxes_touch_check(candidate: Tuning) -> bool:
+    """True when the touch check keeps more references than START's does (C331).
+
+    Written as "not within the bounds", so a NaN, which compares False with
+    everything and would turn the share check off, counts as relaxed.
+    """
+    return not (
+        candidate.touch_tolerance_px <= START.touch_tolerance_px
+        and candidate.touch_share_min >= START.touch_share_min
+    )
+
+
+def test_the_touch_check_is_never_relaxed():
+    # C331, from the $0 replay of the 120 Set C development runs on Nov 2, 2026 (main
+    # 11a41c7, C91 in; weak labels). At START, 11 levels: 6 under, 1 of them by 2 or
+    # more, and no passability class read lower than its label. A 10 px tolerance
+    # gives 20 levels: 9 under, 4 by 2 or more, 2 passability classes read lower. At
+    # 15 px, 22 levels: 10 under, 6 by 2 or more, 4 passability classes read lower.
+    # Each tolerance tried adds under-reads by count, so the live tuning may tighten
+    # the check but never loosen it. The share's bound follows because a lower share
+    # keeps more references, as a wider tolerance does. A 0.10 share, replayed later
+    # on Nov 2, gave 2 more exact levels and one unscorable risk; it wasn't adopted.
+    assert not _relaxes_touch_check(TUNING)
+    assert _relaxes_touch_check(replace(START, touch_tolerance_px=10.0))
+    assert _relaxes_touch_check(replace(START, touch_share_min=0.10))
+    assert _relaxes_touch_check(replace(START, touch_share_min=float("nan")))
+    assert not _relaxes_touch_check(replace(START, touch_tolerance_px=4.0))
+    assert not _relaxes_touch_check(replace(START, touch_share_min=0.30))
 
 
 def test_change_log_names_the_version():
