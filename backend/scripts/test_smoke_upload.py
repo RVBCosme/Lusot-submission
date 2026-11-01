@@ -226,9 +226,19 @@ class FakeCloud:
     """
 
     def __init__(
-        self, outcomes=(), *, faults=(), upload_s=0.0, processing_s=0.0, phase_a=False
+        self,
+        outcomes=(),
+        *,
+        faults=(),
+        upload_s=0.0,
+        processing_s=0.0,
+        phase_a=False,
+        sample_outcome=None,
     ):
         self.outcomes = list(outcomes)
+        # The level probe's seeded sample and how its run ends (a level by default).
+        self.samples = {smoke_upload.LEVEL_SAMPLE}
+        self.sample_outcome = LEVEL if sample_outcome is None else sample_outcome
         self.faults = set(faults)
         self.upload_s, self.processing_s = upload_s, processing_s
         self.phase_a = phase_a
@@ -262,7 +272,9 @@ class FakeCloud:
         live once it is past pending, published shows every report published,
         index_lag answers a report's first 2 reads with 404 and never_indexed all of
         them, pin_found puts the run's first report on the map, map_down answers the
-        map with 503, and paused_not_json answers a paused upload with text."""
+        map with 503, paused_not_json answers a paused upload with text, and
+        sample_saved answers the level probe with a saved result, as the API does
+        while model calls are stopped."""
         origin = request.headers.get("origin")
         cors = {"access-control-allow-origin": origin} if origin else {}
         url = str(request.url)
@@ -361,6 +373,26 @@ class FakeCloud:
                 return httpx.Response(503, json={"message": "Service Unavailable"})
             first = [rid(0)] if "pin_found" in self.faults else []
             return httpx.Response(200, json=self.pins(self.on_map + first))
+        if request.method == "POST" and url.startswith(f"{API}/samples/"):
+            # POST /samples/{id}: the API copies the sample's stored copy to raw/ and
+            # the analysis runs on it, in mode sample (MS4-Q8).
+            sample_id = url.removeprefix(f"{API}/samples/")
+            self.trail.append(("sample", sample_id))
+            self.devices.append(request.headers.get("x-lusot-device"))
+            if self.stopped:
+                return httpx.Response(503, json={"error": "uploads_paused"})
+            if sample_id not in self.samples:
+                return httpx.Response(404, json={"error": "not_found"})
+            if "sample_saved" in self.faults:
+                saved = {"status": "done", "saved": True, "savedAt": CAPTURED}
+                return httpx.Response(200, json=saved)
+            report_id = f"r_{len(self.reports):032x}"
+            self.reports[report_id] = {"status": "pending"}
+            self.modes[report_id] = "sample"
+            self.objects.add(f"raw/{report_id}.jpg")
+            grey = np.full((8, 8), 128, np.uint8)
+            self.deliver(f"raw/{report_id}.jpg", grey, outcome=self.sample_outcome)
+            return httpx.Response(201, json={"reportId": report_id})
         raise AssertionError(f"unexpected {request.method} {url}")
 
     @staticmethod
@@ -368,7 +400,7 @@ class FakeCloud:
         """A pins answer as pins.ts gives it, in part: each report id at the spot."""
         return {"pins": [{"id": i, **SPOT, "mode": "live"} for i in ids]}
 
-    def deliver(self, key, grey=None):
+    def deliver(self, key, grey=None, outcome=None):
         """The analysis function on one notification for a raw photo.
 
         Faults: reuse_pays, no_already_finished and repost_keeps_raw change a
@@ -400,7 +432,10 @@ class FakeCloud:
                 )
             return
         self.ready_at[report_id] = self.time.now + self.processing_s
-        fields, line = self.dark() if grey.mean() < 40 else self.outcomes.pop(0)
+        if outcome is not None:  # the level probe's sample run
+            fields, line = outcome
+        else:
+            fields, line = self.dark() if grey.mean() < 40 else self.outcomes.pop(0)
         if self.phase_a:  # neither Task 14 nor MS3b is deployed
             fields = without(fields, *PHASE_B)
         report.update(fields)
@@ -1161,16 +1196,20 @@ def test_b1_bound_counts_from_the_photos_204(tmp_path, monkeypatch, capsys):
     )
 
 
-def test_b1_run_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
-    cloud = FakeCloud([NO_REFERENCE, NO_FLOOD, NO_REFERENCE, NO_REFERENCE, NO_FLOOD])
-    assert run_smoke(tmp_path, monkeypatch, cloud) == 3
+B1_NO_LEVEL = [NO_REFERENCE, NO_FLOOD, NO_REFERENCE, NO_REFERENCE, NO_FLOOD]
+
+
+def test_without_a_b1_level_the_level_probe_proves_one(tmp_path, monkeypatch, capsys):
+    # C71 with the level probe (Nov 2): no B1 photo gave a level, so the run sends the
+    # seeded sample whose live run reads exactly, and its level is the proof. B1's
+    # drop causes still print for C75's diagnosis, and B4, B5 and the rest still run.
+    cloud = FakeCloud(B1_NO_LEVEL)
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 0
     lines = printed(capsys, tmp_path, cloud)
-    # C71: the outcomes and, for C75's diagnosis, each photo's drop causes; then the
-    # B4 and B5 checks and the rest still run.
     at = lines.index(
         "the dark photo: refused/too_dark N s after its upload, 0 Meta calls"
     )
-    assert lines[at + 1 : at + 9] == [
+    assert lines[at + 1 : at + 10] == [
         (
             "no photo gave a level (C71): 2 done/no_flood_seen,"
             " 3 refused/no_usable_reference"
@@ -1180,17 +1219,49 @@ def test_b1_run_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
         "photo 3/5 drops: vehicle_moving 2",
         "photo 4/5 drops: vehicle_moving 2",
         "photo 5/5 drops: none",
-        "no pin: none of the 6 reports is in nearby or on the map",
+        "the level probe: done/level knee (NPLV) N s after its run started, 8 Meta calls",
+        "no pin: none of the 7 reports is in nearby or on the map",
         (
-            "stored photos: no raw photo left for 6 reports, and a blurred photo, an"
-            " overlay and its layers only for the 0 with a level"
+            "stored photos: no raw photo left for 7 reports, and a blurred photo, an"
+            " overlay and its layers only for the 1 with a level"
         ),
     ]
+    assert ("sample", smoke_upload.LEVEL_SAMPLE) in cloud.trail
     assert any(line.startswith("reused link: S3 took the form again") for line in lines)
+    assert lines[-1] == "SMOKE OK in N s"
+
+
+def test_a_level_probe_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
+    cloud = FakeCloud(B1_NO_LEVEL, sample_outcome=NO_REFERENCE)
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 3
+    lines = printed(capsys, tmp_path, cloud)
+    assert (
+        "the level probe: refused/no_usable_reference N s after its run started,"
+        " 8 Meta calls"
+    ) in lines
     assert lines[-2:] == [
         "stop switch: 503 uploads_paused while on, then set back to off",
-        "SMOKE NO LEVEL in N s: every other check passed, so C71 applies (exit 3)",
+        (
+            "SMOKE NO LEVEL in N s: every other check passed, and the level probe gave"
+            " no level either, so C71 applies (exit 3)"
+        ),
     ]
+
+
+def test_a_saved_probe_result_fails_the_run(tmp_path, monkeypatch, capsys):
+    # A saved result means model calls are stopped, so no level was run.
+    cloud = FakeCloud(B1_NO_LEVEL, faults={"sample_saved"})
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+    assert printed(capsys, tmp_path, cloud)[-1] == (
+        "SMOKE FAILED: the level probe: a saved result came back, so model calls are"
+        " stopped and nothing ran"
+    )
+
+
+def test_a_b1_level_needs_no_probe(tmp_path, monkeypatch, capsys):
+    cloud = FakeCloud(HAPPY)
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 0
+    assert not any(step[0] == "sample" for step in cloud.trail)
 
 
 # How each failing check ends the run: the fake cloud's set-up, then the reason

@@ -23,7 +23,10 @@ In order, it checks that:
    polled every 1 s through 404s for up to 10 s, since the report index can lag a new
    report. Each report is final (done, refused or failed) within 120 s of its photo's
    204 (C68), or --bound's seconds (R119). The dark photo goes from the Capacitor origin, and both its calls answer
-   with that allow-origin header.
+   with that allow-origin header. When no B1 photo gives a level, the level probe
+   proves one: POST /samples/{LEVEL_SAMPLE}, the seeded sample whose live run read
+   exactly under tuning-v2, as the app starts it. Its report reads mode sample and
+   counts in checks 5 and 6 and the spend (Nov 2, the tracker's ruling).
 3. a reused upload link pays nothing (B5). As soon as a photo's report is final and
    its log shows Meta calls, before the next upload, its form is posted again with
    the same bytes, at most 280 s after POST /uploads returned it: the form lasts
@@ -153,6 +156,10 @@ PHOTO_DIR = "images"  # the photos themselves, inside C87's folder (R116)
 SEED = 20261028  # C87's draw, fixed in advance as R7's was
 B1_POSITIONS = slice(0, 5)  # of C87's order
 FALLBACK_POSITIONS = slice(5, 20)  # C71
+# The level probe (Nov 2): OL032's seeded sample, Baliuag (CC0), whose live run read
+# below_gutter exactly on the agreed relabel under tuning-v2. It runs when no B1 photo
+# gives a level, so each deploy proves a level end to end on the same photo.
+LEVEL_SAMPLE = "sf13fd56a4d"
 APP_MAX_SIDE = 1600  # as app/src/lib/capture.ts sends a photo
 APP_JPEG_QUALITY = 85
 FINAL_STATUSES = ("done", "refused", "failed")
@@ -349,7 +356,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "no fallback photo gave a level either, so B1 is partly met, with the drop"
             " causes above as its reason (C71, exit 3)"
             if args.fallback
-            else "every other check passed, so C71 applies (exit 3)"
+            else "every other check passed, and the level probe gave no level either,"
+            " so C71 applies (exit 3)"
         )
         say(f"SMOKE NO LEVEL in {took:.1f} s: {why}")
         return 3
@@ -396,6 +404,8 @@ def run_b1(
         level = any("level" in item.body for item in b1)
         if not level:
             say_no_level(b1)
+            probe = run_level_probe(http, stack, sent=sent, bound_s=bound_s)
+            level = "level" in probe.body
         check_no_pin(http, stack, sent)
         check_stored_photos(stack, sent)
     finally:
@@ -407,6 +417,56 @@ def run_b1(
     check_key_loaded(stack.session)
     check_stop_switch(stack.session, http, stack.api_url)
     return level
+
+
+def run_level_probe(
+    http: httpx.Client, stack: Stack, *, sent: list[Sent], bound_s: float
+) -> Sent:
+    """C71's level proof when no B1 photo gave one: POST /samples/{LEVEL_SAMPLE}, the
+    seeded sample's real pipeline run, as the app starts it (MS4-Q8).
+
+    Its report must be final within `bound_s`, read mode sample and published false,
+    and log its line, and it joins `sent`, so the pin, stored-photo and spend checks
+    count it. A 503 (uploads paused), a 404 (the sample is gone) or a saved result
+    (model calls stopped, so nothing ran) raises CheckFailed.
+    """
+    label = "the level probe"
+    response = http.post(
+        f"{stack.api_url}/samples/{LEVEL_SAMPLE}", json={}, headers=device_header()
+    )
+    if response.status_code == 200:
+        raise CheckFailed(
+            f"{label}: a saved result came back, so model calls are stopped and"
+            " nothing ran"
+        )
+    if response.status_code == 404:
+        raise CheckFailed(f"{label}: sample {LEVEL_SAMPLE} isn't in the manifest")
+    if response.status_code != 201:
+        raise CheckFailed(f"{label}: POST /samples: {got(response)}")
+    report_id = json_object(response, "POST /samples")["reportId"]
+    started = time.monotonic()
+    item = Sent(label, report_id, {}, b"", started, started)
+    try:
+        item.body, item.lines, final_s = await_report(
+            http,
+            stack,
+            label,
+            report_id,
+            since=started,
+            paid=item.lines,
+            bound_s=bound_s,
+            mode="sample",
+        )
+    except CheckFailed:
+        if item.lines:  # read before a later check failed: a paid run
+            sent.append(item)
+        raise
+    sent.append(item)
+    say(
+        f"{label}: {result_text(item.body)} {final_s:.1f} s after its run started,"
+        f" {meta_calls(item.lines)} Meta calls"
+    )
+    return item
 
 
 def run_fallback(
@@ -688,10 +748,12 @@ def await_report(
     since: float,
     bound_s: float = POLL_FOR_S,
     paid: list[dict] | None = None,
+    mode: str = "private",
 ) -> tuple[dict, list[dict], float]:
     """A report's final body (C68), its log lines, and its seconds from `since`.
 
-    The body must have C67's shape, read mode private and published false (S1), and
+    The body must have C67's shape, read `mode` (private for an upload, sample for
+    the level probe) and published false (S1), and
     the log must hold the line of how it ended. The log lines are read once the shape
     passes, and also go into `paid` before the private checks, so a paid report that
     fails them can still be counted in the spend.
@@ -704,8 +766,8 @@ def await_report(
         lines = log_lines(stack, report_id, until=outcome)
         if paid is not None:
             paid.extend(lines)
-        if body["mode"] != "private":
-            raise CheckFailed(f"mode {body['mode']!r}, expected private")
+        if body["mode"] != mode:
+            raise CheckFailed(f"mode {body['mode']!r}, expected {mode}")
         if body["published"]:
             raise CheckFailed("published is true, expected false")
         if not any(line.get("outcome") == outcome for line in lines):
