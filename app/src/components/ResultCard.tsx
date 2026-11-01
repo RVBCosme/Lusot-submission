@@ -405,7 +405,9 @@ function ResultCardBody({
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-2" />
                   {/* What to try next, only on a photo the person took themselves (C637). */}
-                  {!isExample && <Note value={tipLine(t, report?.refusalReason ?? '')} className="mt-2" />}
+                  {source === 'own' && !isExample && (
+                    <Note value={tipLine(t, report?.refusalReason ?? '')} className="mt-2" />
+                  )}
                 </>
               )}
             </div>

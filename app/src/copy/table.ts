@@ -11,6 +11,7 @@ import { levelLine } from './wording'
 const SCREEN_OF_PREFIX: Record<string, string> = {
   refusal: 'result',
   reason: 'result',
+  tip: 'result',
   retake: 'report',
   consent: 'consent',
   privacy: 'privacy',

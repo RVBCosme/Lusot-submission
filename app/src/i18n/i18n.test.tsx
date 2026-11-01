@@ -101,8 +101,8 @@ it("D19's English refusal and its Taglish are reviewed, and so is every line Ren
   expect(FIL['report.refused.gps_too_coarse'].reviewed).toBe(true)
 })
 
-it("screen-line keys are the refusal, reason, retake, consent and privacy lines, and Ask Lusot's answer", () => {
-  for (const key of ['refusal.d19', 'reason.too_dark', 'retake.tip', 'consent.title', 'privacy.title', 'ask.answer.crossing']) {
+it("screen-line keys are the refusal, reason, refusal tip, retake, consent and privacy lines, and Ask Lusot's answer", () => {
+  for (const key of ['refusal.d19', 'reason.too_dark', 'tip.no_usable_reference', 'retake.tip', 'consent.title', 'privacy.title', 'ask.answer.crossing']) {
     expect(isScreenLineKey(key as StringKey), key).toBe(true)
   }
   const others = ['nav.map', 'layout.screenLine', 'about.notAffiliated', 'about.privacy.link', 'reasonable.x', 'ask.ui.send', 'ask.error.voiceFailed']

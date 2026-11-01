@@ -65,7 +65,7 @@ const TIP_REASONS = [
   'water_unsure',
   'no_water_found',
   'references_disagree',
-] as const satisfies readonly Reason[]
+] as const satisfies readonly (typeof REFUSED_REASONS)[number][]
 const isTipReason = (word: string): word is (typeof TIP_REASONS)[number] =>
   (TIP_REASONS as readonly string[]).includes(word)
 

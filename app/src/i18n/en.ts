@@ -361,9 +361,9 @@ export const EN = {
   },
   'reason.other': { text: 'No further reason is available.', reviewed: true },
   // The next-step tip under your own refusal's reason line, for five reasons (copy/wording.ts tipLine), never on a
-  // sample's or a demo's refusal (C637). Each retake is from a dry sidewalk, and nobody goes nearer the water. The
+  // sample's, a demo's or someone else's refusal (C637). Each retake is from a dry sidewalk, and nobody goes nearer the water. The
   // refusal-tips proposal's five rows, approved as written in English and Taglish at M20 by the tracker under Rene's
-  // written delegation (Nov 1, about 9:55 PM; checked at 9:58 PM).
+  // written delegation of Nov 1 (the tracker's double-check ran at 9:58 PM). Their test pins the words.
   'tip.no_usable_reference': {
     text:
       'Photograph the spot itself, not a picture on a screen. Lusot can read the depth from the wheel of a parked ' +

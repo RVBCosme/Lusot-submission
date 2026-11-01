@@ -1331,6 +1331,68 @@ describe('the next-step tip under a refusal', () => {
     for (const tip of allTips()) expect(text()).not.toContain(tip)
   })
 
+  it("shows no tip on someone else's refused report opened from the map, or on a failure that carries a refusal code", () => {
+    const theirs: ReportResult = {
+      reportId: 'r',
+      status: 'refused',
+      refusalReason: 'water_unsure',
+      mode: 'live',
+      published: true,
+    }
+    renderCard({ result: theirs, source: 'pin' })
+    expect(screen.getByText(EN['reason.water_unsure'].text)).toBeTruthy()
+    for (const tip of allTips()) expect(text()).not.toContain(tip)
+    cleanup()
+
+    // Tips belong to "can't tell" only: "processing failed" stays its own outcome.
+    renderCard({ result: { ...theirs, status: 'failed', refusalReason: 'photo_unusable', published: false } })
+    expect(screen.getByRole('status').textContent).toContain('Processing failed, try again.')
+    for (const tip of allTips()) expect(text()).not.toContain(tip)
+  })
+
+  it('shows a tip whose Taglish is not reviewed in English inside an element marked lang="en"', async () => {
+    const tip = FIL['tip.no_water_found']
+    FIL['tip.no_water_found'] = { ...tip, reviewed: false }
+    try {
+      renderCard({ result: await takePhoto('refused_no_water_found') }, 'fil')
+      expect(screen.getByText(EN['tip.no_water_found'].text).getAttribute('lang')).toBe('en')
+      expect(screen.queryByText(tip.text)).toBeNull()
+    } finally {
+      FIL['tip.no_water_found'] = tip
+    }
+  })
+
+  // The approved words, pinned the way D19's line is, so that any edit (a dropped "without" or "hindi") fails here
+  // and goes back to Rene's review.
+  it('keeps the approved words exactly', () => {
+    const APPROVED: Record<(typeof TIPPED)[number], { en: string; fil: string }> = {
+      no_usable_reference: {
+        en: 'Photograph the spot itself, not a picture on a screen. Lusot can read the depth from the wheel of a parked car, SUV or van that the water already reaches, not from a jeepney, bus, big truck, tricycle or motorcycle. From a dry sidewalk, without going nearer the water, retake with one such wheel large and clear in the photo.',
+        fil: 'Kunan ang mismong spot, hindi ang larawan sa screen. Mababasa ng Lusot ang lalim mula sa gulong ng nakaparadang kotse, SUV o van na inaabot na ng tubig, hindi mula sa jeepney, bus, malaking truck, tricycle o motorsiklo. Mula sa tuyong bangketa, nang hindi lumalapit sa tubig, kunan ulit nang malaki at malinaw sa photo ang isang ganoong gulong.',
+      },
+      photo_unusable: {
+        en: 'Photograph the spot itself, not a picture on a screen. Lusot needs a clear view of this spot: wipe the lens, hold the phone still, and retake from a dry sidewalk with nothing in front of the camera.',
+        fil: 'Kunan ang mismong spot, hindi ang larawan sa screen. Kailangan ng Lusot ng malinaw na kita ng spot na ito: punasan ang lens, hawakan nang steady ang phone, at kunan ulit mula sa tuyong bangketa nang walang nakaharang sa camera.',
+      },
+      water_unsure: {
+        en: "Lusot couldn't tell floodwater from wet ground. From a dry sidewalk, retake with the water clearly in view where it meets a parked car's wheel.",
+        fil: 'Hindi masabi ng Lusot kung baha ito o basa lang ang lupa. Mula sa tuyong bangketa, kunan ulit nang malinaw na kita ang tubig kung saan ito dumidikit sa gulong ng isang nakaparadang kotse.',
+      },
+      no_water_found: {
+        en: "From a dry sidewalk, without going nearer the water, retake with more of the water's surface in the photo, so its edge around a parked car's wheel shows clearly.",
+        fil: 'Mula sa tuyong bangketa, nang hindi lumalapit sa tubig, kunan ulit nang mas malaki ang kita ng ibabaw ng tubig sa photo, para malinaw ang gilid nito sa paligid ng gulong ng isang nakaparadang kotse.',
+      },
+      references_disagree: {
+        en: "Cars or people at different depths can mean the water is uneven here. Lusot won't pick one depth over another, so it gives no level for this photo.",
+        fil: 'Kapag magkakaiba ang lalim sa mga kotse o tao, puwedeng hindi pantay ang tubig dito. Hindi pipili ang Lusot ng isang lalim kaysa sa iba, kaya walang level para sa photo na ito.',
+      },
+    }
+    for (const reason of TIPPED) {
+      expect(EN[`tip.${reason}`], reason).toEqual({ text: APPROVED[reason].en, reviewed: true })
+      expect(FIL[`tip.${reason}`], reason).toEqual({ text: APPROVED[reason].fil, reviewed: true })
+    }
+  })
+
   it('words each tip within the copy rules: no banned word, crossing phrase, whole road or approach, and every retake from a dry sidewalk', () => {
     for (const reason of TIPPED) {
       for (const lang of ['en', 'fil'] as const) {
