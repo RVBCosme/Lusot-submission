@@ -425,8 +425,9 @@ export const EN = {
     text: 'Not used, since the reading model gave no answer for this person.',
     reviewed: true,
   },
-  // C92 reuses person_no_reading's reviewed line word for word; a line of its own waits for M20.
-  'dropped.person_small': { text: 'Not used, since this person gave no depth reading.', reviewed: true },
+  // C92's line, approved as written at M20 by the tracker under Rene's written delegation (Nov 2, about 4:4x AM),
+  // for Rene's morning sign-off.
+  'dropped.person_small': { text: 'Not used, since this person is too small in the photo to read.', reviewed: true },
   'dropped.person_not_adult': { text: 'Not used, since this person may not be an adult.', reviewed: true },
   'dropped.person_wading': { text: 'Not used, since this person may not be standing still.', reviewed: true },
   'dropped.person_no_reading': { text: 'Not used, since this person gave no depth reading.', reviewed: true },
