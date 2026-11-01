@@ -299,6 +299,7 @@ describe("the dry run", () => {
       expect(Object.keys(line).sort(), line.id).toEqual(
         [
           "answer",
+          "at",
           "checks",
           "error",
           "est_usd",
