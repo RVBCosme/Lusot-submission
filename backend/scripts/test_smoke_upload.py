@@ -254,6 +254,7 @@ class FakeCloud:
         self.trail = []
         self.transports = []  # each HTTPTransport's arguments
         self.devices = []  # each POST /uploads' X-Lusot-Device
+        self.sample_devices = []  # each POST /samples' X-Lusot-Device
         self.asked_headers = []  # each preflight's Access-Control-Request-Headers
         self.nearby = [OTHER]  # the pins near the spot, by report id
         self.on_map = [OTHER]  # the map's pins, by report id
@@ -378,20 +379,23 @@ class FakeCloud:
             # the analysis runs on it, in mode sample (MS4-Q8).
             sample_id = url.removeprefix(f"{API}/samples/")
             self.trail.append(("sample", sample_id))
-            self.devices.append(request.headers.get("x-lusot-device"))
+            self.sample_devices.append(request.headers.get("x-lusot-device"))
             if self.stopped:
                 return httpx.Response(503, json={"error": "uploads_paused"})
             if sample_id not in self.samples:
                 return httpx.Response(404, json={"error": "not_found"})
-            if "sample_saved" in self.faults:
-                saved = {"status": "done", "saved": True, "savedAt": CAPTURED}
+            if "sample_saved" in self.faults:  # samples.ts' savedResult
+                saved = {"saved": True, "savedAt": CAPTURED, "result": {"status": "done"}}
                 return httpx.Response(200, json=saved)
             report_id = f"r_{len(self.reports):032x}"
             self.reports[report_id] = {"status": "pending"}
             self.modes[report_id] = "sample"
             self.objects.add(f"raw/{report_id}.jpg")
             grey = np.full((8, 8), 128, np.uint8)
-            self.deliver(f"raw/{report_id}.jpg", grey, outcome=self.sample_outcome)
+            # A sample has no location, so its level has no gpsAccuracyM.
+            fields, line = self.sample_outcome
+            outcome = (without(fields, "gpsAccuracyM"), line)
+            self.deliver(f"raw/{report_id}.jpg", grey, outcome=outcome)
             return httpx.Response(201, json={"reportId": report_id})
         raise AssertionError(f"unexpected {request.method} {url}")
 
@@ -1227,8 +1231,11 @@ def test_without_a_b1_level_the_level_probe_proves_one(tmp_path, monkeypatch, ca
         ),
     ]
     assert ("sample", smoke_upload.LEVEL_SAMPLE) in cloud.trail
+    # The probe carries the run's device id, so the API counts it in the run's own
+    # sample bucket, never the shared one of requests without it.
+    assert cloud.sample_devices == [cloud.devices[0]]
     assert any(line.startswith("reused link: S3 took the form again") for line in lines)
-    assert lines[-1] == "SMOKE OK in N s"
+    assert lines[-1] == "SMOKE OK in N s: the level probe gave the level; no upload did"
 
 
 def test_a_level_probe_without_a_level_ends_with_exit_3(tmp_path, monkeypatch, capsys):
@@ -1256,6 +1263,54 @@ def test_a_saved_probe_result_fails_the_run(tmp_path, monkeypatch, capsys):
         "SMOKE FAILED: the level probe: a saved result came back, so model calls are"
         " stopped and nothing ran"
     )
+
+
+def test_a_sample_level_has_no_gps_accuracy():
+    # A sample has no location (samples.ts), so its level body has no gpsAccuracyM.
+    body = without(LEVEL_BODY, "gpsAccuracyM") | {"mode": "sample"}
+    smoke_upload.check_report_body(body, sample=True)
+    with pytest.raises(CheckFailed, match=r"missing keys \['gpsAccuracyM'\]"):
+        smoke_upload.check_report_body(body)
+    with pytest.raises(CheckFailed, match=r"extra keys \['gpsAccuracyM'\]"):
+        smoke_upload.check_report_body(LEVEL_BODY | {"mode": "sample"}, sample=True)
+
+
+@pytest.mark.parametrize(
+    ("setup", "reason"),
+    [
+        pytest.param(
+            {"samples": set()},
+            "the level probe: sample sf13fd56a4d isn't in the manifest, or its stored"
+            " copy is gone",
+            id="404",
+        ),
+        pytest.param(
+            {
+                "sample_outcome": (
+                    {"status": "failed", "refusalReason": "model_error"},
+                    {"outcome": "failed/model_error", "meta_calls": 7},
+                )
+            },
+            "the level probe: failed/model_error",
+            id="failed",
+        ),
+    ],
+)
+def test_a_broken_level_probe_fails_the_run(tmp_path, monkeypatch, capsys, setup, reason):
+    # A known-good sample that is gone, or fails, is a fault, not a "can't tell".
+    cloud = FakeCloud(B1_NO_LEVEL, sample_outcome=setup.get("sample_outcome"))
+    if "samples" in setup:
+        cloud.samples = setup["samples"]
+    assert run_smoke(tmp_path, monkeypatch, cloud) == 1
+    assert printed(capsys, tmp_path, cloud)[-1] == f"SMOKE FAILED: {reason}"
+
+
+def test_the_level_probe_is_ol032s_sample():
+    # samples.py fixes a sample's id by its source id, so a re-seed of OL032 keeps
+    # the probe's sample.
+    import samples
+
+    assert smoke_upload.LEVEL_SAMPLE == samples.sample_id("OL032")
 
 
 def test_a_b1_level_needs_no_probe(tmp_path, monkeypatch, capsys):

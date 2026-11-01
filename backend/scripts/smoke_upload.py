@@ -10,7 +10,8 @@
 """Cloud smoke test of the deployed `lusot` stack (MS3a spec B1, B4, B5; plan Task 15).
 
 Every upload comes from SPOT, MS7's OUTSIDE_POINT in Laguna de Bay, outside Metro
-Manila, so every report the run makes is `private` and none can pin (MS4 C513, S1).
+Manila, so every upload's report is `private` and none can pin (MS4 C513, S1). The
+level probe's report is a sample's, which has no location and never pins (C516).
 
 In order, it checks that:
 1. the API's CORS preflight for POST /uploads allows the app's origins and the
@@ -37,7 +38,8 @@ In order, it checks that:
 5. every report body has C67's shape as MS4 extends it: mode and published on each,
    and a level's levelFrom, readings, gpsAccuracyM and its photo, overlay and layers
    links, but never the inches, a reading's inches, or a demo pin's credit, place or
-   event. Each reads mode private and published false, and none of the reports is in
+   event (a sample's level has no gpsAccuracyM). Each upload's reads mode private,
+   the level probe's mode sample, all published false, and none of the reports is in
    nearby at the spot or on the map (S1's no pin). If no photo gave a level, it
    prints their outcomes and drop causes (C75) and carries on, and the run ends with
    exit 3 (C71).
@@ -156,7 +158,8 @@ PHOTO_DIR = "images"  # the photos themselves, inside C87's folder (R116)
 SEED = 20261028  # C87's draw, fixed in advance as R7's was
 B1_POSITIONS = slice(0, 5)  # of C87's order
 FALLBACK_POSITIONS = slice(5, 20)  # C71
-# The level probe (Nov 2): OL032's seeded sample, Baliuag (CC0), whose live run read
+# The level probe (Nov 2): OL032's seeded sample, samples.sample_id("OL032"), so a re-seed
+# keeps it. Baliuag (CC0); its live run read
 # below_gutter exactly on the agreed relabel under tuning-v2. It runs when no B1 photo
 # gives a level, so each deploy proves a level end to end on the same photo.
 LEVEL_SAMPLE = "sf13fd56a4d"
@@ -361,17 +364,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         say(f"SMOKE NO LEVEL in {took:.1f} s: {why}")
         return 3
-    say(f"SMOKE OK in {took:.1f} s")
+    if level == "probe":
+        say(f"SMOKE OK in {took:.1f} s: the level probe gave the level; no upload did")
+    else:
+        say(f"SMOKE OK in {took:.1f} s")
     return 0
 
 
 def run_b1(
     http: httpx.Client, stack: Stack, jpegs: Sequence[bytes], *, bound_s: float
-) -> bool:
+) -> bool | str:
     """The B1 run's checks on the photos' JPEGs, in the module docstring's order.
 
-    Each uploaded photo's report has `bound_s` to be final. Returns whether a photo
-    gave a level.
+    Each uploaded photo's report has `bound_s` to be final. Returns True when a photo
+    gave a level, "probe" when only the level probe did, and False otherwise.
     """
     check_preflight(http, stack.api_url)
     sent: list[Sent] = []
@@ -405,7 +411,7 @@ def run_b1(
         if not level:
             say_no_level(b1)
             probe = run_level_probe(http, stack, sent=sent, bound_s=bound_s)
-            level = "level" in probe.body
+            level = "probe" if "level" in probe.body else False
         check_no_pin(http, stack, sent)
         check_stored_photos(stack, sent)
     finally:
@@ -440,7 +446,10 @@ def run_level_probe(
             " nothing ran"
         )
     if response.status_code == 404:
-        raise CheckFailed(f"{label}: sample {LEVEL_SAMPLE} isn't in the manifest")
+        raise CheckFailed(
+            f"{label}: sample {LEVEL_SAMPLE} isn't in the manifest, or its stored copy"
+            " is gone"
+        )
     if response.status_code != 201:
         raise CheckFailed(f"{label}: POST /samples: {got(response)}")
     report_id = json_object(response, "POST /samples")["reportId"]
@@ -466,6 +475,9 @@ def run_level_probe(
         f"{label}: {result_text(item.body)} {final_s:.1f} s after its run started,"
         f" {meta_calls(item.lines)} Meta calls"
     )
+    if item.body["status"] == "failed":
+        # A known-good sample that fails is a fault in the stack, not a "can't tell".
+        raise CheckFailed(f"{label}: {outcome_of(item.body)}")
     return item
 
 
@@ -761,7 +773,7 @@ def await_report(
     try:
         body = wait_final(http, stack.api_url, report_id, since=since, bound_s=bound_s)
         final_s = time.monotonic() - since
-        check_report_body(body, phase_a=stack.phase_a)
+        check_report_body(body, phase_a=stack.phase_a, sample=mode == "sample")
         outcome = outcome_of(body)
         lines = log_lines(stack, report_id, until=outcome)
         if paid is not None:
@@ -812,7 +824,9 @@ def wait_final(
         sleep(POLL_EVERY_S)
 
 
-def check_report_body(body: dict, *, phase_a: bool = False) -> None:
+def check_report_body(
+    body: dict, *, phase_a: bool = False, sample: bool = False
+) -> None:
     """GET /reports/{id}'s final body has C67's shape as MS4 extends it, and no more.
 
     Every body has reportId, status, capturedAt, mode and published. A refused or
@@ -821,7 +835,9 @@ def check_report_body(body: dict, *, phase_a: bool = False) -> None:
     levelIsFloor, levelFrom (MS3b), readings as a list of objects, gpsAccuracyM as a
     number, and the photoUrl, overlayUrl and layersUrl links. With `phase_a`, a stack
     without Task 14 and MS3b, readings, overlayUrl, layersUrl and levelFrom may be
-    missing. Any other key fails: the location, a stored key, the claim, the inches
+    missing. A `sample` report, the level probe's, has no location, so its level has
+    no gpsAccuracyM, and one fails as an extra key. Any other key fails: the
+    location, a stored key, the claim, the inches
     (depthInMin, depthInMax, or a reading's inches: the deployed INCHES_SHOWN is
     "false"), and a demo pin's credit, place and event never reach a smoke report.
     The error names keys, never their values.
@@ -854,6 +870,8 @@ def check_report_body(body: dict, *, phase_a: bool = False) -> None:
                 "overlayUrl": str,
                 "layersUrl": str,
             }
+    if sample:
+        keys.pop("gpsAccuracyM", None)
     waived = keys.keys() & set(PHASE_B_KEYS) if phase_a else set()
     extra = sorted(body.keys() - keys.keys())
     missing = sorted(keys.keys() - body.keys() - waived)
@@ -1369,7 +1387,8 @@ def new_device() -> None:
 
 
 def device_header() -> dict[str, str]:
-    """X-Lusot-Device for one POST /uploads: the run's uuid4, renewed after every 10.
+    """X-Lusot-Device for one POST /uploads, or the level probe's POST /samples: the
+    run's uuid4, renewed after every 10 calls.
 
     The API counts uploads per device per hour (C508), so the fallback's 15 photos
     and a run's other uploads stay inside the limit.
