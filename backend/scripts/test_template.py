@@ -9,6 +9,7 @@ check:py runs this file with the scripts' dependencies. Alone, from the repo roo
         backend/scripts/test_template.py
 """
 
+import json
 import re
 
 from cfn_template import TEMPLATE, load_template, raw_lines
@@ -413,13 +414,17 @@ def test_web_hosting_switch():
     assert p["Default"] == "on"
     # Strings, never YAML 1.1's booleans (C309).
     assert all(isinstance(value, str) for value in [*p["AllowedValues"], p["Default"]])
-    assert T["Conditions"] == {"HasWeb": {"Fn::Equals": [{"Ref": "WebHosting"}, "on"]}}
+    assert T["Conditions"]["HasWeb"] == {"Fn::Equals": [{"Ref": "WebHosting"}, "on"]}
+    # The template's only other condition is the credit guard's (MS9-Q1).
+    assert set(T["Conditions"]) == {"HasWeb", "HasCreditExpiry"}
 
 
 def test_only_the_website_needs_the_switch():
     """Off leaves out the four web resources and the three outputs deploy:web reads, and
-    nothing else."""
-    assert {name for name, r in RES.items() if "Condition" in r} == set(WEB_RESOURCES)
+    nothing else. The credit guard's two resources have their own condition."""
+    credit = {"CreditExpirySchedule", "CreditExpiryRole"}
+    conditional = {name for name, r in RES.items() if "Condition" in r}
+    assert conditional == set(WEB_RESOURCES) | credit
     assert all(RES[name]["Condition"] == "HasWeb" for name in WEB_RESOURCES)
     outputs = T["Outputs"]
     web_outputs = {"WebUrl", "WebBucketName", "WebDistributionId"}
@@ -1059,3 +1064,65 @@ def test_feed_output():
         "QueueName",
         "DeadLetterQueueName",
     } <= set(outputs)
+
+
+# The credit-expiry guard (MS9-Q1, the tracker's approved design, Nov 2): when the Meta
+# credits lapse, a one-time schedule sets the model-calls switch on, so no Meta call can
+# bill the card. Empty, the default, leaves it out, so a deploy without the date changes
+# nothing.
+def test_the_credit_guard_is_off_by_default():
+    parameter = T["Parameters"]["CreditExpiresAt"]
+    assert (parameter["Type"], parameter["Default"]) == ("String", "")
+    pattern = parameter["AllowedPattern"]
+    assert re.fullmatch(pattern, "")
+    assert re.fullmatch(pattern, "2026-11-05T00:00:00")
+    for bad in ("2026-11-05 00:00:00", "2026-11-05", "2026-11-05T00:00:00Z", "soon"):
+        assert not re.fullmatch(pattern, bad), bad
+    assert T["Conditions"]["HasCreditExpiry"] == {
+        "Fn::Not": [{"Fn::Equals": [{"Ref": "CreditExpiresAt"}, ""]}]
+    }
+    for name in ("CreditExpirySchedule", "CreditExpiryRole"):
+        assert T["Resources"][name]["Condition"] == "HasCreditExpiry"
+
+
+def test_the_credit_guard_sets_only_the_model_calls_switch_on():
+    schedule = T["Resources"]["CreditExpirySchedule"]
+    assert schedule["Type"] == "AWS::Scheduler::Schedule"
+    props = schedule["Properties"]
+    assert props["ScheduleExpression"] == {"Fn::Sub": "at(${CreditExpiresAt})"}
+    assert props["ScheduleExpressionTimezone"] == "UTC"
+    # Quoted in the template: YAML 1.1 reads a bare OFF as false.
+    assert props["FlexibleTimeWindow"] == {"Mode": "OFF"}
+    assert props["State"] == "ENABLED"
+    target = props["Target"]
+    assert target["Arn"] == {
+        "Fn::Sub": "arn:${AWS::Partition}:scheduler:::aws-sdk:ssm:putParameter"
+    }
+    assert target["RoleArn"] == {"Fn::GetAtt": ["CreditExpiryRole", "Arn"]}
+    assert json.loads(target["Input"]) == {
+        "Name": "/lusot/stop/model-calls",
+        "Value": "on",
+        "Type": "String",
+        "Overwrite": True,
+    }
+
+
+def test_the_credit_guard_role_can_set_that_one_parameter_only():
+    role = T["Resources"]["CreditExpiryRole"]["Properties"]
+    [trust] = role["AssumeRolePolicyDocument"]["Statement"]
+    assert trust["Principal"] == {"Service": "scheduler.amazonaws.com"}
+    assert trust["Action"] == "sts:AssumeRole"
+    assert trust["Condition"] == {
+        "StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}}
+    }
+    [policy] = role["Policies"]
+    [statement] = policy["PolicyDocument"]["Statement"]
+    assert statement == {
+        "Effect": "Allow",
+        "Action": "ssm:PutParameter",
+        "Resource": {
+            "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}"
+            ":parameter/lusot/stop/model-calls"
+        },
+    }
+    assert "ManagedPolicyArns" not in role
