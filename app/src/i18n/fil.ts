@@ -460,6 +460,9 @@ export const FIL: Record<StringKey, Entry> = {
   'overlay.ref.body': { text: 'Katawan ng sasakyan {id}', reviewed: true },
   'overlay.ref.person': { text: 'Tao {id}', reviewed: true },
   'overlay.floor': { text: 'Hindi bababa sa {level}', reviewed: true },
+  // Approved by the tracker under Rene's written delegation, Nov 2, about 3:4x AM (en.ts has the reason).
+  'overlay.fromWheel': { text: 'Ang gulong nito ang nagbigay ng reading.', reviewed: true },
+  'overlay.noLevel': { text: 'Walang nabasang level dito.', reviewed: true },
   'map.noApi': { text: 'Hindi maipapakita ng build na ito ang mga report.', reviewed: true },
   'map.loading': { text: 'Kinukuha ang mga report.', reviewed: true },
   'map.loadFailed': { text: 'Hindi makuha ng Lusot ang mga report ngayon. Susubukan ulit ng Lusot.', reviewed: true },
