@@ -95,6 +95,7 @@ class FakeStack:
         self.final_on: str | None = (
             None  # the end's get_parameters reads this one as on
         )
+        self.switch_reads = 0  # get_parameters calls: the first is the start's check
         self.off_put_fails: set[str] = set()  # switches whose "off" put fails
         self.raise_in_read: BaseException | None = None  # once publish is on
         self.session = StubSession(*SERVICES, on_call=self.on_aws)
@@ -128,12 +129,14 @@ class FakeStack:
                 found["Value"] = self.read_back
             stub.add_response("get_parameter", {"Parameter": found})
         elif operation == "GetParameters":
+            self.switch_reads += 1
             found = [
                 self.parameter(n.removeprefix(harden.SWITCH_PREFIX))
                 for n in params["Names"]
             ]
             for entry in found:
-                if entry["Name"].endswith("/" + str(self.final_on)):
+                late = self.switch_reads > 1  # not the start's check (C533)
+                if late and entry["Name"].endswith("/" + str(self.final_on)):
                     entry["Value"] = "on"
             stub.add_response("get_parameters", {"Parameters": found})
         elif operation == "PutItem":
@@ -753,6 +756,18 @@ def run_main(argv, fake, clock):
         clock=clock.mono,
         sleep=clock.sleep,
     )
+
+
+def test_a_switch_already_on_refuses_the_run(capsys):
+    # C533: past CreditExpiresAt the credit guard has set model-calls on, and the
+    # test's finally would set it back to off and let calls bill the card. So the run
+    # owns the switches only when every one reads off, and flips nothing otherwise.
+    clock, fake, _ = world()
+    fake.switches["model-calls"] = [(-math.inf, "on")]
+    assert run_main(["--yes"], fake, clock) == 2
+    out = capsys.readouterr().out
+    assert "refused: a switch isn't off before the test: model-calls" in out
+    assert all(fake.puts(name) == [] for name in fake.switches)
 
 
 def test_run_ends_with_all_switches_off(capsys):

@@ -61,6 +61,9 @@ def aws(monkeypatch):
         session.client("ssm").put_parameter(
             Name=SPEND_STOP_PARAM, Value="140", Type="String"
         )
+        session.client("ssm").put_parameter(
+            Name=laptop_spend.MODEL_CALLS_SWITCH, Value="off", Type="String"
+        )
         yield SimpleNamespace(session=session, ddb=ddb)
 
 
@@ -201,6 +204,28 @@ def test_a_total_at_or_over_the_stop_is_refused(aws, capsys, total, goes_on):
     assert capsys.readouterr().out == (
         f"refused: the spend counter is at its stop: ${total} of $140\n"
     )
+
+
+@pytest.mark.parametrize("value", ["on", "On", "maybe"])
+def test_a_model_calls_switch_not_off_is_refused(aws, capsys, value):
+    # C533: once the credit guard sets the switch on at the credits' expiry, a laptop
+    # tool must not pay Meta either, or the card is billed. Only "off" lets it run, as
+    # in the deployed handler (C60).
+    add(aws.ddb, "1")
+    aws.session.client("ssm").put_parameter(
+        Name=laptop_spend.MODEL_CALLS_SWITCH, Value=value, Type="String", Overwrite=True
+    )
+    assert check(aws.session) == 2
+    assert capsys.readouterr().out == (
+        "refused: the model-calls switch isn't off, so no paid call runs (C533)\n"
+    )
+
+
+def test_a_missing_model_calls_switch_is_refused(aws, capsys):
+    add(aws.ddb, "1")
+    aws.session.client("ssm").delete_parameter(Name=laptop_spend.MODEL_CALLS_SWITCH)
+    assert check(aws.session) == 2
+    assert capsys.readouterr().out.startswith(f"refused: {laptop_spend.UNREADABLE}")
 
 
 @pytest.mark.parametrize("value", ["abc", "NaN", "Infinity"])

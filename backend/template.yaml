@@ -25,9 +25,19 @@ Parameters:
     AllowedValues: ["on", "off"]
     Default: "on"
     Description: on serves the website from WebBucket through CloudFront; off leaves the web resources and outputs out.
+  # MS9-Q1: when the Meta credits lapse, analysis and Ask pause and the card is never billed.
+  # Rene sets it in samconfig.toml's parameter_overrides once the expiry is known, at least
+  # 2 hours before the earliest stated expiry (the tracker's rule, Nov 2).
+  CreditExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+    ConstraintDescription: empty, or a UTC time (Manila time minus 8 hours) as yyyy-mm-ddThh:mm:ss
+    Description: When the Meta credits lapse, in UTC, which is Manila time minus 8 hours. At that time CreditExpirySchedule sets /lusot/stop/model-calls on. Empty leaves the schedule, its role and its alarm out. An impossible date passes this pattern and fails the deploy at CreateSchedule.
 
 Conditions:
   HasWeb: !Equals [!Ref WebHosting, "on"]
+  HasCreditExpiry: !Not [!Equals [!Ref CreditExpiresAt, ""]]
 
 # The region (D-d): CloudFormation checks a stack's rules when it makes the change set, so a
 # deploy to any other region fails there, before the stack changes. SAM's companion stack and
@@ -641,6 +651,72 @@ Resources:
       Name: /lusot/stop/model-calls
       Type: String
       Value: "off"
+
+  # The credit-expiry guard (MS9-Q1): a one-time schedule that sets the model-calls switch
+  # on at CreditExpiresAt, UTC, so no Meta call runs on lapsed credit and bills the card.
+  # Samples still show their saved results (C617, C638). The schedule fires once and then
+  # stays, inert: CloudFormation's schedule has no ActionAfterCompletion, and keeping it
+  # leaves no drift. A later deploy resets the switch to off only if it changes a property of
+  # StopModelCallsParameter, as its comment says. Scheduler, this role and the alarm are free.
+  CreditExpiryRole:
+    Type: AWS::IAM::Role
+    Condition: HasCreditExpiry
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: set-the-model-calls-switch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:PutParameter
+                # Ref gives the switch's name, so a fresh stack makes the switch first.
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${StopModelCallsParameter}"
+
+  CreditExpirySchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: HasCreditExpiry
+    Properties:
+      Description: Sets the model-calls switch on when the Meta credits lapse (MS9-Q1).
+      ScheduleExpression: !Sub "at(${CreditExpiresAt})"
+      ScheduleExpressionTimezone: UTC
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      State: ENABLED
+      Target:
+        Arn: !Sub "arn:${AWS::Partition}:scheduler:::aws-sdk:ssm:putParameter"
+        RoleArn: !GetAtt CreditExpiryRole.Arn
+        Input: !Sub '{"Name": "${StopModelCallsParameter}", "Value": "on", "Type": "String", "Overwrite": true}'
+
+  # A schedule's call that fails is dropped without a dead-letter queue, so this emails
+  # instead: Scheduler's account-wide target errors. The runbook also checks the switch
+  # reads on 5 minutes after CreditExpiresAt (docs/operations.md).
+  CreditExpiryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasCreditExpiry
+    Properties:
+      AlarmDescription: The credit guard's schedule failed to set the model-calls switch on (C533).
+      Namespace: AWS/Scheduler
+      MetricName: TargetErrorCount
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+      OKActions:
+        - !Ref AlarmTopic
 
   # Ask Lusot's place lookup (its spec §4.8): the off switch Nominatim's usage policy asks for.
   # On, places resolve from the spot list only.

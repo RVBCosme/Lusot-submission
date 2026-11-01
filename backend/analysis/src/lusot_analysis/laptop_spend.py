@@ -106,12 +106,19 @@ class SpendCounter:
             raise SpendNotRecorded from None
 
 
+# The deployed functions' model-calls switch (C60). C533's credit guard sets it on when the
+# Meta credits lapse, so a laptop tool must stop with them, or it bills the card.
+MODEL_CALLS_SWITCH = "/lusot/stop/model-calls"
+
+
 def check_before_paying(*, session=None) -> SpendCounter:
     """MS4's counter, read before the first paid call and any Meta client (C527).
 
     `session` is the lusot profile's (spend.operator_session), unless a test gives
     one. The run goes on only when the counter is seeded, readable and below the stop
-    in SPEND_STOP_PARAM. Otherwise it exits 2 with one fixed line: unseeded; unread,
+    in SPEND_STOP_PARAM, and MODEL_CALLS_SWITCH reads exactly "off", as the deployed
+    handler requires (C60, C533). Otherwise it exits 2 with one fixed line: the switch
+    not off; unseeded; unread,
     as with no credentials or an expired login (the AWS error's code follows, never
     its message); the CRT missing; a stop that isn't a number; or a total at or over
     the stop.
@@ -123,12 +130,15 @@ def check_before_paying(*, session=None) -> SpendCounter:
         total = spend_total(ddb=ddb, table=table)
         ssm = session.client("ssm", config=SPEND_CONFIG)
         value = ssm.get_parameter(Name=SPEND_STOP_PARAM)["Parameter"]["Value"]
+        switch = ssm.get_parameter(Name=MODEL_CALLS_SWITCH)["Parameter"]["Value"]
     except SpendUnseeded:
         _refuse(UNSEEDED)
     except MissingDependencyException:  # a BotoCoreError, so before the next clause
         _refuse(NEEDS_CRT)
     except (BotoCoreError, ClientError) as exc:
         _refuse(f"{UNREADABLE} ({aws_error(exc)})")
+    if switch != "off":
+        _refuse("the model-calls switch isn't off, so no paid call runs (C533)")
     stop = parse_usd(value)
     if stop is None:
         _refuse(BAD_STOP)

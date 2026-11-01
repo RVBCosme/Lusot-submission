@@ -685,6 +685,15 @@ def main(
             return 2
         aws = session if session is not None else lusot_session()
         ssm = aws.client("ssm")
+        # The test owns the switches only when each reads off: its finally sets them
+        # off, which past CreditExpiresAt would undo the credit guard (C533).
+        not_off = [name for name, value in read_switches(ssm).items() if value != "off"]
+        if not_off:
+            say(
+                f"refused: a switch isn't off before the test: {', '.join(not_off)};"
+                " ask the tracker (past CreditExpiresAt, model-calls stays on, C533)"
+            )
+            return 2
         client = http if http is not None else ipv4_client()
         times: list[SwitchTime] = []
         lines: list[str] = []
