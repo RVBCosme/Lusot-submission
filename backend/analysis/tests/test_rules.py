@@ -98,8 +98,10 @@ def test_wheel_rows_match_table_8():
 
 
 def test_people_rows_match_table_8():
+    # C91: an adult's ankle gives no reading, so it can never set a level alone. On the
+    # Nov 1 development check, ankle answers read knee-deep water as below the gutter.
     assert PEOPLE_ROWS == {
-        "ankle": exact("below_gutter"),
+        "ankle": None,
         "mid_shin": exact("half_knee"),
         "knee": exact("knee"),
         "mid_thigh": exact("tire"),

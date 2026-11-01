@@ -112,9 +112,12 @@ WHEEL_ROWS: Mapping[str, Reading | None] = {
     "not_visible": None,
 }
 
-# Table 8's people rows, for adults (D13, C57).
+# Table 8's people rows, for adults (D13, C57), except ankle, which gives no reading
+# (C91): on the Nov 1 development check, Muse Spark answered ankle for adults in about
+# knee-deep water, which read as below the gutter. An adult at ankle depth now leaves the
+# level to the photo's other references, or the photo is refused.
 PEOPLE_ROWS: Mapping[str, Reading | None] = {
-    "ankle": Reading("below_gutter", floor=False),
+    "ankle": None,
     "mid_shin": Reading("half_knee", floor=False),
     "knee": Reading("knee", floor=False),
     "mid_thigh": Reading("tire", floor=False),

@@ -50,7 +50,6 @@ WHEEL_MARKS = (
     "wheel_covered",
 )
 PEOPLE_MARKS = (
-    "ankle",
     "mid_shin",
     "knee",
     "mid_thigh",
@@ -284,11 +283,28 @@ def test_no_linked_wheel_reads_from_the_body(body, expected):
             for mark in PEOPLE_MARKS
         ),
         pytest.param("not_visible", ([], {"person_no_reading": 1}), id="not_visible"),
+        pytest.param("ankle", ([], {"person_no_reading": 1}), id="ankle"),  # C91
     ],
 )
 def test_each_people_row_reads_through(mark, expected):
     # D13: people count fully, so each kept adult gives its own reference.
     assert measured(people=(KeptPerson(1, mark),)) == expected
+
+
+def test_an_ankle_adult_leaves_the_others_reading():
+    # C91: the ankle adult gives no reading, and the mid_shin adult still reads.
+    assert measured(people=(KeptPerson(1, "ankle"), KeptPerson(2, "mid_shin"))) == (
+        [Reference("person", 2, "mid_shin", PEOPLE_ROWS["mid_shin"])],
+        {"person_no_reading": 1},
+    )
+
+
+def test_an_ankle_adult_no_longer_disagrees_with_a_knee_adult():
+    # C91: the ankle adult reads nothing, so it can't refuse the photo against the knee adult.
+    references, drops = measured(people=(KeptPerson(1, "ankle"), KeptPerson(2, "knee")))
+    assert drops == {"person_no_reading": 1}
+    outcome, _ = combine(references)
+    assert (outcome.status, outcome.level) == ("done", "knee")
 
 
 def test_unanswered_wheel_blocks_the_body_reading():

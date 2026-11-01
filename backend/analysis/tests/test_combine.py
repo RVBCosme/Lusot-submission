@@ -88,11 +88,11 @@ def test_exact_knee_beside_exact_chest_refuses():
     "references",
     [
         pytest.param([wheel(3, "tire_only"), wheel(5, "rim_quarter")], id="wheels"),
-        pytest.param([person(8, "ankle"), person(9, "mid_shin")], id="people"),
     ],
 )
 def test_gutter_gap_refuses(references):
-    # Landmarks never read gutter, so each pair sits two levels apart (Rene Q2).
+    # Landmarks never read gutter, so each pair sits two levels apart (Rene Q2). An
+    # adult's ankle gives no reading since C91, so only the wheels' pair is left.
     assert combine(references) == DISAGREE
 
 
