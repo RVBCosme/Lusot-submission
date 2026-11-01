@@ -6,7 +6,7 @@
 
 | Key | Source |
 |---|---|
-| **OR** | The Official Rules and Event Waiver ("Hackathon Terms & Conditions"), dated Oct 25, 2026. They are in the raw server HTML of the [event page](https://cerebralvalley.ai/e/meta-ai-developer-hackathon), fetched with curl at 11:57 PM, Oct 28 (Manila), and searched there. Summaries and the page's `.md` copy miss this section. A rechecked fetch at 12:49 AM, Oct 29 matched the Oct 28 extract by SHA-256. Quoted section names below are the rules' own. Unquoted ones say where in the rules a point sits. "Apply Now", "Participant Tracks" and "Project Themes" are event-page sections outside the rules. |
+| **OR** | The Official Rules and Event Waiver ("Hackathon Terms & Conditions"), dated Oct 25, 2026. They are in the raw server HTML of the [event page](https://cerebralvalley.ai/e/meta-ai-developer-hackathon), fetched with curl at 11:57 PM, Oct 28 (Manila), and searched there. Summaries and the page's `.md` copy miss this section. A rechecked fetch at 12:49 AM, Oct 29 (Manila) matched the Oct 28 extract by SHA-256. Quoted section names below are the rules' own. Unquoted ones say where in the rules a point sits. "Apply Now", "Participant Tracks" and "Project Themes" are event-page sections outside the rules. |
 | **KD** | The event page's "Key Dates" list, in the same fetch |
 | **PD** | The portal's page data in the same HTML: `hackathonSubmissionDueDate` (2026-11-05 02:00, UTC) and `submissionDueDateGracePeriodHours` (6) |
 | **Plan** | The build plan (outside every repo), cited by section and table and paraphrased |
@@ -81,7 +81,7 @@ Each of these comes from the participant guide, the Discord or the kickoff strea
 | G4 | **Projects to avoid** include "simple image analyzers" | Plan §1, §2 (guide) | The pitch rule (CLAUDE.md) |
 | G5 | **Judging stages:** a pass or fail check (fits a problem statement; uses the Meta Model API or Meta's open-weight models), then scores of 0 to 10 by weight, then the top 5 per track in a live final where judges watch the videos live. Partly public: KD names the "live finals", and OR lists five prizes per track. | Plan §1 (guide) | The video plays live (C908) |
 | G6 | **Most Viral:** post the demo video on X and add the post's link on the platform. Engagement counts until Nov 8, end of day ET. Prize $20,000. Are any tags or mentions required? | Plan §18; §24, M26 (guide) | M26; MS8-Q7 |
-| G7 | **Best agentic use case:** prize $5,000; entrants call out bonus tracks when they submit | Plan §24, M33 (kickoff) | M33 |
+| G7 | **Best agentic use case:** prize $5,000; entrants call out bonus tracks when they submit. Not in the Official Rules or on the event page (Nov 1): Rene enters it only if the form offers the field, and no public text names it or its amount | Plan §24, M33 (kickoff) | M33 |
 | G8 | **Community Vote:** prize $10,000, one vote per verified account, winner on Nov 16 or 17 | Plan §2, Table 1; §24, M27 | MS9 |
 | G9 | **Only approved participants may take part in making the project,** and no new approvals are given | Plan §1, §2 (Discord FAQ) | No one else builds, labels, films, edits or submits. Testers and viewers only react (C906). |
 | G10 | The last full day for submission questions is Nov 3, and office hours from Nov 2 run 11:00 PM to midnight Manila | Plan §2, Table 1 | MS8-Q3's question |
@@ -125,12 +125,12 @@ Filled in once Rene has seen the form (O1).
 | Track | Indie Developer | now |
 | Team | Rene Vincent Cosme, solo | now |
 | Theme | Build for Your World | now |
-| Repository | `[submission repository URL]` | named by Nov 2 (MS8-Q2); in the form once it's public (C902) |
+| Repository | the URL in the README outline's clone line | named Nov 1 (MS8-Q2: (a), Rene); in the form once it's public (C902) |
 | Video | `[video link]` | once Rene uploads it (C911) |
 | Live URL | `[live URL]` | MS5 |
 | APK | `[GitHub Release link]`, SHA-256 `[…]` | once Rene publishes the release (C917) |
 | Description | From the [write-up outline](write-up-outline.md): the tagline, the summary and the full text, cut to the form's limits | Nov 4 |
-| Bonus categories | Best agentic use case (M33), pointing to Ask Lusot's tool calls, and the self-check if it shipped | Nov 4 |
+| Bonus categories | Best agentic use case (M33), pointing to Ask Lusot's tool calls, and the self-check if it shipped, only if the form offers that field (G7); otherwise the bonus categories the form lists | Nov 4 |
 | X post | `[X post link]` (M26) | after Rene posts it |
 
 ## 6. Go or no-go, just before Rene submits
@@ -153,4 +153,4 @@ Filled in once Rene has seen the form (O1).
 - [ ] Rene reports the platform's confirmation and its time; Claude logs it (S1)
 - [ ] The X link is on the platform, if it was added after the entry (M26)
 - [ ] Nothing more is pushed to the submission repository (C921)
-- [ ] MS9 starts: the demo stays live through the finals (Nov 10, 1:00 AM), and the alarms, Meta billing and the AWS budget are watched (M25)
+- [ ] MS9 starts: the demo stays live through the finals (Nov 10, 1:00 AM Manila time), and the alarms, Meta billing and the AWS budget are watched (M25)

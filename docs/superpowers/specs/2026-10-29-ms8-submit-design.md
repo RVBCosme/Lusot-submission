@@ -220,6 +220,8 @@ Making the development repository itself public is ruled out by D9.
 
 **Default: (a).** No existing remote can reach it, it costs Rene one step, and everything that shows the URL can be finished on time. Docs that name `RVBCosme/lusot` would point judges at a private repository, so the README says the work was developed there and carried over with its history (MS8-Q1). **Needed by Nov 2.**
 
+**Answer: MS8-Q2: (a), Rene, Nov 1, 2026.** He created the repository empty and private that evening; its URL is in the README outline's clone line and the video outline's closing card (exact case). The answer also covers C902: scanned exports may be pushed to it while it's private. Making it public stays his step (Task 16).
+
 ### MS8-Q3: planning notes from before kickoff, and the new-work line
 
 Kickoff was Oct 27, 12:00 AM Manila. Some planning documents began on Oct 26, before kickoff (PROGRESS.md lists MS0's "before kickoff" work). For example:

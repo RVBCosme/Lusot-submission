@@ -22,19 +22,19 @@ Draft: "Lusot is a live flood map for Metro Manila. A photo taken in the app get
 *The rules ask about the project's real-world potential, who benefits and how much it matters, whether it could become something people use, and whether it fits one of the problem statements.*
 
 - **The problem, with sources** (C901; the same facts as the README):
-  - Two separate facts, never joined by "yet": Metro Manila has 49 flood-prone areas on MMDA's list, and in July 2025 more than 500 flood incidents were reported there within 24 hours (C14's wording).
-  - On Aug 9, 2026, MMDA's 2:02 PM list named 4 flooded spots, while Quezon City's 2:20 PM list held 38 entries, in the same gauge words.
-  - Many flooded streets are never measured: MMDA reports the spots it monitors, and crowd reports give depth in words (the idea of plan §3, in new words).
+  - Two separate facts, never joined by "yet": in July 2025, MMDA identified 49 flood-prone areas in the National Capital Region; and on Jul 22, 2025, MMDA reported more than 500 flood incidents in Metro Manila in the last 24 hours (GMA News; C14's wording, with the day and the reporter named).
+  - On Aug 9, 2026, GMA News carried two lists from different publishers, with different scopes: MMDA's 2:02 PM list named 4 flooded spots, and Quezon City's 2:20 PM list held 38 street entries, in the same gauge words.
+  - MMDA's alert lists name the spots it reports, and crowd reports, such as MapaKalamidad's, come as a photo, a location and the reporter's own description; Lusot can give a reading at other spots too (the last clause is Lusot's own framing, not a sourced fact; the idea is plan §3's, in new words).
 - **Who it serves** (plan §3's idea, in new words):
   - people on foot, and drivers of cars and other light vehicles, who want the depth at a spot before they make their own call
   - drivers of jeepneys, UV Express vans and deliveries, for the spots on their way
   - later, barangay responders
 
   Lusot gives a depth, never a decision.
-- **Why MMDA's words:** MMDA's alerts already describe floods by gauge level and passability class. The alert lists in `docs/research/2026-10-26-alert-index.md` use those words. Lusot gives the same level and class at spots MMDA doesn't monitor, in English or Taglish.
+- **Why MMDA's words:** MMDA's alerts already describe floods by gauge level and passability class. The alert lists in `docs/research/2026-10-26-alert-index.md` use those words. Lusot gives the same level and class at spots MMDA's alerts don't name, in English or Taglish.
 - **Real people used it:** `[M17: five adults, at least two of whom drive or commute through floods; what they did; the one change it caused, with its commit]`. `[M28: the stakeholder's one-line quote and any written commitment, only with their consent; or leave this line out (C13)]`.
 - **It could become something people use:**
-  - `[If the public pin feed shipped: other flood maps, such as MapaKalamidad, could pull Lusot's live pins as GeoJSON (plan §3, §12).]`
+  - `[If the public pin feed shipped: other flood maps, such as MapaKalamidad, could pull Lusot's live pins as GeoJSON, if they chose to; this is Lusot's proposal, and no map has agreed to it (plan §3, §12).]`
   - The plan for after the hackathon is MS10's decision: `[keep running or tear down]`.
 - **The problem statement:** "Build for Your World". `[Rene, in one sentence of his own: why this problem is his.]`
 - **What it is not:** reading flood depth from objects of known size is established research (FloodVision and others, `[cited from docs/research/]`). Lusot's contribution is MMDA's gauge and classes, Metro Manila's streets, Taglish, a live map and an open evaluation (plan §19). Never "first".
@@ -47,9 +47,9 @@ Draft: "Lusot is a live flood map for Metro Manila. A photo taken in the app get
   - `sam-3.1` masks the water, the wheels and the people, and later the faces and plates for the blur before storage
   - `muse-spark-1.3` names the landmarks and runs Ask Lusot's tool calls
   - `muse-voice-transcribe-1.0` transcribes spoken Taglish
-- **The division of labour Meta's documentation advises** (plan §19 cites it; Task 3 records the page): SAM 3.1 makes the masks, and Muse Spark interprets the scene. Lusot draws a numbered box around each wheel and person, so Muse Spark answers about each one by number. It answers in strict structured output, as categories only, and code does all the measuring, so no model ever outputs inches.
+- **Meta's documentation pairs the two models** (plan §19 cites it; Task 3 records the page): Muse Spark interprets a scene and SAM 3.1 supplies pixel-accurate masks. Lusot runs them in the other order, with SAM 3.1 first and Muse Spark reading numbered boxes drawn on its masks. Lusot draws a numbered box around each wheel and person, so Muse Spark answers about each one by number. It answers in strict structured output, as categories only, and code does all the measuring, so no model ever outputs inches.
 - **Tool calling:** Muse Spark chooses the lookup, calls Ask Lusot's one tool, `get_reports`, and answers only from what it returns, citing the reports it used (plan §9). `[Tool details and one real test exchange, from the Ask Lusot spec and MS6's 10 typed and 10 spoken test questions.]`
-- **Voice:** spoken Taglish goes through Muse Voice Transcribe, with Lusot's spot names as keywords, and the transcript shows with the answer, so a misheard place is easy to spot (plan §9).
+- **Voice:** spoken Taglish goes through Muse Voice Transcribe, with Lusot's spot names as keywords, and the transcript shows with the answer, so a misheard place is easy to spot (plan §9). Muse Voice Transcribe lists code-switching among 25 evaluated languages; Lusot tests it on Taglish questions (`[MS6's result]`).
 - **Gated and should-have uses, only if they shipped:**
   - `[The self-check: Muse Spark reviews each wheel outline from SAM 3.1 and sends a doubtful one back for one more try, marked on the overlay (decided Oct 31).]`
   - `[Clip mode: SAM 3.1's video tracking for the motion check.]`
@@ -100,9 +100,9 @@ Draft: "Lusot is a live flood map for Metro Manila. A photo taken in the app get
 - **Holding up live:** the stack stays up through the finals, with alarms, budget alerts and stop switches watched (MS9). Photo to pin takes about `[median from latency.jsonl]` s, measured, never promised (C631).
 - **The video:** 2:40, with English captions throughout, and every photo credited. Its first cut was tested on three people who hadn't seen Lusot (M23).
 
-### Best agentic use case (M33)
+### The bonus entry (M33), only if the submission form offers the field
 
-About 100 words for the form's bonus entry (C915). Draft shape:
+About 100 words for the form's bonus entry (C915). The "Best agentic use case" award isn't in the Official Rules or on the event page (Nov 1); its only source is the kickoff (plan §24, M33). So Rene enters this paragraph only if the form offers that field (he checks the form, as O1 does). The write-up's body, the README and the video name only the categories the rules name, or "a bonus category", and never a prize amount. Draft shape:
 
 "Ask Lusot is a small agent with one job: answer a flood question from evidence only. Muse Spark reads a typed Taglish question, or the transcript of a spoken one, chooses the lookup, calls Lusot's `get_reports` tool, and builds its answer from the reports that come back alone, naming each: the deepest from the past 3 hours within 300 m, how many there are, and how old. When none come back, it says so. `[If the self-check shipped: in the pipeline, Muse Spark also checks SAM 3.1's wheel outlines and sends a bad one back for one retry.]` `[The test result: n of 10 typed and n of 10 spoken questions answered from the right reports.]`"
 
@@ -115,14 +115,14 @@ About 100 words for the form's bonus entry (C915). Draft shape:
 
 | Claim | Source to cite |
 |---|---|
-| 49 flood-prone areas | ABS-CBN, checked in `docs/research/2026-10-27-plan-update-check.md` |
-| More than 500 incidents within 24 hours, July 2025 | GMA News, Jul 22, 2025, in the same note (C14) |
-| Aug 9, 2026: 4 spots against 38 entries | The 2:02 PM and 2:20 PM lists, checked in `docs/research/2026-10-27-plan-update-check.md` §5, and the GMA News page that carries them. Task 3 records that page. The alert index's Aug 9 lists are the morning ones. |
-| Prior work: FloodVision and others | `docs/research/2026-10-27-plan-update-check.md` (research numbers). No MDPI figure until it has been read in a browser (C14). |
+| 49 flood-prone areas, identified in July 2025 | ABS-CBN, checked in `docs/research/2026-10-27-plan-update-check.md` |
+| More than 500 incidents in the last 24 hours, reported Jul 22, 2025 | GMA News, Jul 22, 2025, in the same note (C14) |
+| Aug 9, 2026: two lists, MMDA's 4 spots and Quezon City's 38 street entries | The 2:02 PM and 2:20 PM lists, checked in `docs/research/2026-10-27-plan-update-check.md` §5, and the GMA News page that carries them. Task 3 records that page. The alert index's Aug 9 lists are the morning ones. |
+| Prior work: FloodVision and others | `docs/research/2026-10-27-plan-update-check.md` (research numbers). No MDPI figure is quoted (C14). |
 | MMDA's alerts use gauge levels and classes | The alert lists in `docs/research/2026-10-26-alert-index.md` |
-| Crowd reports give depth in words | A source that Task 3 records, such as MapaKalamidad's own description (plan §3's Table 2 idea) |
-| Meta's guidance to let SAM make masks and Muse Spark interpret | Meta's documentation page, which Task 3 records (plan §19 cites it) |
-| Tires and knees as MMDA's gauge marks | The MMDA gauge source that Task 3 records (plan §26 lists one) |
+| Crowd reports, such as MapaKalamidad's, come as a photo, a location and the reporter's own description | A source that Task 3 records, such as Philstar.com's report of Jan 30, 2024 (plan §3's Table 2 idea) |
+| Meta's documentation pairs Muse Spark (interprets a scene) with SAM 3.1 (masks); Lusot runs them in the other order | Meta's documentation page, which Task 3 records (plan §19 cites it) |
+| Tire and knee are words in MMDA's flood level names | Interaksyon (Philstar.com), Sep 4, 2024, which Task 3 records (plan §26 lists one) |
 | Every result | `eval/results/report/summary.json` and `report.md` |
 | Photo to pin time | `eval/results/latency.jsonl` |
 | The user test and the change | Rene's M17 notes (outside the repo) and the change's commit |

@@ -34,8 +34,8 @@ Times follow plan Table 19. The voice-over word budgets assume about 2.2 words a
 
 | Part | On screen (source) | Voice-over beat (draft) | Captions and on-screen text |
 |---|---|---|---|
-| 0:00 to 0:05 | A plain card with the opening line (C909), on screen in full: "All of Lusot's code, and everything this video shows of it, was built during the hackathon, Oct 27 to Nov 4, 2026." Under it: "Photos are credited on screen." The safety line in small type at the bottom. | A shorter spoken version, about 11 words: "Everything you'll see of Lusot was built during this hackathon." | The card's own text; the voice-over captioned |
-| 0:05 to 0:15 | A flooded Metro Manila street: consented footage (M9), or a CC0 or CC BY `demo_use ok` photo as Lusot's blurred output, with its place, date and credit in the corner. Two lines appear over it in turn, as two separate facts: "Metro Manila has 49 flood-prone areas on MMDA's list." and "In July 2025, more than 500 flood incidents were reported there within 24 hours." A small sources line under them: "ABS-CBN · GMA News, Jul 22, 2025". | About 15 words, so they don't compete with the figures on screen: "Every rainy season, side streets flood unreported, and people guess how deep the water is." | The second line is C14's corrected wording. Both sources are recorded in `docs/research/` first (C901). |
+| 0:00 to 0:05 | A plain card with the opening line (C909), on screen in full: "All of Lusot's code, and everything this video shows of it, was built during the hackathon, Oct 27 to Nov 4, 2026 (Manila time)." Under it: "Photos are credited on screen." The safety line in small type at the bottom. | A shorter spoken version, about 11 words: "Everything you'll see of Lusot was built during this hackathon." | The card's own text; the voice-over captioned |
+| 0:05 to 0:15 | A flooded Metro Manila street: consented footage (M9), or a CC0 or CC BY `demo_use ok` photo as Lusot's blurred output, with its place, date and credit in the corner. Two lines appear over it in turn, as two separate facts: "In July 2025, MMDA identified 49 flood-prone areas in the National Capital Region." and "On Jul 22, 2025, MMDA reported more than 500 flood incidents in Metro Manila in the last 24 hours." A small sources line under them: "ABS-CBN News, Jul 14, 2025 · GMA News, Jul 22, 2025". | About 15 words, so they don't compete with the figures on screen: "How deep is the water at this spot? Lusot reads it against MMDA's gauge." | The second line is C14's wording, with the day named. Both sources are recorded in `docs/research/` first (C901). |
 
 **Proves:** the work is new (G1), and the problem is real and measured (Impact).
 
@@ -91,7 +91,7 @@ A capture inside Metro Manila becomes a real public pin for 3 hours, so it is fi
 
 **Fallback:** typed Ask Lusot, if voice isn't solid (plan Table 18; N4).
 
-**Proves:** Meta tooling (voice, tool calling, Taglish), and the agentic prize (M33).
+**Proves:** Meta tooling (voice, tool calling, Taglish), and the bonus entry (M33, only if the submission form offers it). Nothing on screen or in the voice-over names that award or a prize amount.
 
 ### Scene 6, 1:30 to 1:55: the system and its numbers
 
@@ -118,8 +118,8 @@ If no quote came, the scene shows the user test only (C13). No tester appears on
 | Part | On screen (source) | Voice-over beat (draft) |
 |---|---|---|
 | 2:20 to 2:28 | A privacy card, taken from the privacy policy as Rene approves it (M21). Draft: "Faces are blurred before Meta receives a photo. The original is deleted after analysis. No accounts, no names." | Rene reads the card. |
-| 2:28 to 2:35 | The pitch line, in Rene's words. Draft, about 16 words, paraphrasing plan §1's line: "Lusot reads a flood against tires and knees, the marks MMDA's own gauge uses, in MMDA's words." The gauge's landmarks are sourced in Task 3, and nothing is claimed about how MMDA's staff work. | Rene says it. |
-| 2:35 to 2:40 | The closing card: Lusot, the live URL, the submission repository's URL (fixed by Nov 2, MS8-Q2, because the card is burned in), the safety line full size, "Not affiliated with MMDA.", and the music credit if there is music | Silence, or the music's end |
+| 2:28 to 2:35 | The pitch line, in Rene's words. Draft, about 16 words, paraphrasing plan §1's line: "Lusot reads a flood against tires and knees, the landmarks that give MMDA's flood levels their names." Tire and knee are words in MMDA's level names, not marks on a gauge; the source (Interaksyon (Philstar), Sep 4, 2024) is recorded in Task 3, and nothing is claimed about how MMDA's staff work. | Rene says it. |
+| 2:35 to 2:40 | The closing card: Lusot, the live URL, the submission repository's URL, https://github.com/RVBCosme/Lusot-submission (MS8-Q2: (a), Rene, Nov 1, 2026; fixed now because the card is burned in), the safety line full size, "Not affiliated with MMDA.", and the music credit if there is music | Silence, or the music's end |
 
 **Proves:** a memorable close that claims no more than the product does.
 
@@ -157,7 +157,7 @@ If no quote came, the scene shows the user test only (C13). No tester appears on
 - **Title (draft):** "Lusot: flood depth at one spot, in MMDA's words (Meta Global AI Developer Hackathon)"
 - **Text:**
   - one paragraph on what Lusot is, leading with the system
-  - "All of Lusot's code, and everything this video shows of it, was built during the hackathon, Oct 27 to Nov 4, 2026."
+  - "All of Lusot's code, and everything this video shows of it, was built during the hackathon, Oct 27 to Nov 4, 2026 (Manila time)."
   - the live URL and the repository's URL
   - the safety line, word for word
   - "Not affiliated with MMDA."
@@ -172,7 +172,7 @@ Rene posts it by hand from his own account. Draft (X counts each link as 23 char
 >
 > Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.
 >
-> `[live URL]` `[repository URL]`
+> `[live URL]` https://github.com/RVBCosme/Lusot-submission
 
 - Add any tag or mention the guide requires (Rene confirms, G6).
 - The video follows MS8-Q7. After posting, the post's link goes into the submission form.

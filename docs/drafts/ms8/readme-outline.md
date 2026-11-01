@@ -32,7 +32,7 @@ Numbered, one line each, so a judge can start all four within a minute (C913):
 4. **Rebuild the evaluation report.** This needs Python 3.9 or newer, and no key, network or install:
 
    ```sh
-   git clone [submission repository URL] lusot
+   git clone https://github.com/RVBCosme/Lusot-submission lusot
    cd lusot
    python eval/run_eval.py --from-saved   # python3 on macOS and many Linux systems
    ```
@@ -47,12 +47,12 @@ Then one line for Android: "Android APK: `[GitHub Release link]` (SHA-256 `[…]
 
 Two or three sentences, each with a source checked in `docs/research/` and its link recorded there first (C901):
 - Two separate facts, never joined by "yet":
-  - Metro Manila has 49 flood-prone areas on MMDA's list (ABS-CBN).
-  - In July 2025, more than 500 flood incidents were reported there within 24 hours (GMA News, Jul 22, 2025). This is C14's wording.
-- On Aug 9, 2026, MMDA's 2:02 PM list named 4 flooded spots, while Quezon City's 2:20 PM list held 38 entries, in the same gauge words (GMA News). The source is the plan-update check, §5 of `docs/research/2026-10-27-plan-update-check.md`, not the alert index, whose Aug 9 lists are the morning ones.
-- Many flooded streets are never measured: MMDA reports the spots it monitors, and crowd reports give depth in words. (This is the idea of plan §3, in new words, and Task 3 records its sources.)
+  - In July 2025, MMDA identified 49 flood-prone areas in the National Capital Region (ABS-CBN).
+  - On Jul 22, 2025, MMDA reported more than 500 flood incidents in Metro Manila in the last 24 hours (GMA News). This is C14's wording, with the day and the reporter named.
+- On Aug 9, 2026, GMA News carried two lists from different publishers, with different scopes: MMDA's 2:02 PM list named 4 flooded spots, and Quezon City's 2:20 PM list held 38 street entries, in the same gauge words. The source is the plan-update check, §5 of `docs/research/2026-10-27-plan-update-check.md`, not the alert index, whose Aug 9 lists are the morning ones.
+- MMDA's alert lists name the spots it reports, and crowd reports, such as MapaKalamidad's, come as a photo, a location and the reporter's own description; Lusot can give a reading at other spots too. (The last clause is Lusot's own framing, not a sourced fact. The idea is plan §3's, in new words, and Task 3 records the sources for the first two.)
 
-Then, honestly (plan §19): "Reading flood depth from objects of known size is established research (FloodVision and others; see `docs/research/`). Lusot adds MMDA's own gauge and classes, Metro Manila's streets, Taglish, a live map of expiring pins, and an open evaluation." Never "first". No MDPI figure until it has been read in a browser (C14).
+Then, honestly (plan §19): "Reading flood depth from objects of known size is established research (FloodVision and others; see `docs/research/`). Lusot adds MMDA's own gauge and classes, Metro Manila's streets, Taglish, a live map of expiring pins, and an open evaluation." Never "first". No MDPI figure is quoted (C14).
 
 ### 3. See it work
 
@@ -94,7 +94,7 @@ Words under the table (draft): "These are agreement figures with the labels MMDA
 - **A new diagram** (SVG in `docs/media/`, drawn from the template and the code, not from the plan's figures): phone → upload link → S3 `raw/` → SQS, with its dead-letter queue → the analysis Lambda → DynamoDB → the API → the map. Ask Lusot goes from the API to Muse Spark and its tool.
 - **The pipeline,** step by step as built (plan §7, paraphrased), each step one line:
   0. on the phone, before upload: the quality check (MS5's C604)
-  1. on the server, first: the face blur (OpenCV's YuNet, not a Meta model), before any photo goes to Meta (C20)
+  1. on the server, first: the face blur (YuNet from OpenCV Zoo, by Wu, Peng and Yu, MIT licence; not a Meta model), before any photo goes to Meta (C20)
   2. the quality check again
   3. SAM 3.1 masks, one short phrase per request: `[SAM_PHRASES in backend/analysis/src/lusot_analysis/meta_client.py, as frozen]`
   4. numbered boxes drawn on the photo. Muse Spark 1.3 says, by box number, where the water line falls on each wheel or person, as categories in strict structured output; models never output inches.
@@ -111,7 +111,7 @@ Words under the table (draft): "These are agreement figures with the labels MMDA
 | `muse-spark-1.3` | Names the landmarks from the numbered boxes (strict structured output), and runs Ask Lusot's tool calls |
 | `muse-voice-transcribe-1.0` | Transcribes spoken Taglish questions |
 
-How they are called, one line each: the Meta Model API through the OpenAI SDK at `https://api.meta.ai/v1`; SAM streamed; retries only on 429, 500 and 503, with backoff and jitter; prompts and schemas in versioned files; while the hackathon credits last, every call runs on them (D10). That wording holds after the credits lapse, whatever MS9-Q1 decides, and matches the privacy texts (MS9's N3).
+How they are called, one line each: the Meta Model API through the OpenAI SDK at `https://api.meta.ai/v1`; SAM streamed; retries only on 429, 500 and 503, with backoff and jitter; prompts and schemas in versioned files; while the hackathon credits last, every call runs on them (D10). That wording holds after the credits lapse, whatever MS9-Q1 decides, and matches the privacy texts (MS9's N3). On voice: Muse Voice Transcribe lists code-switching among 25 evaluated languages; Lusot tests it on Taglish questions (`[MS6's result]`).
 
 ### 8. Ask Lusot
 
@@ -145,7 +145,7 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
   - demo pins' photos in `demo/`, which a 60-day backstop removes if the demo script doesn't (MS4's C510)
   - the sample photos in `samples/`, kept while the sample button exists (MS4-Q11), in the form the approved policy describes (MS7-Q7 settles whether they are stored blurred)
 - No accounts and no names.
-- Meta may use what it receives to improve its products, and the consent notice says so (D10). While the hackathon credits last, Lusot's calls run on them. That wording holds after the credits lapse (MS9-Q1; MS9's N3).
+- Meta may use what it receives on the hackathon credits to improve its products, as Meta's billing page for accounts that use free credits says, and the consent notice says so (D10). Beside it, Meta's Model API Terms of Service (§5.1, last updated Oct 9, 2026) say Meta won't use content sent to its Standard Services to train Meta Models: https://dev.meta.ai/legal/terms-of-service. While the hackathon credits last, Lusot's calls run on them. That wording holds after the credits lapse (MS9-Q1; MS9's N3). `[Rene: final wording after he reads the Billing page, Nov 2]`
 - Link: `[privacy policy URL]`.
 
 ### 12. Run it yourself
@@ -165,11 +165,11 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
 
 ### 14. Credits
 
-MS1's table as it stands, plus:
+MS1's table as it stands, except that its OpenStreetMap row is replaced by the map line below (the row must not call the tiles' cartography CC BY-SA 2.0), plus:
 - the sample and demo photos: a credits file listing, for CC0 and CC BY photos, the title, author, licence and source link; for consented M9 photos, the donor's chosen credit line and "used with permission", with no source link; and, for each photo, the note that Lusot blurred it and drew outlines (CC BY's change notice; MS5's C617)
-- the map: OpenStreetMap tiles, "© OpenStreetMap contributors" (MS5's C612)
+- the map: OpenStreetMap data under the Open Database License (ODbL), with the attribution "© OpenStreetMap contributors" linking to openstreetmap.org/copyright (MS5's C612)
 - the Metro Manila boundary, with its source and licence (MS4-Q1)
-- Leaflet (BSD-2-Clause), the fonts (OFL), Lucide icons (ISC), and any other library MS5 adds
+- Leaflet (BSD-2-Clause), the fonts (OFL; the font row's copyright line is to check against the font repository before Nov 4), Lucide icons (ISC), and any other library MS5 adds
 - the video's music, if any (CC0, C904)
 
 ### 15. Licence
