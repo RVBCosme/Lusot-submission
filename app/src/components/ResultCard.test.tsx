@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LEVELS, PASSABILITY, type Level } from '../copy/levels'
+import { LEVELS, PASSABILITY, REFUSED_REASONS, type Level } from '../copy/levels'
 import { LanguageProvider, unreviewedKeys } from '../i18n'
 import { EN } from '../i18n/en'
 import { FIL } from '../i18n/fil'
@@ -1274,6 +1274,142 @@ describe('in Taglish', () => {
     cleanup()
     renderCard({ result: await takePhoto('no_flood_seen') }, 'fil')
     expect(screen.getByText('Walang bahang nakita sa spot na ito.')).toBeTruthy()
+  })
+})
+
+// The next-step tips under a refusal (the refusal-tips proposal, approved at M20 on Nov 1): five reasons have one,
+// shown under the reason line on your own refusal only, never on a photo the person didn't take (C637).
+describe('the next-step tip under a refusal', () => {
+  const TIPPED = ['no_usable_reference', 'photo_unusable', 'water_unsure', 'no_water_found', 'references_disagree'] as const
+  const TABLE = { en: EN, fil: FIL }
+  const allTips = () => TIPPED.flatMap((reason) => [EN[`tip.${reason}`].text, FIL[`tip.${reason}`].text])
+
+  it("shows your own refusal's tip after D19's line and the reason line, in English and in reviewed Taglish", async () => {
+    for (const reason of TIPPED) {
+      const result = await takePhoto(`refused_${reason}`)
+      for (const lang of ['en', 'fil'] as const) {
+        renderCard({ result }, lang)
+        const d19 = screen.getByText(TABLE[lang]['refusal.d19'].text)
+        const why = screen.getByText(TABLE[lang][`reason.${reason}`].text)
+        const tip = screen.getByText(TABLE[lang][`tip.${reason}`].text)
+        expect(d19.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING, `${reason} ${lang}`).toBeTruthy()
+        expect(why.compareDocumentPosition(tip) & Node.DOCUMENT_POSITION_FOLLOWING, `${reason} ${lang}`).toBeTruthy()
+        expect(TABLE[lang][`tip.${reason}`].reviewed, `${reason} ${lang}`).toBe(true)
+        // A Taglish tip isn't an English fallback (C619).
+        if (lang === 'fil') expect(tip.closest('[lang="en"]'), reason).toBeNull()
+        cleanup()
+        localStorage.clear()
+      }
+    }
+  })
+
+  it('shows no tip for a refusal reason that has none', async () => {
+    const untipped = REFUSED_REASONS.filter((reason) => !(TIPPED as readonly string[]).includes(reason))
+    expect(untipped.length).toBeGreaterThan(0)
+    for (const reason of untipped) {
+      renderCard({ result: await takePhoto(`refused_${reason}`) })
+      for (const tip of allTips()) expect(text(), reason).not.toContain(tip)
+      cleanup()
+    }
+  })
+
+  it("shows no tip on a saved sample's refusal or a demo report's refusal", () => {
+    const sample: ReportResult = {
+      reportId: '',
+      status: 'refused',
+      refusalReason: 'no_usable_reference',
+      mode: 'sample',
+      published: false,
+    }
+    renderCard({ result: sample, source: 'sample', savedAt: '2026-10-29T14:20:00Z' })
+    expect(screen.getByText(EN['reason.no_usable_reference'].text)).toBeTruthy()
+    for (const tip of allTips()) expect(text()).not.toContain(tip)
+    cleanup()
+
+    renderCard({ result: { ...sample, mode: 'demo', published: true } })
+    expect(screen.getByText(EN['reason.no_usable_reference'].text)).toBeTruthy()
+    for (const tip of allTips()) expect(text()).not.toContain(tip)
+  })
+
+  it("shows no tip on someone else's refused report opened from the map, or on a failure that carries a refusal code", () => {
+    const theirs: ReportResult = {
+      reportId: 'r',
+      status: 'refused',
+      refusalReason: 'water_unsure',
+      mode: 'live',
+      published: true,
+    }
+    renderCard({ result: theirs, source: 'pin' })
+    expect(screen.getByText(EN['reason.water_unsure'].text)).toBeTruthy()
+    for (const tip of allTips()) expect(text()).not.toContain(tip)
+    cleanup()
+
+    // Tips belong to "can't tell" only: "processing failed" stays its own outcome.
+    renderCard({ result: { ...theirs, status: 'failed', refusalReason: 'photo_unusable', published: false } })
+    expect(screen.getByRole('status').textContent).toContain('Processing failed, try again.')
+    for (const tip of allTips()) expect(text()).not.toContain(tip)
+  })
+
+  it('shows a tip whose Taglish is not reviewed in English inside an element marked lang="en"', async () => {
+    const tip = FIL['tip.no_water_found']
+    FIL['tip.no_water_found'] = { ...tip, reviewed: false }
+    try {
+      renderCard({ result: await takePhoto('refused_no_water_found') }, 'fil')
+      expect(screen.getByText(EN['tip.no_water_found'].text).getAttribute('lang')).toBe('en')
+      expect(screen.queryByText(tip.text)).toBeNull()
+    } finally {
+      FIL['tip.no_water_found'] = tip
+    }
+  })
+
+  // The approved words, pinned the way D19's line is, so that any edit (a dropped "without" or "hindi") fails here
+  // and goes back to Rene's review.
+  it('keeps the approved words exactly', () => {
+    const APPROVED: Record<(typeof TIPPED)[number], { en: string; fil: string }> = {
+      no_usable_reference: {
+        en: 'Photograph the spot itself, not a picture on a screen. Lusot can read the depth from the wheel of a parked car, SUV or van that the water already reaches, not from a jeepney, bus, big truck, tricycle or motorcycle. From a dry sidewalk, without going nearer the water, retake with one such wheel large and clear in the photo.',
+        fil: 'Kunan ang mismong spot, hindi ang larawan sa screen. Mababasa ng Lusot ang lalim mula sa gulong ng nakaparadang kotse, SUV o van na inaabot na ng tubig, hindi mula sa jeepney, bus, malaking truck, tricycle o motorsiklo. Mula sa tuyong bangketa, nang hindi lumalapit sa tubig, kunan ulit nang malaki at malinaw sa photo ang isang ganoong gulong.',
+      },
+      photo_unusable: {
+        en: 'Photograph the spot itself, not a picture on a screen. Lusot needs a clear view of this spot: wipe the lens, hold the phone still, and retake from a dry sidewalk with nothing in front of the camera.',
+        fil: 'Kunan ang mismong spot, hindi ang larawan sa screen. Kailangan ng Lusot ng malinaw na kita ng spot na ito: punasan ang lens, hawakan nang steady ang phone, at kunan ulit mula sa tuyong bangketa nang walang nakaharang sa camera.',
+      },
+      water_unsure: {
+        en: "Lusot couldn't tell floodwater from wet ground. From a dry sidewalk, retake with the water clearly in view where it meets a parked car's wheel.",
+        fil: 'Hindi masabi ng Lusot kung baha ito o basa lang ang lupa. Mula sa tuyong bangketa, kunan ulit nang malinaw na kita ang tubig kung saan ito dumidikit sa gulong ng isang nakaparadang kotse.',
+      },
+      no_water_found: {
+        en: "From a dry sidewalk, without going nearer the water, retake with more of the water's surface in the photo, so its edge around a parked car's wheel shows clearly.",
+        fil: 'Mula sa tuyong bangketa, nang hindi lumalapit sa tubig, kunan ulit nang mas malaki ang kita ng ibabaw ng tubig sa photo, para malinaw ang gilid nito sa paligid ng gulong ng isang nakaparadang kotse.',
+      },
+      references_disagree: {
+        en: "Cars or people at different depths can mean the water is uneven here. Lusot won't pick one depth over another, so it gives no level for this photo.",
+        fil: 'Kapag magkakaiba ang lalim sa mga kotse o tao, puwedeng hindi pantay ang tubig dito. Hindi pipili ang Lusot ng isang lalim kaysa sa iba, kaya walang level para sa photo na ito.',
+      },
+    }
+    for (const reason of TIPPED) {
+      expect(EN[`tip.${reason}`], reason).toEqual({ text: APPROVED[reason].en, reviewed: true })
+      expect(FIL[`tip.${reason}`], reason).toEqual({ text: APPROVED[reason].fil, reviewed: true })
+    }
+  })
+
+  it('words each tip within the copy rules: no banned word, crossing phrase, whole road or approach, and every retake from a dry sidewalk', () => {
+    for (const reason of TIPPED) {
+      for (const lang of ['en', 'fil'] as const) {
+        const tip = TABLE[lang][`tip.${reason}`].text
+        expect(tip, `${reason} ${lang}`).not.toMatch(BANNED_WORDS)
+        expect(tip, `${reason} ${lang}`).not.toMatch(CROSSING)
+        expect(tip, `${reason} ${lang}`).not.toMatch(NINE_LEVELS)
+        expect(tip, `${reason} ${lang}`).not.toMatch(WHOLE_ROAD)
+        expect(tip, `${reason} ${lang}`).not.toMatch(APPROACH)
+        // The disagreement tip explains the refusal and asks for no retake (W10); the others retake from a dry sidewalk.
+        if (reason !== 'references_disagree') {
+          expect(tip, `${reason} ${lang}`).toMatch(lang === 'en' ? /from a dry sidewalk/i : /mula sa tuyong bangketa/i)
+        } else {
+          expect(tip, `${reason} ${lang}`).not.toMatch(/retake|kunan ulit/i)
+        }
+      }
+    }
   })
 })
 

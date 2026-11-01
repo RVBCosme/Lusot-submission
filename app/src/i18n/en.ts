@@ -360,6 +360,41 @@ export const EN = {
     reviewed: true,
   },
   'reason.other': { text: 'No further reason is available.', reviewed: true },
+  // The next-step tip under your own refusal's reason line, for five reasons (copy/wording.ts tipLine), never on a
+  // sample's, a demo's or someone else's refusal (C637). Each retake is from a dry sidewalk, and nobody goes nearer the water. The
+  // refusal-tips proposal's five rows, approved as written in English and Taglish at M20 by the tracker under Rene's
+  // written delegation of Nov 1 (the tracker's double-check ran at 9:58 PM). Their test pins the words.
+  'tip.no_usable_reference': {
+    text:
+      'Photograph the spot itself, not a picture on a screen. Lusot can read the depth from the wheel of a parked ' +
+      'car, SUV or van that the water already reaches, not from a jeepney, bus, big truck, tricycle or motorcycle. ' +
+      'From a dry sidewalk, without going nearer the water, retake with one such wheel large and clear in the photo.',
+    reviewed: true,
+  },
+  'tip.photo_unusable': {
+    text:
+      'Photograph the spot itself, not a picture on a screen. Lusot needs a clear view of this spot: wipe the lens, ' +
+      'hold the phone still, and retake from a dry sidewalk with nothing in front of the camera.',
+    reviewed: true,
+  },
+  'tip.water_unsure': {
+    text:
+      "Lusot couldn't tell floodwater from wet ground. From a dry sidewalk, retake with the water clearly in view " +
+      "where it meets a parked car's wheel.",
+    reviewed: true,
+  },
+  'tip.no_water_found': {
+    text:
+      "From a dry sidewalk, without going nearer the water, retake with more of the water's surface in the photo, " +
+      "so its edge around a parked car's wheel shows clearly.",
+    reviewed: true,
+  },
+  'tip.references_disagree': {
+    text:
+      "Cars or people at different depths can mean the water is uneven here. Lusot won't pick one depth over " +
+      'another, so it gives no level for this photo.',
+    reviewed: true,
+  },
   // Why a numbered reference wasn't used (amendment 2): one line per cause the pipeline writes (copy/levels.ts), each
   // starting "Not used". 'dropped.other' stands in for any cause the app doesn't know, so no code is ever shown.
   'dropped.vehicle_unanswered': {

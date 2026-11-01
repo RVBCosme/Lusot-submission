@@ -58,6 +58,21 @@ export function reasonLine(t: Translate, reason: string): Text {
   return t(isReason(reason) ? `reason.${reason}` : 'reason.other')
 }
 
+// The next-step tip under a refusal's reason line (M20, Nov 1), for the five reasons that have one; undefined otherwise.
+const TIP_REASONS = [
+  'no_usable_reference',
+  'photo_unusable',
+  'water_unsure',
+  'no_water_found',
+  'references_disagree',
+] as const satisfies readonly (typeof REFUSED_REASONS)[number][]
+const isTipReason = (word: string): word is (typeof TIP_REASONS)[number] =>
+  (TIP_REASONS as readonly string[]).includes(word)
+
+export function tipLine(t: Translate, reason: string): Text | undefined {
+  return isTipReason(reason) ? t(`tip.${reason}`) : undefined
+}
+
 // Why a numbered reference wasn't used. A cause the app doesn't know gets a general line, never the code (amendment 2).
 export function dropLine(t: Translate, cause: string): Text {
   return t(isDropCause(cause) ? `dropped.${cause}` : 'dropped.other')
