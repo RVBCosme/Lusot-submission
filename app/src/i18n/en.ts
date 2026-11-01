@@ -465,6 +465,10 @@ export const EN = {
   'overlay.ref.body': { text: 'Car body {id}', reviewed: true },
   'overlay.ref.person': { text: 'Person {id}', reviewed: true },
   'overlay.floor': { text: 'At least {level}', reviewed: true },
+  // Why a reference with no level and no cause has none (Rene's Baliuag sample, Nov 2). Approved, with the Taglish, by the
+  // tracker under Rene's written delegation, Nov 2, about 3:4x AM.
+  'overlay.fromWheel': { text: 'Its wheel gave the reading.', reviewed: true },
+  'overlay.noLevel': { text: 'No level was read from this one.', reviewed: true },
   // The live map, its list and pin detail (MS5 Task 13). Every line that says what a pin shows keeps "at this spot"
   // through the level line, and none says anything about a place with no report, since no report is not a dry spot.
   'map.noApi': { text: "This build can't show reports.", reviewed: true },
