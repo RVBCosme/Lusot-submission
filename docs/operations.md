@@ -13,6 +13,14 @@ The analysis Lambda sets `/lusot/stop/model-calls` to `on` (C527) when:
 
 Each flip logs `spend_stop` or `spend_error`, and `SpendPauseAlarm` emails. The alarm clearing doesn't clear the switch: it stays on until someone clears it.
 
+The credit guard (C533) sets the same switch `on` at `CreditExpiresAt`, the UTC time the Meta credits lapse, with no log line: `CreditExpirySchedule` puts the parameter itself. **Past that time, never clear the switch, whatever the counter reads:** a call on lapsed credit bills the card. Ask Rene. About 5 minutes after the time, check that the guard fired:
+
+```powershell
+aws ssm get-parameter --name /lusot/stop/model-calls --query Parameter.Value --output text --profile lusot --region ap-southeast-1 --no-cli-pager
+```
+
+It must read `on`. If it doesn't, set it by hand (C533's runbook line) and tell the tracker: `CreditExpiryAlarm` emails when the schedule's call fails.
+
 1. **Find why.** List the `spend_error` and `spend_stop` lines of the last hour in both log groups:
 
    ```powershell
@@ -49,7 +57,7 @@ Each flip logs `spend_stop` or `spend_error`, and `SpendPauseAlarm` emails. The 
 
    Then note it in the day's log (`docs/log/YYYY-MM-DD.md`) with the line's report ID and time, so no line is added twice. The stop never moves to cover a missed amount; the amount goes on the counter instead.
 
-4. **Clear the switch only below the stop.** Read the stop:
+4. **Clear the switch only below the stop, and only before `CreditExpiresAt`.** After the credits lapse (C533), the switch stays on and the tracker asks Rene. Read the stop:
 
    ```powershell
    aws ssm get-parameter --name /lusot/spend/stop-usd --query Parameter.Value --output text --profile lusot --region ap-southeast-1 --no-cli-pager

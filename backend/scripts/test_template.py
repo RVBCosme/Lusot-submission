@@ -422,7 +422,7 @@ def test_web_hosting_switch():
 def test_only_the_website_needs_the_switch():
     """Off leaves out the four web resources and the three outputs deploy:web reads, and
     nothing else. The credit guard's two resources have their own condition."""
-    credit = {"CreditExpirySchedule", "CreditExpiryRole"}
+    credit = {"CreditExpirySchedule", "CreditExpiryRole", "CreditExpiryAlarm"}
     conditional = {name for name, r in RES.items() if "Condition" in r}
     assert conditional == set(WEB_RESOURCES) | credit
     assert all(RES[name]["Condition"] == "HasWeb" for name in WEB_RESOURCES)
@@ -985,6 +985,7 @@ def test_publish_read_alarm():
         "SpendPauseAlarm",
         "PublishReadAlarm",
         "AskCapAlarm",
+        "CreditExpiryAlarm",  # only with CreditExpiresAt set (C533): 7 of the free 10
     }
     # Three custom metrics, inside the free tier's 10.
     metrics = {
@@ -1081,7 +1082,7 @@ def test_the_credit_guard_is_off_by_default():
     assert T["Conditions"]["HasCreditExpiry"] == {
         "Fn::Not": [{"Fn::Equals": [{"Ref": "CreditExpiresAt"}, ""]}]
     }
-    for name in ("CreditExpirySchedule", "CreditExpiryRole"):
+    for name in ("CreditExpirySchedule", "CreditExpiryRole", "CreditExpiryAlarm"):
         assert T["Resources"][name]["Condition"] == "HasCreditExpiry"
 
 
@@ -1099,7 +1100,12 @@ def test_the_credit_guard_sets_only_the_model_calls_switch_on():
         "Fn::Sub": "arn:${AWS::Partition}:scheduler:::aws-sdk:ssm:putParameter"
     }
     assert target["RoleArn"] == {"Fn::GetAtt": ["CreditExpiryRole", "Arn"]}
-    assert json.loads(target["Input"]) == {
+    # Ref gives the switch's name, so a fresh stack makes the switch before the schedule.
+    text = target["Input"]["Fn::Sub"]
+    assert "${StopModelCallsParameter}" in text
+    assert RES["StopModelCallsParameter"]["Properties"]["Name"] == "/lusot/stop/model-calls"
+    named = text.replace("${StopModelCallsParameter}", "/lusot/stop/model-calls")
+    assert json.loads(named) == {
         "Name": "/lusot/stop/model-calls",
         "Value": "on",
         "Type": "String",
@@ -1122,7 +1128,18 @@ def test_the_credit_guard_role_can_set_that_one_parameter_only():
         "Action": "ssm:PutParameter",
         "Resource": {
             "Fn::Sub": "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}"
-            ":parameter/lusot/stop/model-calls"
+            ":parameter${StopModelCallsParameter}"
         },
     }
     assert "ManagedPolicyArns" not in role
+
+
+def test_a_failed_credit_guard_call_emails():
+    # Without a dead-letter queue a failed call is dropped, so Scheduler's target
+    # errors raise an alarm on the alarm topic (C533).
+    alarm = T["Resources"]["CreditExpiryAlarm"]["Properties"]
+    assert (alarm["Namespace"], alarm["MetricName"]) == ("AWS/Scheduler", "TargetErrorCount")
+    assert (alarm["Statistic"], alarm["Threshold"]) == ("Sum", 1)
+    assert alarm["ComparisonOperator"] == "GreaterThanOrEqualToThreshold"
+    assert alarm["TreatMissingData"] == "notBreaching"
+    assert alarm["AlarmActions"] == [{"Ref": "AlarmTopic"}]
