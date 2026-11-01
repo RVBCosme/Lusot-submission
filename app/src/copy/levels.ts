@@ -35,7 +35,7 @@ export const PASSABILITY: Record<Level, Passability> = {
 export const OFF_GAUGE: readonly Level[] = ['below_gutter', 'above_chest']
 
 // The categories that can be a result's deciding landmark: Table 8's rows that read a level (rules.py), and ankle,
-// which reads none since C91 (draft) but stays for results stored before it.
+// which reads none since C91 but stays for results stored before it.
 export const WHEEL_LANDMARKS = ['tire_only', 'rim_quarter', 'hub', 'rim_three_quarters', 'rim_top', 'wheel_covered'] as const
 export const PEOPLE_LANDMARKS = ['ankle', 'mid_shin', 'knee', 'mid_thigh', 'waist', 'chest', 'above_chest'] as const
 // The body waterlines that read a level, always as a floor (C53).
