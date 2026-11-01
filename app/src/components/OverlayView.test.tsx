@@ -459,8 +459,10 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     expect(box(3).getAttribute('stroke-dasharray')).toBeTruthy()
     // Its dashes aren't the water's, so the two aren't mistaken.
     const water = svg.querySelector('[data-layer="water"] polygon')?.getAttribute('stroke-dasharray')
-    expect(box(3).getAttribute('stroke-dasharray')).not.toBe(water)
-    expect(group(3).querySelector('[data-layer="outline"] polygon:last-child')?.getAttribute('stroke-dasharray')).not.toBe(water)
+    const outline = group(3).querySelector('[data-layer="outline"] polygon:last-child')?.getAttribute('stroke-dasharray')
+    expect(box(3).getAttribute('stroke-dasharray')).toBe('4 4')
+    expect(outline).toBe('4 4')
+    expect(water).not.toBe('4 4')
   })
 
   // The photo is drawn the full width of its box, so the file's width sets the scale: a word's size on screen is its

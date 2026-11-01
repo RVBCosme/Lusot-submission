@@ -344,6 +344,8 @@ describe('decidingRefs, the references that set the level', () => {
       ref({ id: 3, kind: 'person', level: 'knee' }),
     ]
     expect([...decidingRefs(refs)].sort()).toEqual([2, 3])
+    // By the gauge's order, not the words': chest is deeper than knee, though it sorts first.
+    expect([...decidingRefs([ref({ id: 1, level: 'knee' }), ref({ id: 2, level: 'chest' })])]).toEqual([2])
   })
 
   it('never include a dropped or unused reference, however deep its level', () => {
