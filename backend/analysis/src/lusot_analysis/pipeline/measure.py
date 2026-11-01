@@ -4,7 +4,8 @@ A vehicle reads its wheels and, when its wheels are hidden, C53's rows for its b
 A wheel's reading is G4's: the deeper of its Table 8 row and its geometry reading, and
 a type kept for geometry has its geometry reading alone (C318). The deepest of these
 speaks for the vehicle (C43). An adult reads Table 8's people rows (D13). A reading
-step 3 dropped never decides, but it stays, so that combine can refuse with it (C317).
+step 3 dropped, or a small person's (C92), never decides, but it stays, so that
+combine can refuse with it (C317).
 """
 
 from __future__ import annotations

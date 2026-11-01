@@ -26,8 +26,9 @@ def tie_order(reference: Reference) -> tuple[bool, int, int]:
 def combine(references: Sequence[Reference]) -> tuple[Outcome, Reference | None]:
     """The deepest believable level, and the reference that decides it (C49, C54).
 
-    Only references that decide take part, as in MS3a. A reading step 3 dropped never
-    decides, but one deeper than an exact result refuses the photo (C317). A floor
+    Only references that decide take part, as in MS3a. A reading step 3 dropped, or a
+    small person's (C92), never decides, but one deeper than an exact result refuses
+    the photo (C317). A floor
     result stands, since it already means "this level or deeper". A refusal has no
     deciding reference.
     """

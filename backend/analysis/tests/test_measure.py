@@ -331,6 +331,17 @@ def test_a_deeper_small_adult_refuses_a_shallower_result():
     assert outcome == Outcome.refused("references_disagree")
 
 
+def test_a_small_adult_one_level_deeper_refuses_instead_of_raising():
+    # The non-decider's boundary: a small mid_thigh (tire) beside an exact knee adult
+    # refuses, where a near tire adult would have raised the level to tire.
+    references, _ = measured(
+        people=(KeptPerson(1, "mid_thigh", small=True), KeptPerson(2, "knee"))
+    )
+    assert combine(references)[0] == Outcome.refused("references_disagree")
+    references, _ = measured(people=(KeptPerson(1, "mid_thigh"), KeptPerson(2, "knee")))
+    assert combine(references)[0].level == "tire"
+
+
 def test_a_shallower_small_adult_leaves_the_result():
     # A small mid_shin reading beside a near knee adult argues for less depth, and
     # the deeper reading stands (the tracker's ruling, Nov 2).

@@ -209,8 +209,8 @@ class Reference:
     `box_id` is the numbered box it came from: the vehicle's, for a body reading.
     `landmark` is always Muse Spark's category, even when geometry set the reading
     (C320). `depth_in` is geometry's unrounded min and max, in inches. A reference
-    that step 3 dropped doesn't decide: it can refuse the photo, never decide it
-    (C317).
+    that step 3 dropped, or a small person's (C92), doesn't decide: it can refuse the
+    photo, never decide it (C317).
     """
 
     kind: Literal["wheel", "body", "person"]
