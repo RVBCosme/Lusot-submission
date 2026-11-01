@@ -145,7 +145,7 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
   - demo pins' photos in `demo/`, which a 60-day backstop removes if the demo script doesn't (MS4's C510)
   - the sample photos in `samples/`, kept while the sample button exists (MS4-Q11), in the form the approved policy describes (MS7-Q7 settles whether they are stored blurred)
 - No accounts and no names.
-- Meta may use what it receives on the hackathon credits to improve its products, as Meta's billing page for accounts that use free credits says, and the consent notice says so (D10). Beside it, Meta's Model API Terms of Service (§5.1, last updated Oct 9, 2026) say Meta won't use content sent to its Standard Services to train Meta Models: https://dev.meta.ai/legal/terms-of-service. While the hackathon credits last, Lusot's calls run on them. That wording holds after the credits lapse (MS9-Q1; MS9's N3). `[Rene: final wording after he reads the Billing page, Nov 2]`
+- Meta may use what it receives on the hackathon credits to improve its products, as Meta's billing page for accounts that use free credits says (checked by Rene, Nov 1, 2026), and the consent notice says so (D10). Beside it, Meta's Model API Terms of Service (§5.1, last updated Oct 9, 2026) say Meta won't use content sent to its Standard Services to train Meta Models: https://dev.meta.ai/legal/terms-of-service. While the hackathon credits last, Lusot's calls run on them. That wording holds after the credits lapse (MS9-Q1; MS9's N3).
 - Link: `[privacy policy URL]`.
 
 ### 12. Run it yourself

@@ -97,7 +97,7 @@ Each of these comes from the participant guide, the Discord or the kickoff strea
 | O3 | Does the guide say anything about AI coding assistants beyond OR's rule on technical assistance (R8)? | The README's "How it was built" line |
 | O4 | May the repository or the live product change after the deadline? | C921 |
 | O5 | Does the X rule need the submitted video itself, or may a shorter cut be posted? | MS8-Q7 |
-| O6 | Does a `Claude-Session` link in the commit history ask for sign-in when opened in a private window? A signed-out curl only meets Cloudflare's bot challenge, so it can't tell. | MS8-Q1: the links stay only if they are gated |
+| O6 | Does a `Claude-Session` link in the commit history ask for sign-in when opened in a private window? A signed-out curl only meets Cloudflare's bot challenge, so it can't tell. | MS8-Q1: the links stay only if they are gated. **Done, Nov 1, 2026:** Rene opened a `Claude-Session` link (from f8ee54a) in a signed-out private window, and it showed a sign-in page. So under MS8-Q1 (b) the `Claude-Session` lines stay, and filter-repo uses no `--replace-message` for them. |
 
 ## 4. Our own commitments (plan §18's checklist)
 
