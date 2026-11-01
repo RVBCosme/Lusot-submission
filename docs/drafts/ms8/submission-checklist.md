@@ -24,7 +24,7 @@ Manila time is UTC+8. US daylight saving time ends on Nov 1, 2026, so from then 
 | Weekdays from Nov 2, 11:00 PM to midnight | Office hours in Discord #office-hours | Plan §2, Table 1; design §4. **Rene confirms.** |
 | Nov 3, 1:00 PM to Nov 4, 1:00 PM (all of Nov 3, ET) | The last full day for submission questions; technical troubleshooting ends | Plan §2, Table 1 (from the guide). **Rene confirms.** Ask MS8-Q3's question by then, through the channel the guide gives for rules questions, since office hours take API questions. |
 | Nov 3 | R7 decided (MS8-Q1, which also answers MS7-Q8); MS8-Q3, MS8-Q4, MS8-Q8 and MS8-Q9 answered (all answered Nov 1: spec §8); checklist O6 checked, before any push | Design §7; spec §8 |
-| Nov 4, 2:00 PM | Under MS8-Q4's default, the latest time the sealed report can reach `main` for a 9:00 PM submission. A report by 11:00 PM still allows a complete entry by Nov 5, 6:00 AM, but **any move past 10:00 PM needs Rene's OK on the day, even under D7** (CLAUDE.md's target). | Spec §8 |
+| Nov 4, 2:00 PM | **Moot from Nov 2:** Rene parked Set A (about 2:4x AM, Nov 2), so no sealed report is coming, and the entry follows MS8-Q4's "evaluation marked as pending" path, with no figures. No step waits for a report, so the 10:00 PM target holds; **any move past 10:00 PM still needs Rene's OK on the day, even under D7** (CLAUDE.md's target). | Spec §8 |
 | Nov 3 | The video recorded a day early, with a backup recording of the live flow | Plan §19 (demo and judging practices) |
 | Nov 4 | English captions written and their timing checked (M30); the bonus entry (M33); MS8-Q6 and MS8-Q7 answered | Plan §24, Table 27; spec §8 |
 | Nov 4, 10:00 PM | **Our target: submitted** (12 hours before the cutoff) | Plan §2; design §4; CLAUDE.md |
@@ -103,11 +103,11 @@ Each of these comes from the participant guide, the Discord or the kickoff strea
 These are the plan's, not the rules'. Each is checked by Nov 4.
 
 - [ ] The rules read: the participant guide, plus the Discord's #rules and #faqs (M4, done Oct 27), and rechecked against §3 above
-- [ ] A public repository made after kickoff (MS8-Q1, MS8-Q2). Its README starts with a judge path that takes a minute: the live app, a sample run, the video, and the one command (C913).
+- [ ] A public repository made after kickoff (MS8-Q1, MS8-Q2). Its README starts with a judge path that takes a minute: the live app, a sample run and the video (C913; the one command moves to the README's evaluation section under the pending path).
 - [ ] The live web URL, and a downloadable Android APK (C917)
 - [ ] The 3-minute video following Table 19: it opens with the built-during-the-event line and carries English captions throughout (M23, M30; C905, C908, C909)
 - [ ] The write-up in criteria order (MS8-Q6)
-- [ ] The app's Tested page (the plan's accuracy page) carries the evaluation: how often Lusot read shallower than the label, how often its class and its level agreed, how many photos it answered, Set B's error, every sample size, and the release gate's verdict on inches (MS5's C616; MS6)
+- [ ] The app's Tested page (the plan's accuracy page) says how Lusot is tested and that the sealed evaluation is pending, with no figures and no date for a sealed run (MS8-Q4's pending path; MS5's C616 strings, as Rene reviews them, M20)
 - [ ] The privacy policy page live; the 18+ check and the consent notice working (MS5's U8; M21)
 - [ ] Notes from the five-person test with the change it led to (M17), and, if they came, a stakeholder's one-line quote and their group's pledge in writing (M28; not required, C13)
 - [ ] Submitted on the platform with the public repository and the video link, as a solo entry (M24)
@@ -136,11 +136,11 @@ Filled in once Rene has seen the form (O1).
 
 - [ ] Rene approved the README, the video, the write-up and the X post's text
 - [ ] The copy rules hold in all four (spec S5), and the safety line appears word for word at the README's top, on the video's closing card, at the write-up's end and in the X post
-- [ ] Every number matches `summary.json` or a cited source (S4)
+- [ ] No evaluation figure appears in any of the four, from development, a test or a probe, and no line claims accuracy (MS8-Q4's pending path); every other number matches a cited source (S4)
 - [ ] Checklist O6 was checked before the first push, and the `Claude-Session` lines were kept or dropped to match (MS8-Q1)
 - [ ] The export's whole-history scan is clean, or every hit is allow-listed with a reason Rene has read (S7), and nothing unscanned was ever pushed to the repository (C902)
 - [ ] The app's count of unreviewed lines is 0: `LUSOT_RELEASE=1 npm run copy:review -w app` (S11)
-- [ ] The repository is public, its CI has passed, and a fresh clone runs the one command with exit 0 (S3, S8)
+- [ ] The repository is public, its CI has passed, and on a fresh clone `python eval/run_eval.py --rules-version` prints the rules' version, and `--from-saved` prints what the README says it prints with no results committed (S3, S8, as the pending path changes them)
 - [ ] The licence file is in place (M22)
 - [ ] The APK release and its SHA-256 match the build that MS7 scanned
 - [ ] The demo-ready check passed within the past hour (C919)
