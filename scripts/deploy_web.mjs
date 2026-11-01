@@ -283,14 +283,15 @@ function listFiles(dir) {
 // From the repo root, output kept for the caller. npm is a .cmd file on Windows, which Node starts only through a
 // shell; its words here are fixed. aws (aws.exe) and node start directly, so no shell reads a bucket name or a path.
 // The AWS CLI is a Python tool, so PYTHONIOENCODING keeps a non-ASCII character from crashing it on cp1252.
+// tar is Windows' own (bsdtar, which writes a zip for -a and a .zip name), never the first on PATH: from Git Bash that
+// is GNU tar, which can't write a zip and reads C:\... as a remote host.
+const SYSTEM_TAR = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+const program = (file) => (file === "node" ? process.execPath : file === "tar" ? SYSTEM_TAR : file);
 function run(argv, { env = process.env } = {}) {
   return new Promise((resolve) => {
     const [file, ...args] = argv;
     const options = { cwd: root, env: { ...env, PYTHONIOENCODING: "utf-8" }, stdio: ["ignore", "pipe", "pipe"] };
-    const child =
-      file === "npm"
-        ? spawn(argv.join(" "), { ...options, shell: true })
-        : spawn(file === "node" ? process.execPath : file, args, options);
+    const child = file === "npm" ? spawn(argv.join(" "), { ...options, shell: true }) : spawn(program(file), args, options);
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8").on("data", (text) => (stdout += text));

@@ -632,8 +632,10 @@ def test_amplify_headers():
     licences and the icons are no-cache at the edge too; hashed assets are cached a year."""
     headers = amplify_headers()
     assert headers["**/*"] == AMPLIFY_SECURITY_HEADERS
+    # Amplify's caching page names s-maxage as what sets the edge's time (its default is a
+    # year), so the edge's zero is stated, not left to how it reads no-cache (review, Nov 2).
     for path in AMPLIFY_NO_CACHE:
-        assert headers[path] == {"Cache-Control": "no-cache"}, path
+        assert headers[path] == {"Cache-Control": "no-cache, s-maxage=0"}, path
     assert headers["/assets/*"] == {"Cache-Control": "public, max-age=31536000, immutable"}
     assert set(headers) == {"**/*", "/assets/*", *AMPLIFY_NO_CACHE}
 

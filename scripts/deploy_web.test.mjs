@@ -468,7 +468,7 @@ test("with WebHosting=amplify: build, check, zip, create the deployment, upload 
   // The zip goes to the deployment's own link, after create-deployment and before start-deployment.
   assert.deepEqual(uploads, [{ url: UPLOAD_URL, path: ZIP, after: 5 }]);
   assert.ok(!argvs.some((argv) => argv[1] === "s3" || argv[1] === "cloudfront"), "no S3 sync and no CloudFront call");
-  assert.match(out, new RegExp(`web: ${AMPLIFY_URL.replaceAll(".", "\.")}`));
+  assert.ok(out.includes(`web: ${AMPLIFY_URL}`), out);
 });
 
 test("with WebHosting=amplify, the job is polled until it ends, and a failed job stops the run", async () => {
