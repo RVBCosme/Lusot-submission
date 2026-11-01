@@ -8,6 +8,7 @@
     "prebuild": "node scripts/licences.mjs",
     "build": "tsc -b && vite build && node scripts/check-bundle.mjs dist",
     "build:e2e": "npm run prebuild && vite build --outDir .e2e-dist/none --emptyOutDir && node scripts/check-bundle.mjs .e2e-dist/none",
+    "ask:render": "vitest run src/ask/renderAnswers.run.test.ts",
     "copy:review": "vitest run src/i18n/review.test.ts",
     "copy:table": "vitest run src/copy/table.test.ts",
     "e2e": "playwright test",
