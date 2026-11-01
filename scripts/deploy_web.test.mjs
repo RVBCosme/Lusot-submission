@@ -32,6 +32,19 @@ const SAMCONFIG = [
   `parameter_overrides = "AlarmEmail=${CONTACT} BucketSuffix=abc123 WebHosting=on"`,
 ].join("\n");
 
+// WebHosting=amplify (Nov 2): the same stack, with Amplify's outputs in place of CloudFront's. The upload link is a
+// presigned URL, so it carries a signature that must never be printed.
+const AMPLIFY_SAMCONFIG = SAMCONFIG.replace("WebHosting=on", "WebHosting=amplify");
+const AMPLIFY_URL = "https://main.d2abcdef123456.amplifyapp.com";
+const AMPLIFY_OUTPUTS = [
+  { OutputKey: "ApiUrl", OutputValue: API_URL },
+  { OutputKey: "WebAmplifyAppId", OutputValue: "d2abcdef123456" },
+  { OutputKey: "WebAmplifyBranchName", OutputValue: "main" },
+  { OutputKey: "WebAmplifyUrl", OutputValue: AMPLIFY_URL },
+];
+const UPLOAD_URL = "https://aws-amplify-prod-ap-southeast-1-artifacts.s3.amazonaws.com/d2abcdef123456/main/7/artifacts.zip?X-Amz-Signature=SECRETSIG";
+const ZIP = "C:/tmp/lusot-web.zip";
+
 // app/dist as the build leaves it today, in kind: the page, the licences, the manifest and the icons, and under
 // assets/ the bundle, a lazy chunk, the styles and both font formats (the CSS lists .woff after each .woff2).
 const DIST = [
@@ -112,18 +125,32 @@ function syncEffects(argvs, files, remote) {
 // Runs deployWeb with a fake runner. `answer(argv)` may return a result for a call; any other call succeeds,
 // with the stack's outputs for describe-stacks and an invalidation id for create-invalidation. `files` is what
 // listing app/dist gives.
-async function deploy({ answer = () => undefined, samconfig = SAMCONFIG, env = { PATH: "test-path" }, files = DIST } = {}) {
+async function deploy({
+  answer = () => undefined,
+  samconfig = SAMCONFIG,
+  env = { PATH: "test-path" },
+  files = DIST,
+  outputs = OUTPUTS,
+  uploaded = async () => ({ ok: true, status: 200 }),
+} = {}) {
   const calls = [];
   const listed = [];
+  const uploads = [];
   const out = [];
   const err = [];
   const run = async (argv, options = {}) => {
     calls.push({ argv, env: options.env });
     const given = answer(argv);
     if (given) return { code: 0, stdout: "", stderr: "", ...given };
-    if (argv.includes("describe-stacks")) return { code: 0, stdout: JSON.stringify(OUTPUTS), stderr: "" };
+    if (argv.includes("describe-stacks")) return { code: 0, stdout: JSON.stringify(outputs), stderr: "" };
     if (argv.includes("create-invalidation")) return { code: 0, stdout: "I2EXAMPLE\n", stderr: "" };
+    if (argv.includes("create-deployment")) return { code: 0, stdout: JSON.stringify({ jobId: "7", zipUploadUrl: UPLOAD_URL }), stderr: "" };
+    if (argv.includes("get-job")) return { code: 0, stdout: "SUCCEED\n", stderr: "" };
     return { code: 0, stdout: "", stderr: "" };
+  };
+  const upload = async (url, path) => {
+    uploads.push({ url, path, after: calls.length });
+    return uploaded(url, path);
   };
   const readText = (path) => {
     if (path === "backend/samconfig.toml" && samconfig !== null) return samconfig;
@@ -138,10 +165,13 @@ async function deploy({ answer = () => undefined, samconfig = SAMCONFIG, env = {
     env,
     readText,
     listFiles,
+    upload,
+    zipPath: ZIP,
+    sleep: async () => {},
     out: (line) => out.push(line),
     err: (line) => err.push(line),
   });
-  return { code, calls, listed, argvs: calls.map((call) => call.argv), out: out.join("\n"), err: err.join("\n") };
+  return { code, calls, listed, uploads, argvs: calls.map((call) => call.argv), out: out.join("\n"), err: err.join("\n") };
 }
 
 const ASSETS = ["app/dist/assets", `s3://${BUCKET}/assets`];
@@ -362,7 +392,7 @@ test("with WebHosting off, or not set, the run stops before any call and says wh
     const { code, argvs, err } = await deploy({ samconfig });
     assert.equal(code, 1);
     assert.deepEqual(argvs, []);
-    assert.match(err, /WebHosting isn't on in backend\/samconfig\.toml/);
+    assert.match(err, /WebHosting isn't on or amplify in backend\/samconfig\.toml/);
     assert.ok(!err.includes(CONTACT), err);
   }
 });
@@ -409,4 +439,82 @@ test("the service worker goes up last, after the new pages are live, and before 
   // No sync deletes the live sw.js before the new one replaces it.
   const { deletes } = syncEffects(argvs, files.filter((file) => file !== "sw.js"), files);
   assert.equal(deletes.some((gone) => gone.key === "sw.js"), false);
+});
+
+// WebHosting=amplify (Nov 2, while CloudFront waits for the account's check): the same build and checks, then the
+// built app goes to Amplify as one zip, through a manual deployment, with no S3 sync and no CloudFront call.
+const DIST_WITH_WORKER = [...DIST, "sw.js", "workbox-NEW.js"];
+const amplify = (...args) => ["aws", "amplify", ...args, ...FLAGS];
+
+test("with WebHosting=amplify: build, check, zip, create the deployment, upload to its link, start it, and wait", async () => {
+  const { code, calls, argvs, uploads, out } = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    files: DIST_WITH_WORKER,
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(argvs, [
+    ["aws", "cloudformation", "describe-stacks", "--stack-name", "lusot-test", "--query", "Stacks[0].Outputs", "--output", "json", ...FLAGS],
+    ["npm", "run", "build", "-w", "app"],
+    ["node", "app/scripts/check-bundle.mjs", "app/dist"],
+    // Every file of app/dist, at the zip's root, so index.html is where Amplify serves it from.
+    ["tar", "-a", "-c", "-f", ZIP, "-C", "app/dist", ...DIST_WITH_WORKER],
+    amplify("create-deployment", "--app-id", "d2abcdef123456", "--branch-name", "main", "--output", "json"),
+    amplify("start-deployment", "--app-id", "d2abcdef123456", "--branch-name", "main", "--job-id", "7"),
+    amplify("get-job", "--app-id", "d2abcdef123456", "--branch-name", "main", "--job-id", "7",
+      "--query", "job.summary.status", "--output", "text"),
+  ]);
+  assert.equal(calls[1].env.VITE_API_URL, API_URL);
+  // The zip goes to the deployment's own link, after create-deployment and before start-deployment.
+  assert.deepEqual(uploads, [{ url: UPLOAD_URL, path: ZIP, after: 5 }]);
+  assert.ok(!argvs.some((argv) => argv[1] === "s3" || argv[1] === "cloudfront"), "no S3 sync and no CloudFront call");
+  assert.match(out, new RegExp(`web: ${AMPLIFY_URL.replaceAll(".", "\.")}`));
+});
+
+test("with WebHosting=amplify, the job is polled until it ends, and a failed job stops the run", async () => {
+  let reads = 0;
+  const pending = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    answer: (argv) => (argv.includes("get-job") ? { stdout: ++reads < 3 ? "RUNNING\n" : "SUCCEED\n" } : undefined),
+  });
+  assert.equal(pending.code, 0);
+  assert.equal(pending.argvs.filter((argv) => argv.includes("get-job")).length, 3);
+
+  const failed = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    answer: (argv) => (argv.includes("get-job") ? { stdout: "FAILED\n" } : undefined),
+  });
+  assert.notEqual(failed.code, 0);
+  assert.match(failed.err, /FAILED/);
+
+  const stuck = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    answer: (argv) => (argv.includes("get-job") ? { stdout: "RUNNING\n" } : undefined),
+  });
+  assert.notEqual(stuck.code, 0);
+  assert.match(stuck.err, /still RUNNING/);
+});
+
+test("with WebHosting=amplify, a failed upload stops the run before the deployment starts, and its link is never shown", async () => {
+  const { code, argvs, out, err } = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    uploaded: async () => ({ ok: false, status: 403 }),
+  });
+  assert.notEqual(code, 0);
+  assert.ok(!argvs.some((argv) => argv.includes("start-deployment")));
+  assert.match(err, /upload.*403/);
+  for (const text of [out, err]) {
+    assert.ok(!text.includes("SECRETSIG") && !text.includes(UPLOAD_URL), text);
+  }
+});
+
+test("with WebHosting=amplify, a stack without Amplify's outputs stops the run before the build", async () => {
+  const { code, argvs, err } = await deploy({ samconfig: AMPLIFY_SAMCONFIG, outputs: OUTPUTS });
+  assert.equal(code, 1);
+  assert.equal(argvs.length, 1);
+  assert.match(err, /WebAmplifyAppId/);
 });

@@ -36,6 +36,20 @@ CACHING_OPTIMIZED = "658327ea-f89d-4fab-a63d-7e88639e58f6"
 SECURITY_HEADERS = "67f7725c-6f97-4210-82d7-5512b31e9d03"
 # A sample distribution domain, as CloudFormation's docs give it, to resolve the CORS lists with.
 WEB_DOMAIN = "d111111abcdef8.cloudfront.net"
+# The website on Amplify Hosting instead (WebHosting=amplify; Nov 2, while CloudFront waits for
+# the account's verification), and a sample app domain to resolve with.
+AMPLIFY_RESOURCES = ("WebAmplifyApp", "WebAmplifyBranch")
+AMPLIFY_DOMAIN = "d2abcdef123456.amplifyapp.com"
+AMPLIFY_ORIGIN = f"https://main.{AMPLIFY_DOMAIN}"
+HOSTED_ATTRS = {
+    ("WebDistribution", "DomainName"): WEB_DOMAIN,
+    ("WebAmplifyApp", "DefaultDomain"): AMPLIFY_DOMAIN,
+    ("WebAmplifyBranch", "BranchName"): "main",
+}
+
+
+def hosting_conditions(hosting):
+    return {"HasWeb": hosting == "on", "HasAmplify": hosting == "amplify"}
 
 
 def resource(name):
@@ -133,26 +147,27 @@ def resolve(value, params, attrs, conditions=None):
     return value
 
 
-def cors_origins(value, app_origins, web=True):
+def cors_origins(value, app_origins, hosting="on"):
     return resolve(
         value,
         {"AppOrigins": app_origins},
-        {("WebDistribution", "DomainName"): WEB_DOMAIN} if web else {},
-        {"HasWeb": web},
+        HOSTED_ATTRS if hosting != "off" else {},
+        hosting_conditions(hosting),
     )
 
 
-def unguarded(value):
-    """The web resources `value` names outside the on branch of an Fn::If on HasWeb. With
-    WebHosting off they don't exist, and CloudFormation refuses a template that names one."""
+def unguarded(value, condition="HasWeb", resources=WEB_RESOURCES):
+    """The `resources` that `value` names outside the true branch of an Fn::If on `condition`:
+    the web resources outside HasWeb's, or the Amplify ones outside HasAmplify's. Without their
+    condition they don't exist, and CloudFormation refuses a template that names one."""
     found = set()
     if isinstance(value, list):
         for item in value:
-            found |= unguarded(item)
+            found |= unguarded(item, condition, resources)
     elif isinstance(value, dict):
         for key, arg in value.items():
-            if key == "Fn::If" and arg[0] == "HasWeb":
-                found |= unguarded(arg[2])
+            if key == "Fn::If" and arg[0] == condition:
+                found |= unguarded(arg[2], condition, resources)
                 continue
             if key == "Ref" and isinstance(arg, str):
                 found.add(arg)
@@ -161,8 +176,8 @@ def unguarded(value):
             elif key == "Fn::Sub":
                 text = arg[0] if isinstance(arg, list) else arg
                 found.update(re.findall(r"\$\{([A-Za-z0-9]+)", text))
-            found |= unguarded(arg)
-    return found & set(WEB_RESOURCES)
+            found |= unguarded(arg, condition, resources)
+    return found & set(resources)
 
 
 def references(value):
@@ -247,9 +262,10 @@ def test_api_environment():
     # Identifies the app to Nominatim (its usage policy) by name and, with the website on,
     # the site's address; never an email address.
     agent = env["NOMINATIM_USER_AGENT"]
-    attrs = {("WebDistribution", "DomainName"): WEB_DOMAIN}
-    assert resolve(agent, {}, attrs, {"HasWeb": True}) == f"Lusot/1.0 (+https://{WEB_DOMAIN})"
-    assert resolve(agent, {}, {}, {"HasWeb": False}) == "Lusot/1.0"
+    on, amplify, off = (hosting_conditions(h) for h in ("on", "amplify", "off"))
+    assert resolve(agent, {}, HOSTED_ATTRS, on) == f"Lusot/1.0 (+https://{WEB_DOMAIN})"
+    assert resolve(agent, {}, HOSTED_ATTRS, amplify) == f"Lusot/1.0 (+{AMPLIFY_ORIGIN})"
+    assert resolve(agent, {}, {}, off) == "Lusot/1.0"
     assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
     assert env["FEED_INDEX_NAME"] == "feed-index"
     # A literal string, never a parameter (C515): YAML's bare false would be a bool.
@@ -398,9 +414,12 @@ def test_cors_origins_add_the_website():
         # AppOrigins stays a list: a deploy that passes other origins keeps each one.
         other = ["https://a.example", "https://b.example"]
         assert cors_origins(origins, other) == [*other, web]
-        # Off: no CloudFront origin, and still a list.
-        assert cors_origins(origins, default, web=False) == default
-        assert cors_origins(origins, other, web=False) == other
+        # Amplify: its branch's origin in place of CloudFront's.
+        assert cors_origins(origins, default, "amplify") == [*default, AMPLIFY_ORIGIN]
+        assert cors_origins(origins, other, "amplify") == [*other, AMPLIFY_ORIGIN]
+        # Off: no website origin, and still a list.
+        assert cors_origins(origins, default, "off") == default
+        assert cors_origins(origins, other, "off") == other
 
 
 def test_web_hosting_switch():
@@ -409,35 +428,49 @@ def test_web_hosting_switch():
     set by name in samconfig.toml."""
     p = T["Parameters"]["WebHosting"]
     assert p["Type"] == "String"
-    assert p["AllowedValues"] == ["on", "off"]
+    # amplify (Nov 2): the website on Amplify Hosting, prepared while CloudFront waits.
+    assert p["AllowedValues"] == ["on", "off", "amplify"]
     assert p["Default"] == "on"
     # Strings, never YAML 1.1's booleans (C309).
     assert all(isinstance(value, str) for value in [*p["AllowedValues"], p["Default"]])
-    assert T["Conditions"] == {"HasWeb": {"Fn::Equals": [{"Ref": "WebHosting"}, "on"]}}
+    assert T["Conditions"] == {
+        "HasWeb": {"Fn::Equals": [{"Ref": "WebHosting"}, "on"]},
+        "HasAmplify": {"Fn::Equals": [{"Ref": "WebHosting"}, "amplify"]},
+    }
 
 
 def test_only_the_website_needs_the_switch():
     """Off leaves out the four web resources and the three outputs deploy:web reads, and
-    nothing else."""
-    assert {name for name, r in RES.items() if "Condition" in r} == set(WEB_RESOURCES)
-    assert all(RES[name]["Condition"] == "HasWeb" for name in WEB_RESOURCES)
-    outputs = T["Outputs"]
-    web_outputs = {"WebUrl", "WebBucketName", "WebDistributionId"}
-    assert {name for name, o in outputs.items() if "Condition" in o} == web_outputs
-    assert all(outputs[name]["Condition"] == "HasWeb" for name in web_outputs)
+    amplify's two resources and three outputs, and nothing else."""
+    conditional = {name: r["Condition"] for name, r in RES.items() if "Condition" in r}
+    assert conditional == {
+        **{name: "HasWeb" for name in WEB_RESOURCES},
+        **{name: "HasAmplify" for name in AMPLIFY_RESOURCES},
+    }
+    outputs = {name: o["Condition"] for name, o in T["Outputs"].items() if "Condition" in o}
+    assert outputs == {
+        "WebUrl": "HasWeb",
+        "WebBucketName": "HasWeb",
+        "WebDistributionId": "HasWeb",
+        "WebAmplifyUrl": "HasAmplify",
+        "WebAmplifyAppId": "HasAmplify",
+        "WebAmplifyBranchName": "HasAmplify",
+    }
 
 
 def test_nothing_left_in_names_the_website():
-    """With WebHosting off, every resource and output left in must name no web resource,
-    except in the on branch of an Fn::If on HasWeb."""
-    for name, r in RES.items():
-        if r.get("Condition") == "HasWeb":
-            continue
-        assert not unguarded(r), name
-        assert not set(as_list(r.get("DependsOn", []))) & set(WEB_RESOURCES), name
-    for name, o in T["Outputs"].items():
-        if o.get("Condition") != "HasWeb":
-            assert not unguarded(o), name
+    """Every resource and output left in without its condition names none of the website's
+    resources, except in the true branch of an Fn::If on that condition: CloudFront's under
+    HasWeb, Amplify's under HasAmplify."""
+    for condition, resources in (("HasWeb", WEB_RESOURCES), ("HasAmplify", AMPLIFY_RESOURCES)):
+        for name, r in RES.items():
+            if r.get("Condition") == condition:
+                continue
+            assert not unguarded(r, condition, resources), (condition, name)
+            assert not set(as_list(r.get("DependsOn", []))) & set(resources), (condition, name)
+        for name, o in T["Outputs"].items():
+            if o.get("Condition") != condition:
+                assert not unguarded(o, condition, resources), (condition, name)
 
 
 def test_web_bucket():
@@ -555,6 +588,71 @@ def test_web_outputs():
     }
     assert outputs["WebBucketName"]["Value"] == {"Ref": "WebBucket"}
     assert outputs["WebDistributionId"]["Value"] == {"Ref": "WebDistribution"}
+
+
+# The headers CloudFront's managed SecurityHeadersPolicy sends (its doc page, read Nov 2), which
+# Amplify has no managed policy for, so the app sets them itself.
+AMPLIFY_SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-XSS-Protection": "1; mode=block",
+}
+# deploy:web's no-cache paths and the service worker: Amplify caches a static file at the edge
+# for a year unless a custom Cache-Control says otherwise (the Nov 1 probe saw
+# s-maxage=31536000), which would keep an old page or worker after a deploy.
+AMPLIFY_NO_CACHE = ("/", "/index.html", "/sw.js", "/manifest.webmanifest", "/licences.txt", "/icons/*")
+
+
+def amplify_headers():
+    import yaml
+
+    rules = yaml.safe_load(props("WebAmplifyApp")["CustomHeaders"])["customHeaders"]
+    by_pattern = {}
+    for rule in rules:
+        assert rule["pattern"] not in by_pattern, rule["pattern"]
+        by_pattern[rule["pattern"]] = {h["key"]: h["value"] for h in rule["headers"]}
+    return by_pattern
+
+
+def test_amplify_app():
+    """A manual-deploy web app: no repository, token, build or environment, so nothing is
+    built or stored on Amplify's side but the uploaded bundle."""
+    assert resource("WebAmplifyApp")["Type"] == "AWS::Amplify::App"
+    p = props("WebAmplifyApp")
+    assert p["Platform"] == "WEB"
+    assert p["Name"] == {"Fn::Sub": "${AWS::StackName}-web"}
+    for absent in ("Repository", "AccessToken", "OauthToken", "BuildSpec", "EnvironmentVariables", "IAMServiceRole"):
+        assert absent not in p, absent
+
+
+def test_amplify_headers():
+    """Every path gets the five security headers; the page, the worker, the manifest, the
+    licences and the icons are no-cache at the edge too; hashed assets are cached a year."""
+    headers = amplify_headers()
+    assert headers["**/*"] == AMPLIFY_SECURITY_HEADERS
+    for path in AMPLIFY_NO_CACHE:
+        assert headers[path] == {"Cache-Control": "no-cache"}, path
+    assert headers["/assets/*"] == {"Cache-Control": "public, max-age=31536000, immutable"}
+    assert set(headers) == {"**/*", "/assets/*", *AMPLIFY_NO_CACHE}
+
+
+def test_amplify_branch():
+    """The one production branch the deploys go to, never built by Amplify itself."""
+    assert resource("WebAmplifyBranch")["Type"] == "AWS::Amplify::Branch"
+    p = props("WebAmplifyBranch")
+    assert p["AppId"] == {"Fn::GetAtt": ["WebAmplifyApp", "AppId"]}
+    assert p["BranchName"] == "main"
+    assert p["Stage"] == "PRODUCTION"
+    assert p["EnableAutoBuild"] is False
+
+
+def test_amplify_outputs():
+    outputs = T["Outputs"]
+    assert resolve(outputs["WebAmplifyUrl"]["Value"], {}, HOSTED_ATTRS) == AMPLIFY_ORIGIN
+    assert outputs["WebAmplifyAppId"]["Value"] == {"Fn::GetAtt": ["WebAmplifyApp", "AppId"]}
+    assert outputs["WebAmplifyBranchName"]["Value"] == {"Fn::GetAtt": ["WebAmplifyBranch", "BranchName"]}
 
 
 def test_no_dependency_cycle():

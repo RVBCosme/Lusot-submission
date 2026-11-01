@@ -20,14 +20,16 @@ Parameters:
     Description: Origins allowed by CORS on the API and the bucket (the Capacitor app and the local dev and preview servers). With WebHosting on, the template adds the website's origin.
   # Oct 31: AWS refused the account's first CloudFront distribution until it verifies the
   # account, so the website can be left out. samconfig.toml sets it by name (npm run deploy).
+  # Nov 2: amplify serves it from Amplify Hosting instead, while CloudFront waits for that check.
   WebHosting:
     Type: String
-    AllowedValues: ["on", "off"]
+    AllowedValues: ["on", "off", "amplify"]
     Default: "on"
-    Description: on serves the website from WebBucket through CloudFront; off leaves the web resources and outputs out.
+    Description: on serves the website from WebBucket through CloudFront; amplify serves it from an Amplify Hosting app; off leaves the web resources and outputs out.
 
 Conditions:
   HasWeb: !Equals [!Ref WebHosting, "on"]
+  HasAmplify: !Equals [!Ref WebHosting, "amplify"]
 
 # The region (D-d): CloudFormation checks a stack's rules when it makes the change set, so a
 # deploy to any other region fails there, before the stack changes. SAM's companion stack and
@@ -58,8 +60,8 @@ Resources:
         CorsRules:
           # GET lets the app fetch a report's layersUrl (MS5's N14).
           - AllowedMethods: [GET, POST]
-            # AppOrigins and the website's origin (C622), or AppOrigins alone with WebHosting off;
-            # the same list as the API's.
+            # AppOrigins and the website's origin (C622), CloudFront's or Amplify's, or AppOrigins
+            # alone with WebHosting off; the same list as the API's.
             AllowedOrigins: !If
               - HasWeb
               - !Split
@@ -68,7 +70,16 @@ Resources:
                   - "${Origins},https://${WebDomain}"
                   - Origins: !Join [",", !Ref AppOrigins]
                     WebDomain: !GetAtt WebDistribution.DomainName
-              - !Ref AppOrigins
+              - !If
+                - HasAmplify
+                - !Split
+                  - ","
+                  - !Sub
+                    - "${Origins},https://${Branch}.${AppDomain}"
+                    - Origins: !Join [",", !Ref AppOrigins]
+                      Branch: !GetAtt WebAmplifyBranch.BranchName
+                      AppDomain: !GetAtt WebAmplifyApp.DefaultDomain
+                - !Ref AppOrigins
       LifecycleConfiguration:
         Rules:
           - Id: raw-1-day
@@ -268,8 +279,8 @@ Resources:
           version: "1.0"
         paths: {}
         x-amazon-apigateway-cors:
-          # AppOrigins and the website's origin (C622), or AppOrigins alone with WebHosting off;
-          # as a list, the same as the bucket's.
+          # AppOrigins and the website's origin (C622), CloudFront's or Amplify's, or AppOrigins
+          # alone with WebHosting off; as a list, the same as the bucket's.
           allowOrigins: !If
             - HasWeb
             - !Split
@@ -278,7 +289,16 @@ Resources:
                 - "${Origins},https://${WebDomain}"
                 - Origins: !Join [",", !Ref AppOrigins]
                   WebDomain: !GetAtt WebDistribution.DomainName
-            - !Ref AppOrigins
+            - !If
+              - HasAmplify
+              - !Split
+                - ","
+                - !Sub
+                  - "${Origins},https://${Branch}.${AppDomain}"
+                  - Origins: !Join [",", !Ref AppOrigins]
+                    Branch: !GetAtt WebAmplifyBranch.BranchName
+                    AppDomain: !GetAtt WebAmplifyApp.DefaultDomain
+              - !Ref AppOrigins
           allowMethods: [GET, POST]
           # The app's random device id (C508), and a 429's Retry-After (C522).
           allowHeaders: [content-type, x-lusot-device]
@@ -336,7 +356,10 @@ Resources:
           NOMINATIM_USER_AGENT: !If
             - HasWeb
             - !Sub "Lusot/1.0 (+https://${WebDistribution.DomainName})"
-            - Lusot/1.0
+            - !If
+              - HasAmplify
+              - !Sub "Lusot/1.0 (+https://${WebAmplifyBranch.BranchName}.${WebAmplifyApp.DefaultDomain})"
+              - Lusot/1.0
       Events:
         CreateUpload:
           Type: HttpApi
@@ -961,6 +984,72 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution.Id}"
 
+  # The website on Amplify Hosting instead (WebHosting=amplify, Nov 2): a manual-deploy app, so
+  # no repository, token or build, and `npm run deploy:web` uploads the built app as a zip. Amplify
+  # caches a static file at its edge for a year unless a Cache-Control header says otherwise, so
+  # the page, the service worker, the manifest, the licences and the icons are no-cache there, as
+  # they are on S3 for CloudFront. Amplify has no managed headers policy, so the app sends the five
+  # headers of CloudFront's SecurityHeadersPolicy itself. Amplify keeps access logs that Lusot
+  # can't turn off (unlike CloudFront's, PRIV-Q9), so the privacy policy must say so before this
+  # serves the public. Both exist only with WebHosting=amplify.
+  WebAmplifyApp:
+    Type: AWS::Amplify::App
+    Condition: HasAmplify
+    Properties:
+      Name: !Sub "${AWS::StackName}-web"
+      Platform: WEB
+      CustomHeaders: |
+        customHeaders:
+          - pattern: '**/*'
+            headers:
+              - key: 'Strict-Transport-Security'
+                value: 'max-age=31536000'
+              - key: 'X-Content-Type-Options'
+                value: 'nosniff'
+              - key: 'X-Frame-Options'
+                value: 'SAMEORIGIN'
+              - key: 'Referrer-Policy'
+                value: 'strict-origin-when-cross-origin'
+              - key: 'X-XSS-Protection'
+                value: '1; mode=block'
+          - pattern: '/assets/*'
+            headers:
+              - key: 'Cache-Control'
+                value: 'public, max-age=31536000, immutable'
+          - pattern: '/'
+            headers:
+              - key: 'Cache-Control'
+                value: 'no-cache'
+          - pattern: '/index.html'
+            headers:
+              - key: 'Cache-Control'
+                value: 'no-cache'
+          - pattern: '/sw.js'
+            headers:
+              - key: 'Cache-Control'
+                value: 'no-cache'
+          - pattern: '/manifest.webmanifest'
+            headers:
+              - key: 'Cache-Control'
+                value: 'no-cache'
+          - pattern: '/licences.txt'
+            headers:
+              - key: 'Cache-Control'
+                value: 'no-cache'
+          - pattern: '/icons/*'
+            headers:
+              - key: 'Cache-Control'
+                value: 'no-cache'
+
+  WebAmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Condition: HasAmplify
+    Properties:
+      AppId: !GetAtt WebAmplifyApp.AppId
+      BranchName: main
+      Stage: PRODUCTION
+      EnableAutoBuild: false
+
 Outputs:
   ApiUrl:
     Value: !GetAtt HttpApi.ApiEndpoint
@@ -986,3 +1075,13 @@ Outputs:
   WebDistributionId:
     Condition: HasWeb
     Value: !Ref WebDistribution
+  # With WebHosting=amplify only: what `npm run deploy:web` deploys to.
+  WebAmplifyUrl:
+    Condition: HasAmplify
+    Value: !Sub "https://${WebAmplifyBranch.BranchName}.${WebAmplifyApp.DefaultDomain}"
+  WebAmplifyAppId:
+    Condition: HasAmplify
+    Value: !GetAtt WebAmplifyApp.AppId
+  WebAmplifyBranchName:
+    Condition: HasAmplify
+    Value: !GetAtt WebAmplifyBranch.BranchName

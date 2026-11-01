@@ -1,7 +1,7 @@
 // `npm run deploy:web`: puts the web app on the stack's web bucket, behind CloudFront (MS5 Task 19, C622). The stack
 // must already hold the web resources, so `npm run deploy` comes first. In order, it:
-// 1. reads the stack name from the git-ignored backend/samconfig.toml, and stops unless it sets WebHosting=on (with it
-//    off the stack has no web resources); then reads the stack's outputs
+// 1. reads the stack name from the git-ignored backend/samconfig.toml, and stops unless it sets WebHosting=on or
+//    amplify (with it off the stack has no web resources); then reads the stack's outputs
 // 2. builds the app with VITE_API_URL set to the stack's ApiUrl, through the app's build script, so prebuild writes
 //    licences.txt and the bundle check runs. Vite reads VITE_PRIVACY_CONTACT from the git-ignored app/.env.local
 //    itself (an environment variable already set wins over the file), so this script never reads the contact.
@@ -13,9 +13,19 @@
 // 7. only then deletes old assets, so a visitor who loaded the old index.html a moment earlier still gets its files
 // It stops at the first step that fails, with that step's exit code. It prints each step's status and the web URL.
 // A command's output is kept back and shown only when its step fails, masked: ARNs, email addresses and runs of
-// 12 digits (account IDs), as deploy.mjs masks them.
+// 12 digits (account IDs), as deploy.mjs masks them, and presigned links.
+//
+// With WebHosting=amplify instead (Nov 2, while CloudFront waits for the account's check), steps 1 to 4 are the same,
+// with Amplify's outputs, and then it:
+// 5. zips every file of app/dist at the zip's root (Windows' own tar), in the system's temp folder
+// 6. creates a manual deployment on the stack's Amplify branch, and uploads the zip to the link it gives, which is
+//    never printed
+// 7. starts the deployment and reads the job's status until it succeeds, fails, or JOB_POLLS reads have passed
+// Amplify replaces the whole site at once, so old assets go when the new page goes live. The app's custom headers in
+// the template keep the page, the worker and the manifest no-cache at its edge.
 import { spawn } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, posix, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { webHosting } from "./deploy.mjs";
@@ -46,12 +56,19 @@ const NO_CACHE_PATHS = ["/", "/index.html", "/manifest.webmanifest", "/licences.
 // browser that fetched the new worker while the old page was still served would precache the old page under the new
 // revision, and blank once the old assets went.
 const WORKER = "sw.js";
-const OUTPUT_KEYS = ["ApiUrl", "WebBucketName", "WebDistributionId", "WebUrl"];
+const OUTPUT_KEYS = {
+  on: ["ApiUrl", "WebBucketName", "WebDistributionId", "WebUrl"],
+  amplify: ["ApiUrl", "WebAmplifyAppId", "WebAmplifyBranchName", "WebAmplifyUrl"],
+};
+// How often, and how long apart, an Amplify job's status is read: 10 minutes in all.
+const JOB_POLLS = 120;
+const JOB_POLL_MS = 5000;
 
 const aws = (...args) => ["aws", ...args, ...AWS_FLAGS];
 
 export function scrub(text) {
   return String(text)
+    .replace(/https?:\/\/[^\s"'`]*X-Amz-[^\s"'`]*/g, "<presigned link>")
     .replace(/arn:[^\s"'`,;)\]}]+/g, "<arn>")
     .replace(/[^\s@"'`<>(),;]+@[^\s@"'`<>(),;]+\.[A-Za-z]{2,}/g, "<email>")
     .replace(/[0-9]{12}/g, "<account>");
@@ -66,8 +83,9 @@ class Stop extends Error {
 
 // run(argv, { env }) gives { code, stdout, stderr }; readText(path) reads a file under the repo root; listFiles(dir)
 // gives the paths of every file under a folder of the repo, relative to it, with `/`; out and err each write one
-// line. Returns the exit code.
-export async function deployWeb({ run, env, readText, listFiles, out, err }) {
+// line. For Amplify: upload(url, path) PUTs a file and gives { ok, status }; zipPath is where the zip is written;
+// sleep(ms) waits. Returns the exit code.
+export async function deployWeb({ run, env, readText, listFiles, upload, zipPath, sleep, out, err }) {
   const say = (line) => out(scrub(line));
   const step = async (name, argv, options) => {
     const result = await run(argv, options);
@@ -83,10 +101,11 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
     }
     const stack = /^\s*stack_name\s*=\s*"([^"]+)"/m.exec(samconfig)?.[1];
     if (!stack) throw new Stop("backend/samconfig.toml has no stack_name");
-    if (webHosting(samconfig) !== "on") {
+    const hosting = webHosting(samconfig);
+    if (hosting !== "on" && hosting !== "amplify") {
       throw new Stop(
-        "WebHosting isn't on in backend/samconfig.toml, so the stack has no website: set WebHosting=on, " +
-          "run npm run deploy, then deploy:web",
+        "WebHosting isn't on or amplify in backend/samconfig.toml, so the stack has no website: set WebHosting=on " +
+          "(or amplify), run npm run deploy, then deploy:web",
       );
     }
 
@@ -100,7 +119,7 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
     } catch {
       throw new Stop("the stack's outputs couldn't be read as JSON");
     }
-    const missing = OUTPUT_KEYS.filter((key) => !outputs[key]);
+    const missing = OUTPUT_KEYS[hosting].filter((key) => !outputs[key]);
     if (missing.length > 0) {
       throw new Stop(`the stack has no ${missing.join(", ")} output: deploy the template first (npm run deploy)`);
     }
@@ -117,6 +136,40 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
     if (unknown.length > 0) {
       const named = unknown.map((file) => `app/dist/${file}`).join(", ");
       throw new Stop(`no Content-Type is set for the type of ${named}: add it to CONTENT_TYPES in scripts/deploy_web.mjs`);
+    }
+    if (hosting === "amplify") {
+      const { WebAmplifyAppId: app, WebAmplifyBranchName: branch, WebAmplifyUrl: amplifyUrl } = outputs;
+      const at = ["--app-id", app, "--branch-name", branch];
+      await step("zip", ["tar", "-a", "-c", "-f", zipPath, "-C", "app/dist", ...files]);
+      say("zip: ok");
+      const created = await step("create-deployment", aws("amplify", "create-deployment", ...at, "--output", "json"));
+      let job;
+      try {
+        job = JSON.parse(created.stdout);
+      } catch {
+        job = {};
+      }
+      if (!job.jobId || !job.zipUploadUrl) throw new Stop("create-deployment gave no job id or upload link");
+      const sent = await upload(job.zipUploadUrl, zipPath);
+      if (!sent.ok) throw new Stop(`the zip's upload failed with HTTP ${sent.status}`);
+      say("upload: ok");
+      await step("start-deployment", aws("amplify", "start-deployment", ...at, "--job-id", job.jobId));
+      let status = "";
+      for (let read = 0; read < JOB_POLLS && status !== "SUCCEED"; read += 1) {
+        if (read > 0) await sleep(JOB_POLL_MS);
+        const got = await step(
+          "reading the deployment's status",
+          aws("amplify", "get-job", ...at, "--job-id", job.jobId, "--query", "job.summary.status", "--output", "text"),
+        );
+        status = got.stdout.trim();
+        if (status === "FAILED" || status === "CANCELLED") throw new Stop(`the Amplify deployment ended ${status}`);
+      }
+      if (status !== "SUCCEED") {
+        throw new Stop(`the Amplify deployment is still ${status} after ${JOB_POLLS} reads: check it with aws amplify get-job`);
+      }
+      say("deployment: live");
+      say(`web: ${amplifyUrl}`);
+      return 0;
     }
     // The types present in assets/ (or outside it), in the table's order.
     const typesIn = (inAssets) =>
@@ -194,14 +247,27 @@ export async function deployWeb({ run, env, readText, listFiles, out, err }) {
 // Deploys only when run as `node scripts/deploy_web.mjs`, so a test can import deployWeb.
 if (import.meta.main === undefined) throw new Error("scripts/deploy_web.mjs needs Node 22.18 or newer");
 if (import.meta.main) {
-  const code = await deployWeb({
-    run,
-    env: process.env,
-    readText: (path) => readFileSync(join(root, path), "utf8"),
-    listFiles,
-    out: (line) => process.stdout.write(`${line}\n`),
-    err: (line) => process.stderr.write(`${line}\n`),
-  });
+  const zipPath = join(tmpdir(), `lusot-web-${process.pid}.zip`);
+  let code;
+  try {
+    code = await deployWeb({
+      run,
+      env: process.env,
+      readText: (path) => readFileSync(join(root, path), "utf8"),
+      listFiles,
+      // A presigned PUT: the zip as the body, and no header the link wasn't signed for.
+      upload: async (url, path) => {
+        const response = await fetch(url, { method: "PUT", body: readFileSync(path) });
+        return { ok: response.ok, status: response.status };
+      },
+      zipPath,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
+  } finally {
+    rmSync(zipPath, { force: true });
+  }
   process.exit(code);
 }
 
