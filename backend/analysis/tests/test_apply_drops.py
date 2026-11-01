@@ -355,3 +355,53 @@ def test_apply_drops_names_each_box_cause():
     # A box apply_drops keeps has no cause.
     kept, drops = apply_drops(answer(people=[person(1, "knee")]), numbered(people=[1]))
     assert (kept.causes, drops) == ({}, Counter())
+
+
+def sized(sides: Mapping[int, int]) -> Layout:
+    """A Layout of people only, each box's longer side the px given (C92)."""
+    return Layout(
+        boxes=tuple(
+            NumberedBox(i, "person", (0, 0, side // 2, side))
+            for i, side in sorted(sides.items())
+        ),
+        wheel_vehicle={},
+        small_wheel_vehicles=frozenset(),
+    )
+
+
+def test_small_people_never_block_and_stay_marked_small():
+    # C92: a person whose box's longer side is under the cutoff blocks no one, so a
+    # distant standing adult can't leave the near adults out as wading, as in the
+    # sample Rene saw on Nov 2. It stays kept, marked small, so step 5 can give its
+    # reading as one that refuses but never decides.
+    given = answer(
+        people=[person(1, "mid_thigh"), person(2, "knee", standing_still="no")]
+    )
+    layout = sized({1: 50, 2: 200})
+    kept, drops = apply_drops(given, layout, min_person_side_px=60)
+    assert kept == Kept(
+        vehicles=(),
+        people=(KeptPerson(1, "mid_thigh", small=True), KeptPerson(2, "knee")),
+    )
+    assert not drops
+    # START's cutoff, 0, keeps the small adult as any other, and it blocks.
+    kept, drops = apply_drops(given, layout)
+    assert kept == Kept(vehicles=(), people=(KeptPerson(1, "mid_thigh"),))
+    assert drops == Counter(person_wading=1)
+
+
+@pytest.mark.parametrize(("side", "small"), [(59, True), (60, False)])
+def test_the_person_cutoff_is_under_the_longer_side(side, small):
+    kept, _ = apply_drops(
+        answer(people=[person(1, "knee")]), sized({1: side}), min_person_side_px=60
+    )
+    assert kept.people == (KeptPerson(1, "knee", small=small),)
+
+
+def test_a_small_person_keeps_its_other_causes():
+    # Size changes nothing for a person who gives no reading anyway: person 1 is
+    # unanswered and person 2 a child.
+    given = answer(people=[person(2, "knee", adult="no")])
+    kept, drops = apply_drops(given, sized({1: 30, 2: 30}), min_person_side_px=60)
+    assert kept.people == ()
+    assert drops == Counter(person_unanswered=1, person_not_adult=1)

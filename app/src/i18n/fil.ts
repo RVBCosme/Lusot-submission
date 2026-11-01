@@ -420,6 +420,12 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Hindi ginamit, dahil walang sagot ang reading model para sa taong ito.',
     reviewed: true,
   },
+  // C92's line, approved as written at M20 by the tracker under Rene's written delegation (Nov 2, about 4:4x AM),
+  // for Rene's morning sign-off.
+  'dropped.person_small': {
+    text: 'Hindi ginamit, dahil masyadong maliit ang taong ito sa photo para mabasa.',
+    reviewed: true,
+  },
   'dropped.person_not_adult': { text: 'Hindi ginamit, dahil maaaring hindi adult ang taong ito.', reviewed: true },
   'dropped.person_wading': {
     text: 'Hindi ginamit, dahil maaaring hindi nakatigil ang taong ito.',

@@ -57,6 +57,7 @@ export const DROP_CAUSES = [
   'wheel_vehicle_dropped',
   'wheel_unanswered',
   'wheel_methods_disagree',
+  'person_small',
   'person_unanswered',
   'person_not_adult',
   'person_wading',

@@ -53,6 +53,16 @@ def water_mask(result: SamResult, shape: tuple[int, int]) -> np.ndarray:
     return water
 
 
+def lower_half_share(water: np.ndarray) -> float:
+    """The share of the image's lower half that the water mask covers (C93).
+
+    The lower half is the rows from height // 2 down, so with an odd height the middle
+    row counts. It is 0.0 for an empty mask.
+    """
+    lower = water[water.shape[0] // 2 :]
+    return float(lower.mean()) if lower.size else 0.0
+
+
 def find_waterline(obj: np.ndarray, water: np.ndarray, tuning: Tuning) -> Waterline:
     """The waterline under the object mask `obj`, from the water mask `water`.
 

@@ -61,7 +61,12 @@ from lusot_analysis.pipeline.types import (
     ModelKeyRejected,
     Outcome,
 )
-from lusot_analysis.pipeline.waterline import Waterline, find_waterline, water_mask
+from lusot_analysis.pipeline.waterline import (
+    Waterline,
+    find_waterline,
+    lower_half_share,
+    water_mask,
+)
 from lusot_analysis.prompts import PromptSpec
 from lusot_analysis.tuning import TUNING, Tuning
 
@@ -292,7 +297,12 @@ def _run_steps(
     # SAM's water as one mask: step 3 reads it, and the evidence record outlines it,
     # on a gate result too (C328).
     water = water_mask(sam["floodwater"], (image.height, image.width))
-    settled = gate(answer, has_water=water_found(sam["floodwater"]))
+    settled = gate(
+        answer,
+        has_water=water_found(sam["floodwater"]),
+        water_share=lower_half_share(water),
+        no_flood_share_max=tuning.no_flood_share_max,
+    )
     if settled is not None:  # no box has a reading yet, and step 3 hasn't run
         evidence = build_evidence(
             boxes,
@@ -310,7 +320,12 @@ def _run_steps(
         return settled, None, evidence
     # With geometry on, vans and `unknown` are kept for geometry alone (C318).
     geometry_types = rules.GEOMETRY_ONLY_TYPES if geometry_in_level else frozenset()
-    kept, kept_drops = apply_drops(answer, links, geometry_types=geometry_types)
+    kept, kept_drops = apply_drops(
+        answer,
+        links,
+        geometry_types=geometry_types,
+        min_person_side_px=tuning.min_person_side_px,
+    )
     drops.update(kept_drops)
 
     # Step 3, after the gate, beside the drops above (C317): the waterline under each

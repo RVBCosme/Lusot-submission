@@ -167,16 +167,25 @@ def water_found(result: SamResult) -> bool:
     return any(inst.mask.any() for inst in result.instances)
 
 
-def gate(answer: dict, *, has_water: bool) -> Outcome | None:
+def gate(
+    answer: dict,
+    *,
+    has_water: bool,
+    water_share: float = 0.0,
+    no_flood_share_max: float = 1.0,
+) -> Outcome | None:
     """The outcome the answer's top level settles, or None to go on (step 4.5).
 
-    `answer` has passed the schema and check_ids_per_item. In this order:
+    `answer` has passed the schema and check_ids_per_item. `water_share` is the share
+    of the image's lower half that SAM's water covers. In this order:
     1. `photo_usable` no: refused, photo_unusable.
     2. `standing_water` unsure: refused, water_unsure.
     3. `standing_water` no: no flood seen, unless an answered item puts the water
        above its lowest mark, which contradicts the no: refused, water_unsure (C52).
-       Every answered item counts, even one a later drop removes. Water in SAM's mask
-       never overrides a clear no (C51).
+       Every answered item counts, even one a later drop removes. It is refused,
+       water_unsure, too when `water_share` is over `no_flood_share_max` (C93, which
+       narrows C51: below that share, SAM's water never overrides a clear no). The
+       default, 1.0, turns that off.
     4. `standing_water` yes, with no water in SAM's mask: refused, no_water_found
        (C51, Rene's Q1).
     """
@@ -186,7 +195,7 @@ def gate(answer: dict, *, has_water: bool) -> Outcome | None:
     if standing == "unsure":
         return Outcome.refused("water_unsure")
     if standing == "no":
-        if _water_above_lowest_mark(answer):
+        if _water_above_lowest_mark(answer) or water_share > no_flood_share_max:
             return Outcome.refused("water_unsure")
         return Outcome.no_flood()
     if not has_water:  # standing_water is yes
@@ -218,10 +227,15 @@ class KeptVehicle:
 
 @dataclass(frozen=True)
 class KeptPerson:
-    """An adult the drops keep. The waterline can be not_visible."""
+    """An adult the drops keep. The waterline can be not_visible.
+
+    `small` marks a box under the person cutoff (C92): its reading can refuse the
+    photo but never decides it, and it blocks no one.
+    """
 
     id: int
     waterline: str
+    small: bool = False
 
 
 @dataclass(frozen=True)
@@ -238,7 +252,11 @@ class Kept:
 
 
 def apply_drops(
-    answer: dict, layout: Layout, *, geometry_types: frozenset[str] = frozenset()
+    answer: dict,
+    layout: Layout,
+    *,
+    geometry_types: frozenset[str] = frozenset(),
+    min_person_side_px: int = 0,
 ) -> tuple[Kept, Counter[str]]:
     """The vehicles and people that may give readings, and the drops (step 4.6).
 
@@ -255,7 +273,9 @@ def apply_drops(
       `person_wading` when `standing_still` is no or unsure while someone answered as
       an adult standing still is in the photo, whatever that person's waterline (C57,
       Rene's Q3). No one else blocks: not an unanswered person, nor one answered
-      `adult: unsure` (C76).
+      `adult: unsure` (C76), nor a small one (C92). A kept adult whose box's longer
+      side is under `min_person_side_px` is kept as `small`: step 5 gives its reading
+      as one that can refuse the photo but never decide it (C92, C317).
 
     `wake_visible` changes nothing (C63). Kept's `causes` holds each drop by box id,
     and the Counter counts them.
@@ -295,8 +315,15 @@ def apply_drops(
             )
         )
 
+    small = {
+        box.id
+        for box in layout.boxes
+        if box.kind == "person" and _box_longer_side(box.box) < min_person_side_px
+    }
     blocked = any(
-        p["adult"] == "yes" and p["standing_still"] == "yes" for p in people.values()
+        p["adult"] == "yes" and p["standing_still"] == "yes"
+        for person_id, p in people.items()
+        if person_id not in small
     )
     kept_people = []
     for person_id in [box.id for box in layout.boxes if box.kind == "person"]:
@@ -308,7 +335,9 @@ def apply_drops(
         elif blocked and entry["standing_still"] != "yes":  # wading: no or unsure
             causes[person_id] = "person_wading"
         else:
-            kept_people.append(KeptPerson(person_id, entry["waterline"]))
+            kept_people.append(
+                KeptPerson(person_id, entry["waterline"], small=person_id in small)
+            )
     kept = Kept(tuple(kept_vehicles), tuple(kept_people), causes)
     return kept, Counter(kept.causes.values())
 
@@ -320,6 +349,12 @@ def _instances(sam: Mapping[str, SamResult], phrase: str) -> list[SamInstance]:
 
 def _longer_side(inst: SamInstance) -> float:
     x0, y0, x1, y1 = box_xyxy(inst)
+    return max(x1 - x0, y1 - y0)
+
+
+def _box_longer_side(box: tuple[int, int, int, int]) -> int:
+    """A numbered box's longer side, in px of the image SAM saw (C92)."""
+    x0, y0, x1, y1 = box
     return max(x1 - x0, y1 - y0)
 
 

@@ -3,6 +3,7 @@
 pytest doesn't collect this module, because its name doesn't start with `test_`.
 """
 
+import dataclasses
 import io
 import json
 import math
@@ -305,6 +306,23 @@ def meta_error(status: int) -> MetaApiError:
     Those responses carry no error code, so the message is the status alone.
     """
     return MetaApiError(f"HTTP {status}", status=status)
+
+
+def dry_street(sam: dict[str, SamResult]) -> dict[str, SamResult]:
+    """SAM's results with no floodwater: a dry street (D14).
+
+    A "no" on standing water then stays no flood seen under the live tuning, whose
+    no-flood share (C93) refuses a "no" over the level case's wide water.
+    """
+    return {**sam, "floodwater": dataclasses.replace(sam["floodwater"], instances=[])}
+
+
+def street_for(given: object, sam: dict[str, SamResult]) -> dict[str, SamResult]:
+    """The SAM results a test's answer needs: a dry street for a "no" on standing
+    water (D14), so it stays no flood seen under the live tuning (C93); else `sam`."""
+    if isinstance(given, dict) and given.get("standing_water") == "no":
+        return dry_street(sam)
+    return sam
 
 
 def level_case() -> tuple[bytes, dict[str, SamResult], dict]:

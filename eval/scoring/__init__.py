@@ -2,4 +2,4 @@
 
 from __future__ import annotations
 
-RULES_VERSION: str = "0.8"
+RULES_VERSION: str = "0.9"

@@ -307,6 +307,51 @@ def test_an_ankle_adult_no_longer_disagrees_with_a_knee_adult():
     assert (outcome.status, outcome.level) == ("done", "knee")
 
 
+def test_a_small_adult_reads_but_never_decides():
+    # C92: a small adult's reading is held as one that can't decide (C317), and the
+    # drop counts as person_small.
+    references, drops = measured(people=(KeptPerson(1, "knee", small=True),))
+    assert references == [
+        Reference("person", 1, "knee", PEOPLE_ROWS["knee"], decides=False)
+    ]
+    assert drops == {"person_small": 1}
+    outcome, deciding = combine(references)
+    assert outcome == Outcome.refused("no_usable_reference")  # alone, it sets nothing
+    assert deciding is None
+
+
+def test_a_deeper_small_adult_refuses_a_shallower_result():
+    # C92 with C317: a small box can be an adult deep in the water, so a small chest
+    # reading beside a near knee adult refuses the photo instead of reading knee.
+    references, drops = measured(
+        people=(KeptPerson(1, "chest", small=True), KeptPerson(2, "knee"))
+    )
+    assert drops == {"person_small": 1}
+    outcome, _ = combine(references)
+    assert outcome == Outcome.refused("references_disagree")
+
+
+def test_a_small_adult_one_level_deeper_refuses_instead_of_raising():
+    # The non-decider's boundary: a small mid_thigh (tire) beside an exact knee adult
+    # refuses, where a near tire adult would have raised the level to tire.
+    references, _ = measured(
+        people=(KeptPerson(1, "mid_thigh", small=True), KeptPerson(2, "knee"))
+    )
+    assert combine(references)[0] == Outcome.refused("references_disagree")
+    references, _ = measured(people=(KeptPerson(1, "mid_thigh"), KeptPerson(2, "knee")))
+    assert combine(references)[0].level == "tire"
+
+
+def test_a_shallower_small_adult_leaves_the_result():
+    # A small mid_shin reading beside a near knee adult argues for less depth, and
+    # the deeper reading stands (the tracker's ruling, Nov 2).
+    references, _ = measured(
+        people=(KeptPerson(1, "mid_shin", small=True), KeptPerson(2, "knee"))
+    )
+    outcome, deciding = combine(references)
+    assert (outcome.status, outcome.level, deciding.box_id) == ("done", "knee", 2)
+
+
 def test_unanswered_wheel_blocks_the_body_reading():
     # Review Focus 1 (C76). Muse Spark skipped vehicle 2's wheel 4, so apply_drops
     # counted it as visible and passed on only wheel 5. Hidden wheels and a

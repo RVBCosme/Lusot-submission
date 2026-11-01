@@ -408,6 +408,8 @@ def test_export_writes_the_results_folder(tmp_path, monkeypatch, capsys, harness
         "min_wheel_side_px": "40",
         "max_vehicles": "6",
         "max_people": "6",
+        "min_person_side_px": "0",
+        "no_flood_share_max": "1.0",
         "tire_codes": rules.TIRE_CODES_VERSION,
         "reasoning_effort": "default",
     }
@@ -736,6 +738,17 @@ def test_set_records_its_cutoffs(tmp_path, monkeypatch, harness):
         assert re.fullmatch("[a-z][a-z0-9_]{0,31}", name), name
 
 
+def test_set_takes_a_whole_number_for_an_int_cutoff(tmp_path, monkeypatch, harness):
+    # C92's cutoff is the first int --set can change: it must reach the replay as an
+    # int, or every numbered person fails, and run.json must record it (R153).
+    data = write_data(tmp_path)
+    record_all(monkeypatch, data)
+    out = data.root / "results" / "person-cutoff"
+    argv = export_argv(data, out, "--set", "min_person_side_px=60")
+    assert tool.main(argv, tuning=START) == 0
+    assert read_json(out / "run.json")["frozen"]["min_person_side_px"] == "60"
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -749,6 +762,10 @@ def test_set_records_its_cutoffs(tmp_path, monkeypatch, harness):
         "untuned=x",
         "colour=red",
         "touch_tolerance_px",
+        "min_person_side_px=60.5",
+        "min_person_side_px=-1",
+        "min_person_side_px=sixty",
+        "min_person_side_px=²",
     ],
 )
 def test_set_refuses_bad_values(tmp_path, monkeypatch, capsys, harness, text):

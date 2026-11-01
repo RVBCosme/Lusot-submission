@@ -517,6 +517,13 @@ def _set_field(tuning: Tuning, text: str) -> Tuning:
         if not math.isfinite(number):
             _refuse(f"--set {name} takes a finite number")
         return dataclasses.replace(tuning, **{name: number})
+    start = getattr(START, name)
+    if isinstance(start, int) and not isinstance(start, bool):
+        # An int cutoff, such as C92's person cutoff, takes a whole number from 0 up,
+        # so it reaches the replay as an int and run.json records it (R153).
+        if not (value.isascii() and value.isdigit()):
+            _refuse(f"--set {name} takes a whole number from 0 up")
+        return dataclasses.replace(tuning, **{name: int(value)})
     return dataclasses.replace(tuning, **{name: value})
 
 
