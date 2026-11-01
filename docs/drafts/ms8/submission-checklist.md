@@ -93,7 +93,6 @@ Each of these comes from the participant guide, the Discord or the kickoff strea
 | # | Question | Why it matters |
 |---|---|---|
 | O1 | The form's fields and length limits: track, team, theme, repository, video, live URL, APK, description, bonus categories, the X link. Can an entry be edited until the deadline? | C914, C918, and the plan's order of steps |
-| O2 | May planning notes from before kickoff (no code) stay in the repository? | MS8-Q3 |
 | O3 | Does the guide say anything about AI coding assistants beyond OR's rule on technical assistance (R8)? | The README's "How it was built" line |
 | O4 | May the repository or the live product change after the deadline? | C921 |
 | O5 | Does the X rule need the submitted video itself, or may a shorter cut be posted? | MS8-Q7 |

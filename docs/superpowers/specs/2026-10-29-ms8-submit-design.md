@@ -245,7 +245,7 @@ The README now says that everything in the repository was written from Oct 27, w
 
 **Default: (a).** It is true, it lets judges tell exactly what is new, and the organizers' answer settles any doubt before the deadline. **Needed by Nov 3.**
 
-**Answer: MS8-Q3: (a), the tracker, under Rene's written delegation, Nov 1, 2026 (9:58 PM).**
+**Answer: MS8-Q3: Rene, Nov 1: no organizer question. The README states only what is true either way.** (This revises the tracker's (a) of 9:58 PM. Rene, about 11:5x PM: "it is just planning, no need to be hard on that part".) The README's line is "All code, and everything the demo shows, was written from Oct 27, 2026 (Manila time), after kickoff." No line says everything in the repository dates from Oct 27, no pre-kickoff list is added, and the planning files keep their own dates as they are.
 
 ### MS8-Q4: if the sealed run lands late
 

@@ -156,7 +156,7 @@ From the privacy policy as Rene approves it (M21), with nothing beyond it:
 
 ### 13. What's new, and how it was built
 
-- **The new-work line,** per MS8-Q3. Default (a), draft: "All code, and everything the demo shows, was written from Oct 27, 2026 (Manila), after the hackathon's kickoff. Planning notes begun on Oct 26 hold no code, and each carries its own date: `[list]`."
+- **The new-work line,** per MS8-Q3 (Rene, Nov 1): "All code, and everything the demo shows, was written from Oct 27, 2026 (Manila time), after kickoff." Nothing says everything in the repository dates from Oct 27, and no list of earlier planning notes is added; those files keep their own dates.
 - **How to check it:**
   - The commit history starts on Oct 28, 2026. Lusot was developed in a private repository and carried over with its full history (MS8-Q1, MS8-Q2), so docs that name the private repository or link to it point at a page judges can't open.
   - Under MS8-Q1 (b), `commit-map.csv`, attached to the GitHub Release, maps the hashes cited in the docs to this repository's. It is linked by its full Release URL, never by a relative link.
