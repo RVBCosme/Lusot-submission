@@ -8,7 +8,10 @@
     "backend/analysis/src/lusot_analysis/overlay.py",
     "backend/api/prompts/ask_v1.*",
     "eval/results/report/report.md",
-    "README.md"
+    "README.md",
+    "docs/submission/*.md",
+    "docs/media/CREDITS.md",
+    "docs/media/*.srt"
   ],
   "answers": {
     "fields": ["rendered.en", "rendered.fil"],
@@ -48,7 +51,13 @@
     {
       "id": "screen-line",
       "text": "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.",
-      "files": ["app/src/i18n/en.ts"]
+      "files": [
+        "app/src/i18n/en.ts",
+        "README.md",
+        "docs/submission/write-up.md",
+        "docs/submission/x-post.md",
+        "docs/submission/video-description.md"
+      ]
     },
     {
       "id": "not-affiliated",

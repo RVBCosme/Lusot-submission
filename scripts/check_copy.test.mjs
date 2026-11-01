@@ -185,7 +185,8 @@ test("a missing required string fails", () => {
   assert.deepEqual(hitsOf("app/src/i18n/en.ts", en).missing, ["screen-line"]);
   const both = `export const EN = {\n  'layout.screenLine': { text: '${SCREEN_LINE}', reviewed: true },\n  'about.notAffiliated': { text: 'Not affiliated with MMDA.', reviewed: true },\n}\n`;
   assert.deepEqual(hitsOf("app/src/i18n/en.ts", both).missing, []);
-  assert.deepEqual(hitsOf("README.md", "# Lusot\n").missing, ["not-affiliated"]);
+  // The README needs both (C922 added the screen line to it).
+  assert.deepEqual(hitsOf("README.md", "# Lusot\n").missing, ["screen-line", "not-affiliated"]);
   const { code, out } = cli({ "app/src/i18n/en.ts": en }, () => ["app/src/i18n/en.ts"]);
   assert.equal(code, 1, out);
   assert.match(out, /missing: screen-line \(app\/src\/i18n\/en\.ts\)/);
@@ -202,6 +203,37 @@ test("banned-safe fails in the README and the app, and only reviews in eval and 
   const words = hitsOf("backend/api/prompts/ask_v1.words.json", '{"crossing": ["ligtas", "makakalusot"]}\n');
   assert.deepEqual(words.fails, [], "the prompt's word lists quote banned words to catch them");
   assert.deepEqual(ids(words.reviews).sort(), ["banned-ligtas", "crossing-phrase"]);
+});
+
+// MS8's texts (C922): the README, the write-up, the X post and the video's description carry the screen line, and the
+// copy rules read them, the credits file and the captions too.
+test("the submission texts need the screen line", () => {
+  for (const file of ["README.md", "docs/submission/write-up.md", "docs/submission/x-post.md", "docs/submission/video-description.md"]) {
+    assert.ok(hitsOf(file, "Lusot: a live flood map.\n").missing.includes("screen-line"), file);
+    assert.ok(!hitsOf(file, `Lusot: a live flood map.\n\n${SCREEN_LINE}\n`).missing.includes("screen-line"), file);
+  }
+});
+
+test("MS8's texts, credits and captions are read by default, and a banned word in them fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "lusot-ms8-"));
+  try {
+    const put = (path, text) => {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), text);
+    };
+    put("docs/submission/x-post.md", `It is a safe spot.\n\n${SCREEN_LINE}\n`);
+    put("docs/media/CREDITS.md", "You can cross here.\n");
+    put("docs/media/lusot-video.en.srt", "1\n00:00:01,000 --> 00:00:03,000\nGo ahead.\n");
+    const lines = [];
+    const code = main([], { root, cwd: root, print: (l) => lines.push(l), warn: (l) => lines.push(l) });
+    const out = lines.join("\n");
+    assert.equal(code, 1, out);
+    assert.match(out, /docs\/submission\/x-post\.md:1\b.*banned-safe/);
+    assert.match(out, /docs\/media\/CREDITS\.md:1\b.*crossing-phrase/);
+    assert.match(out, /docs\/media\/lusot-video\.en\.srt:3\b.*crossing-phrase/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("levels in eval tables only review", () => {
@@ -281,7 +313,11 @@ test("by default it reads the rules' files: one not there yet is skipped, a requ
     assert.equal(code, 1, out);
     assert.match(out, /missing: not-affiliated \(README\.md\)/);
     assert.match(out, /skipped \(not there yet\): .*eval\/results\/report\/report\.md/);
-    assert.doesNotMatch(out, /missing: screen-line/);
+    // The app's string table has the screen line; the README, named in the files, counts as missing it (C922). MS8's
+    // submission texts come in through a pattern, so until they are written (Nov 4) they are skipped, not missing.
+    assert.doesNotMatch(out, /missing: screen-line \(app\/src\/i18n\/en\.ts\)/);
+    assert.match(out, /missing: screen-line \(README\.md\)/);
+    assert.match(out, /skipped \(not there yet\): .*docs\/submission\/\*\.md/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
