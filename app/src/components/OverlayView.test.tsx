@@ -356,12 +356,111 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     expect(within(screen.getByRole('list')).getAllByRole('listitem')).toHaveLength(1)
   })
 
-  it('shows each reference\'s number and its short reading on the photo, and "Not used" on a dropped one', async () => {
+  // Rene's screenshot, Nov 2: "5: Not used", "6: Not used" and "4: N7: Not used" ran into each other where people
+  // stood close. The photo now carries each number, and the reading only where it set the level.
+  it('shows every reference\'s number on the photo, the short reading only on those that set the level, and never "Not used"', async () => {
     const svg = await draw(levelLayers('knee'))
     const words = (id: number) => svg.querySelector(`[data-ref="${id}"] [data-layer="label"] text`)?.textContent
     expect(words(1)).toBe('1: Knee')
     expect(words(2)).toBe('2: Knee')
-    expect(words(3)).toBe('3: Not used')
+    expect(words(3)).toBe('3')
+    expect(svg.textContent).not.toMatch(/Not used/)
+    // The legend keeps the dropped one's cause, word for word.
+    expect(within(screen.getByRole('list')).getByText('Person 3: Not used, since this person may not be an adult.')).toBeTruthy()
+    cleanup()
+
+    // A reference used at a shallower level helped, but didn't set the level: its number alone.
+    const layers = levelLayers('knee')
+    const shallower = await draw({ ...layers, refs: layers.refs.map((ref) => (ref.id === 1 ? { ...ref, level: 'half_knee' as const } : ref)) })
+    const shown = (id: number) => shallower.querySelector(`[data-ref="${id}"] [data-layer="label"] text`)?.textContent
+    expect(shown(1)).toBe('1')
+    expect(shown(2)).toBe('2: Knee')
+  })
+
+  // The screenshot's seven references: two people side by side at the left with a third box between them, and a car body
+  // at the right with three small people beside it. Person 3 set the level.
+  type Box = [number, number, number, number]
+  const crowd = (): OverlayData => {
+    const layers = levelLayers('knee')
+    const [, adult, child] = layers.refs
+    const at = (box: Box) => ({ box, outline: [[[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]] as [number, number][][] })
+    const dropped = (id: number, box: Box) => ({ ...child, id, ...at(box) })
+    return {
+      ...layers,
+      refs: [
+        { ...dropped(1, [440, 200, 620, 330]), kind: 'body', dropped: 'vehicle_moving' },
+        dropped(2, [225, 160, 265, 255]),
+        { ...adult, id: 3, ...at([520, 215, 560, 330]), waterline: [[520, 300], [560, 300]] },
+        dropped(4, [500, 205, 540, 320]),
+        dropped(5, [60, 170, 220, 560]),
+        dropped(6, [220, 165, 380, 560]),
+        dropped(7, [505, 210, 545, 325]),
+      ],
+    }
+  }
+
+  it('lists every reference under the photo, the one that set the level first, then the rest in their order', async () => {
+    await draw(crowd())
+    const items = within(screen.getByRole('list')).getAllByRole('listitem')
+    expect(items.map((item) => item.getAttribute('data-ref'))).toEqual(['3', '1', '2', '4', '5', '6', '7'])
+    expect(items[0].textContent).toBe('Person 3: Knee. Water reaches the knees of an adult in the photo.')
+    expect(items[1].textContent).toBe('Car body 1: Not used, since the vehicle may be moving.')
+    cleanup()
+
+    // Two that share the deepest level both come first, in their own order.
+    await draw(levelLayers('knee'))
+    const knee = within(screen.getByRole('list')).getAllByRole('listitem')
+    expect(knee.map((item) => item.getAttribute('data-ref'))).toEqual(['1', '2', '3'])
+  })
+
+  it('keeps the numbers of references that stand close together from covering each other', async () => {
+    const svg = await draw(crowd())
+    const refs = crowd().refs
+    const badges = [...svg.querySelectorAll('[data-layer="label"] rect')].map((rect) => {
+      const [x, y, width, height] = ['x', 'y', 'width', 'height'].map((name) => Number(rect.getAttribute(name)))
+      return { x, y, width, height }
+    })
+    expect(badges).toHaveLength(refs.length)
+    for (const [i, a] of badges.entries()) {
+      for (const b of badges.slice(i + 1)) {
+        const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+        expect(overlap, `${JSON.stringify(a)} and ${JSON.stringify(b)}`).toBe(false)
+      }
+    }
+  })
+
+  it('gives the badge of a reference that set the level its place first, ahead of one listed before it', async () => {
+    const layers = crowd()
+    const [car, , person] = layers.refs
+    // A dropped box listed first, whose badge would take the deciding one's place.
+    const svg = await draw({ ...layers, refs: [{ ...car, box: [515, 212, 600, 330] }, person] })
+    const rect = svg.querySelector('[data-ref="3"] [data-layer="label"] rect') as SVGElement
+    // Its own place: on its box's left edge, just above it (font 800 / 21, a badge 1.4 fonts high, a gap of a sixth).
+    const font = 800 / 21
+    expect(Number(rect.getAttribute('x'))).toBe(520)
+    expect(Number(rect.getAttribute('y'))).toBeCloseTo(215 - font * 1.4 - (font * 1.4) / 6, 0)
+  })
+
+  it('draws a reference that set the level apart from the rest: a filled badge and a heavier box, and a dropped one dashed', async () => {
+    const svg = await draw(levelLayers('knee'))
+    const group = (id: number) => svg.querySelector(`[data-ref="${id}"]`) as SVGElement
+    expect(group(1).getAttribute('data-decides')).toBe('true')
+    expect(group(3).getAttribute('data-decides')).toBe('false')
+    const badge = (id: number) => group(id).querySelector('[data-layer="label"] rect')?.getAttribute('class') ?? ''
+    const number = (id: number) => group(id).querySelector('[data-layer="label"] text')?.getAttribute('class') ?? ''
+    // Filled in ink with the number in the surface colour, against an outlined badge with the number in ink.
+    expect(badge(1)).toContain('fill-ink')
+    expect(number(1)).toContain('fill-surface')
+    expect(badge(3)).toContain('fill-surface')
+    expect(number(3)).toContain('fill-ink')
+    const box = (id: number) => group(id).querySelector('[data-layer="box"] rect:last-child') as SVGElement
+    expect(Number(box(1).getAttribute('stroke-width'))).toBeGreaterThan(Number(box(3).getAttribute('stroke-width')))
+    expect(box(1).getAttribute('stroke-dasharray')).toBeNull()
+    expect(box(3).getAttribute('stroke-dasharray')).toBeTruthy()
+    // Its dashes aren't the water's, so the two aren't mistaken.
+    const water = svg.querySelector('[data-layer="water"] polygon')?.getAttribute('stroke-dasharray')
+    expect(box(3).getAttribute('stroke-dasharray')).not.toBe(water)
+    expect(group(3).querySelector('[data-layer="outline"] polygon:last-child')?.getAttribute('stroke-dasharray')).not.toBe(water)
   })
 
   // The photo is drawn the full width of its box, so the file's width sets the scale: a word's size on screen is its
@@ -426,9 +525,13 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     expect(outline).toHaveLength(2)
     expect(outline[0].getAttribute('class')).toContain('stroke-surface')
     expect(Number(outline[0].getAttribute('stroke-width'))).toBeGreaterThan(Number(outline[1].getAttribute('stroke-width')))
-    const label = svg.querySelector('[data-ref="1"] [data-layer="label"] text') as SVGElement
-    expect(label.getAttribute('class')).toContain('stroke-surface')
-    expect(label.getAttribute('paint-order')).toBe('stroke')
+    // Each number sits on its own badge, ringed in the other colour, so it reads on a bright photo and a dark one.
+    for (const id of [1, 3]) {
+      const badge = svg.querySelector(`[data-ref="${id}"] [data-layer="label"] rect`)?.getAttribute('class') ?? ''
+      expect(badge, String(id)).toMatch(/\bfill-(ink|surface)\b/)
+      expect(badge, String(id)).toMatch(/\bstroke-(ink|surface)\b/)
+      expect(badge.match(/\bfill-(\w+)/)?.[1], String(id)).not.toBe(badge.match(/\bstroke-(\w+)/)?.[1])
+    }
   })
 
   it('tells the marks apart by more than colour: the water is dashed, a rim outline is dotted, the others are solid', async () => {
@@ -468,9 +571,12 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
     for (const element of svg.querySelectorAll('[class]')) {
       for (const name of element.classList) if (name in token) used.add(name)
     }
-    // Every colour class the SVG uses, bar the halo, is one this test knows.
+    // Every colour class the SVG uses, bar the halo and the surface fill a badge or its number takes, is one this test
+    // knows.
     for (const element of svg.querySelectorAll('[class]')) {
-      for (const name of element.classList) expect(name === 'stroke-surface' || name === 'fill-none' || name in token, name).toBe(true)
+      for (const name of element.classList) {
+        expect(name === 'stroke-surface' || name === 'fill-surface' || name === 'fill-none' || name in token, name).toBe(true)
+      }
     }
     expect([...used].sort()).toEqual(['fill-ink', 'stroke-action', 'stroke-depth-6', 'stroke-ink', 'stroke-ink-2'])
     const blocks = tokenBlocks(tokensCss)
@@ -480,6 +586,8 @@ describe('the layers, drawn as one SVG over the photo (C615)', () => {
         const ratio = contrastRatio(colours[token[name]], colours['--lusot-surface'])
         expect(ratio, `${name} on the surface, ${theme}`).toBeGreaterThanOrEqual(3)
       }
+      // A badge's number is ink on the surface colour, or the surface colour on ink: text, so 4.5:1.
+      expect(contrastRatio(colours['--lusot-text'], colours['--lusot-surface']), theme).toBeGreaterThanOrEqual(4.5)
     }
   })
 
