@@ -609,8 +609,9 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
 
       const record = {
         run,
-        // This question's own start: its fixture pins are placed at its read, so a card's age is rendered at this time.
-        at: new Date(started).toISOString(),
+        // When this answer arrived, the time the app renders it at: the question's fixture pins are placed while it
+        // runs, so a card's age reads as the app would show it only from here.
+        at: new Date(started + ms).toISOString(),
         id: q.id,
         route: q.route,
         ms,

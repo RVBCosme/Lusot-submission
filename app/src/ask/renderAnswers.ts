@@ -4,9 +4,9 @@
 // app uses, one line of text per answer line, joined by a newline. scripts/check_copy.mjs --answers reads exactly
 // those two fields as product copy, and the record's `transcript` for review only (scripts/copy-rules.json).
 //
-// Rendering needs a clock, for a card's age ("25 min ago"). The harness places each question's fixture pins when that
-// question reads them, so each record is rendered at its own `at`, the question's start. A record from before the
-// harness saved `at` falls back to `run`, the start of the whole run, which reads a later question's cards too young.
+// Rendering needs a clock, for a card's age ("25 min ago"). The harness places each question's fixture pins while that
+// question runs, so each record is rendered at its own `at`, when its answer arrived, as the app renders it. A record
+// from before the harness saved `at` falls back to `run`, the start of the whole run, which reads cards too young.
 //
 // A question that failed (a status other than 200, so no answer) has nothing to render: it is left out and counted.
 // Anything else that can't be rendered, a 200 included, stops the whole file with the record's id, and no message holds

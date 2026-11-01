@@ -37,9 +37,9 @@ clip as a 16 kHz mono 16-bit WAV, the form POST /ask/voice takes (backend/api/sr
   is unusable, and a --revision that is not a 40-digit hex commit hash.
 - **Printed:** one line per clip, its manifest id, its length and its SNR. Never a
   script, a note, a path or a transcript. A clip outside the handler's 0.5 to 15 s, or
-  a silent one, is reported as failed and not written, and any older file of its name
-  in --out is deleted, so a later harness run cannot read stale audio; the exit code is
-  then 1.
+  a silent one, is reported as failed and not written; the exit code is then 1. Every
+  clip the manifest names is deleted from --out before the first is made, so neither a
+  failed clip nor a run stopped part way leaves stale audio for a later harness run.
 
 Torch and Transformers are imported inside `synthesize` only, so the tests that check
 the rest of this file run without them (check:py has numpy but not torch).
@@ -219,14 +219,18 @@ def main(
         refuse("--revision is the model's full commit hash (40 hex digits)")
     entries = load_entries(args.manifest)
     if noise is None:
-        # The path shutil.which found, not the bare name: Windows searches Python's folder and the working folder
-        # before PATH for a bare name, so a different ffmpeg.exe could run.
+        # The path shutil.which found, not the bare name, so Python's own folder isn't searched first. On Windows
+        # which() still looks in the working folder before PATH, so run from the repo root, which holds no ffmpeg.exe.
         found = shutil.which(args.ffmpeg)
         if found is None:
             refuse("FFmpeg isn't installed or isn't on PATH (see --ffmpeg)")
         noise = functools.partial(pink_noise, ffmpeg=found)
 
     args.out.mkdir(parents=True, exist_ok=True)
+    # Every clip the manifest names is cleared first: the harness reads <out>/<wav> by name, so a clip that fails, or a
+    # run the model or FFmpeg stops part way, leaves a missing clip (which the harness refuses), never an older one.
+    for _, wav, _ in entries:
+        (args.out / wav).unlink(missing_ok=True)
     written = failed = 0
     for index, (eid, wav, text) in enumerate(entries):
         seed = args.seed + index
@@ -243,8 +247,6 @@ def main(
             except ValueError:
                 problem = "the speech or the noise is silent"
         if mixed is None:
-            # An older clip of this id must not stand in for it: the harness reads <out>/<wav> by name.
-            (args.out / wav).unlink(missing_ok=True)
             guards.say(f"{eid}: failed, {problem}")
             failed += 1
             continue

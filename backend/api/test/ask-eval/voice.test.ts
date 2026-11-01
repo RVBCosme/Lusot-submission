@@ -313,7 +313,27 @@ describe("the spoken run", () => {
     expect(answerLines()[0].answer).toMatchObject({ count: 2 });
   });
 
-  it("saves each question's own start time, which a later card's age is read at", async () => {
+  it("saves when each answer arrived, the time the app renders its cards at", async () => {
+    // Fixture pins are placed while the question runs, so a card's age is right only at the answer's arrival.
+    let t = Date.parse("2026-11-02T02:00:00Z");
+    let next = 0;
+    createMeta.mockImplementation(() => {
+      const meta = scriptedVoiceMeta(TRANSCRIPTS[next++], []);
+      const transcribe = meta.transcribe.bind(meta);
+      meta.transcribe = async (...args: Parameters<typeof transcribe>) => {
+        t += 1000; // the transcription takes a second, inside the handler's 4 s budget
+        return transcribe(...args);
+      };
+      return meta;
+    });
+
+    await runHarness(options({ now: () => t }));
+
+    const [first] = answerLines();
+    expect(Date.parse(String(first.at)) - Date.parse(String(first.run))).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("saves a later time for each later question", async () => {
     scriptMetas();
     let ticks = Date.parse("2026-11-02T02:00:00Z");
     const now = () => ++ticks; // 1 ms for every read of the clock, so each question starts later than the one before

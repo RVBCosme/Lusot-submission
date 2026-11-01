@@ -340,6 +340,30 @@ def test_a_clip_that_fails_deletes_the_older_file_of_its_id(tmp_path, capsys):
     assert "3 failed" in capsys.readouterr().out
 
 
+def test_an_interrupted_run_leaves_no_older_clip_of_any_entry(tmp_path):
+    # The model or FFmpeg can raise part way; every clip the manifest names is cleared before the first is made,
+    # so the harness finds a missing clip (and refuses) rather than an older one.
+    out = tmp_path / "clips"
+    out.mkdir()
+    for n in (1, 2, 3):
+        (out / f"v{n}.wav").write_bytes(b"older clip")
+    (out / "other.wav").write_bytes(b"not in the manifest")
+
+    def synth(text, *, seed, revision):
+        if text == "BOOM":
+            raise RuntimeError("synthesis failed")
+        return 0.3 * np.sin(2 * np.pi * 440 * np.arange(RATE) / RATE), RATE
+
+    stubs = Stubs()
+    stubs.synthesize = synth
+    with pytest.raises(RuntimeError):
+        run(tmp_path, [entry(1), entry(2, text="BOOM"), entry(3)], stubs=stubs, out=out)
+
+    assert sorted(p.name for p in out.iterdir()) == ["other.wav", "v1.wav"]
+    assert (out / "v1.wav").read_bytes() != b"older clip"  # rewritten before the failure
+    assert (out / "other.wav").read_bytes() == b"not in the manifest"
+
+
 # --- main: the refusals, all before any synthesis ----------------------------------------------
 
 
