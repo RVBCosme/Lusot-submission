@@ -4,6 +4,11 @@
 // client and the deployed stack's counter and switches (C527, C736); fixtures.test.ts's dry run passes a fake Meta and
 // mocked AWS clients. Each answer goes to <data>\ask\<date>\answers.jsonl, outside the repo. Stdout gets counts and
 // timings only: never a question, an answer, a place or a handler log line.
+//
+// Its voice mode (Task 21; spec AK2, C729) is on when `HarnessOptions.voice` is set, which ask-eval.test.ts does when
+// LUSOT_ASK_VOICE_DIR is. It then asks Rene's 10 spoken questions instead: the clips in that folder, through askVoice,
+// with the same deps, fixtures, spend checks and stop rules. Their expectations come from his private manifest and
+// nowhere else, and the manifest's scripts and notes are never read into a record, a message or a line of stdout.
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,11 +16,13 @@ import { format } from "node:util";
 import { GetParameterCommand, type SSMClient } from "@aws-sdk/client-ssm";
 import { type DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { Answer } from "../../src/ask/answer";
-import { type AskDeps, askTyped, SPEND_STOP_PARAM } from "../../src/ask/handler";
+import { type AskDeps, askTyped, askVoice, SPEND_STOP_PARAM } from "../../src/ask/handler";
 import { createMeta } from "../../src/ask/meta";
 import type { Box, Geocoder } from "../../src/ask/nominatim";
 import { SPOTS } from "../../src/ask/spots";
 import { normalize } from "../../src/ask/text";
+import { checkWav } from "../../src/ask/wav";
+import type { JsonResponse } from "../../src/http";
 import { inMetroManila } from "../../src/metroManila";
 import { distanceM, type Point, type PublicPin } from "../../src/pins";
 import { costOf, spendTotal, toMicro, UNREPORTED_USAGE } from "../../src/spend";
@@ -49,6 +56,8 @@ export type Expect = {
   suggestions?: string[];
 };
 
+// questions.json stays typed only. The plan's interface let it hold `ask_voice` entries too, but a spoken question's
+// expectations name the place Rene's script meant, so they live in his private manifest (voice mode below), never here.
 export type TypedQuestion = { id: string; route: "ask"; text: string; here: "fixture" | null; expect: Expect };
 
 type FixturePin = {
@@ -201,10 +210,14 @@ export function answersPath(dataDir: string, date: string): string {
 
 const errorName = (err: unknown): string => (err instanceof Error ? err.name : "unknown");
 
+// Meta's tries at one transcription (ask/meta.ts's MAX_TRIES), each billed by the clip's whole seconds.
+const TRANSCRIBE_TRIES = 3;
+
 // Before the first question (C527, C736), the stop and the total, read as the handler reads them. Refused, before
 // any Meta call, when either can't be read, the total is at or over the stop, or `questions` worst cases would reach
-// it: each question at most three turns, each charged as a reply whose usage Meta didn't report.
-async function checkSpend(o: HarnessOptions, questions: number): Promise<void> {
+// it: each question at most three turns, each charged as a reply whose usage Meta didn't report, and for a spoken run
+// every clip's whole seconds (`audioSeconds` in all) billed on every try.
+async function checkSpend(o: HarnessOptions, questions: number, audioSeconds = 0): Promise<void> {
   let stop: number;
   let total: number;
   try {
@@ -217,10 +230,124 @@ async function checkSpend(o: HarnessOptions, questions: number): Promise<void> {
   }
   if (!Number.isFinite(stop)) throw new HarnessRefused("refused: the spend stop isn't a number");
   if (total >= stop) throw new HarnessRefused(`refused: the spend counter ($${total}) is at or over its stop ($${stop})`);
-  const worstMicro = questions * TURNS_AT_MOST * toMicro(costOf(UNREPORTED_USAGE));
+  const worstMicro =
+    questions * TURNS_AT_MOST * toMicro(costOf(UNREPORTED_USAGE)) + toMicro(costOf({ audio_seconds: audioSeconds * TRANSCRIBE_TRIES }));
   if (Math.round(total * 1_000_000) + worstMicro >= Math.round(stop * 1_000_000)) {
     throw new HarnessRefused(`refused: ${questions} questions at worst ($${worstMicro / 1_000_000}) would reach the spend stop ($${stop}) from $${total}`);
   }
+}
+
+// --- the spoken questions (AK2, C729) --------------------------------------------------------------------------
+
+// Where a spoken run reads from: the folder of clips, and Rene's private manifest of what each one should give.
+export type VoiceOptions = { dir: string; manifest: string };
+
+// LUSOT_ASK_VOICE_DIR turns the voice mode on. The manifest is LUSOT_ASK_VOICE_MANIFEST, else <data>\voice\m12-scripts.json.
+export function voiceFromEnv(env: Record<string, string | undefined>, dataDir: string): VoiceOptions | undefined {
+  const dir = env.LUSOT_ASK_VOICE_DIR;
+  if (!dir) return undefined;
+  return { dir, manifest: env.LUSOT_ASK_VOICE_MANIFEST || join(dataDir, "voice", "m12-scripts.json") };
+}
+
+// One question of a run, typed or spoken: what it expects and how to send it. `audioSeconds` is a clip's whole seconds.
+type Ask = {
+  id: string;
+  route: "ask" | "ask_voice";
+  expect: Expect;
+  send: (deps: AskDeps) => Promise<JsonResponse>;
+  audioSeconds: number;
+};
+
+const ANSWER_KINDS: Record<Answer["kind"], true> = {
+  reports: true,
+  no_reports: true,
+  place_too_broad: true,
+  no_place: true,
+  lookup_unavailable: true,
+  outside_metro_manila: true,
+  no_location: true,
+  off_topic: true,
+  no_speech: true,
+};
+const WAV_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.wav$/i; // a file name in the voice folder, never a path
+const ENTRY_ID = /^[A-Za-z0-9_-]{1,32}$/;
+
+// A path with a part named sealed, as given or made absolute (the same rule as answersPath's, on strings only).
+function refuseSealedPath(what: string, path: string): void {
+  for (const form of [path, resolve(path)]) {
+    if (form.split(/[\\/]+/).some(isSealedName)) throw new HarnessRefused(`refused: the ${what} is inside a folder named sealed`);
+  }
+}
+
+// A manifest entry's `expect`, checked before anything is paid for: a typo would otherwise cost a question and fail it.
+// The messages name the entry by its id and the field by its name, never a value.
+function voiceExpect(id: string, raw: unknown, geocodes: GeocodeFixture[]): Expect {
+  const bad = (field: string) => new HarnessRefused(`refused: voice manifest entry ${id} has a bad ${field}`);
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw bad("expect");
+  const x = raw as Record<string, unknown>;
+  if (typeof x.kind !== "string" || !Object.hasOwn(ANSWER_KINDS, x.kind)) throw bad("kind");
+  if (typeof x.crossing !== "boolean") throw bad("crossing");
+  if (!["light", "heavy", "on_foot", null].includes(x.vehicle as string | null)) throw bad("vehicle");
+  if (![undefined, null, "spots", "nominatim", "here"].includes(x.placeSource as string | null | undefined)) throw bad("placeSource");
+  const wholeNumber = (v: unknown) => v === undefined || (typeof v === "number" && Number.isInteger(v) && v >= 0);
+  if (!wholeNumber(x.count)) throw bad("count");
+  if (!wholeNumber(x.demo)) throw bad("demo");
+  if (x.deepest !== undefined && typeof x.deepest !== "string") throw bad("deepest");
+  if (x.suggestions !== undefined && !(Array.isArray(x.suggestions) && x.suggestions.every((s) => typeof s === "string"))) throw bad("suggestions");
+  // A place id points into the repo's own lists: spots.json for "spots", geocodes.json for "nominatim", and none else.
+  const known = x.placeSource === "spots" ? SPOTS.some((s) => s.id === x.placeId) : x.placeSource === "nominatim" ? geocodes.some((g) => g.id === x.placeId) : x.placeId === undefined;
+  if (!known) throw bad("placeId");
+  const expect: Expect = { kind: x.kind as Answer["kind"], crossing: x.crossing, vehicle: x.vehicle as Answer["vehicle"] };
+  if (x.placeSource !== undefined) expect.placeSource = x.placeSource as PlaceSource | null;
+  if (x.placeId !== undefined) expect.placeId = x.placeId as string;
+  if (x.count !== undefined) expect.count = x.count as number;
+  if (x.deepest !== undefined) expect.deepest = x.deepest as string;
+  if (x.demo !== undefined) expect.demo = x.demo as number;
+  if (x.suggestions !== undefined) expect.suggestions = x.suggestions as string[];
+  return expect;
+}
+
+// The spoken questions: every entry of the manifest, once all are reviewed, with its clip read and checked as the
+// handler checks it. Every refusal comes before the spend check, so a bad manifest or clip costs nothing, and none
+// holds a script, a note, a file name or a path.
+function loadVoiceAsks(voice: VoiceOptions, fixture: PinsFixture, geocodes: GeocodeFixture[]): Ask[] {
+  refuseSealedPath("voice folder", voice.dir);
+  refuseSealedPath("voice manifest", voice.manifest);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(voice.manifest, "utf8"));
+  } catch {
+    throw new HarnessRefused("refused: the voice manifest can't be read as JSON");
+  }
+  const list = (parsed as { scripts?: unknown } | null)?.scripts;
+  if (!Array.isArray(list) || list.length === 0) throw new HarnessRefused("refused: the voice manifest has no entries");
+  const unreviewed = list.filter((entry) => (entry as { reviewed?: unknown } | null)?.reviewed !== true).length;
+  if (unreviewed > 0) throw new HarnessRefused(`refused: ${unreviewed} of ${list.length} voice manifest entries are not reviewed`);
+
+  const asks = list.map((raw, index): Ask => {
+    const entry = raw as Record<string, unknown>;
+    const id = entry.id;
+    if (typeof id !== "string" || !ENTRY_ID.test(id)) throw new HarnessRefused(`refused: voice manifest entry ${index + 1} has no usable id`);
+    const bad = (field: string) => new HarnessRefused(`refused: voice manifest entry ${id} has a bad ${field}`);
+    if (typeof entry.wav !== "string" || !WAV_NAME.test(entry.wav)) throw bad("clip name");
+    if (entry.here !== undefined && entry.here !== null && entry.here !== "fixture") throw bad("here");
+    const here = entry.here === "fixture" ? fixture.here : undefined;
+    const expect = voiceExpect(id, entry.expect, geocodes);
+
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(join(voice.dir, entry.wav));
+    } catch {
+      throw new HarnessRefused(`refused: the clip for ${id} can't be read`);
+    }
+    const audio = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length);
+    const clip = checkWav(audio);
+    if (!clip.ok) throw new HarnessRefused(`refused: the clip for ${id} isn't a WAV the handler accepts (${clip.code})`);
+    const body = JSON.stringify({ audio: bytes.toString("base64"), ...(here !== undefined && { here }) });
+    return { id, route: "ask_voice", expect, send: (deps) => askVoice({ body, device: DEVICE }, deps), audioSeconds: Math.ceil(clip.durationMs / 1000) };
+  });
+  if (new Set(asks.map((ask) => ask.id)).size !== asks.length) throw new HarnessRefused("refused: the voice manifest repeats an id");
+  return asks;
 }
 
 // --- the checks (AK1) ------------------------------------------------------------------------------------------
@@ -253,8 +380,7 @@ const sameSet = (a: string[], b: string[]): boolean => a.length === b.length && 
 // A model answer is held to every expectation. A plain list (spec §4.5) can't call Nominatim or say off_topic, so
 // it passes on its status, time, place (the expected one, or none) and rules (the crossing line from the words, no
 // vehicle, no citations), and counts as a model miss. A paused stack's plain list fails.
-function check(q: TypedQuestion, status: number, ms: number, a: Answer | null, geocodes: GeocodeFixture[]): Checks {
-  const e = q.expect;
+function check(e: Expect, status: number, ms: number, a: Answer | null, geocodes: GeocodeFixture[]): Checks {
   const checks: Checks = {
     status: status === 200,
     time: ms <= TIME_LIMIT_MS,
@@ -284,6 +410,14 @@ function check(q: TypedQuestion, status: number, ms: number, a: Answer | null, g
   return checks;
 }
 
+// A spoken question's place heard right (AK2): the answer's place is the one the script meant (as the place check reads
+// it), or, for a script that names no place, the answer's kind is the expected one.
+function placeHeard(e: Expect, a: Answer | null, geocodes: GeocodeFixture[]): boolean {
+  if (a === null) return false;
+  const expectsPlace = e.placeId !== undefined || e.placeSource === "here";
+  return expectsPlace ? placeMatches(e, a.place, geocodes) : a.kind === e.kind;
+}
+
 // --- the run ---------------------------------------------------------------------------------------------------
 
 export type HarnessOptions = {
@@ -293,6 +427,7 @@ export type HarnessOptions = {
   spendDdb: DynamoDBDocumentClient; // the spend counter's own client (C736)
   ssm: SSMClient; // the spend stop, the pause and the stop switches
   key: string; // the Meta key: given to the Meta client only, never printed, logged or written
+  voice?: VoiceOptions; // set: the spoken questions of the manifest instead of the typed ten
   createMeta?: AskDeps["createMeta"];
   print: (line: string) => void;
   now?: () => number;
@@ -311,6 +446,7 @@ export type Summary = {
   paused: number; // plain lists while model calls were paused (failures)
   spendStops: number; // questions after which the counter reached its stop, or couldn't be read
   spendErrors: number; // questions whose cost didn't reach the counter
+  placesHeard: number | null; // a spoken run's questions whose place was heard right (AK2); null for the typed set
   metaCalls: number;
   estUsd: string;
   ms: number[];
@@ -354,6 +490,7 @@ const count = (value: unknown): number => (typeof value === "number" && Number.i
 // name for a 500 (logAsk writes only the name), and the final turn's ending. Null when absent.
 const metaStatus = (value: unknown): number | null => (typeof value === "number" ? value : null);
 const loggedError = (value: unknown): string | null => (typeof value === "string" ? value : null);
+const numberOrNull = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : null);
 const finalTurn = (value: unknown): string | null => (value === "ok" || value === "skipped" || value === "failed" ? value : null);
 
 export function localDate(ms: number): string {
@@ -361,17 +498,29 @@ export function localDate(ms: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// The questions in order, each through askTyped once; every answer appended to the answers file as it comes. After a
-// question whose spend wasn't ok (a spend_error or spend_stop line), the run stops asking: the handler has set the
+// The questions in order, each through askTyped once (or, in voice mode, the clips through askVoice); every answer
+// appended to the answers file as it comes. After a question whose spend wasn't ok (a spend_error or spend_stop line), the run stops asking: the handler has set the
 // stack's model-calls switch on, but this run's own switch read stays cached for 30 s, so a later question could
 // still pay Meta while the counter misses its cost (C736). The caller fails the run when `ok` is false.
 export async function runHarness(o: HarnessOptions): Promise<Summary> {
   const out = answersPath(o.dataDir, o.date);
-  const questions = loadQuestions();
   const fixture = loadPins();
   const geocodes = loadGeocodes();
-  if (questions.some((q) => q.route !== "ask")) throw new Error("questions.json: the harness asks typed questions only");
-  await checkSpend(o, questions.length);
+  let asks: Ask[];
+  if (o.voice !== undefined) {
+    asks = loadVoiceAsks(o.voice, fixture, geocodes);
+  } else {
+    const questions = loadQuestions();
+    if (questions.some((q) => q.route !== "ask")) throw new Error("questions.json: the harness asks typed questions only");
+    asks = questions.map((q) => ({
+      id: q.id,
+      route: q.route,
+      expect: q.expect,
+      send: (deps) => askTyped({ body: JSON.stringify({ question: q.text, ...(q.here === "fixture" && { here: fixture.here }) }), device: DEVICE }, deps),
+      audioSeconds: 0,
+    }));
+  }
+  await checkSpend(o, asks.length, asks.reduce((seconds, ask) => seconds + ask.audioSeconds, 0));
 
   const now = o.now ?? Date.now;
   const key = o.key;
@@ -396,7 +545,7 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
   mkdirSync(dirname(out), { recursive: true });
   const run = new Date(now()).toISOString();
   const summary: Summary = {
-    questions: questions.length,
+    questions: asks.length,
     asked: 0,
     passed: 0,
     failed: 0,
@@ -406,6 +555,7 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
     paused: 0,
     spendStops: 0,
     spendErrors: 0,
+    placesHeard: o.voice === undefined ? null : 0,
     metaCalls: 0,
     estUsd: "0",
     ms: [],
@@ -413,23 +563,27 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
   };
   let input = 0;
   let output = 0;
+  let audio = 0; // billed seconds of the clips whose transcription ran, counted as one try each
 
   await captured(async (lines) => {
-    for (const q of questions) {
-      const body = JSON.stringify({ question: q.text, ...(q.here === "fixture" && { here: fixture.here }) });
+    for (const q of asks) {
       const started = now();
-      const res = await askTyped({ body, device: DEVICE }, deps);
+      const res = await q.send(deps);
       const ms = now() - started;
       const logged = jsonLines(lines.splice(0));
       const line = logged.find((l) => l.msg === "ask") ?? {};
       const spend = logged.some((l) => l.msg === "spend_error") ? "error" : logged.some((l) => l.msg === "spend_stop") ? "stop" : "ok";
 
-      const answer = res.statusCode === 200 ? (JSON.parse(res.body) as { answer: Answer }).answer : null;
-      const checks = check(q, res.statusCode, ms, answer, geocodes);
+      const body = res.statusCode === 200 ? (JSON.parse(res.body) as { answer: Answer; transcript?: unknown }) : null;
+      const answer = body?.answer ?? null;
+      const checks = check(q.expect, res.statusCode, ms, answer, geocodes);
       const pass = Object.values(checks).every((c) => c !== false);
       const tokens = { input: count(line.input_tokens), output: count(line.output_tokens), reasoning: count(line.reasoning_tokens) };
+      const transcribeMs = numberOrNull(line.transcribe_ms);
+      const audioSeconds = transcribeMs === null ? 0 : q.audioSeconds; // transcribe_ms is logged once the transcription ran
       input += tokens.input;
       output += tokens.output;
+      audio += audioSeconds;
       summary.asked++;
       summary.ms.push(ms);
       summary.metaCalls += count(line.meta_calls);
@@ -439,6 +593,7 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
       if (answer?.fallback === "model_calls_paused") summary.paused++;
       if (spend === "stop") summary.spendStops++;
       if (spend === "error") summary.spendErrors++;
+      if (summary.placesHeard !== null && placeHeard(q.expect, answer, geocodes)) summary.placesHeard++;
 
       const record = {
         run,
@@ -458,8 +613,14 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
         input_tokens: tokens.input,
         output_tokens: tokens.output,
         reasoning_tokens: tokens.reasoning,
-        est_usd: costOf({ spark_input_tokens: tokens.input, spark_output_tokens: tokens.output }),
+        est_usd: costOf({ spark_input_tokens: tokens.input, spark_output_tokens: tokens.output, audio_seconds: audioSeconds }),
         spend,
+        // A spoken question also keeps its transcript, for review only, and the clip's and transcription's timings.
+        ...(q.route === "ask_voice" && {
+          transcript: typeof body?.transcript === "string" ? body.transcript : null,
+          audio_ms: numberOrNull(line.audio_ms),
+          transcribe_ms: transcribeMs,
+        }),
       };
       appendFileSync(out, `${JSON.stringify(record)}\n`);
       if (spend !== "ok") break;
@@ -469,14 +630,16 @@ export async function runHarness(o: HarnessOptions): Promise<Summary> {
   summary.notAsked = summary.questions - summary.asked;
   summary.ok =
     summary.notAsked === 0 && summary.failed === 0 && summary.spendStops === 0 && summary.spendErrors === 0 && summary.modelAnswers > 0;
-  summary.estUsd = costOf({ spark_input_tokens: input, spark_output_tokens: output });
+  summary.estUsd = costOf({ spark_input_tokens: input, spark_output_tokens: output, audio_seconds: audio });
   const sorted = [...summary.ms].sort((a, b) => a - b);
   const at = (i: number) => sorted[Math.max(0, Math.min(sorted.length - 1, i))] ?? 0;
+  if (summary.placesHeard !== null) o.print("ask-eval: spoken questions, synthetic clips (spec C729)");
   o.print(`ask-eval: ${summary.questions} questions, ${summary.asked} asked, ${summary.passed} passed, ${summary.failed} failed`);
   o.print(`ask-eval: ${summary.modelAnswers} model answers, ${summary.plainLists} plain lists (model misses), ${summary.paused} paused`);
   o.print(
     `ask-eval: ${summary.spendStops} spend stops, ${summary.spendErrors} spend errors, ${summary.notAsked} not asked (the run stops asking at the first)`,
   );
+  if (summary.placesHeard !== null) o.print(`ask-eval: places heard right ${summary.placesHeard} of ${summary.questions} (synthetic clips)`);
   o.print(`ask-eval: handler ms min ${at(0)}, median ${at(Math.floor((sorted.length - 1) / 2))}, max ${at(sorted.length - 1)}`);
   o.print(`ask-eval: ${summary.metaCalls} Meta calls, est. $${summary.estUsd}`);
   o.print(`ask-eval: run ${summary.ok ? "passed" : "failed"}`);
