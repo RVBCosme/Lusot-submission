@@ -174,7 +174,7 @@ MS1's table as it stands, except that its OpenStreetMap row is replaced by the m
 
 ### 15. Licence
 
-`[Rene's choice, M22]` for Lusot's own code. Third-party parts keep their own licences, and `meta-sam-parser` is under the SAM License (R52).
+MIT for Lusot's own code (MS7-Q4, Rene, Nov 1, 2026; M22). Third-party parts keep their own licences, and `meta-sam-parser` is under the SAM License (R52).
 
 ### Footer
 

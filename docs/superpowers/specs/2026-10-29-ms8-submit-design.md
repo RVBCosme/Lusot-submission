@@ -197,6 +197,8 @@ Two more facts bear on this:
 Making the development repository itself public is ruled out by D9.
 
 **Default: (b)**, which is MS7-Q8's (a). It keeps every commit and every date, which is the trail that shows judges what is new, and it publishes no address or account detail. The private repository stays as it is.
+
+**Answer: MS8-Q1: (b), Rene, Nov 1, 2026** (this also answers MS7-Q8). git-filter-repo with a mailmap to his GitHub no-reply address, in the export only; `commit-map.csv` goes on the Release and is never committed. His two GitHub email settings come before the repository goes public (Task 16). The Claude-Session lines wait for his O6 private-window check.
 - **A rewrite needs Rene's OK,** because it changes the commit hashes that the logs and docs cite. The commit map keeps them traceable.
 - **His steps under (b):** the repository-level commit address, then the two GitHub settings, before the submission repository goes public (plan Task 16).
 - **For every option that publishes history** ((a), (b) and (d)), C903's full-history secret and account-ID scan runs on exactly what will be pushed, before the push. Under (c), the same scan covers the snapshot.
@@ -243,6 +245,8 @@ The README now says that everything in the repository was written from Oct 27, w
 
 **Default: (a).** It is true, it lets judges tell exactly what is new, and the organizers' answer settles any doubt before the deadline. **Needed by Nov 3.**
 
+**Answer: MS8-Q3: (a), the tracker, under Rene's written delegation, Nov 1, 2026 (9:58 PM).**
+
 ### MS8-Q4: if the sealed run lands late
 
 The sealed run is planned for Nov 3. Only some steps wait for its report, and everything else can be finished first with placeholders and approved: the wording, the other scenes, the captions and the cards.
@@ -264,6 +268,8 @@ The sealed run is planned for Nov 3. Only some steps wait for its report, and ev
 
 **Default: (a).** The buffer exists to absorb a slip, 4 hours stay as margin, and no gap is filled with numbers the rules don't allow.
 
+**Answer: MS8-Q4: (a), the tracker, under Rene's written delegation, Nov 1, 2026 (9:58 PM).** Moving the day-of buffer stays Rene's call.
+
 **The move into the buffer waits for Rene's OK on the day, even under D7.** Both late paths, the complete entry by 6:00 AM and the entry marked as pending, pass CLAUDE.md's "Submit by Nov 4, 2026, 10:00 PM Manila time". That target is his rule. If he hasn't answered by Nov 3, D7 would apply this default without him, so the plan marks the step itself as his. **Needed by Nov 3.**
 
 ### MS8-Q5: filming the five-person test for scene 7
@@ -281,6 +287,8 @@ The test runs Nov 1 to 3, before MS8 starts, so the choice has to reach MS5's ki
 
 **Default: (a).** Real hands using the real app is the strongest Impact shot the video can have, and the default framing keeps testers' faces out unless they choose otherwise. **Needed by Oct 31.**
 
+**Answer: MS8-Q5: (a), Rene, Nov 1, 2026.** The M17 testers who consent in writing are filmed; the filming form M17-v1 was approved Nov 1.
+
 ### MS8-Q6: the write-up's order
 
 | Option | Order |
@@ -289,6 +297,8 @@ The test runs Nov 1 to 3, before MS8 starts, so the choice has to reach MS5's ki
 | (b) | Plan §18's order, which follows the weights: Impact, then Meta's models, then Demo, then Technical Depth |
 
 **Default: (a).** The rules override the plan, and judges score from the rules' list. If the form has a field per criterion, its order wins (Rene confirms). **Needed by Nov 4.**
+
+**Answer: MS8-Q6: (a), the tracker, under Rene's written delegation, Nov 1, 2026 (9:58 PM).**
 
 ### MS8-Q7: the video on X
 
@@ -302,6 +312,8 @@ Several 2026 guides put X's video limit for accounts without Premium at 2 min 20
 
 **Default: (a)**, or (b) if he already has Premium. Rene confirms whether the guide's X rule asks for the submitted video itself. **Needed by Nov 4.**
 
+**Answer: MS8-Q7: (a), Rene, Nov 1, 2026** (no X Premium): an X cut of at most 2:15, posted natively, with the full video linked in a reply.
+
 ### MS8-Q8: who cuts the video
 
 | Option | What happens |
@@ -311,6 +323,8 @@ Several 2026 guides put X's video limit for accounts without Premium at 2 min 20
 
 **Default: (a).** It saves Rene hours on Nov 3 and 4, and a scripted cut is quick to redo after the three-viewer test. **Needed by Nov 3.**
 
+**Answer: MS8-Q8: (a), the tracker, under Rene's written delegation, Nov 1, 2026 (9:58 PM).**
+
 ### MS8-Q9: the APK
 
 | Option | What happens |
@@ -319,6 +333,8 @@ Several 2026 guides put X's video limit for accounts without Premium at 2 min 20
 | (b) | A release build, signed with a new keystore kept outside the repo |
 
 **Default: (b), the signed release built from `main`** (the tracker's call, Nov 1; the default was (a)). The default was (a) because a keystore is one more secret to guard, but MS5 has had a release keystore outside the repo since Nov 1, and its signed release build passes `apksigner verify`, so that reason no longer holds. Judges sideload either one, and the web URL is the main path (M15). **Needed by Nov 3.**
+
+**Answer: MS8-Q9: (b), the tracker, under Rene's written delegation, Nov 1, 2026 (9:58 PM).**
 
 ## 9. What MS8 needs from other milestones
 

@@ -20,10 +20,10 @@ Manila time is UTC+8. US daylight saving time ends on Nov 1, 2026, so from then 
 | Manila time | What | Source |
 |---|---|---|
 | Oct 31 | MS8-Q5 answered, so MS5's M17 kit can add the filming consent (N8) | Spec §8 |
-| Nov 2 | The submission repository created, empty and private, and its URL given to MS5's final build (MS8-Q2, N8) | Spec §8 |
+| Nov 2 | The submission repository created, empty and private, and its URL given to MS5's final build (MS8-Q2, N8). Created Nov 1 (MS8-Q2: (a)); the URL still goes into MS5's final build | Spec §8 |
 | Weekdays from Nov 2, 11:00 PM to midnight | Office hours in Discord #office-hours | Plan §2, Table 1; design §4. **Rene confirms.** |
 | Nov 3, 1:00 PM to Nov 4, 1:00 PM (all of Nov 3, ET) | The last full day for submission questions; technical troubleshooting ends | Plan §2, Table 1 (from the guide). **Rene confirms.** Ask MS8-Q3's question by then, through the channel the guide gives for rules questions, since office hours take API questions. |
-| Nov 3 | R7 decided (MS8-Q1, which also answers MS7-Q8); MS8-Q3, MS8-Q4, MS8-Q8 and MS8-Q9 answered; checklist O6 checked, before any push | Design §7; spec §8 |
+| Nov 3 | R7 decided (MS8-Q1, which also answers MS7-Q8); MS8-Q3, MS8-Q4, MS8-Q8 and MS8-Q9 answered (all answered Nov 1: spec §8); checklist O6 checked, before any push | Design §7; spec §8 |
 | Nov 4, 2:00 PM | Under MS8-Q4's default, the latest time the sealed report can reach `main` for a 9:00 PM submission. A report by 11:00 PM still allows a complete entry by Nov 5, 6:00 AM, but **any move past 10:00 PM needs Rene's OK on the day, even under D7** (CLAUDE.md's target). | Spec §8 |
 | Nov 3 | The video recorded a day early, with a backup recording of the live flow | Plan §19 (demo and judging practices) |
 | Nov 4 | English captions written and their timing checked (M30); the bonus entry (M33); MS8-Q6 and MS8-Q7 answered | Plan §24, Table 27; spec §8 |
