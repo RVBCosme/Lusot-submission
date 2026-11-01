@@ -88,8 +88,9 @@ def test_the_touch_check_is_never_relaxed():
     # gives 20 levels: 9 under, 4 by 2 or more, 2 passability classes read lower. At
     # 15 px, 22 levels: 10 under, 6 by 2 or more, 4 passability classes read lower.
     # Each tolerance tried adds under-reads by count, so the live tuning may tighten
-    # the check but never loosen it. The share wasn't replayed: its bound follows
-    # because a lower share keeps more references, as a wider tolerance does.
+    # the check but never loosen it. The share's bound follows because a lower share
+    # keeps more references, as a wider tolerance does. A 0.10 share, replayed later
+    # on Nov 2, gave 2 more exact levels and one unscorable risk; it wasn't adopted.
     assert not _relaxes_touch_check(TUNING)
     assert _relaxes_touch_check(replace(START, touch_tolerance_px=10.0))
     assert _relaxes_touch_check(replace(START, touch_share_min=0.10))
