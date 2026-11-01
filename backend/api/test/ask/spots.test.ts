@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalize } from "../../src/ask/text";
-import { SPOTS, findSpotIn, matchPlace, roadKey, spotKeywords, type Spot } from "../../src/ask/spots";
+import { SHORT_FORMS, SPOTS, findSpotIn, matchPlace, roadKey, spotKeywords, type Spot } from "../../src/ask/spots";
 
 function spot(id: string, name: string, roads: string[], aliases: string[] = []): Spot {
   return { id, name, city: "Manila", lat: 14.6, lng: 121, roads, aliases };
@@ -207,16 +207,16 @@ describe("findSpotIn", () => {
   });
 });
 
-// The exact list Meta took on Oct 31 (the voice diagnostic's call 6: HTTP 200 with these 94). A spot or road added to
-// spots.json changes it, so this fails before a deploy could send Meta a list it hasn't been shown to take. Update it
-// only after Meta has taken the new list in a test call.
+// The exact list Meta took on Nov 1 (a test call: HTTP 200 with these 97). A spot or road added to spots.json changes
+// it, so this fails before a deploy could send Meta a list it hasn't been shown to take. Update it only after Meta has
+// taken the new list in a test call. Oct 31's list was the same without the three short forms (call 6, 94 keywords).
 const TESTED_KEYWORDS = [
   "F. Ortigas St cor. Boni Ave", "EDSA cor. Aurora Blvd", "EDSA cor. Kamuning Rd", "EDSA cor. North Ave",
   "EDSA cor. Main Ave", "Taft Ave in front of PGH", "España Blvd cor. Maceda St", "España Blvd cor. Antipolo St",
   "Marcos Highway at SM Marikina", "EDSA cor. Shaw Blvd", "EDSA cor. P. Tuazon Blvd", "Roxas Blvd cor. EDSA",
   "Roxas Blvd cor. Pedro Gil St", "UN Ave cor. Taft Ave", "G. Araneta Ave cor. Baloy St", "Samat St cor. Don Jose St",
   "Taft Ave cor. Quirino Ave", "Roxas Blvd at the US Embassy", "Roxas Blvd cor. T.M. Kalaw Ave", "3S Center, Dalandanan",
-  "Toyota Dalandanan", "F. Ortigas Street", "Boni Avenue", "F. Ortigas", "Boni", "EDSA", "Aurora Boulevard",
+  "Toyota Dalandanan", "EDSA Santolan", "Oyster Plaza", "SM Sucat", "F. Ortigas Street", "Boni Avenue", "F. Ortigas", "Boni", "EDSA", "Aurora Boulevard",
   "Kamuning Road", "Kamuning", "Gregorio Araneta Avenue", "E. Rodriguez Sr. Avenue", "G. Araneta Avenue", "Araneta",
   "E. Rodriguez", "Colonel Bonny Serrano Avenue", "Col. Bonny Serrano Avenue", "Bonny Serrano Avenue", "North Avenue",
   "North Ave", "Quezon Avenue", "Biak na Bato Street", "Quezon Ave", "Biak na Bato", "Main Avenue", "Main Ave",
@@ -242,9 +242,36 @@ describe("spotKeywords", () => {
     expect(spotKeywords([spot("a", thirtyChars, ["Espana Blvd cor. Maceda Street"])])).toEqual(["Espana Blvd cor. Maceda Street"]);
   });
 
-  it("gives the list Meta took on Oct 31, in that order, and no more than its 94", () => {
-    expect(TESTED_KEYWORDS).toHaveLength(94);
+  it("gives the list Meta took on Nov 1, in that order, and no more than its 97", () => {
+    expect(TESTED_KEYWORDS).toHaveLength(97);
     expect(spotKeywords()).toEqual(TESTED_KEYWORDS);
+  });
+
+  it("names Santolan, Oyster Plaza and SM Sucat by short forms, since no road of theirs holds the landmark", () => {
+    const keywords = spotKeywords();
+    const firstRoad = keywords.indexOf("F. Ortigas Street");
+    for (const form of ["EDSA Santolan", "Oyster Plaza", "SM Sucat"]) {
+      expect(keywords.indexOf(form), form).toBeGreaterThan(-1);
+      expect(keywords.indexOf(form), form).toBeLessThan(firstRoad);
+    }
+  });
+
+  it("takes each short form from its own spot's aliases, so a transcript holding it finds the spot", () => {
+    expect([...SHORT_FORMS.keys()]).toEqual(["edsa-santolan", "oyster-plaza", "sucat-sm"]);
+    for (const [id, form] of SHORT_FORMS) {
+      expect(SPOTS.find((s) => s.id === id)?.aliases, id).toContain(form);
+      expect(Buffer.byteLength(form, "utf8"), id).toBeLessThanOrEqual(30);
+      expect(findSpotIn(`baha ba sa ${form}?`)?.id, id).toBe(id);
+    }
+  });
+
+  it("puts a long-named spot's short form after the names that fit and before the roads", () => {
+    // The short form comes from SHORT_FORMS by the spot's id, so this spot borrows sucat-sm's id and real entry.
+    const spots = [
+      spot("a", "A Place", ["Main Road"]),
+      spot("sucat-sm", "A Corner Whose Name Is Over Thirty Chars", ["Side St"], ["SM Sucat"]),
+    ];
+    expect(spotKeywords(spots)).toEqual(["A Place", "SM Sucat", "Main Road", "Side St"]);
   });
 
   it("gives the names that fit first, then each spot's roads, each once", () => {
@@ -256,10 +283,10 @@ describe("spotKeywords", () => {
     expect(spotKeywords(spots)).toEqual(["A Place", "Far Road", "Main Road", "Side St", "Last Road"]);
   });
 
-  it("keeps at most 94, dropping roads before names", () => {
+  it("keeps at most 97, dropping roads before names", () => {
     const many = Array.from({ length: 100 }, (_, i) => spot(`s${i}`, `Place ${i}`, [`Road ${i}`]));
     const keywords = spotKeywords(many);
-    expect(keywords).toHaveLength(94);
+    expect(keywords).toHaveLength(97);
     expect(keywords.every((k) => k.startsWith("Place "))).toBe(true);
   });
 });
