@@ -465,7 +465,6 @@ export const EN = {
   'overlay.ref.body': { text: 'Car body {id}', reviewed: true },
   'overlay.ref.person': { text: 'Person {id}', reviewed: true },
   'overlay.floor': { text: 'At least {level}', reviewed: true },
-  'overlay.notUsed': { text: 'Not used', reviewed: true },
   // The live map, its list and pin detail (MS5 Task 13). Every line that says what a pin shows keeps "at this spot"
   // through the level line, and none says anything about a place with no report, since no report is not a dry spot.
   'map.noApi': { text: "This build can't show reports.", reviewed: true },

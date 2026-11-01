@@ -5,7 +5,7 @@ import { isScreenLineKey, makeT } from '../i18n'
 import { EN } from '../i18n/en'
 import { FIL } from '../i18n/fil'
 import type { OverlayData, OverlayRef } from '../lib/api'
-import { orderLayers, refChip, refLabel } from './layers'
+import { decidingRefs, orderLayers, placeBadges, refChip, refLabel } from './layers'
 
 const en = makeT('en')
 const fil = makeT('fil')
@@ -267,13 +267,13 @@ describe('refLabel', () => {
           for (const floor of [true, false, null]) {
             for (const level_from of ['landmark', 'geometry', null] as const) {
               labels.push(refLabel(t, ref({ kind, level, level_is_floor: floor, level_from })).text)
-              labels.push(refChip(t, ref({ kind, level, level_is_floor: floor, level_from })).text)
+              labels.push(refChip(t, ref({ kind, level, level_is_floor: floor, level_from }), true).text)
             }
           }
         }
       }
       for (const cause of [...DROP_CAUSES, 'unknown_cause']) {
-        labels.push(refLabel(t, ref({ dropped: cause })).text, refChip(t, ref({ dropped: cause })).text)
+        labels.push(refLabel(t, ref({ dropped: cause })).text, refChip(t, ref({ dropped: cause }), true).text)
       }
     }
     for (const label of labels) {
@@ -291,7 +291,6 @@ describe("the overlay's new lines", () => {
     'overlay.ref.body',
     'overlay.ref.person',
     'overlay.floor',
-    'overlay.notUsed',
   ] as const
   const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort()
 
@@ -316,19 +315,104 @@ describe("the overlay's new lines", () => {
 })
 
 describe('refChip, the short words on a box', () => {
-  it('is the number and the level, or "At least" the level for a floor', () => {
-    expect(refChip(en, ref({ id: 3, level: 'knee' })).text).toBe('3: Knee')
-    expect(refChip(en, ref({ id: 1, level: 'tire', level_is_floor: true })).text).toBe('1: At least tire')
-    expect(refChip(en, ref({ id: 1, level: 'tire', level_is_floor: false })).text).toBe('1: Tire')
-    expect(refChip(en, ref({ id: 1, level: 'tire', level_is_floor: null })).text).toBe('1: Tire')
-    expect(refChip(en, withoutFloorKey({ id: 1, level: 'tire' })).text).toBe('1: Tire')
-    expect(refChip(fil, ref({ id: 1, level: 'tire', level_is_floor: true })).text).toBe('1: Hindi bababa sa tire')
+  it('is the number and the level for a reference that set the level, or "At least" the level for a floor', () => {
+    expect(refChip(en, ref({ id: 3, level: 'knee' }), true).text).toBe('3: Knee')
+    expect(refChip(en, ref({ id: 1, level: 'tire', level_is_floor: true }), true).text).toBe('1: At least tire')
+    expect(refChip(en, ref({ id: 1, level: 'tire', level_is_floor: false }), true).text).toBe('1: Tire')
+    expect(refChip(en, ref({ id: 1, level: 'tire', level_is_floor: null }), true).text).toBe('1: Tire')
+    expect(refChip(en, withoutFloorKey({ id: 1, level: 'tire' }), true).text).toBe('1: Tire')
+    expect(refChip(fil, ref({ id: 1, level: 'tire', level_is_floor: true }), true).text).toBe('1: Hindi bababa sa tire')
   })
 
-  it('is the number and "Not used" for a dropped reference, with no level, and just the number with nothing to say', () => {
-    expect(refChip(en, ref({ id: 2, dropped: 'person_not_adult', level: null, level_from: null })).text).toBe('2: Not used')
-    expect(refChip(en, ref({ id: 2, dropped: 'person_not_adult', level: 'knee' })).text).toBe('2: Not used')
-    expect(refChip(en, ref({ id: 7, level: null, level_from: null })).text).toBe('7')
-    expect(refChip(fil, ref({ id: 2, dropped: 'x' })).text).toBe(`2: ${FIL['overlay.notUsed'].text}`)
+  // Rene's screenshot, Nov 2: "5: Not used" and "6: Not used" ran into each other where two people stood close. The
+  // cause of a drop is in the legend under the photo, word for word, so the photo carries the number alone.
+  it('is the number alone for every other reference, and never "Not used", whose cause the legend gives', () => {
+    expect(refChip(en, ref({ id: 3, level: 'knee' }), false).text).toBe('3')
+    expect(refChip(en, ref({ id: 2, dropped: 'person_not_adult', level: null, level_from: null }), false).text).toBe('2')
+    expect(refChip(en, ref({ id: 2, dropped: 'person_not_adult', level: 'knee' }), true).text).toBe('2')
+    expect(refChip(en, ref({ id: 7, level: null, level_from: null }), true).text).toBe('7')
+    expect(refChip(fil, ref({ id: 2, dropped: 'x' }), false).text).toBe('2')
+  })
+})
+
+describe('decidingRefs, the references that set the level', () => {
+  // As MS3's combine has it: the deepest level among the references used, and every one at that level.
+  it('are the used references at the deepest level, every one of them when two share it', () => {
+    const refs = [
+      ref({ id: 1, level: 'half_tire' }),
+      ref({ id: 2, kind: 'person', level: 'knee' }),
+      ref({ id: 3, kind: 'person', level: 'knee' }),
+    ]
+    expect([...decidingRefs(refs)].sort()).toEqual([2, 3])
+    // By the gauge's order, not the words': chest is deeper than knee, though it sorts first.
+    expect([...decidingRefs([ref({ id: 1, level: 'knee' }), ref({ id: 2, level: 'chest' })])]).toEqual([2])
+  })
+
+  it('never include a dropped or unused reference, however deep its level', () => {
+    const refs = [
+      ref({ id: 1, level: 'half_tire' }),
+      ref({ id: 2, level: 'waist', used: false, dropped: 'vehicle_moving' }),
+      ref({ id: 3, level: 'chest', used: false }),
+    ]
+    expect([...decidingRefs(refs)]).toEqual([1])
+  })
+
+  it('are none when no reference was used, or none of them has a level', () => {
+    expect(decidingRefs([ref({ used: false })]).size).toBe(0)
+    expect(decidingRefs([ref({ level: null })]).size).toBe(0)
+    expect(decidingRefs([]).size).toBe(0)
+  })
+})
+
+describe('placeBadges, where each number sits on the photo', () => {
+  type Box = OverlayRef['box']
+  const size = { width: 800, height: 600 }
+  const HEIGHT = 30
+  type Rect = { x: number; y: number; width: number; height: number }
+  const overlaps = (a: Rect, b: Rect) =>
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  const inside = (r: Rect) => r.x >= 0 && r.y >= 0 && r.x + r.width <= size.width && r.y + r.height <= size.height
+  const apart = (badges: Rect[]) => {
+    for (const [i, a] of badges.entries()) {
+      for (const b of badges.slice(i + 1)) expect(overlaps(a, b), `${JSON.stringify(a)} and ${JSON.stringify(b)}`).toBe(false)
+    }
+  }
+
+  it("puts a lone badge on its box's top-left corner, just above the box", () => {
+    const [badge] = placeBadges([{ box: [200, 300, 300, 500], width: 40 }], size, HEIGHT)
+    expect(badge).toMatchObject({ x: 200, width: 40, height: HEIGHT })
+    expect(badge.y + badge.height).toBeLessThanOrEqual(300)
+    expect(300 - (badge.y + badge.height)).toBeLessThan(HEIGHT / 2)
+  })
+
+  it('moves the badges of two overlapping boxes apart, so neither covers the other', () => {
+    const first: Box = [100, 200, 180, 450]
+    const badges = placeBadges(
+      [
+        { box: first, width: 120 },
+        { box: [110, 205, 200, 460], width: 120 },
+      ],
+      size,
+      HEIGHT,
+    )
+    apart(badges)
+    for (const badge of badges) expect(inside(badge)).toBe(true)
+    // The first keeps the place it has alone, and the second moves.
+    expect(badges[0]).toEqual(placeBadges([{ box: first, width: 120 }], size, HEIGHT)[0])
+  })
+
+  it('keeps a crowd of badges at one spot clear of each other, and all inside the photo', () => {
+    const wanted = Array.from({ length: 6 }, (_, i) => ({ box: [300 + i * 3, 100 + i * 2, 360, 300] as Box, width: 90 }))
+    const badges = placeBadges(wanted, size, HEIGHT)
+    apart(badges)
+    for (const badge of badges) expect(inside(badge)).toBe(true)
+  })
+
+  it('puts a badge inside its box when there is no room above, and keeps it off the right edge', () => {
+    const [top] = placeBadges([{ box: [10, 0, 110, 90], width: 40 }], size, HEIGHT)
+    expect(top.y).toBeGreaterThanOrEqual(0)
+    expect(top.y).toBeLessThan(90)
+    const [right] = placeBadges([{ box: [790, 300, 800, 400], width: 60 }], size, HEIGHT)
+    expect(right.x + right.width).toBeLessThanOrEqual(800)
   })
 })
