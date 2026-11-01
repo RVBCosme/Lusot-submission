@@ -21,6 +21,7 @@ from fakes import (
     level_case,
     meta_error,
     noise_jpeg,
+    street_for,
 )
 
 from lusot_analysis.face_blur import FACE_BLUR_VERSION, blur_for_meta
@@ -156,7 +157,9 @@ def test_runs_that_end_early_replay_as_saved(
     tmp_path, prompt, photo, given, outcome, image, phrases, blur_version
 ):
     _, sam, level_answer = level_case()
-    client = FakeClient(sam, level_answer if given is None else given)
+    client = FakeClient(
+        street_for(given, sam), level_answer if given is None else given
+    )
     data, live, run_dir = record(tmp_path, client, prompt, photo=photo)
     assert live.outcome == outcome
     saved = read_json(run_dir / "run.json")

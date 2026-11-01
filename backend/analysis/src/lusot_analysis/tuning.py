@@ -10,17 +10,16 @@ development evidence (n and the harness figures used), or "untuned".
 
 - tuning-v1 (Oct 29, 2026): the start values of spec §4 (C301 to C305, C312, C325, G3)
   and MS3a's (C44, C56, C70). Untuned: every value.
-- tuning-v2 (Nov 2, 2026): three values, chosen by $0 replays of the 120 Set C
+- tuning-v2 (Nov 2, 2026): two values, chosen by $0 replays of the 120 Set C
   development runs and scored on the 55 photos the blind double relabel of Nov 2 agreed
-  on (n = 10 scored levels at tuning-v1: 8 exact, 2 over, 0 under). A-neg's 10
-  development photos, run once, gave no false level with any of them.
-  - touch_share_min 0.25 → 0.10 (C331, revised): 9 exact, 0 under, no more wrong levels.
-  - min_person_side_px 0 → 60 (C92): 9 exact, 1 over, 0 under; the 3-level over-read
-    from a 46 px person goes.
+  on. A-neg's 10 development photos, run once, gave no false level with either.
+  - min_person_side_px 0 → 60 (C92): a smaller person's reading can refuse the photo
+    but never sets the level, and blocks no one.
   - no_flood_share_max 1.0 → 0.25 (C93): 2 development "no flood" results with water
     over 0.60 of the lower half become refusals; no A-neg result changes.
-  Together: 13 levels, 11 scored, 10 exact, 1 over, 0 under, no passability class read
-  lower. Untuned: every other value.
+  touch_share_min stays 0.25: 0.10 passed on the agreed labels but was held, since
+  OL131 (label unsure) would read knee where one relabel read tire (C331). Untuned:
+  every other value.
 """
 
 from __future__ import annotations
@@ -57,7 +56,7 @@ class Tuning:
     drawing: str = "boxes-v1"  # MS3a's drawing of the numbered boxes
     # Added in tuning-v2 (Nov 2). Each start value turns its rule off, so a run saved
     # before tuning-v2 replays as it was saved (B3).
-    min_person_side_px: int = 0  # C92: a smaller person's box neither reads nor blocks
+    min_person_side_px: int = 0  # C92: a smaller person never decides nor blocks
     no_flood_share_max: float = 1.0  # C93: SAM's water over this share of the lower
     # half makes a "no" on standing water refused, water_unsure
     untuned: frozenset[str] = frozenset()  # the names still at their start values
@@ -67,10 +66,9 @@ START = Tuning(
     version="tuning-v1",
     untuned=frozenset(f.name for f in fields(Tuning)) - {"version", "untuned"},
 )
-TUNED_IN_V2 = frozenset({"touch_share_min", "min_person_side_px", "no_flood_share_max"})
+TUNED_IN_V2 = frozenset({"min_person_side_px", "no_flood_share_max"})
 TUNING = Tuning(
     version="tuning-v2",
-    touch_share_min=0.10,
     min_person_side_px=60,
     no_flood_share_max=0.25,
     untuned=START.untuned - TUNED_IN_V2,

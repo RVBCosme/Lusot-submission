@@ -3,7 +3,7 @@
 Expected numbers come from START, never the live TUNING, so a later tuning can't break
 them. Six tests read TUNING, and none expects a number of its own: each untuned name
 still equals START's value, MS3a's five constants equal TUNING's values, the touch
-check is no looser than C331's bounds, tuning-v2's changes are named in the change
+check is no looser than START's (C331), tuning-v2's changes are named in the change
 log, the change log names TUNING's version, and TUNING's effort and drawing are known
 values.
 """
@@ -77,43 +77,36 @@ def test_ms3a_cutoffs_read_the_tuning_module():
     assert quality_refusal(scores, replace(START, sharpness_min=150.0)) == "too_blurry"
 
 
-# C331's bounds, as revised on Nov 2: the tolerance never above START's 5 px, and
-# the share never below 0.10 (tuning-v2's value).
-TOLERANCE_MAX = 5.0
-SHARE_FLOOR = 0.10
-
-
 def _relaxes_touch_check(candidate: Tuning) -> bool:
-    """True when the touch check keeps more references than C331's bounds allow.
+    """True when the touch check keeps more references than START's does (C331).
 
     Written as "not within the bounds", so a NaN, which compares False with
     everything and would turn the share check off, counts as relaxed.
     """
     return not (
-        candidate.touch_tolerance_px <= TOLERANCE_MAX
-        and candidate.touch_share_min >= SHARE_FLOOR
+        candidate.touch_tolerance_px <= START.touch_tolerance_px
+        and candidate.touch_share_min >= START.touch_share_min
     )
 
 
-def test_the_touch_check_is_never_relaxed_past_its_bounds():
-    # C331, revised by the re-score on the 55 photos the Nov 2 blind double relabel
-    # agreed on (Set C, development only). At START: 10 scored levels, 8 exact, 0
-    # under. A 10 px tolerance: 3 under, each a passability class read lower; 15 px:
-    # 4 under. So the tolerance never widens. A 0.10 share: 9 exact, 0 under, and no
-    # more wrong levels, so tuning-v2 takes it, and no lower share is allowed.
+def test_the_touch_check_is_never_relaxed():
+    # C331. Scored on the 55 photos the Nov 2 blind double relabel agreed on (Set C,
+    # development only): at START, 10 scored levels, 8 exact, 0 under. A 10 px
+    # tolerance gives 3 under, each a passability class read lower; 15 px gives 4. A
+    # 0.10 share passed on the agreed labels, but was held: OL131, whose label is
+    # unsure, would read knee where one relabel read tire. So the live tuning may
+    # tighten the check but never loosen it.
     assert not _relaxes_touch_check(TUNING)
-    assert not _relaxes_touch_check(START)
     assert _relaxes_touch_check(replace(START, touch_tolerance_px=10.0))
-    assert _relaxes_touch_check(replace(START, touch_share_min=0.05))
+    assert _relaxes_touch_check(replace(START, touch_share_min=0.10))
     assert _relaxes_touch_check(replace(START, touch_share_min=float("nan")))
     assert not _relaxes_touch_check(replace(START, touch_tolerance_px=4.0))
-    assert not _relaxes_touch_check(replace(START, touch_share_min=0.10))
+    assert not _relaxes_touch_check(replace(START, touch_share_min=0.30))
 
 
 def test_tuning_v2_names_each_change_in_the_change_log():
-    # tuning-v2 (Nov 2): the touch share (C331), the person cutoff (C92) and the
-    # no-flood share (C93). Each changed value is named in the change log, and is
-    # out of `untuned`.
+    # tuning-v2 (Nov 2): the person cutoff (C92) and the no-flood share (C93). Each
+    # changed value is named in the change log, and is out of `untuned`.
     assert TUNING.version == "tuning-v2"
     changed = {
         f.name
@@ -121,7 +114,7 @@ def test_tuning_v2_names_each_change_in_the_change_log():
         if f.name not in ("version", "untuned")
         and getattr(TUNING, f.name) != getattr(START, f.name)
     }
-    assert changed == {"touch_share_min", "min_person_side_px", "no_flood_share_max"}
+    assert changed == {"min_person_side_px", "no_flood_share_max"}
     entry = tuning.__doc__.split("- tuning-v2")[1]
     for name in changed:
         assert name in entry

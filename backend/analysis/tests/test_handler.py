@@ -32,12 +32,14 @@ from fakes import (
     answer,
     create_limits_table,
     create_reports_table,
+    dry_street,
     fail_attempts,
     flat_jpeg,
     geometry_case,
     level_case,
     meta_error,
     no_backoff,
+    street_for,
 )
 from moto import mock_aws
 
@@ -685,6 +687,7 @@ def test_landmark_result_stores_level_from_only(aws, fake):
 def test_non_level_results_store_no_photo(aws, fake, photo, judged, result):
     if judged is not None:
         fake.answer = judged
+        fake.sam = street_for(judged, fake.sam)
     seed(aws, photo=photo)
     assert handler.handler(message(), None) == NO_FAILURES
     item = report(aws)
@@ -741,6 +744,7 @@ def test_stale_photo_is_removed_after_the_claim(
     # write, and its lease has expired. Every attempt starts with none of them (C72):
     # a demo report's three, under demo/, as well (Minor 5).
     fake.answer = answer(standing_water="no")
+    fake.sam = dry_street(fake.sam)
     aws.ssm.put_parameter(Name=SWITCH, Value=switch, Type="String", Overwrite=True)
     seed(aws, photo=LEVEL_PHOTO, mode={"S": mode}, **claimed("old", NOW_S - 901))
     for key in STORED_KEYS:
@@ -912,6 +916,7 @@ def test_publish_rules(
     # not reaching its level.
     if judged is not None:
         fake.answer = judged
+        fake.sam = street_for(judged, fake.sam)
     failing = set()
     if before is None:
         failing.add(PUBLISH)
@@ -1369,6 +1374,7 @@ def test_a_seed_keeps_its_copy_only_for_a_level_or_no_flood_seen(
     # though its run carried one, and any other report keeps C61.
     if judged is not None:
         fake.answer = judged
+        fake.sam = street_for(judged, fake.sam)
     flags = spy_keep_photo(monkeypatch)
     before = seed(aws, photo=LEVEL_PHOTO, **attributes)
     assert handler.handler(message(), None) == NO_FAILURES
@@ -1435,6 +1441,7 @@ def test_a_seed_without_its_copy_traces_the_gap(
     # be made is written without one, and its line says so.
     if judged is not None:
         fake.answer = judged
+        fake.sam = street_for(judged, fake.sam)
     lose_copy(monkeypatch)
     before = seed(aws, photo=LEVEL_PHOTO, **SAMPLE_SEED)
     assert handler.handler(message(), None) == NO_FAILURES
@@ -2120,6 +2127,7 @@ def test_a_run_records_its_cost(
 ):
     if judged is not None:
         fake.answer = judged
+        fake.sam = street_for(judged, fake.sam)
     puts = spy_puts(monkeypatch)
     seed(aws, photo=photo)
     assert handler.handler(message(), None) == NO_FAILURES

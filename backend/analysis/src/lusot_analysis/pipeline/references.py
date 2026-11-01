@@ -227,10 +227,15 @@ class KeptVehicle:
 
 @dataclass(frozen=True)
 class KeptPerson:
-    """An adult the drops keep. The waterline can be not_visible."""
+    """An adult the drops keep. The waterline can be not_visible.
+
+    `small` marks a box under the person cutoff (C92): its reading can refuse the
+    photo but never decides it, and it blocks no one.
+    """
 
     id: int
     waterline: str
+    small: bool = False
 
 
 @dataclass(frozen=True)
@@ -264,13 +269,13 @@ def apply_drops(
       geometry is on (C318). Each of its numbered wheels goes with it, as
       `wheel_vehicle_dropped`.
     - A numbered wheel of a kept vehicle: `wheel_unanswered`.
-    - A person: `person_small` when its box's longer side is under
-      `min_person_side_px`, checked first, since it needs no answer (C92); then
-      `person_unanswered`; `person_not_adult` when `adult` is no or unsure;
+    - A person: `person_unanswered`; `person_not_adult` when `adult` is no or unsure;
       `person_wading` when `standing_still` is no or unsure while someone answered as
       an adult standing still is in the photo, whatever that person's waterline (C57,
       Rene's Q3). No one else blocks: not an unanswered person, nor one answered
-      `adult: unsure` (C76), nor a small one (C92).
+      `adult: unsure` (C76), nor a small one (C92). A kept adult whose box's longer
+      side is under `min_person_side_px` is kept as `small`: step 5 gives its reading
+      as one that can refuse the photo but never decide it (C92, C317).
 
     `wake_visible` changes nothing (C63). Kept's `causes` holds each drop by box id,
     and the Counter counts them.
@@ -323,16 +328,16 @@ def apply_drops(
     kept_people = []
     for person_id in [box.id for box in layout.boxes if box.kind == "person"]:
         entry = people.get(person_id)
-        if person_id in small:
-            causes[person_id] = "person_small"
-        elif entry is None:
+        if entry is None:
             causes[person_id] = "person_unanswered"
         elif entry["adult"] != "yes":  # no or unsure
             causes[person_id] = "person_not_adult"
         elif blocked and entry["standing_still"] != "yes":  # wading: no or unsure
             causes[person_id] = "person_wading"
         else:
-            kept_people.append(KeptPerson(person_id, entry["waterline"]))
+            kept_people.append(
+                KeptPerson(person_id, entry["waterline"], small=person_id in small)
+            )
     kept = Kept(tuple(kept_vehicles), tuple(kept_people), causes)
     return kept, Counter(kept.causes.values())
 
