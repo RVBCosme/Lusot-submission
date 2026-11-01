@@ -266,6 +266,7 @@ describe("spotKeywords", () => {
   });
 
   it("puts a long-named spot's short form after the names that fit and before the roads", () => {
+    // The short form comes from SHORT_FORMS by the spot's id, so this spot borrows sucat-sm's id and real entry.
     const spots = [
       spot("a", "A Place", ["Main Road"]),
       spot("sucat-sm", "A Corner Whose Name Is Over Thirty Chars", ["Side St"], ["SM Sucat"]),
