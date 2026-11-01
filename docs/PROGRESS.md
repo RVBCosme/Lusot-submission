@@ -182,7 +182,7 @@ From Table 11 of the plan. Update each row as its check passes.
 | Oct 27 | D10 | Every Meta call runs on the $150 credits, disclosed in the consent notice and privacy policy. ~~Faces are blurred on the phone if the organizers rule out people's photos (plan §13).~~ Superseded by D12 and C20: faces are blurred on the server before every Meta call, on from the start. | Rene |
 | Oct 27 | D11 | Routine pushes to the private repo don't wait for Rene; making any code public does | Rene |
 | Oct 27 | D12 | If M32 is a no, faces are blurred before every Meta call (all uses). Claude's reading, C20: built before tuning and on from the start. | Rene |
-| Oct 27 | D13 | People count fully: a standing adult can set the level alone (since C91, Nov 1: not at ankle depth) | Rene |
+| Oct 27 | D13 | People count fully: a standing adult can set the level alone (since C91, Nov 1: not at ankle depth; since C92, Nov 2: not a person whose box is under 60 px) | Rene |
 | Oct 27 | D14 | Dry streets can read "no flood seen"; photos outside Metro Manila are analysed but never pinned | Rene |
 | Oct 27 | C3, C4, C6 to C21 | Claude's calls from the Oct 27 plan updates, the fact check and the second builder check (build design §6, §19) | Claude (pending Rene's approval) |
 | Oct 28 | Approval | Build design approved with fixes F1 to F6 (design §20): the face blur moves into MS1, probes use STURM-FloodDepth only, and stale lines are corrected | Rene |

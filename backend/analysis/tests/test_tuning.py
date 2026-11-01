@@ -1,10 +1,11 @@
 """Tests for the tuning module: the cutoffs, their start values and the change log (C310).
 
 Expected numbers come from START, never the live TUNING, so a later tuning can't break
-them. Five tests read TUNING, and none expects a number of its own: each untuned name
+them. Six tests read TUNING, and none expects a number of its own: each untuned name
 still equals START's value, MS3a's five constants equal TUNING's values, the touch
-check is no looser than START's (C331), the change log names TUNING's version, and
-TUNING's effort and drawing are known values.
+check is no looser than C331's bounds, tuning-v2's changes are named in the change
+log, the change log names TUNING's version, and TUNING's effort and drawing are known
+values.
 """
 
 from dataclasses import asdict, fields, replace
@@ -37,8 +38,15 @@ def test_start_values_are_the_specs():
         "max_people": 6,
         "reasoning_effort": None,  # C312: Muse Spark picks its own
         "drawing": "boxes-v1",  # C325
+        "min_person_side_px": 0,  # C92: off, so no person is too small
+        "no_flood_share_max": 1.0,  # C93: off, so SAM's water never unsettles a no
     }
-    for name in ("min_wheel_side_px", "max_vehicles", "max_people"):
+    for name in (
+        "min_wheel_side_px",
+        "max_vehicles",
+        "max_people",
+        "min_person_side_px",
+    ):
         assert type(values[name]) is int
     # Every value starts untuned.
     assert untuned == {f.name for f in fields(Tuning)} - {"version", "untuned"}
@@ -69,34 +77,55 @@ def test_ms3a_cutoffs_read_the_tuning_module():
     assert quality_refusal(scores, replace(START, sharpness_min=150.0)) == "too_blurry"
 
 
+# C331's bounds, as revised on Nov 2: the tolerance never above START's 5 px, and
+# the share never below 0.10 (tuning-v2's value).
+TOLERANCE_MAX = 5.0
+SHARE_FLOOR = 0.10
+
+
 def _relaxes_touch_check(candidate: Tuning) -> bool:
-    """True when the touch check keeps more references than START's does (C331).
+    """True when the touch check keeps more references than C331's bounds allow.
 
     Written as "not within the bounds", so a NaN, which compares False with
     everything and would turn the share check off, counts as relaxed.
     """
     return not (
-        candidate.touch_tolerance_px <= START.touch_tolerance_px
-        and candidate.touch_share_min >= START.touch_share_min
+        candidate.touch_tolerance_px <= TOLERANCE_MAX
+        and candidate.touch_share_min >= SHARE_FLOOR
     )
 
 
-def test_the_touch_check_is_never_relaxed():
-    # C331, from the $0 replay of the 120 Set C development runs on Nov 2, 2026 (main
-    # 11a41c7, C91 in; weak labels). At START, 11 levels: 6 under, 1 of them by 2 or
-    # more, and no passability class read lower than its label. A 10 px tolerance
-    # gives 20 levels: 9 under, 4 by 2 or more, 2 passability classes read lower. At
-    # 15 px, 22 levels: 10 under, 6 by 2 or more, 4 passability classes read lower.
-    # Each tolerance tried adds under-reads by count, so the live tuning may tighten
-    # the check but never loosen it. The share's bound follows because a lower share
-    # keeps more references, as a wider tolerance does. A 0.10 share, replayed later
-    # on Nov 2, gave 2 more exact levels and one unscorable risk; it wasn't adopted.
+def test_the_touch_check_is_never_relaxed_past_its_bounds():
+    # C331, revised by the re-score on the 55 photos the Nov 2 blind double relabel
+    # agreed on (Set C, development only). At START: 10 scored levels, 8 exact, 0
+    # under. A 10 px tolerance: 3 under, each a passability class read lower; 15 px:
+    # 4 under. So the tolerance never widens. A 0.10 share: 9 exact, 0 under, and no
+    # more wrong levels, so tuning-v2 takes it, and no lower share is allowed.
     assert not _relaxes_touch_check(TUNING)
+    assert not _relaxes_touch_check(START)
     assert _relaxes_touch_check(replace(START, touch_tolerance_px=10.0))
-    assert _relaxes_touch_check(replace(START, touch_share_min=0.10))
+    assert _relaxes_touch_check(replace(START, touch_share_min=0.05))
     assert _relaxes_touch_check(replace(START, touch_share_min=float("nan")))
     assert not _relaxes_touch_check(replace(START, touch_tolerance_px=4.0))
-    assert not _relaxes_touch_check(replace(START, touch_share_min=0.30))
+    assert not _relaxes_touch_check(replace(START, touch_share_min=0.10))
+
+
+def test_tuning_v2_names_each_change_in_the_change_log():
+    # tuning-v2 (Nov 2): the touch share (C331), the person cutoff (C92) and the
+    # no-flood share (C93). Each changed value is named in the change log, and is
+    # out of `untuned`.
+    assert TUNING.version == "tuning-v2"
+    changed = {
+        f.name
+        for f in fields(Tuning)
+        if f.name not in ("version", "untuned")
+        and getattr(TUNING, f.name) != getattr(START, f.name)
+    }
+    assert changed == {"touch_share_min", "min_person_side_px", "no_flood_share_max"}
+    entry = tuning.__doc__.split("- tuning-v2")[1]
+    for name in changed:
+        assert name in entry
+        assert name not in TUNING.untuned
 
 
 def test_change_log_names_the_version():

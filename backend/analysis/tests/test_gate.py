@@ -207,3 +207,28 @@ def test_water_found_ignores_empty_masks():
     assert water_found(floodwater(pixel)) is True
     assert water_found(floodwater(*empty, pixel)) is True
     assert water_found(floodwater()) is False
+
+
+@pytest.mark.parametrize(
+    ("share", "share_max", "expected"),
+    [
+        pytest.param(
+            0.30, 0.25, WATER_UNSURE, id="water-past-the-share-unsettles-a-no"
+        ),
+        pytest.param(0.25, 0.25, Outcome.no_flood(), id="at-the-share-the-no-stands"),
+        pytest.param(1.0, 1.0, Outcome.no_flood(), id="off-at-start"),
+    ],
+)
+def test_a_wide_water_mask_unsettles_a_no(share, share_max, expected):
+    # C93: when SAM's water covers more than no_flood_share_max of the image's lower
+    # half, a "no" on standing water can't be trusted, so the photo is refused.
+    given = answer(standing_water="no")
+    assert (
+        gate(given, has_water=True, water_share=share, no_flood_share_max=share_max)
+        == expected
+    )
+
+
+def test_the_water_share_never_changes_a_yes():
+    given = answer()
+    assert gate(given, has_water=True, water_share=1.0, no_flood_share_max=0.0) is None

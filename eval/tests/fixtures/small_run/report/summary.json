@@ -56,7 +56,7 @@
   "inches_shown": false,
   "kind": "sealed",
   "rerun": false,
-  "rules_version": "0.8",
+  "rules_version": "0.9",
   "service_retries": 0,
   "set_b": {
     "envelope": {

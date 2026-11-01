@@ -727,7 +727,7 @@ def test_frozen_records_every_numeric_cutoff():
         for field in dataclasses.fields(Tuning)
         if field.name not in ("version", "reasoning_effort", "drawing", "untuned")
     ]
-    assert len(numeric) == 13
+    assert len(numeric) == 15  # tuning-v2 added C92's and C93's
     for name in numeric:
         assert frozen[name] == str(getattr(tuning, name))
     assert (frozen["touch_tolerance_px"], frozen["rim_edge_k"]) == ("6.0", "1.05")

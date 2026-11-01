@@ -200,7 +200,7 @@ def test_gate_outcomes_through_the_pipeline(prompt, given, water, expected):
     if not water:
         sam["floodwater"] = dataclasses.replace(sam["floodwater"], instances=[])
     client = FakeClient(sam, given)
-    run = run_pipeline(photo, client, prompt)
+    run = run_pipeline(photo, client, prompt, tuning=START)
     assert run.outcome == expected
     assert run.publish_jpeg is None
     assert calls(client, "judge") == [PROMPT_VERSION]
@@ -429,7 +429,9 @@ def test_failed_publish_is_a_pipeline_error(prompt, monkeypatch):
 def test_reason_text_never_reaches_the_log(prompt, given, status):
     # C62: Muse Spark's free text can describe people or plates.
     photo, sam, level_answer = level_case()
-    run = run_pipeline(photo, FakeClient(sam, given or level_answer), prompt)
+    run = run_pipeline(
+        photo, FakeClient(sam, given or level_answer), prompt, tuning=START
+    )
     assert run.outcome.status == status
     assert REASON not in json.dumps(run.log)
     # The run carries no answer, so the handler never sees the reason. Its evidence
@@ -487,12 +489,12 @@ def test_bad_ids_are_dropped_before_the_gate(prompt):
     # (C47, C52).
     photo, sam, _ = level_case()
     given = answer(standing_water="no", wheels=[wheel(99, "rim_top")])
-    run = run_pipeline(photo, FakeClient(sam, given), prompt)
+    run = run_pipeline(photo, FakeClient(sam, given), prompt, tuning=START)
     assert run.outcome == Outcome.no_flood()
     assert run.log["drops"] == {"unknown_id": 1}
     # The same waterline on numbered wheel 2 does contradict it.
     given = answer(standing_water="no", wheels=[wheel(2, "rim_top")])
-    run = run_pipeline(photo, FakeClient(sam, given), prompt)
+    run = run_pipeline(photo, FakeClient(sam, given), prompt, tuning=START)
     assert run.outcome == Outcome.refused("water_unsure")
 
 
@@ -964,10 +966,12 @@ def test_keep_photo_returns_a_copy_after_sam(prompt, judged, sam_people, expecte
     sam = with_person(sam) if sam_people else sam
     copy = publish_jpeg(blur_for_meta(photo), sam)
     answered = given if judged is None else judged
-    kept = run_pipeline(photo, FakeClient(sam, answered), prompt, keep_photo=True)
+    kept = run_pipeline(
+        photo, FakeClient(sam, answered), prompt, keep_photo=True, tuning=START
+    )
     assert kept.outcome == expected
     assert kept.publish_jpeg == copy
-    plain = run_pipeline(photo, FakeClient(sam, answered), prompt)
+    plain = run_pipeline(photo, FakeClient(sam, answered), prompt, tuning=START)
     assert plain.outcome == expected
     assert plain.publish_jpeg == (copy if expected == KNEE else None)
 
@@ -976,24 +980,33 @@ def test_keep_photo_needs_sam_and_both_phrases(prompt):
     # The copy blurs SAM's faces and plates, so a run that never got SAM's answer,
     # or never asked for both, has none to keep, flag or not.
     _, sam, given = level_case()
-    dark = run_pipeline(flat_jpeg(10), FakeClient(sam, given), prompt, keep_photo=True)
+    dark = run_pipeline(
+        flat_jpeg(10), FakeClient(sam, given), prompt, keep_photo=True, tuning=START
+    )
     assert dark.outcome == Outcome.refused("too_dark")  # refused before SAM
     assert dark.publish_jpeg is None
     photo, sam, given = level_case()
     lost = FakeClient(sam, given, on_segment=failing(meta_error(500)))
-    unsegmented = run_pipeline(photo, lost, prompt, keep_photo=True)
+    unsegmented = run_pipeline(photo, lost, prompt, keep_photo=True, tuning=START)
     assert unsegmented.outcome == Outcome.failed("model_error")  # SAM never returned
     assert unsegmented.publish_jpeg is None
     dry = answer(standing_water="no")
     for answered, expected in ((given, KNEE), (dry, Outcome.no_flood())):
         client = FakeClient(sam, answered)  # C66: offline, no face or plate phrase
         reading = run_pipeline(
-            photo, client, prompt, phrases=READING_PHRASES, keep_photo=True
+            photo,
+            client,
+            prompt,
+            phrases=READING_PHRASES,
+            keep_photo=True,
+            tuning=START,
         )
         assert reading.outcome == expected
         assert reading.publish_jpeg is None
     # With both phrases, the same dry run keeps its copy, so the phrases decide.
-    full = run_pipeline(photo, FakeClient(sam, dry), prompt, keep_photo=True)
+    full = run_pipeline(
+        photo, FakeClient(sam, dry), prompt, keep_photo=True, tuning=START
+    )
     assert full.publish_jpeg == publish_jpeg(blur_for_meta(photo), sam)
 
 
@@ -1009,15 +1022,49 @@ def test_a_failed_kept_copy_keeps_the_outcome(prompt, monkeypatch):
     monkeypatch.setattr("lusot_analysis.pipeline.publish_jpeg", broken)
     photo, sam, given = level_case()
     dry = answer(standing_water="no")
-    plain = run_pipeline(photo, FakeClient(sam, dry), prompt)
-    kept = run_pipeline(photo, FakeClient(sam, dry), prompt, keep_photo=True)
+    plain = run_pipeline(photo, FakeClient(sam, dry), prompt, tuning=START)
+    kept = run_pipeline(
+        photo, FakeClient(sam, dry), prompt, keep_photo=True, tuning=START
+    )
     assert len(tried) == 1  # the flagged run tried, and only it
     assert kept.outcome == Outcome.no_flood()
     assert kept.publish_jpeg is None
     assert kept.log == plain.log
     # A level run whose copy fails is still a pipeline error with the flag (C61).
-    level = run_pipeline(photo, FakeClient(sam, given), prompt, keep_photo=True)
+    level = run_pipeline(
+        photo, FakeClient(sam, given), prompt, keep_photo=True, tuning=START
+    )
     assert level.outcome == Outcome.failed("pipeline_error")
     assert level.publish_jpeg is None
     assert level.log["error"] == "ValueError"
     assert len(tried) == 3  # the level copy, then its one retry under keep_photo
+
+
+def test_the_person_cutoff_reaches_the_drops(prompt):
+    # C92 through run_pipeline: with the tuning's cutoff above every person, the
+    # chest-deep person drops as small, and car A's tire_only reading stands alone.
+    photo, sam, _ = level_case()
+    given = answer(
+        vehicles=[vehicle(1)],
+        wheels=[wheel(2, "tire_only")],
+        people=[person(3, "chest")],
+    )
+    tuning = dataclasses.replace(START, min_person_side_px=10_000)
+    run = run_pipeline(
+        photo, FakeClient(with_person(sam), given), prompt, tuning=tuning
+    )
+    assert run.outcome.level == "below_gutter"
+    assert run.log["drops"] == {"person_small": 1}
+
+
+def test_the_water_share_reaches_the_gate(prompt):
+    # C93 through run_pipeline: a "no" with water in the lower half stands at START,
+    # where the guard is off. The tests above that need a "no" to stand read START too.
+    photo, sam, _ = level_case()
+    given = answer(standing_water="no")
+    run = run_pipeline(photo, FakeClient(sam, given), prompt, tuning=START)
+    assert run.outcome == Outcome.no_flood()
+    # The live tuning: the level case's water covers far more than 0.25 of the lower
+    # half, so its "no" is refused.
+    run = run_pipeline(photo, FakeClient(sam, given), prompt)
+    assert run.outcome == Outcome.refused("water_unsure")

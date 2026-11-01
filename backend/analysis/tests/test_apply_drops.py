@@ -355,3 +355,50 @@ def test_apply_drops_names_each_box_cause():
     # A box apply_drops keeps has no cause.
     kept, drops = apply_drops(answer(people=[person(1, "knee")]), numbered(people=[1]))
     assert (kept.causes, drops) == ({}, Counter())
+
+
+def sized(sides: Mapping[int, int]) -> Layout:
+    """A Layout of people only, each box's longer side the px given (C92)."""
+    return Layout(
+        boxes=tuple(
+            NumberedBox(i, "person", (0, 0, side // 2, side))
+            for i, side in sorted(sides.items())
+        ),
+        wheel_vehicle={},
+        small_wheel_vehicles=frozenset(),
+    )
+
+
+def test_small_people_neither_read_nor_block():
+    # C92: a person whose box's longer side is under the cutoff gives no reading and
+    # blocks no one. In the sample Rene saw on Nov 2, a distant standing adult set the
+    # level while the near adults were left out as wading.
+    given = answer(
+        people=[person(1, "mid_thigh"), person(2, "knee", standing_still="no")]
+    )
+    layout = sized({1: 50, 2: 200})
+    kept, drops = apply_drops(given, layout, min_person_side_px=60)
+    assert kept == Kept(vehicles=(), people=(KeptPerson(2, "knee"),))
+    assert drops == Counter(person_small=1)
+    # START's cutoff, 0, keeps the small adult, who reads and blocks.
+    kept, drops = apply_drops(given, layout)
+    assert kept == Kept(vehicles=(), people=(KeptPerson(1, "mid_thigh"),))
+    assert drops == Counter(person_wading=1)
+
+
+@pytest.mark.parametrize(("side", "small"), [(59, True), (60, False)])
+def test_the_person_cutoff_is_under_the_longer_side(side, small):
+    kept, drops = apply_drops(
+        answer(people=[person(1, "knee")]), sized({1: side}), min_person_side_px=60
+    )
+    assert (drops == Counter(person_small=1)) is small
+    assert (kept.people == ()) is small
+
+
+def test_a_small_person_is_small_before_any_other_cause():
+    # The size is known before the answer is read, so it's the first cause: person 1
+    # is unanswered and person 2 a child, and both are small.
+    given = answer(people=[person(2, "knee", adult="no")])
+    kept, drops = apply_drops(given, sized({1: 30, 2: 30}), min_person_side_px=60)
+    assert kept.people == ()
+    assert drops == Counter(person_small=2)

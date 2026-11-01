@@ -408,6 +408,8 @@ def test_export_writes_the_results_folder(tmp_path, monkeypatch, capsys, harness
         "min_wheel_side_px": "40",
         "max_vehicles": "6",
         "max_people": "6",
+        "min_person_side_px": "0",
+        "no_flood_share_max": "1.0",
         "tire_codes": rules.TIRE_CODES_VERSION,
         "reasoning_effort": "default",
     }

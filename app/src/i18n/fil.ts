@@ -420,6 +420,11 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Hindi ginamit, dahil walang sagot ang reading model para sa taong ito.',
     reviewed: true,
   },
+  // C92 reuses person_no_reading's reviewed line word for word; a line of its own waits for M20.
+  'dropped.person_small': {
+    text: 'Hindi ginamit, dahil walang reading ng lalim mula sa taong ito.',
+    reviewed: true,
+  },
   'dropped.person_not_adult': { text: 'Hindi ginamit, dahil maaaring hindi adult ang taong ito.', reviewed: true },
   'dropped.person_wading': {
     text: 'Hindi ginamit, dahil maaaring hindi nakatigil ang taong ito.',

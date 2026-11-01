@@ -2,7 +2,7 @@
   "kind": "sealed",
   "synthetic": true,
   "date": "2026-10-30",
-  "rules_version": "0.8",
+  "rules_version": "0.9",
   "freeze_commit": "abcdef0123456789abcdef0123456789abcdef01",
   "frozen": {
     "model": "muse-spark-1.3",
