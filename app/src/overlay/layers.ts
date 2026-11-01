@@ -90,12 +90,15 @@ function levelWords(t: Translate, level: Level, isFloor: boolean): Text {
 const floorOf = (ref: OverlayRef) => ref.level_is_floor === true
 
 // The words behind a reference's number: its drop cause alone for a dropped one, with no level; otherwise the level, the
-// landmark where the water meets it, and that the rim's size set the level when it did.
+// landmark where the water meets it, and that the rim's size set the level when it did. One with no level and no cause
+// says why after any landmark: a car body is read through its wheels unless they are hidden (measure.py, C53), and any
+// other gave no level (Rene's Baliuag sample, Nov 2: such lines stopped at the name).
 function reading(t: Translate, ref: OverlayRef): Text[] {
   if (typeof ref.dropped === 'string') return [dropLine(t, ref.dropped)]
   if (!isLevel(ref.level)) {
     const landmark = typeof ref.landmark === 'string' ? landmarkLine(t, ref.landmark) : undefined
-    return landmark === undefined ? [] : [landmark]
+    const why = t(ref.kind === 'body' ? 'overlay.fromWheel' : 'overlay.noLevel')
+    return landmark === undefined ? [why] : [landmark, why]
   }
   const level = levelWords(t, ref.level, floorOf(ref))
   const parts: Text[] = [{ text: `${level.text}.`, lang: level.lang }]
@@ -115,14 +118,65 @@ export function refLabel(t: Translate, ref: OverlayRef): Text {
   return parts.length === 0 ? head : { text: `${head.text}: ${parts.map((part) => part.text).join(' ')}`, lang: head.lang }
 }
 
-// The short words written on the photo beside a box: its number, then the level, "At least" the level for a floor, or
-// "Not used" for a dropped reference. The full label is `refLabel`.
-export function refChip(t: Translate, ref: OverlayRef): Text {
-  const said =
-    typeof ref.dropped === 'string'
-      ? t('overlay.notUsed')
-      : isLevel(ref.level)
-        ? levelWords(t, ref.level, floorOf(ref))
-        : undefined
-  return said === undefined ? { text: String(ref.id), lang: t('overlay.notUsed').lang } : { text: `${ref.id}: ${said.text}`, lang: said.lang }
+// The short words written on the photo beside a box: its number, and for a reference that set the level, the level, or
+// "At least" the level for a floor. Every other reference shows its number alone, and the legend under the photo says
+// what it read or why it wasn't used (Rene, Nov 2: "Not used" labels of boxes standing close together ran into each
+// other). The full label is `refLabel`.
+export function refChip(t: Translate, ref: OverlayRef, decides: boolean): Text {
+  const head = t(KIND_KEYS[ref.kind], { id: ref.id })
+  if (!decides || typeof ref.dropped === 'string' || !isLevel(ref.level)) return { text: String(ref.id), lang: head.lang }
+  const level = levelWords(t, ref.level, floorOf(ref))
+  return { text: `${ref.id}: ${level.text}`, lang: level.lang }
+}
+
+// The references that set the level, as MS3's combine picks them (C49): of the references used, every one at the
+// deepest level. A dropped reference never does, and with none used there are none. The app draws the overlay for a
+// level result only (ResultCard), so these are the references behind its level.
+export function decidingRefs(refs: readonly OverlayRef[]): Set<number> {
+  const used = refs.flatMap((ref) =>
+    ref.used === true && typeof ref.dropped !== 'string' && isLevel(ref.level) ? [{ id: ref.id, depth: LEVELS.indexOf(ref.level) }] : [],
+  )
+  const deepest = Math.max(-1, ...used.map((ref) => ref.depth))
+  return new Set(used.filter((ref) => ref.depth === deepest).map((ref) => ref.id))
+}
+
+export type Rect = { x: number; y: number; width: number; height: number }
+
+// Where each badge goes, in the order given: on its box's top-left corner, just above the box, or just inside its top
+// when there is no room above, and never past the photo's edges. A badge that would touch one already placed moves up a
+// row at a time, along its box's left edge, then down, where it would cover more of the boxes, and failing that
+// sideways; with nowhere free it keeps its first place. Rene's screenshot, Nov 2: the labels of boxes that stood close
+// together ran into each other.
+export function placeBadges(
+  wanted: readonly { box: OverlayRef['box']; width: number }[],
+  size: { width: number; height: number },
+  height: number,
+): Rect[] {
+  const gap = height / 6
+  const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), Math.max(low, high))
+  // Two badges closer than half a gap count as touching.
+  const touch = (a: Rect, b: Rect) =>
+    a.x < b.x + b.width + gap / 2 &&
+    b.x < a.x + a.width + gap / 2 &&
+    a.y < b.y + b.height + gap / 2 &&
+    b.y < a.y + a.height + gap / 2
+  const placed: Rect[] = []
+  for (const { box, width } of wanted) {
+    const at = (x: number, y: number): Rect => ({
+      x: clamp(x, 0, size.width - width),
+      y: clamp(y, 0, size.height - height),
+      width,
+      height,
+    })
+    const [x0, y0] = box
+    const first = at(x0, y0 - height - gap >= 0 ? y0 - height - gap : y0 + gap)
+    const candidates = [first]
+    for (let k = 1; k <= wanted.length; k += 1) candidates.push(at(first.x, first.y - k * (height + gap)))
+    for (let k = 1; k <= wanted.length; k += 1) candidates.push(at(first.x, first.y + k * (height + gap)))
+    for (let k = 1; k <= wanted.length; k += 1) {
+      candidates.push(at(first.x + k * (width + gap), first.y), at(first.x - k * (width + gap), first.y))
+    }
+    placed.push(candidates.find((candidate) => placed.every((other) => !touch(candidate, other))) ?? first)
+  }
+  return placed
 }

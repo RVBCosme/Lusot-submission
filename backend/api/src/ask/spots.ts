@@ -79,18 +79,28 @@ export function findSpotIn(question: string, spots: Spot[] = SPOTS): Spot | unde
   return longestFormIn(text, formsOf(spots)) ?? cornerIn(text, spots);
 }
 
-// Meta's transcription refuses a keyword over 30 characters with a 400 (Oct 31), and 94 keywords is the most it has
-// been shown to take (that day's diagnostic, call 6). A keyword's length is counted in UTF-8 bytes, the strictest
-// count, since Meta doesn't say which it uses: "España" is 6 characters but 7 bytes.
+// Meta's transcription refuses a keyword over 30 characters with a 400 (Oct 31), and 97 keywords is the most it has
+// been shown to take (a test call on Nov 1). A keyword's length is counted in UTF-8 bytes, the strictest count, since
+// Meta doesn't say which it uses: "España" is 6 characters but 7 bytes.
 const MAX_KEYWORD_BYTES = 30;
-const MAX_KEYWORDS = 94;
+const MAX_KEYWORDS = 97;
 
-// Sent to the transcription as keywords: the display names that fit Meta's limit, then each spot's roads, each once,
-// so a corner whose name is too long still biases toward its roads' names. Names come first, so the count cap drops
-// roads before names.
+// The three spots whose names are too long for a keyword and whose landmark no road of theirs names, each with one of
+// its own aliases to send instead. The other long names are corners, and their roads carry them.
+export const SHORT_FORMS: ReadonlyMap<string, string> = new Map([
+  ["edsa-santolan", "EDSA Santolan"],
+  ["oyster-plaza", "Oyster Plaza"],
+  ["sucat-sm", "SM Sucat"],
+]);
+
+// Sent to the transcription as keywords: the display names that fit Meta's limit, then the short forms, then each
+// spot's roads, each once, so a corner whose name is too long still biases toward its roads' names. Names come first,
+// so the count cap drops roads before names.
 export function spotKeywords(spots: Spot[] = SPOTS): string[] {
   const keywords = new Set<string>();
-  for (const word of [...spots.map((spot) => spot.name), ...spots.flatMap((spot) => spot.roads)]) {
+  const names = spots.map((spot) => spot.name);
+  const shortForms = spots.flatMap((spot) => SHORT_FORMS.get(spot.id) ?? []);
+  for (const word of [...names, ...shortForms, ...spots.flatMap((spot) => spot.roads)]) {
     if (Buffer.byteLength(word, "utf8") <= MAX_KEYWORD_BYTES) keywords.add(word);
   }
   return [...keywords].slice(0, MAX_KEYWORDS);

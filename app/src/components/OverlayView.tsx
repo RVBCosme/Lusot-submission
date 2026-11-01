@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { Translate } from '../copy/wording'
 import { Line, useT, type Text } from '../i18n'
 import { getLayers, type OverlayData, type OverlayRef } from '../lib/api'
-import { orderLayers, refChip, refLabel, revealStep, type LayerKind, type OverlayLayer } from '../overlay/layers'
+import {
+  decidingRefs,
+  orderLayers,
+  placeBadges,
+  refChip,
+  refLabel,
+  revealStep,
+  type LayerKind,
+  type OverlayLayer,
+  type Rect,
+} from '../overlay/layers'
 
 export type OverlayViewProps = {
   photoUrl: string
@@ -39,6 +50,12 @@ const DIM_LABEL = 0.7
 // Widths are in screen pixels whatever the photo's size (`non-scaling-stroke`); only the words scale with the photo.
 const LINE_WIDTH = 2
 const HALO_WIDTH = 5
+// A reference that set the level is drawn heavier, so it stands out at a glance; a dropped one's outline and box are
+// dashed as well as dimmed, in a pattern shorter than the water's, so the two aren't mistaken (Rene, Nov 2).
+const STRONG_WIDTH = 3
+const DROPPED_DASH = '4 4'
+// A badge's ring, in screen pixels.
+const BADGE_RING = 1.5
 
 type Stroke = {
   className: string
@@ -51,17 +68,20 @@ type Stroke = {
 function Marked({
   kind,
   dimmed,
+  strong = false,
   children,
 }: {
   kind: Mark
   dimmed: boolean
+  strong?: boolean
   children: (stroke: Stroke) => ReactNode
 }) {
   const mark = MARKS[kind]
+  const dash = mark.dash ?? (dimmed && (kind === 'outline' || kind === 'box') ? DROPPED_DASH : undefined)
   const pass = (className: string, strokeWidth: number): Stroke => ({
     className,
-    strokeWidth,
-    strokeDasharray: mark.dash,
+    strokeWidth: strong ? strokeWidth + STRONG_WIDTH - LINE_WIDTH : strokeWidth,
+    strokeDasharray: dash,
     vectorEffect: 'non-scaling-stroke',
   })
   return (
@@ -81,23 +101,27 @@ function Marked({
 const tenth = (value: number) => Math.round(value * 10) / 10
 const points = (polygon: readonly (readonly [number, number])[]) => polygon.map(([x, y]) => `${x},${y}`).join(' ')
 
+// A reference's badge on the photo: its words, where it sits, the font, and whether it set the level.
+type Badge = { chip: Text; rect: Rect; font: number; pad: number; squeezed: boolean; decides: boolean }
+
 // One layer. The words scale with the drawing's width, which is what sets the scale on screen (the photo fills its box's
 // width), and the ticks with its short side.
-function Layer({ layer, size, chip }: { layer: OverlayLayer; size: { width: number; height: number }; chip: Text | undefined }) {
+function Layer({ layer, size, badge }: { layer: OverlayLayer; size: { width: number; height: number }; badge: Badge | undefined }) {
   const short = Math.min(size.width, size.height)
+  const strong = badge?.decides === true
   switch (layer.kind) {
     case 'water':
     case 'outline':
     case 'rim_outline':
       return (
-        <Marked kind={layer.kind} dimmed={layer.kind !== 'water' && layer.dimmed}>
+        <Marked kind={layer.kind} dimmed={layer.kind !== 'water' && layer.dimmed} strong={layer.kind === 'outline' && strong}>
           {(stroke) => layer.polygons.map((polygon, index) => <polygon key={index} points={points(polygon)} {...stroke} />)}
         </Marked>
       )
     case 'box': {
       const [x0, y0, x1, y1] = layer.ref.box
       return (
-        <Marked kind="box" dimmed={layer.dimmed}>
+        <Marked kind="box" dimmed={layer.dimmed} strong={strong}>
           {(stroke) => (
             <rect x={x0} y={y0} width={Math.max(0, x1 - x0)} height={Math.max(0, y1 - y0)} {...stroke} />
           )}
@@ -138,31 +162,31 @@ function Layer({ layer, size, chip }: { layer: OverlayLayer; size: { width: numb
       )
     }
     case 'label': {
-      if (chip === undefined) return null
-      // The size is the drawing's width over 21, so a photo of any shape shows its words at about 13 px on a card at 360 px
-      // (12 px or more), where the short side would make a wide photo's words small (I3). On the box's top edge, or just
-      // inside it when there is no room above; the left edge follows the box and stays on the photo, using the width the
-      // words will take, since an SVG can't measure them before it is drawn. A label wider than the photo is squeezed to it.
-      const font = size.width / 21
-      const [x0, y0] = layer.ref.box
-      const wide = chip.text.length * font * 0.6
-      const room = size.width - font / 2
-      const squeezed = wide > room
-      const x = Math.min(Math.max(x0, font / 4), Math.max(font / 4, size.width - wide - font / 4))
-      const y = Math.min(y0 >= font * 1.4 ? y0 - font * 0.3 : y0 + font * 1.1, size.height - font * 0.3)
+      if (badge === undefined) return null
+      // A pill behind the words, so they read on any photo: filled in ink with the words in the surface colour for a
+      // reference that set the level, and outlined in ink on the surface colour for the others.
+      const { chip, rect, font, pad, squeezed, decides } = badge
       return (
         <g data-layer="label" opacity={layer.dimmed ? DIM_LABEL : undefined}>
+          <rect
+            x={tenth(rect.x)}
+            y={tenth(rect.y)}
+            width={tenth(rect.width)}
+            height={tenth(rect.height)}
+            rx={tenth(rect.height / 2)}
+            strokeWidth={BADGE_RING}
+            vectorEffect="non-scaling-stroke"
+            className={decides ? 'fill-ink stroke-surface' : 'fill-surface stroke-ink'}
+          />
           <text
-            x={tenth(x)}
-            y={tenth(y)}
+            x={tenth(rect.x + pad)}
+            y={tenth(rect.y + rect.height / 2)}
+            dominantBaseline="central"
             fontSize={tenth(font)}
             fontWeight={700}
-            paintOrder="stroke"
-            strokeWidth={tenth(font / 4)}
-            strokeLinejoin="round"
-            textLength={squeezed ? tenth(room) : undefined}
+            textLength={squeezed ? tenth(rect.width - 2 * pad) : undefined}
             lengthAdjust={squeezed ? 'spacingAndGlyphs' : undefined}
-            className="fill-ink stroke-surface"
+            className={decides ? 'fill-surface' : 'fill-ink'}
           >
             {chip.text}
           </text>
@@ -214,6 +238,8 @@ function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[
   const size = { width: data.width, height: data.height }
   const shown = useReveal(layers.length)
   const visible = new Set(layers.slice(0, shown))
+  const groups = byReference(layers)
+  const badges = badgesFor(groups, size, t)
   return (
     <svg
       data-testid="overlay-svg"
@@ -222,21 +248,26 @@ function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[
       focusable="false"
       className="pointer-events-none absolute inset-0 size-full"
     >
-      {byReference(layers).map(({ ref, layers: own }, index) => {
+      {groups.map(({ ref, layers: own }, index) => {
         if (ref === null) {
           return (
             <g key={`water-${index}`}>
               {own.map((layer) =>
-                visible.has(layer) ? <Layer key={layer.kind} layer={layer} size={size} chip={undefined} /> : null,
+                visible.has(layer) ? <Layer key={layer.kind} layer={layer} size={size} badge={undefined} /> : null,
               )}
             </g>
           )
         }
-        const chip = refChip(t, ref)
+        const badge = badges.get(index)
         return (
-          <g key={`ref-${index}`} data-ref={ref.id} data-dimmed={String(typeof ref.dropped === 'string')}>
+          <g
+            key={`ref-${index}`}
+            data-ref={ref.id}
+            data-dimmed={String(typeof ref.dropped === 'string')}
+            data-decides={String(badge?.decides === true)}
+          >
             {own.map((layer) =>
-              visible.has(layer) ? <Layer key={layer.kind} layer={layer} size={size} chip={chip} /> : null,
+              visible.has(layer) ? <Layer key={layer.kind} layer={layer} size={size} badge={badge} /> : null,
             )}
           </g>
         )
@@ -245,13 +276,45 @@ function OverlaySvg({ data, layers }: { data: OverlayData; layers: OverlayLayer[
   )
 }
 
+// Every reference's badge, keyed by its group's index, placed together so no two cover each other (`placeBadges`), the
+// ones that set the level first, so theirs keep their own place. The font is the drawing's width over 21, so a photo of
+// any shape shows its words at about 13 px on a card at 360 px (12 px or more), where the short side would make a wide
+// photo's words small (I3). The width is what the words will take, since an SVG can't measure them before it is drawn; a
+// badge wider than the photo is squeezed to it.
+function badgesFor(
+  groups: { ref: OverlayRef | null }[],
+  size: { width: number; height: number },
+  t: Translate,
+): Map<number, Badge> {
+  const font = size.width / 21
+  const pad = font * 0.35
+  const room = size.width - font / 2
+  const refs = groups.flatMap(({ ref }, index) => (ref === null ? [] : [{ ref, index }]))
+  const deciding = decidingRefs(refs.map(({ ref }) => ref))
+  const wanted = refs.map(({ ref, index }) => {
+    const decides = deciding.has(ref.id)
+    const chip = refChip(t, ref, decides)
+    const natural = chip.text.length * font * 0.6 + 2 * pad
+    return { index, box: ref.box, chip, decides, squeezed: natural > room, width: Math.min(natural, room) }
+  })
+  const order = [...wanted.filter((badge) => badge.decides), ...wanted.filter((badge) => !badge.decides)]
+  const rects = placeBadges(order, size, font * 1.4)
+  return new Map(
+    order.map(({ index, chip, decides, squeezed }, i) => [index, { chip, rect: rects[i], font, pad, squeezed, decides }]),
+  )
+}
+
 // Under the photo: every reference that was drawn, one numbered line each, as `refLabel` gives it. The number is the one
 // on its chip, a dropped reference shows its cause, and a used one its level, landmark and how it was measured (C615).
-// It is the words for screen readers too, in a list that has the overlay's short label.
+// The ones that set the level come first, so why the level is what it is reads before the lines about the rest (Rene,
+// Nov 2); the others keep their order. It is the words for screen readers too, in a list that has the overlay's short
+// label.
 function Legend({ layers }: { layers: OverlayLayer[] }) {
   const t = useT()
   const title = t('overlay.title')
-  const refs = byReference(layers).flatMap(({ ref }) => (ref === null ? [] : [ref]))
+  const all = byReference(layers).flatMap(({ ref }) => (ref === null ? [] : [ref]))
+  const deciding = decidingRefs(all)
+  const refs = [...all.filter((ref) => deciding.has(ref.id)), ...all.filter((ref) => !deciding.has(ref.id))]
   if (refs.length === 0) return null
   return (
     <ol aria-label={title.text} lang={title.lang} className="mt-2 space-y-1 text-small text-ink-2">

@@ -40,7 +40,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 - **Dry streets and other places (D14):**
   - A dry street can read "no flood seen": an empty water mask still goes to Muse Spark.
   - Photos taken outside Metro Manila are analysed and shown to the person, but never pinned (`private` mode).
-- **People count fully (D13).** A standing adult can set the level alone. With wheels too, the deepest believable reading wins, and a gap of more than one level means refusal.
+- **People count fully (D13).** A standing adult can set the level alone, except at ankle depth (C91). With wheels too, the deepest believable reading wins, and a gap of more than one level means refusal.
 - Every screen carries this line: "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories."
 - Models never output inches. Muse Spark returns categories, and code does all the measuring.
 - Use the exact model IDs `sam-3.1`, `muse-spark-1.3` and `muse-voice-transcribe-1.0`. Never use `muse-spark-1.3-contributor`.

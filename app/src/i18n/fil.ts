@@ -349,6 +349,40 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: true,
   },
   'reason.other': { text: 'Wala nang ibang dahilan na maibibigay.', reviewed: true },
+  // The refusal tips, approved as written at M20 (en.ts says where and when).
+  'tip.no_usable_reference': {
+    text:
+      'Kunan ang mismong spot, hindi ang larawan sa screen. Mababasa ng Lusot ang lalim mula sa gulong ng ' +
+      'nakaparadang kotse, SUV o van na inaabot na ng tubig, hindi mula sa jeepney, bus, malaking truck, tricycle o ' +
+      'motorsiklo. Mula sa tuyong bangketa, nang hindi lumalapit sa tubig, kunan ulit nang malaki at malinaw sa photo ' +
+      'ang isang ganoong gulong.',
+    reviewed: true,
+  },
+  'tip.photo_unusable': {
+    text:
+      'Kunan ang mismong spot, hindi ang larawan sa screen. Kailangan ng Lusot ng malinaw na kita ng spot na ito: ' +
+      'punasan ang lens, hawakan nang steady ang phone, at kunan ulit mula sa tuyong bangketa nang walang nakaharang ' +
+      'sa camera.',
+    reviewed: true,
+  },
+  'tip.water_unsure': {
+    text:
+      'Hindi masabi ng Lusot kung baha ito o basa lang ang lupa. Mula sa tuyong bangketa, kunan ulit nang malinaw na ' +
+      'kita ang tubig kung saan ito dumidikit sa gulong ng isang nakaparadang kotse.',
+    reviewed: true,
+  },
+  'tip.no_water_found': {
+    text:
+      'Mula sa tuyong bangketa, nang hindi lumalapit sa tubig, kunan ulit nang mas malaki ang kita ng ibabaw ng ' +
+      'tubig sa photo, para malinaw ang gilid nito sa paligid ng gulong ng isang nakaparadang kotse.',
+    reviewed: true,
+  },
+  'tip.references_disagree': {
+    text:
+      'Kapag magkakaiba ang lalim sa mga kotse o tao, puwedeng hindi pantay ang tubig dito. Hindi pipili ang Lusot ' +
+      'ng isang lalim kaysa sa iba, kaya walang level para sa photo na ito.',
+    reviewed: true,
+  },
   'dropped.vehicle_unanswered': {
     text: 'Hindi ginamit, dahil walang sagot ang reading model para sa sasakyang ito.',
     reviewed: true,
@@ -426,7 +460,9 @@ export const FIL: Record<StringKey, Entry> = {
   'overlay.ref.body': { text: 'Katawan ng sasakyan {id}', reviewed: true },
   'overlay.ref.person': { text: 'Tao {id}', reviewed: true },
   'overlay.floor': { text: 'Hindi bababa sa {level}', reviewed: true },
-  'overlay.notUsed': { text: 'Hindi ginamit', reviewed: true },
+  // Approved by the tracker under Rene's written delegation, Nov 2, about 3:4x AM (en.ts has the reason).
+  'overlay.fromWheel': { text: 'Ang gulong nito ang nagbigay ng reading.', reviewed: true },
+  'overlay.noLevel': { text: 'Walang nabasang level dito.', reviewed: true },
   'map.noApi': { text: 'Hindi maipapakita ng build na ito ang mga report.', reviewed: true },
   'map.loading': { text: 'Kinukuha ang mga report.', reviewed: true },
   'map.loadFailed': { text: 'Hindi makuha ng Lusot ang mga report ngayon. Susubukan ulit ng Lusot.', reviewed: true },

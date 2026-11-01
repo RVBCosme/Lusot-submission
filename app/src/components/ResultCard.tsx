@@ -7,7 +7,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { basisLine, classLine, inchesLine, landmarkLine, levelFromLine, levelLine, reasonLine } from '../copy/wording'
+import { basisLine, classLine, inchesLine, landmarkLine, levelFromLine, levelLine, reasonLine, tipLine } from '../copy/wording'
 import { Line, T, useLanguage, useT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import type { OverlayData, Pin, ReportResult, Sample } from '../lib/api'
@@ -404,6 +404,10 @@ function ResultCardBody({
                     <T k="refusal.d19" />
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-2" />
+                  {/* What to try next, only on a photo the person took themselves (C637). */}
+                  {source === 'own' && !isExample && (
+                    <Note value={tipLine(t, report?.refusalReason ?? '')} className="mt-2" />
+                  )}
                 </>
               )}
             </div>

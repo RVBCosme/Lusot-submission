@@ -17,9 +17,9 @@ const LANG_KEY = 'lusot.lang'
 // They stay in English in both languages until Rene decides otherwise (C619).
 const LOCKED_KEYS: ReadonlySet<StringKey> = new Set<StringKey>(['layout.screenLine', 'about.notAffiliated'])
 
-// Lines that bear on what a person does near water: the refusal, reason lines, retake tips, consent, the privacy
-// policy and Ask Lusot's answer (its C724).
-const SCREEN_LINE_PREFIXES = ['refusal.', 'reason.', 'retake.', 'consent.', 'privacy.', 'ask.answer.']
+// Lines that bear on what a person does near water: the refusal, reason lines, the refusal tips, retake tips,
+// consent, the privacy policy and Ask Lusot's answer (its C724).
+const SCREEN_LINE_PREFIXES = ['refusal.', 'reason.', 'tip.', 'retake.', 'consent.', 'privacy.', 'ask.answer.']
 
 export function isScreenLineKey(key: StringKey): boolean {
   return SCREEN_LINE_PREFIXES.some((prefix) => key.startsWith(prefix))

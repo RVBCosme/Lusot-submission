@@ -33,6 +33,7 @@ it('consent and privacy are screens: a key of three or more parts stays on its o
 it('a screen-line key with no screen of its own sits on the screen that shows it', () => {
   expect(screenOf('refusal.d19')).toBe('result')
   expect(screenOf('reason.too_dark')).toBe('result')
+  expect(screenOf('tip.water_unsure')).toBe('result')
   expect(screenOf('retake.tip')).toBe('report')
   expect(screenOf('consent.title')).toBe('consent')
   expect(screenOf('privacy.title')).toBe('privacy')
