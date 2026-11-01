@@ -85,6 +85,32 @@ def test_clean_locks(repo):
     assert cwd["uv lock --script backend/scripts/alpha.py --check"] == repo
 
 
+def test_ms2_data_tool_locks_are_checked(repo):
+    # MS7 Task 14's gap (the tracker's ruling 3b, Nov 2): MS2's locked scripts in
+    # eval/data, its tests runner and eval/set_b drift unseen otherwise. A script
+    # without a lock is still left out.
+    for folder, name in (
+        ("eval/data", "intake.py"),
+        ("eval/data/tests", "run_tests.py"),
+        ("eval/set_b", "generate.py"),
+    ):
+        where = repo / folder
+        where.mkdir(parents=True, exist_ok=True)
+        (where / name).write_text("print('x')\n", encoding="utf-8")
+        (where / (name + ".lock")).write_text("version = 1\n", encoding="utf-8")
+    (repo / "eval" / "data" / "places.py").write_text("x = 1\n", encoding="utf-8")
+    uv = FakeUv(fail=frozenset({"uv lock --script eval/set_b/generate.py --check"}))
+    assert check_locks.check(uv, repo) == ["eval/set_b/generate.py.lock"]
+    commands = [" ".join(args) for args, _ in uv.calls]
+    for script in (
+        "eval/data/intake.py",
+        "eval/data/tests/run_tests.py",
+        "eval/set_b/generate.py",
+    ):
+        assert f"uv lock --script {script} --check" in commands
+    assert not any("places.py" in c for c in commands)
+
+
 def test_each_kind_of_drift_is_named(repo):
     changed = EXPORT_HEADER + EXPORT_BODY.replace("httpx==0.28.1", "httpx==0.28.2")
     uv = FakeUv(

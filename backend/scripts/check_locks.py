@@ -7,8 +7,9 @@ It names each lockfile that no longer matches what uv would write:
   `--frozen` keeps uv from re-locking, and there is never an `-o`, which would overwrite the
   file being checked. The requirement lines are compared; the header, which names the
   command that wrote the file, is not.
-- each laptop script's `.py.lock` in `backend/scripts`, and MS6's `eval/tests/run_tests.py`
-  if it exists, by `uv lock --script <script> --check`
+- each laptop script's `.py.lock` in `backend/scripts`, MS6's `eval/tests/run_tests.py` if it
+  exists, and MS2's data tools in `eval/data`, `eval/data/tests` and `eval/set_b` (the
+  tracker's ruling 3b, Nov 2), by `uv lock --script <script> --check`
 
 Standard library only. Run from the repo root: uv run --python 3.13 backend/scripts/check_locks.py
 Exit codes: 0 clean, 1 a lock drifted, 2 uv couldn't be run.
@@ -58,16 +59,23 @@ def requirement_lines(text: str) -> list[str]:
     return lines[start:]
 
 
+# The folders whose scripts carry their own lock: a script beside a `<name>.py.lock`.
+LOCKED_FOLDERS = (
+    ("backend", "scripts"),
+    ("eval", "tests"),
+    ("eval", "data"),
+    ("eval", "data", "tests"),
+    ("eval", "set_b"),
+)
+
+
 def locked_scripts(repo: Path) -> list[Path]:
-    scripts = [
+    return [
         p
-        for p in sorted((repo / "backend" / "scripts").glob("*.py"))
+        for folder in LOCKED_FOLDERS
+        for p in sorted(repo.joinpath(*folder).glob("*.py"))
         if p.with_name(p.name + ".lock").is_file()
     ]
-    runner = repo / "eval" / "tests" / "run_tests.py"
-    if runner.is_file() and runner.with_name(runner.name + ".lock").is_file():
-        scripts.append(runner)
-    return scripts
 
 
 def check(runner: Runner, repo: Path) -> list[str]:
