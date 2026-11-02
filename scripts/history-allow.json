@@ -11,6 +11,60 @@
       "rule": "email",
       "reason": "the University of Illinois author line inside a third-party notice that Play services bundles, which the APK's licences page reproduces word for word (5fad3e9)",
       "path": "app/scripts/apk-licences.json"
+    },
+    {
+      "rule": "twelve-digit",
+      "blob": "387f286e7d9c5e6a8e3bcfced5c55449c51af7b8",
+      "path": "backend/analysis/tests/test_run_pipeline.py",
+      "reason": "a masking test's literal, not an account ID; it matches no plan section-24 number (MS8 Task 1, Step 6)"
+    },
+    {
+      "rule": "twelve-digit",
+      "blob": "1ae798f072afed00f52848d2b86fe65e80db509d",
+      "path": "backend/analysis/tests/test_run_pipeline.py",
+      "reason": "a masking test's literal, not an account ID; it matches no plan section-24 number (MS8 Task 1, Step 6)"
+    },
+    {
+      "rule": "twelve-digit",
+      "blob": "681ff504607fd641a773a484c103c09d0f50ed83",
+      "path": "backend/analysis/tests/test_run_pipeline.py",
+      "reason": "a masking test's literal, not an account ID; it matches no plan section-24 number (MS8 Task 1, Step 6)"
+    },
+    {
+      "rule": "email",
+      "blob": "48f810f468436067d669bbe880ed0ae7553b874c",
+      "path": "backend/analysis/tests/test_run_sealed.py",
+      "reason": "a test's planted address at the reserved .invalid domain, not a person's"
+    },
+    {
+      "rule": "email",
+      "blob": "1f58b3d67158481dec43aceaeaf8aca75939c41e",
+      "path": "backend/analysis/tests/test_run_sealed.py",
+      "reason": "a test's planted address at the reserved .invalid domain, not a person's"
+    },
+    {
+      "rule": "email",
+      "blob": "1f723180e2e14f20c338ef3ba1635776fce6f0a8",
+      "path": "backend/analysis/tests/test_run_sealed.py",
+      "reason": "a test's planted address at the reserved .invalid domain, not a person's"
+    },
+    {
+      "rule": "email",
+      "blob": "6687a86a2facadfcd67dc99883745c0e60a57775",
+      "path": "backend/analysis/tests/test_run_sealed.py",
+      "reason": "a test's planted address at the reserved .invalid domain, not a person's"
+    },
+    {
+      "rule": "email",
+      "blob": "a448cdaebb5a2ba92530b6d8a0680541a0005d85",
+      "path": "backend/analysis/tests/test_run_sealed.py",
+      "reason": "a test's planted address at the reserved .invalid domain, not a person's"
+    },
+    {
+      "rule": "email",
+      "blob": "675d8d0afa5ac669f3049ce44ed487b051f62afd",
+      "path": "package-lock.json",
+      "reason": "a third-party npm package author's address that npm writes into the lockfile"
     }
   ],
   "images": [
