@@ -108,7 +108,8 @@ describe('the policy', () => {
     ['the website host records each request', /When you open the Lusot website, our hosting service \(AWS Amplify\) records each request, including your IP address, the page asked for and the time\. Lusot doesn't use these records\. They are kept until the website is taken down after the hackathon's judging, by Dec 31, 2026\./],
     ['the access logs are kept until the take-down', /the website's access logs, kept by AWS Amplify: each request's IP address, page and time\s*until the website is taken down after the hackathon's judging, by Dec 31, 2026/],
     ['demo pins come from consented or openly licensed photos', /people who agreed to share their photos for this, or from openly licensed photos/],
-    ['the credits ending pauses analysis and bills nothing', /When the credits run out, analysis pauses[\s\S]*Nothing is billed beyond the credits\./],
+    // The credit guard moved after judging (C533, the tracker's wording, Nov 2): Lusot pays, and the person never does.
+    ['Lusot pays if the credits run out during judging, and the person is never charged', /If the credits run out before the hackathon's judging ends, Lusot pays for the analysis itself\. Analysis pauses after the judging \(Nov 10, 2026, Manila time\), or sooner at a fixed spending limit, and the app says "New analyses are paused right now\. The map and the Tested page still work\." You are never charged\./],
     ['Meta receives a spoken question\'s voice clip', /Meta receives a spoken question's voice clip and may keep it under its own terms\./],
     ['people in a photo are covered by the legitimate-interest basis', /People who appear in a photo haven't agreed to anything\. For them, Lusot relies on its legitimate interest in showing how deep the water is at one spot \(Section 12\(f\) of the Data Privacy Act\)/],
   ])('says %s', (_what, pattern) => {
@@ -120,6 +121,8 @@ describe('the policy', () => {
     expect(privacyText).not.toMatch(/CloudFront|access logging is off/)
     expect(privacyText).not.toMatch(/yourself/i)
     expect(privacyText).not.toMatch(/MS5-Q4|PRIV-Q9/)
+    // Untrue since the credit guard moved after judging (C533).
+    expect(privacyText).not.toMatch(/Nothing is billed beyond the credits|When the credits run out, analysis pauses/)
   })
 
   it('in Taglish, shows the policy in English, marked lang="en", under its reviewed title', () => {
