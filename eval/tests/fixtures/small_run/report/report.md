@@ -249,7 +249,7 @@ Left out of passability agreement only, because the passability label didn't map
 
 ## Frozen versions and data
 
-Scored by eval/rules.md v0.10.
+Scored by eval/rules.md v0.11.
 
 Freeze commit: `abcdef0123456789abcdef0123456789abcdef01`.
 
