@@ -40,7 +40,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 - **Dry streets and other places (D14):**
   - A dry street can read "no flood seen": an empty water mask still goes to Muse Spark.
   - Photos taken outside Metro Manila are analysed and shown to the person, but never pinned (`private` mode).
-- **People count fully (D13).** A standing adult can set the level alone, except at ankle depth (C91). With wheels too, the deepest believable reading wins, and a gap of more than one level means refusal.
+- **People count fully (D13).** A standing adult can set the level alone, except at ankle depth (C91) or when under 60 px in the photo (C92). With wheels too, the deepest believable reading wins, and a gap of more than one level means refusal.
 - Every screen carries this line: "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories."
 - Models never output inches. Muse Spark returns categories, and code does all the measuring.
 - Use the exact model IDs `sam-3.1`, `muse-spark-1.3` and `muse-voice-transcribe-1.0`. Never use `muse-spark-1.3-contributor`.
@@ -72,13 +72,13 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
   - Set D: `lusot-data\set_d\sealed\`
 
   The deny rules in `.claude/settings.json` match `**/sealed/**`, plus the spellings Windows opens as the same folder: `sealed.`, `sealed ` (with a trailing space) and `sealed::$INDEX_ALLOCATION` (Rene, Oct 30).
-- **Before the split, open no Set A or A-neg photo**, because any of them could end up sealed. After the split, development photos, their masks and their overlays are open for tuning and debugging.
+- **Before the split, open no Set A or A-neg photo**, because any of them could end up sealed. After the split, development photos, their masks and their overlays are open for tuning and debugging. One exception (Rene, Nov 2, 2026): at his request, Claude subagents filled the Set A and A-neg look columns and the M8 labels before the split, without seeing the depth labels; the report says so.
 - Tune cutoffs on development data only.
 - Once Rene approves `eval/rules.md`, every change needs his written OK in its change log. After the sealed run, the scoring rules don't change at all (`eval/rules.md` §10 covers fixes and the one disclosed rerun).
 
 **Data collection** (decided with Rene, Oct 26 and 27, 2026)
 - No automated access to Facebook, X, Instagram, TikTok or YouTube: no scripts, no claude-in-chrome, no use of Rene's login.
-- **Set A** uses only photos that MMDA or a city government posted itself, never news-outlet photos (§11, M7). Rene collects posts by hand into the Set A log, and Claude processes the log.
+- **Set A** uses photos that MMDA or a Metro Manila city office took and labelled with its own depth words; since Nov 2 (rules v0.10) they may be found through news reposts on X that credit the city. Rene collects posts by hand into the Set A log, and Claude processes the log.
 - **Allowed:**
   - a handful of public news articles, read the way a person would, only to find official posts
   - open datasets, within their licences
@@ -238,7 +238,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.
   - It also turns the uploads stop switch on for about 35 s, then off. With the API's 30 s cache, uploads can be refused for about a minute. Never run it during a phone test (M14).
-  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but none of the photos it sent gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
+  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but neither the photos it sent nor the level probe (a run of OL032's seeded sample) gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
   - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). `--bound S` sets each photo's wait in seconds for a final status (default 120).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **The Meta spend stop** (C527, C528): seed the counter once with `uv run backend/scripts/seed_spend.py --usd <total>` (a second seed changes nothing), set the stop with `uv run backend/scripts/set_spend_stop.py --usd <N>` ($60 while building, $140 at submission), and read the total with `$env:AWS_PROFILE = 'lusot'; uv run --locked --directory backend/analysis --with "botocore[crt]==1.43.120" python -m lusot_analysis.spend total` (the pin matches `backend/analysis/uv.lock`).
