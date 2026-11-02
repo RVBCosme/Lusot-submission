@@ -127,9 +127,15 @@ describe('the page', () => {
     const credit = screen.getByText(text('licences.brand'))
     const section = screen.getByRole('heading', { level: 2, name: text('licences.otherTitle') }).closest('section')
     expect(section?.contains(credit)).toBe(true)
-    // Rene's own artwork (© Rene Cosme 2026), approved in both languages on Nov 2.
-    expect(EN['licences.brand'].text).toBe("Lusot's logo and loading screen: © Rene Cosme 2026.")
-    expect(FIL['licences.brand'].text).toBe('Ang logo at loading screen ng Lusot: © Rene Cosme 2026.')
+    // Rene's artwork, made with ChatGPT's image generation, as the files' own C2PA record says (Rene, Nov 2: name the
+    // tool; no © claim). The Taglish was approved by the tracker under Rene's delegation (M20, Nov 2).
+    expect(EN['licences.brand'].text).toBe(
+      "Lusot's logo and loading screen: designed by Rene Cosme with ChatGPT image generation (OpenAI).",
+    )
+    expect(FIL['licences.brand'].text).toBe(
+      'Ang logo at loading screen ng Lusot: dinisenyo ni Rene Cosme gamit ang image generation ng ChatGPT (OpenAI).',
+    )
+    expect(`${EN['licences.brand'].text} ${FIL['licences.brand'].text}`).not.toContain('©')
   })
 
   it('shows the same credit in Taglish', async () => {

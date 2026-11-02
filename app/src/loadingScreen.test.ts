@@ -193,6 +193,18 @@ describe('the loading screen, in the language the person chose', () => {
 })
 
 describe('the loading screen stands alone', () => {
+  // With JavaScript off the screen would say "Loading Lusot…" for ever, so a <noscript> says why, in both languages, since
+  // no script can pick one (the tracker's approved wording, Nov 2).
+  it('tells a browser without JavaScript that Lusot needs it, in English and Taglish', () => {
+    const noscript = /<main[^>]*id="boot"[\s\S]*?<noscript>([\s\S]*?)<\/noscript>[\s\S]*?<\/main>/.exec(indexHtml)?.[1] ?? ''
+    expect(noscript).toContain('<p class="boot-noscript" lang="en">Lusot needs JavaScript to run. Please turn it on in your browser.</p>')
+    expect(noscript).toContain(
+      '<p class="boot-noscript" lang="fil">Kailangan ng Lusot ang JavaScript para gumana. Paki-on ito sa browser mo.</p>',
+    )
+    // The status line's mist, so it meets AA on the navy like the rest (the token test below checks every colour).
+    expect(style).toMatch(/\.boot-noscript\{[^}]*color:#AFCEF3/)
+  })
+
   it('asks for nothing: no request, no external address, no font or file', () => {
     expect(style).not.toMatch(/url\(|@import|https?:|@font-face/)
     expect(rootMarkup).not.toMatch(/https?:|\bsrc=|\bhref=|<img|<link|<use\b|xmlns/)
