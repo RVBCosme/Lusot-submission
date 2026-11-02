@@ -8,6 +8,7 @@ import { rootErrorOptions } from './lib/rootErrors'
 import { applyTheme, storedTheme } from './lib/theme'
 import { registerServiceWorker } from './pwa'
 import { reportFlowBusy } from './report/ReportFlowProvider'
+import { styleStatusBar } from './systemBars'
 
 // The theme chosen on About, before the first paint, so a dark choice never flashes light (C624).
 applyTheme(storedTheme())
@@ -18,6 +19,9 @@ createRoot(document.getElementById('root')!, rootErrorOptions).render(
     <App />
   </StrictMode>,
 )
+
+// The APK's status bar gets light icons for the navy header, on the APK only (systemBars.ts).
+void styleStatusBar()
 
 // The installable web app's worker, on the web only, held while the report flow holds a photo or a report id.
 void registerServiceWorker(reportFlowBusy)
