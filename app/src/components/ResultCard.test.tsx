@@ -1983,9 +1983,24 @@ describe('the level chip on a sample', () => {
     expect(chip()?.textContent).toBe('above chest')
   })
 
+  // Nothing is deeper than above chest, so a floor there is the same reading as an exact one and says the same.
+  it('says nothing more for a floor at above chest than for an exact above chest', async () => {
+    await sampleCard({ level: 'above_chest', levelIsFloor: true })
+    expect(chip()?.textContent).toBe('above chest')
+    cleanup()
+    await sampleCard({ level: 'above_chest', levelIsFloor: false })
+    expect(chip()?.textContent).toBe('above chest')
+  })
+
   it('reads in Taglish on a Taglish screen, from the same strings as the gauge', async () => {
+    await sampleCard({ levelIsFloor: true }, 'fil')
+    expect(chip()?.textContent).toBe(`${FIL['result.levelName.knee'].text} ${FIL['gauge.orDeeper'].text}`)
+    cleanup()
     await sampleCard({ level: 'above_chest', levelIsFloor: true }, 'fil')
-    expect(chip()?.textContent).toBe(`${FIL['result.levelName.above_chest'].text} ${FIL['gauge.orDeeper'].text}`)
+    expect(chip()?.textContent).toBe(FIL['result.levelName.above_chest'].text)
+    cleanup()
+    await sampleCard({ level: 'above_chest', levelIsFloor: false }, 'fil')
+    expect(chip()?.textContent).toBe(FIL['result.levelName.above_chest'].text)
   })
 
   it('shows for a saved sample reading too, and carries no number', async () => {
