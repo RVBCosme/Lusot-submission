@@ -34,12 +34,14 @@ const SECTION: Record<Route['name'], Section> = {
 const LINK =
   'flex min-h-tap flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 py-1 text-small active:opacity-70 aria-[current=page]:text-action aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4 lg:flex-row lg:gap-2 lg:px-3 lg:text-body'
 
-// The phone's bar of tabs along the bottom, and from lg the same nav, drawn in the top bar (Layout.tsx): the page holds
-// one nav at every width, so there is never a second landmark for a screen reader to find.
-export function BottomNav({ route, reportDisabled }: { route: Route; reportDisabled: boolean }) {
+// The nav, which Layout.tsx draws twice: the phone's bar of tabs along the bottom, and from lg the same links in the top
+// bar. Each copy is not displayed at the other width (`display: none`, out of the tab order and the accessibility tree), so
+// a screen reader finds one navigation landmark at any width and the keyboard follows the order the eye sees. The caller's
+// className says which copy this is and where it goes.
+export function BottomNav({ route, reportDisabled, className }: { route: Route; reportDisabled: boolean; className: string }) {
   const current = SECTION[route.name]
   return (
-    <nav className="lg:relative lg:z-[1100] lg:col-start-2 lg:row-start-1 lg:self-center lg:py-1">
+    <nav className={className}>
       {/* At large text sizes the links wrap to a second row rather than run off the screen. */}
       <ul className="flex flex-wrap">
         {ITEMS.map(({ section, label, Icon }) => {

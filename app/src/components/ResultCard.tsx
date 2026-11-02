@@ -513,7 +513,7 @@ function ResultCardBody({
       )}
 
       {isTry && showsReading && (
-        <p className="mt-4 text-small text-ink-2">
+        <p className={`mt-4 text-small text-ink-2${across}`}>
           <T k="result.try" />
         </p>
       )}

@@ -1889,6 +1889,15 @@ describe('from lg', () => {
     expect(after(photoFigure(), card().querySelector('details') as Node)).toBe(true)
   })
 
+  it("runs a chosen photo's \"only you see it\" line across both columns too", async () => {
+    renderCard({ result: { ...(await takePhoto()), mode: 'try' }, source: 'try' })
+    await screen.findByTestId('overlay-svg')
+
+    expect(has(card(), ...TWO_COLUMNS)).toBe(true)
+    expect(has(screen.getByText(EN['result.try'].text), 'lg:col-span-full')).toBe(true)
+    expect(after(photoFigure(), screen.getByText(EN['result.try'].text))).toBe(true)
+  })
+
   it("runs a demo pin's badge across both columns, above the reading", async () => {
     renderCard({ result: { ...(await takePhoto()), mode: 'demo' } })
     await screen.findByTestId('overlay-svg')

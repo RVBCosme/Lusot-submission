@@ -847,6 +847,12 @@ describe('with no live and no demo pin', () => {
     expect(card.queryByText(/inililista ng MMDA/)).toBeNull()
   })
 
+  it('keeps to a line of 65 characters from lg, centred, rather than across a wide window', async () => {
+    await open()
+    const empty = screen.getByText(text('map.empty.title')).closest('section') as HTMLElement
+    expect(['lg:mx-auto', 'lg:w-full', 'lg:max-w-prose'].every((token) => empty.classList.contains(token))).toBe(true)
+  })
+
   it('never pins the example, and never says a place is dry or passable', async () => {
     await open()
     expect(markers()).toHaveLength(0)

@@ -1,5 +1,6 @@
 // The desktop layout, at 1280 x 800 (from lg, 64 rem). One nav, drawn in a top bar with the brand and the language switch, and
-// no bar of tabs at the bottom; the screen line pinned along the bottom, once; the map across the whole window, with the list
+// no bar of tabs at the bottom (the page holds the nav twice, and each width displays one copy); the keyboard following the
+// bar in the order it is drawn; the screen line pinned along the bottom, once; the map across the whole window, with the list
 // in a panel of 24 rem beside it; a level result card in two columns, the photo on the left; the Tested samples in two columns,
 // the sections of reading kept to a line of 65 characters; and axe on the map, a report's result, Tested and About. Below lg
 // nothing changes: every other spec runs at 360 or 390 px and says so. Every answer is a route in mocks.ts.
@@ -47,9 +48,12 @@ test('one nav, in a top bar between the brand and the language switch; the scree
   await page.goto('/#/map')
   await expect(page.locator('.map-pin').first()).toBeVisible()
 
-  // One navigation landmark, whatever the width: the bottom bar of tabs is this one, drawn at the top.
+  // One navigation landmark, whatever the width: the header's copy is displayed and the footer's (the phone's bar of tabs)
+  // is `display: none`, so it is out of the accessibility tree as well as out of sight.
   const nav = page.getByRole('navigation')
   await expect(nav).toHaveCount(1)
+  await expect(page.locator('header nav')).toBeVisible()
+  await expect(page.locator('footer nav')).toBeHidden()
   const links = nav.getByRole('link')
   await expect(links).toHaveText([
     label(L, 'nav.map'),
@@ -107,20 +111,32 @@ test('one nav, in a top bar between the brand and the language switch; the scree
   await expectLine(page, at('#/pin/<id>'))
 })
 
-test('the keyboard reaches the language switch, then the screen, then the nav: the phone\'s order', async ({ page }) => {
+test('the keyboard follows the bar as it is drawn: the five links, the language switch, then the screen, and no nav after it', async ({
+  page,
+}) => {
   await page.goto('/#/privacy')
   await expect(page.getByRole('heading', { name: label(L, 'privacy.title'), level: 1 })).toBeVisible()
+  // Each Tab stop, named by where it is: a nav link by its text, the language switch, the screen, or the page's own end.
   const seen: string[] = []
   for (let press = 0; press < 25; press++) {
     await page.keyboard.press('Tab')
-    const where = await page.evaluate(() => ({
-      part: document.activeElement?.closest('header, main, footer')?.tagName ?? 'OTHER',
-      name: (document.activeElement?.textContent ?? '').trim(),
-    }))
-    if (seen.at(-1) !== where.part) seen.push(where.part)
-    if (where.name === label(L, 'nav.ask')) break
+    const where = await page.evaluate(() => {
+      const focused = document.activeElement
+      if (focused === null || focused === document.body) return 'END'
+      if (focused.closest('nav') !== null) return `nav: ${(focused.textContent ?? '').trim()}`
+      if (focused.closest('header') !== null) return 'language switch'
+      if (focused.closest('main') !== null) return 'screen'
+      return `other: ${focused.tagName}`
+    })
+    // The screen may hold links of its own, which count as one stop here; a stop seen twice means the Tab order wrapped round.
+    if (where === 'END' || (where !== seen.at(-1) && seen.includes(where))) break
+    if (where !== seen.at(-1)) seen.push(where)
   }
-  expect(seen).toEqual(['HEADER', 'MAIN', 'FOOTER'])
+  expect(seen).toEqual([
+    ...(['nav.map', 'nav.report', 'nav.tested', 'nav.about', 'nav.ask'] as const).map((key) => `nav: ${label(L, key)}`),
+    'language switch',
+    'screen',
+  ])
 })
 
 test('the map runs across the whole window; the list opens in a panel of 24 rem beside it, and the map stays', async ({
