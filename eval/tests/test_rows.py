@@ -533,6 +533,10 @@ def test_replay_and_baseline_fields(tmp_path):
     assert "baseline_level" in refusal(tmp_path / "ankle", "run.json", 0, ankle)
     lowercase = run_json(baseline_class="nplv")
     assert "baseline_class" in refusal(tmp_path / "lowercase", "run.json", 0, lowercase)
+    # Rules §2: when no development label states a class, there is no class baseline, and the
+    # pair's class is null (Rene's option A, Nov 2). Its level is still one of the 9.
+    no_class = load(tmp_path / "no_class", run_json(baseline_class=None))
+    assert (no_class.baseline_level, no_class.baseline_class) == ("knee", None)
     half = without(run_json(), "baseline_class")
     assert "pair" in refusal(tmp_path / "half", "run.json", 0, half)
     run = load(

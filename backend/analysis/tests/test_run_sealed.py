@@ -13,6 +13,7 @@ MS2's guard copies are on this branch (probes/set_b_masks.py), so run_sealed use
 as they are and makes no copies: there is no parity test to run (R132).
 """
 
+import argparse
 import contextlib
 import csv
 import dataclasses
@@ -572,6 +573,32 @@ def write_summary(tmp_path: Path, **fields) -> Path:
     } | fields
     summary.write_text(json.dumps(content), encoding="utf-8")
     return summary
+
+
+def test_a_baseline_with_no_class_is_taken_when_no_development_label_states_one(
+    tmp_path,
+):
+    # Rules §2: an alert that states no class leaves its photo out of the passability metric, so a
+    # development report whose Set A rows state none has a null class baseline (Rene's option A,
+    # Nov 2). The level must still be one of the 9, and a class that isn't one of the 3 is refused.
+    def settings(summary: Path) -> dict:
+        args = argparse.Namespace(
+            datasets=json.dumps(DATASETS),
+            baseline=summary,
+            self_check_decided="2026-10-31",
+            geometry_default="on",
+            dropped_reason=None,
+        )
+        return tool._settings(args)
+
+    taken = settings(write_summary(tmp_path / "no_class", baseline_class=None))
+    assert (taken["baseline_level"], taken["baseline_class"]) == ("knee", None)
+    for name, bad in (
+        ("lowercase", {"baseline_class": "nplv"}),
+        ("no_level", {"baseline_level": None}),
+    ):
+        with pytest.raises(SystemExit):
+            settings(write_summary(tmp_path / name, **bad))
 
 
 def write_sealed(
