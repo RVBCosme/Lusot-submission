@@ -7,7 +7,17 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { basisLine, classLine, inchesLine, landmarkLine, levelFromLine, levelLine, reasonLine, tipLine } from '../copy/wording'
+import {
+  basisLine,
+  depthLine,
+  inchesLine,
+  landmarkLine,
+  levelFromLine,
+  levelLine,
+  reasonLine,
+  tipLine,
+  verdictLines,
+} from '../copy/wording'
 import { Line, T, useLanguage, useT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import type { OverlayData, Pin, ReportResult, Sample } from '../lib/api'
@@ -211,6 +221,8 @@ function ResultCardBody({
 
   // The level and what goes with it.
   const level = result.level
+  const isFloor = result.levelIsFloor === true
+  const verdict = level === undefined ? undefined : verdictLines(t, level, isFloor)
   const landmark = result.landmark === undefined ? undefined : landmarkLine(t, result.landmark)
   // A saved sample answer carries no basis, inches or readings (amendment 10), and the card doesn't rely on the API
   // client having dropped them: it leaves them out whatever it is handed.
@@ -311,7 +323,7 @@ function ResultCardBody({
         </figure>
       )}
 
-      {outcome === 'level' && level !== undefined && (
+      {outcome === 'level' && level !== undefined && verdict !== undefined && (
         <>
           <div role="status">
             {saved !== undefined && (
@@ -319,17 +331,26 @@ function ResultCardBody({
                 <Line value={t('sample.savedFrom', { date: saved })} />
               </p>
             )}
+            {/* The verdict is the headline (C639); the level line it rests on follows a step smaller. */}
             <p className="text-balance text-title font-bold">
-              <Line value={levelLine(t, level, result.levelIsFloor === true)} />
+              <Line value={verdict.verdict} />
+            </p>
+            {verdict.sub !== undefined && (
+              <p className="mt-1 text-pretty text-small text-ink-2">
+                <Line value={verdict.sub} />
+              </p>
+            )}
+            <p className="mt-3 text-balance text-heading font-bold">
+              <Line value={levelLine(t, level, isFloor)} />
             </p>
           </div>
           <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
-            <Gauge level={level} isFloor={result.levelIsFloor === true} />
+            <Gauge level={level} isFloor={isFloor} />
             <div className="min-w-0 flex-1 basis-48 space-y-2">
               <Note value={landmark} />
               <Note value={live ? levelFromLine(t, report?.levelFrom) : undefined} />
               <Note value={inches} />
-              <Note value={classLine(t, level)} />
+              <Note value={depthLine(t, level, isFloor)} />
               <Note value={isExample ? undefined : whenAndWhere} className="text-ink-2" />
               <Note value={basis} className="text-ink-2" />
             </div>
@@ -383,12 +404,13 @@ function ResultCardBody({
           <div className="flex items-start gap-3">
             <Mark outcome="cantTell" />
             <div className="min-w-0">
-              {/* A sample's refusal doesn't ask a judge to retake a photo they didn't take: D19's line sits in a frame
-                  (C637). Your own refusal is D19's line, then why. */}
+              {/* "No verdict" is the bold headline of every refusal (C639). A sample's refusal doesn't ask a judge to
+                  retake a photo they didn't take: D19's line sits in a frame (C637). Your own refusal is D19's line,
+                  then why. */}
               {isSample ? (
                 <>
                   <p className="text-balance text-heading font-bold">
-                    <T k="refusal.sample.cantTell" />
+                    <T k="verdict.none" />
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-1" />
                   <p className="mt-3 text-small text-ink-2">
@@ -400,7 +422,10 @@ function ResultCardBody({
                 </>
               ) : (
                 <>
-                  <p className="font-bold">
+                  <p className="text-balance text-heading font-bold">
+                    <T k="verdict.none" />
+                  </p>
+                  <p className="mt-2">
                     <T k="refusal.d19" />
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-2" />

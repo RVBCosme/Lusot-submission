@@ -12,6 +12,8 @@ const SCREEN_OF_PREFIX: Record<string, string> = {
   refusal: 'result',
   reason: 'result',
   tip: 'result',
+  verdict: 'result',
+  depth: 'result',
   retake: 'report',
   consent: 'consent',
   privacy: 'privacy',
@@ -35,7 +37,7 @@ const SCREEN_ORDER = [
 ]
 
 // A key names its screen as its first part. After refusal., reason. or retake., a third part that is a listed
-// screen names it instead ('refusal.sample.cantTell' is on 'sample'); any other key of those prefixes sits on
+// screen names it instead ('refusal.sample.someoneWouldSee' is on 'sample'); any other key of those prefixes sits on
 // the screen that shows it ('refusal.d19' on the result). consent. and privacy. are screens themselves, so a
 // longer key ('consent.adult.label') stays on its own.
 export function screenOf(key: string): string {

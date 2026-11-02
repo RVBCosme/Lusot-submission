@@ -54,7 +54,7 @@ test('a photo goes from the fake camera to a level result and onto the map as th
     await expect(page.getByRole('heading', { name: label(L, 'report.resultTitle') })).toBeVisible()
     const card = page.locator('article[data-outcome="level"]')
     await expect(card).toContainText(new RegExp(`${label(L, 'result.levelName.knee')} deep at this spot`, 'i'))
-    await expect(card).toContainText(label(L, 'result.class.nplv'))
+    await expect(card).toContainText(label(L, 'verdict.nplv'))
     // The photo link resolved to a picture that decoded.
     const photo = card.locator('img').first()
     await expect(photo).toBeVisible()

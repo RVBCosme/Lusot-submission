@@ -225,7 +225,6 @@ export const EN = {
   // four templates. MS3a's C81 fixed the pattern and these four names (knee, tire, below gutter, above chest);
   // the M20 review passed the other names, the lines for a floor on an added level and every other line below.
   // C637: a sample's refusal doesn't ask a judge to retake a photo they didn't take, so D19's line sits inside a frame.
-  'refusal.sample.cantTell': { text: "Lusot can't tell from this photo.", reviewed: true },
   'refusal.sample.someoneWouldSee': { text: 'Someone reporting this spot would see:', reviewed: true },
   'result.levelName.below_gutter': { text: 'below gutter', reviewed: true },
   'result.levelName.gutter': { text: 'gutter', reviewed: true },
@@ -241,8 +240,9 @@ export const EN = {
   // The two levels that aren't MMDA's drop "(MMDA level)" (CLAUDE.md, C81).
   'result.level.off': { text: '{level} deep at this spot.', reviewed: true },
   'result.level.offFloor': { text: 'At least {level} deep at this spot.', reviewed: true },
-  // The class line is what MMDA lists, never a verdict on the spot (plan §9, C81). C81 spells out the NPLV line
-  // and the two added levels' lines; the PATV and NPATV lines follow plan §9, Table 10.
+  // The class line is what MMDA lists (plan §9, C81). The card's verdict is a separate line, and always names MMDA's
+  // class as its source (C639, which replaced C81's "never a verdict on the spot"). C81 spells out the NPLV line and the
+  // two added levels' lines; the PATV and NPATV lines follow plan §9, Table 10.
   'result.class.patv': { text: 'MMDA lists this level as passable to all vehicles (PATV).', reviewed: true },
   'result.class.nplv': { text: 'MMDA lists this level as not passable to light vehicles (NPLV).', reviewed: true },
   'result.class.npatv': { text: 'MMDA lists this level as not passable to any vehicle (NPATV).', reviewed: true },
@@ -254,6 +254,22 @@ export const EN = {
     text: "Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV).",
     reviewed: true,
   },
+  // The verdict at this spot (C639, Rene, Nov 2): the headline of a level result, in MMDA's class for the level. A
+  // floor whose class is PATV gets "mayBeDeeper" and never "Passable", since deeper water could be another class.
+  // "none" is the headline of a refusal. {level} is a level's name, as 'result.levelName.*' words it.
+  'verdict.patv': { text: 'Verdict at this spot: Passable to all vehicles', reviewed: true },
+  'verdict.nplv': { text: 'Verdict at this spot: Not passable to light vehicles', reviewed: true },
+  'verdict.npatv': { text: 'Verdict at this spot: Not passable to any vehicle', reviewed: true },
+  'verdict.classOf': { text: "MMDA's class for the {level} level.", reviewed: true },
+  'verdict.mayBeDeeper': { text: 'No verdict: the water may be deeper than the {level} level.', reviewed: true },
+  'verdict.none': { text: "No verdict: Lusot can't tell from this photo.", reviewed: true },
+  // The level's depth range, from eval/rules.md's limits (inches times 0.0254, in metres), not a measured depth. A
+  // floor gives its lower limit; the first level's floor has none worth showing.
+  'depth.range': { text: 'Depth: {level} level, about {minM} to {maxM} m ({minIn} to {maxIn} in).', reviewed: true },
+  'depth.upTo': { text: 'Depth: {level} level, up to {maxM} m ({maxIn} in).', reviewed: true },
+  'depth.over': { text: 'Depth: {level} level, over {minM} m ({minIn} in).', reviewed: true },
+  'depth.floor': { text: 'Depth: {level} level or deeper, at least {minM} m ({minIn} in).', reviewed: true },
+  'depth.floorNoMetres': { text: 'Depth: {level} level or deeper.', reviewed: true },
   // Where the water meets the deciding reference (spec §4.3). A wheel or body line says "a parked car", because
   // moving vehicles never give a reading; a person's line says "an adult in the photo", because the API doesn't
   // say whether that adult was standing or wading.
@@ -293,8 +309,9 @@ export const EN = {
   'result.basis.one': { text: 'From {count} reference object.', reviewed: true },
   'result.basis.other': { text: 'From {count} reference objects.', reviewed: true },
   // Only when the API sends both ends, which happens only after the release gate passes (C515).
-  'result.inches.range': { text: 'Estimated {min} to {max} in.', reviewed: true },
-  'result.inches.same': { text: 'Estimated {min} in.', reviewed: true },
+  // The metres are the inches times 0.0254 (C639).
+  'result.inches.range': { text: 'Estimated {min} to {max} in ({minM} to {maxM} m).', reviewed: true },
+  'result.inches.same': { text: 'Estimated {min} in ({minM} m).', reviewed: true },
   // Shown only when geometry set the level (MS3b's C320, C328).
   'result.levelFrom.geometry': { text: 'Measured from the size of the wheel rim.', reviewed: true },
   // The three outcomes keep their own lines (CLAUDE.md): no flood seen, processing failed, and can't tell
@@ -342,7 +359,7 @@ export const EN = {
     reviewed: true,
   },
   'reason.no_usable_reference': {
-    text: 'No car or person in the photo could be used to read the depth.',
+    text: "Lusot couldn't use any car or person in this photo to read the depth.",
     reviewed: true,
   },
   'reason.references_disagree': {

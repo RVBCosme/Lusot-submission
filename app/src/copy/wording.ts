@@ -11,7 +11,10 @@ import {
   PASSABILITY,
   PEOPLE_LANDMARKS,
   REFUSED_REASONS,
+  UPPER_LIMIT_IN,
   WHEEL_LANDMARKS,
+  lowerLimitIn,
+  toMetres,
   type DropCause,
   type Landmark,
   type Level,
@@ -45,6 +48,38 @@ export function classLine(t: Translate, level: Level): Text {
   if (level === 'above_chest') return t('result.class.aboveChest')
   const classes = { PATV: 'result.class.patv', NPLV: 'result.class.nplv', NPATV: 'result.class.npatv' } as const
   return t(classes[PASSABILITY[level]])
+}
+
+// The headline of a level result (C639, Rene, Nov 2): MMDA's class for the level as a verdict at this spot, with a
+// sub-line saying whose class it is. The seven gauge levels say "MMDA's class for the {level} level"; the two added levels
+// have the line that names the MMDA level they lie beyond (C81). A floor is "at least" a level, so deeper water only
+// worsens an NPLV or NPATV class and those keep their verdict; a PATV floor could really be a deeper level in another
+// class, so it gets "No verdict" and never "Passable", and has no class to attribute.
+export function verdictLines(t: Translate, level: Level, isFloor: boolean): { verdict: Text; sub?: Text } {
+  const name = t(`result.levelName.${level}`).text
+  const passability = PASSABILITY[level]
+  if (isFloor && passability === 'PATV') return { verdict: t('verdict.mayBeDeeper', { level: name }) }
+  const verdicts = { PATV: 'verdict.patv', NPLV: 'verdict.nplv', NPATV: 'verdict.npatv' } as const
+  return {
+    verdict: t(verdicts[passability]),
+    sub: OFF_GAUGE.includes(level) ? classLine(t, level) : t('verdict.classOf', { level: name }),
+  }
+}
+
+// The level's depth range in metres and inches, from eval/rules.md's limits (levels.ts), as a range the level stands
+// for and never a measured depth. A floor gives its lower limit alone; below gutter has none worth showing as a floor.
+export function depthLine(t: Translate, level: Level, isFloor: boolean): Text {
+  const name = t(`result.levelName.${level}`).text
+  const minIn = lowerLimitIn(level)
+  const maxIn = UPPER_LIMIT_IN[level]
+  if (isFloor) {
+    return level === 'below_gutter'
+      ? t('depth.floorNoMetres', { level: name })
+      : t('depth.floor', { level: name, minM: toMetres(minIn), minIn })
+  }
+  if (maxIn === null) return t('depth.over', { level: name, minM: toMetres(minIn), minIn })
+  if (level === 'below_gutter') return t('depth.upTo', { level: name, maxM: toMetres(maxIn), maxIn })
+  return t('depth.range', { level: name, minM: toMetres(minIn), maxM: toMetres(maxIn), minIn, maxIn })
 }
 
 // Where the water meets the deciding reference. A category that reads no level, or one the app doesn't know, has
@@ -91,9 +126,13 @@ export function basisLine(t: Translate, basis: { vehicles: number; people: numbe
   return t(count === 1 ? 'result.basis.one' : 'result.basis.other', { count })
 }
 
-// Only called with both ends the API sent, which it does only after the release gate passes (C515).
+// Only called with both ends the API sent, which it does only after the release gate passes (C515). The metres are
+// worked out from the inches shown, so the two always agree.
 export function inchesLine(t: Translate, min: number, max: number): Text {
-  return min === max ? t('result.inches.same', { min }) : t('result.inches.range', { min, max })
+  const minM = toMetres(min)
+  return min === max
+    ? t('result.inches.same', { min, minM })
+    : t('result.inches.range', { min, max, minM, maxM: toMetres(max) })
 }
 
 // "Measured from the size of the wheel rim." only when geometry set the level (MS3b's C320).

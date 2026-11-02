@@ -12,7 +12,7 @@ it('a key names its screen: its first part, or the listed screen after a screen-
   expect(screenOf('nav.map')).toBe('nav')
   expect(screenOf('result.noFlood')).toBe('result')
   expect(screenOf('result.landmark.hub')).toBe('result')
-  expect(screenOf('refusal.sample.cantTell')).toBe('sample')
+  expect(screenOf('refusal.sample.someoneWouldSee')).toBe('sample')
   expect(screenOf('retake.map.tip')).toBe('map')
 })
 
@@ -37,6 +37,12 @@ it('a screen-line key with no screen of its own sits on the screen that shows it
   expect(screenOf('retake.tip')).toBe('report')
   expect(screenOf('consent.title')).toBe('consent')
   expect(screenOf('privacy.title')).toBe('privacy')
+})
+
+it('the verdict and depth lines (C639) sit on the result screen that shows them', () => {
+  expect(screenOf('verdict.patv')).toBe('result')
+  expect(screenOf('verdict.none')).toBe('result')
+  expect(screenOf('depth.range')).toBe('result')
 })
 
 it('the table has a header, a divider and one row per line, with key, English, Taglish and the marks', () => {

@@ -509,7 +509,7 @@ describe('the samples', () => {
     await advance(POLL.fastMs)
     const card = page().querySelector('article[data-outcome="cant-tell"]') as HTMLElement
     expect(card).not.toBeNull()
-    expect(card.textContent).toContain(text('refusal.sample.cantTell'))
+    expect(card.textContent).toContain(text('verdict.none'))
     expect(card.textContent).toContain(text('reason.no_usable_reference'))
     expect(card.textContent).toContain(text('refusal.sample.someoneWouldSee'))
     expect(card.textContent).toContain(text('refusal.d19'))
@@ -863,7 +863,7 @@ describe('a saved result while analysis is paused', () => {
     expect(card).not.toBeNull()
     expect(card.textContent).toContain(text('result.paused'))
     expect(card.textContent).toContain('Saved result from Oct 29, 2026')
-    expect(card.textContent).toContain(text('refusal.sample.cantTell'))
+    expect(card.textContent).toContain(text('verdict.none'))
     expect(card.textContent).toContain(text('reason.no_usable_reference'))
     expect(card.textContent).toContain(text('refusal.sample.someoneWouldSee'))
     expect(card.textContent).toContain(text('refusal.d19'))

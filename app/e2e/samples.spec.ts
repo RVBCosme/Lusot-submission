@@ -85,7 +85,7 @@ test('a sample run that refuses shows the can\'t-tell card in the sample frame, 
   const card = item.locator('article[data-outcome="cant-tell"]')
   await expect(card).toBeVisible()
   // C637: it doesn't ask the judge to retake a photo they didn't take; D19's line sits in its frame.
-  await expect(card).toContainText(label(L, 'refusal.sample.cantTell'))
+  await expect(card).toContainText(label(L, 'verdict.none'))
   await expect(card).toContainText(label(L, 'reason.no_usable_reference'))
   await expect(card).toContainText(label(L, 'refusal.sample.someoneWouldSee'))
   await expect(card).toContainText(label(L, 'refusal.d19'))

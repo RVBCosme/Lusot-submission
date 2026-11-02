@@ -31,6 +31,30 @@ export const PASSABILITY: Record<Level, Passability> = {
   above_chest: 'NPATV',
 }
 
+// Each level's upper limit in inches, from eval/rules.md's level table (§1), and none for the last, which is open above
+// the last limit. This is the one source of the depth line's numbers; levels.test.ts reads that table and holds this
+// one to it, so the two can't drift.
+export const UPPER_LIMIT_IN: Record<Level, number | null> = {
+  below_gutter: 5,
+  gutter: 8,
+  half_knee: 10,
+  half_tire: 13,
+  knee: 19,
+  tire: 26,
+  waist: 37,
+  chest: 45,
+  above_chest: null,
+}
+
+// A level starts where the one before it ends, and the first starts at 0.
+export function lowerLimitIn(level: Level): number {
+  const before = LEVELS[LEVELS.indexOf(level) - 1]
+  return before === undefined ? 0 : (UPPER_LIMIT_IN[before] as number)
+}
+
+// Inches to metres, to 2 places. Code measures; a model never outputs inches (CLAUDE.md).
+export const toMetres = (inches: number): string => (inches * 0.0254).toFixed(2)
+
 // The two levels that aren't MMDA's: they never say "MMDA level" (CLAUDE.md, C81).
 export const OFF_GAUGE: readonly Level[] = ['below_gutter', 'above_chest']
 

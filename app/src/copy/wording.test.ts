@@ -16,6 +16,7 @@ import {
 import {
   basisLine,
   classLine,
+  depthLine,
   dropLine,
   inchesLine,
   landmarkLine,
@@ -23,6 +24,7 @@ import {
   levelLine,
   reasonLine,
   referenceLine,
+  verdictLines,
 } from './wording'
 
 const en = makeT('en')
@@ -58,7 +60,7 @@ it("the level lines are C81's, word for word", () => {
     "Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV).",
   )
   expect(basisLine(en, { vehicles: 1, people: 1 }).text).toBe('From 2 reference objects.')
-  expect(inchesLine(en, 15, 18).text).toBe('Estimated 15 to 18 in.')
+  expect(inchesLine(en, 15, 18).text).toBe('Estimated 15 to 18 in (0.38 to 0.46 m).')
   expect(reasonLine(makeT('fil'), 'too_dark').lang).toBe('fil') // reviewed in M20
 })
 
@@ -157,10 +159,10 @@ it('the basis line counts vehicles and people together, and says "object" for on
 })
 
 it('the inches line gives the range the API sent, and one number when both ends agree', () => {
-  expect(inchesLine(en, 14.9, 18.2).text).toBe('Estimated 14.9 to 18.2 in.')
-  expect(inchesLine(en, 15, 15).text).toBe('Estimated 15 in.')
-  expect(inchesLine(fil, 15, 18).text).toBe('Tinatayang 15 hanggang 18 in.')
-  expect(inchesLine(fil, 15, 15).text).toBe('Tinatayang 15 in.')
+  expect(inchesLine(en, 14.9, 18.2).text).toBe('Estimated 14.9 to 18.2 in (0.38 to 0.46 m).')
+  expect(inchesLine(en, 15, 15).text).toBe('Estimated 15 in (0.38 m).')
+  expect(inchesLine(fil, 15, 18).text).toBe('Tinatayang 15 hanggang 18 in (0.38 hanggang 0.46 m).')
+  expect(inchesLine(fil, 15, 15).text).toBe('Tinatayang 15 in (0.38 m).')
 })
 
 it('the geometry line shows only when geometry set the level', () => {
@@ -373,4 +375,177 @@ it('a reference line is its drop cause when it was dropped, else where the water
   expect(referenceLine(en, { dropped: null, landmark: 'hub' })).toEqual(landmarkLine(en, 'hub'))
   expect(referenceLine(en, { dropped: null, landmark: null })).toBeUndefined()
   expect(referenceLine(en, { dropped: null, landmark: 'not_a_landmark' })).toBeUndefined()
+})
+
+// Rene's rule of Nov 2 (C639): the headline of a level result is a verdict at this spot, named as MMDA's class for the
+// level, and the level's depth range in metres goes with it.
+const VERDICTS = {
+  PATV: 'Verdict at this spot: Passable to all vehicles',
+  NPLV: 'Verdict at this spot: Not passable to light vehicles',
+  NPATV: 'Verdict at this spot: Not passable to any vehicle',
+} as const
+
+it("the verdict is the level's own class, in MMDA's three classes, with a sub-line naming where it comes from", () => {
+  for (const level of LEVELS) {
+    const { verdict, sub } = verdictLines(en, level, false)
+    expect(verdict?.text, level).toBe(VERDICTS[PASSABILITY[level]])
+    // The seven gauge levels say whose class it is; the two added levels name the MMDA level they lie beyond.
+    const name = en(`result.levelName.${level}`).text
+    expect(sub?.text, level).toBe(OFF_GAUGE.includes(level) ? classLine(en, level).text : `MMDA's class for the ${name} level.`)
+  }
+  expect(verdictLines(en, 'knee', false).sub?.text).toBe("MMDA's class for the knee level.")
+  expect(verdictLines(en, 'half_knee', false).sub?.text).toBe("MMDA's class for the half-knee level.")
+  expect(verdictLines(en, 'below_gutter', false).sub?.text).toBe(
+    "Shallower than MMDA's gutter level, which MMDA lists as passable to all vehicles (PATV).",
+  )
+  expect(verdictLines(en, 'above_chest', false).sub?.text).toBe(
+    "Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV).",
+  )
+})
+
+// A floor is "at least" a level, so the water may be deeper. Deeper only makes an NPLV or NPATV class worse, so those keep
+// their verdict; a PATV floor could really be a deeper level in another class, so it never says "Passable".
+it('a floor whose class is NPLV keeps its verdict', () => {
+  expect(verdictLines(en, 'knee', true).verdict?.text).toBe(VERDICTS.NPLV)
+  expect(verdictLines(en, 'half_tire', true).verdict?.text).toBe(VERDICTS.NPLV)
+  expect(verdictLines(en, 'knee', true).sub?.text).toBe("MMDA's class for the knee level.")
+})
+
+it('a floor whose class is NPATV keeps its verdict', () => {
+  expect(verdictLines(en, 'tire', true).verdict?.text).toBe(VERDICTS.NPATV)
+  expect(verdictLines(en, 'tire', true).sub?.text).toBe("MMDA's class for the tire level.")
+  expect(verdictLines(en, 'above_chest', true).verdict?.text).toBe(VERDICTS.NPATV)
+  expect(verdictLines(fil, 'tire', true).verdict?.text).toBe('Verdict sa spot na ito: Hindi passable sa anumang sasakyan')
+})
+
+it('a floor whose class is PATV gets "No verdict: the water may be deeper", never "Passable", and no class sub-line', () => {
+  const patv = LEVELS.filter((level) => PASSABILITY[level] === 'PATV')
+  expect(patv).toEqual(['below_gutter', 'gutter', 'half_knee'])
+  for (const level of patv) {
+    const name = en(`result.levelName.${level}`).text
+    const lines = verdictLines(en, level, true)
+    expect(lines.verdict?.text, level).toBe(`No verdict: the water may be deeper than the ${name} level.`)
+    expect(lines.sub, level).toBeUndefined()
+    const filLines = verdictLines(fil, level, true)
+    expect(filLines.verdict?.text, level).toMatch(/^Walang verdict: maaaring mas malalim ang tubig kaysa sa .+ level\.$/)
+    expect(filLines.sub, level).toBeUndefined()
+    // No line the floor shows, in either language, calls the spot passable.
+    for (const [, t] of BOTH) {
+      const shown = [verdictLines(t, level, true).verdict?.text, depthLine(t, level, true).text].join(' ')
+      expect(shown, level).not.toMatch(/passable/i)
+    }
+  }
+  expect(verdictLines(en, 'gutter', true).verdict?.text).toBe('No verdict: the water may be deeper than the gutter level.')
+  expect(verdictLines(fil, 'half_knee', true).verdict?.text).toBe('Walang verdict: maaaring mas malalim ang tubig kaysa sa half-knee level.')
+})
+
+it('"Passable to all vehicles" is said only for a PATV level that is not a floor, in both languages', () => {
+  for (const [lang, t] of BOTH) {
+    const passable = lang === 'en' ? 'Verdict at this spot: Passable' : 'Verdict sa spot na ito: Passable'
+    for (const level of LEVELS) {
+      for (const floor of [false, true]) {
+        const says = (verdictLines(t, level, floor).verdict?.text ?? '').startsWith(passable)
+        expect(says, `${lang} ${level} ${floor}`).toBe(PASSABILITY[level] === 'PATV' && !floor)
+      }
+    }
+  }
+})
+
+it('the verdict reads in Taglish with the same class, and every verdict is for this spot or says there is none', () => {
+  expect(verdictLines(fil, 'knee', false).verdict?.text).toBe('Verdict sa spot na ito: Hindi passable sa light vehicles')
+  expect(verdictLines(fil, 'gutter', false).verdict?.text).toBe('Verdict sa spot na ito: Passable sa lahat ng sasakyan')
+  expect(verdictLines(fil, 'chest', false).verdict?.text).toBe('Verdict sa spot na ito: Hindi passable sa anumang sasakyan')
+  expect(verdictLines(fil, 'knee', false).sub?.text).toBe('Ang class ng MMDA para sa knee level.')
+  expect(en('verdict.none').text).toBe("No verdict: Lusot can't tell from this photo.")
+  expect(fil('verdict.none').text).toBe('Walang verdict: hindi masabi ng Lusot mula sa photo na ito.')
+  for (const [lang, t] of BOTH) {
+    for (const level of LEVELS) {
+      for (const floor of [false, true]) {
+        const { verdict, sub } = verdictLines(t, level, floor)
+        expect(verdict?.lang, `${lang} ${level}`).toBe(lang)
+        const spot = lang === 'en' ? /^(Verdict at this spot|No verdict)/ : /^(Verdict sa spot na ito|Walang verdict)/
+        expect(verdict?.text, `${lang} ${level}`).toMatch(spot)
+        for (const line of [verdict, sub]) expect(line?.text ?? '', `${lang} ${level}`).not.toMatch(/\{\w+\}/)
+      }
+    }
+  }
+})
+
+// The nine depth lines, level by level: the level's limits in inches (eval/rules.md) and the same limits in metres.
+it('the depth line of each of the 9 levels is pinned, with its limits in metres and inches', () => {
+  expect(LEVELS.map((level) => depthLine(en, level, false).text)).toEqual([
+    'Depth: below gutter level, up to 0.13 m (5 in).',
+    'Depth: gutter level, about 0.13 to 0.20 m (5 to 8 in).',
+    'Depth: half-knee level, about 0.20 to 0.25 m (8 to 10 in).',
+    'Depth: half-tire level, about 0.25 to 0.33 m (10 to 13 in).',
+    'Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).',
+    'Depth: tire level, about 0.48 to 0.66 m (19 to 26 in).',
+    'Depth: waist level, about 0.66 to 0.94 m (26 to 37 in).',
+    'Depth: chest level, about 0.94 to 1.14 m (37 to 45 in).',
+    'Depth: above chest level, over 1.14 m (45 in).',
+  ])
+})
+
+it('a floor reads "or deeper, at least" its lower limit, and a floor on the first level gives no metres', () => {
+  expect(depthLine(en, 'knee', true).text).toBe('Depth: knee level or deeper, at least 0.33 m (13 in).')
+  expect(depthLine(en, 'tire', true).text).toBe('Depth: tire level or deeper, at least 0.48 m (19 in).')
+  expect(depthLine(en, 'gutter', true).text).toBe('Depth: gutter level or deeper, at least 0.13 m (5 in).')
+  expect(depthLine(en, 'above_chest', true).text).toBe('Depth: above chest level or deeper, at least 1.14 m (45 in).')
+  expect(depthLine(en, 'below_gutter', true).text).toBe('Depth: below gutter level or deeper.')
+  expect(depthLine(fil, 'below_gutter', true).text).toBe('Lalim: mas mababa sa gutter level o mas malalim.')
+})
+
+it('the depth line reads in Taglish, with the same numbers', () => {
+  expect(depthLine(fil, 'knee', false).text).toBe('Lalim: knee level, mga 0.33 hanggang 0.48 m (13 hanggang 19 in).')
+  expect(depthLine(fil, 'below_gutter', false).text).toBe('Lalim: mas mababa sa gutter level, hanggang 0.13 m (5 in).')
+  expect(depthLine(fil, 'above_chest', false).text).toBe('Lalim: lampas chest level, lampas 1.14 m (45 in).')
+  expect(depthLine(fil, 'tire', true).text).toBe('Lalim: tire level o mas malalim, hindi bababa sa 0.48 m (19 in).')
+  for (const [lang, t] of BOTH) {
+    for (const level of LEVELS) {
+      for (const floor of [false, true]) {
+        const line = depthLine(t, level, floor)
+        expect(line.lang, `${lang} ${level}`).toBe(lang)
+        expect(line.text, `${lang} ${level}`).not.toMatch(/\{\w+\}|undefined|NaN/)
+      }
+    }
+  }
+})
+
+// The verdict and depth keys sit outside result. and reason., so the sweeps above over those prefixes don't reach them.
+// They hold the same rules: no banned word, no road or route, nothing about what a person may do, and Rene's review.
+it('the verdict and depth lines are in both tables, reviewed, and break none of the copy rules', () => {
+  const keys = Object.keys(EN).filter((key) => key.startsWith('verdict.') || key.startsWith('depth.'))
+  expect(keys.sort()).toEqual(
+    [
+      'depth.floor',
+      'depth.floorNoMetres',
+      'depth.over',
+      'depth.range',
+      'depth.upTo',
+      'verdict.classOf',
+      'verdict.mayBeDeeper',
+      'verdict.none',
+      'verdict.nplv',
+      'verdict.npatv',
+      'verdict.patv',
+    ].sort(),
+  )
+  for (const table of [EN, FIL]) {
+    for (const key of keys) {
+      const entry = (table as Record<string, { text: string; reviewed: boolean }>)[key]
+      expect(entry, key).toBeDefined()
+      expect(entry.reviewed, key).toBe(true)
+      expect(entry.text, key).not.toMatch(/safe|ligtas/i)
+      expect(entry.text, key).not.toMatch(WHOLE_ROAD)
+      expect(entry.text, key).not.toMatch(APPROACH)
+      expect(entry.text, key).not.toMatch(/\bcross|tawid|go through/i)
+      expect(entry.text, key).not.toMatch(/MMDA(['’]?s)? (9|nine)|(9|nine) levels/i)
+    }
+  }
+})
+
+it("the inches line adds metres computed from the inches it shows, never from the level's limits", () => {
+  expect(inchesLine(en, 20, 24).text).toBe('Estimated 20 to 24 in (0.51 to 0.61 m).')
+  expect(inchesLine(en, 6.5, 6.5).text).toBe('Estimated 6.5 in (0.17 m).')
+  expect(inchesLine(fil, 20, 24).text).toBe('Tinatayang 20 hanggang 24 in (0.51 hanggang 0.61 m).')
 })

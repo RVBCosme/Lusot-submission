@@ -143,8 +143,12 @@ describe('a level result', () => {
     // The landmark is also listed under Details, with the other references.
     expect(outsideDetails("Water reaches three quarters of the way up a parked car's wheel rim.")).toHaveLength(1)
     expect(screen.getByText('Measured from the size of the wheel rim.')).toBeTruthy()
-    expect(screen.getByText('Estimated 15 to 18 in.')).toBeTruthy()
-    expect(screen.getByText('MMDA lists this level as not passable to light vehicles (NPLV).')).toBeTruthy()
+    expect(screen.getByText('Estimated 15 to 18 in (0.38 to 0.46 m).')).toBeTruthy()
+    expect(screen.getByText('Verdict at this spot: Not passable to light vehicles')).toBeTruthy()
+    expect(screen.getByText("MMDA's class for the knee level.")).toBeTruthy()
+    expect(screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')).toBeTruthy()
+    // The verdict replaced the class line, which would have said the class twice.
+    expect(text()).not.toContain('MMDA lists this level')
     // The API's accuracy wins over the fix's.
     expect(screen.getByText('Photo taken 25 min ago. Location within 12 m.')).toBeTruthy()
     expect(screen.getByText('From 2 reference objects.')).toBeTruthy()
@@ -166,19 +170,25 @@ describe('a level result', () => {
     const result = await takePhoto('level_floor')
     renderCard({ result })
     expect(screen.getByText('At least tire deep at this spot (MMDA level).')).toBeTruthy()
-    expect(screen.getByText('MMDA lists this level as not passable to any vehicle (NPATV).')).toBeTruthy()
+    // An NPATV floor keeps its verdict, since deeper water only makes it worse (C639).
+    expect(screen.getByText('Verdict at this spot: Not passable to any vehicle')).toBeTruthy()
+    expect(screen.getByText('Depth: tire level or deeper, at least 0.48 m (19 in).')).toBeTruthy()
     expect(screen.getByTestId('gauge').getAttribute('data-open')).toBe('true')
   })
 
   it('shows both added levels without "(MMDA level)", each with the MMDA level it lies beyond', async () => {
     renderCard({ result: await takePhoto('level_below_gutter') })
     expect(screen.getByText('Below gutter deep at this spot.')).toBeTruthy()
+    expect(screen.getByText('Verdict at this spot: Passable to all vehicles')).toBeTruthy()
     expect(screen.getByText("Shallower than MMDA's gutter level, which MMDA lists as passable to all vehicles (PATV).")).toBeTruthy()
+    expect(screen.getByText('Depth: below gutter level, up to 0.13 m (5 in).')).toBeTruthy()
     cleanup()
 
     renderCard({ result: await takePhoto('level_above_chest') })
     expect(screen.getByText('Above chest deep at this spot.')).toBeTruthy()
+    expect(screen.getByText('Verdict at this spot: Not passable to any vehicle')).toBeTruthy()
     expect(screen.getByText("Deeper than MMDA's chest level, which MMDA lists as not passable to any vehicle (NPATV).")).toBeTruthy()
+    expect(screen.getByText('Depth: above chest level, over 1.14 m (45 in).')).toBeTruthy()
   })
 
   it('shows the inches line only when both ends are there, and the geometry line only for geometry', async () => {
@@ -190,7 +200,7 @@ describe('a level result', () => {
     expect(screen.queryByText(/Estimated/)).toBeNull()
     cleanup()
     renderCard({ result: { ...knee, depthInMin: 15, depthInMax: 15 } })
-    expect(screen.getByText('Estimated 15 in.')).toBeTruthy()
+    expect(screen.getByText('Estimated 15 in (0.38 m).')).toBeTruthy()
     cleanup()
 
     const landmark = await takePhoto('level_landmark')
@@ -255,6 +265,117 @@ describe('a level result', () => {
   })
 })
 
+// Rene's rule of Nov 2 (C639): a level result opens with a verdict at this spot, in MMDA's class for the level, and
+// carries the level's depth range. The "not advice to cross" line stays on every screen.
+describe('the verdict at this spot', () => {
+  const VERDICT = {
+    PATV: 'Verdict at this spot: Passable to all vehicles',
+    NPLV: 'Verdict at this spot: Not passable to light vehicles',
+    NPATV: 'Verdict at this spot: Not passable to any vehicle',
+  } as const
+  const status = () => screen.getByRole('status')
+
+  it('opens the live region with the verdict, then what the class is of, then the level line', async () => {
+    renderCard({ result: await takePhoto() })
+    const lines = [...status().querySelectorAll('p')]
+    expect(lines.map((line) => line.textContent)).toEqual([
+      VERDICT.NPLV,
+      "MMDA's class for the knee level.",
+      'Knee deep at this spot (MMDA level).',
+    ])
+    // The verdict is the headline: bold and the largest type on the card. The level line is a step below it.
+    expect(lines[0].className).toMatch(/\btext-title\b/)
+    expect(lines[0].className).toMatch(/\bfont-bold\b/)
+    expect(lines[1].className).toMatch(/\btext-small\b/)
+    expect(lines[2].className).toMatch(/\btext-heading\b/)
+    expect(lines[2].className).toMatch(/\bfont-bold\b/)
+    // The class line would say the class twice, so it is gone for a gauge level.
+    expect(text()).not.toContain('MMDA lists this level')
+  })
+
+  it('gives every level that is not a floor the verdict of its own class, on a pin as on a report', () => {
+    for (const level of LEVELS) {
+      renderCard({ result: pinAt(level), source: 'pin' })
+      expect(status().textContent, level).toContain(VERDICT[PASSABILITY[level]])
+      cleanup()
+    }
+  })
+
+  it('keeps the verdict of an NPLV floor and of an NPATV floor, since deeper water only makes them worse', () => {
+    renderCard({ result: pinAt('knee', { levelIsFloor: true }), source: 'pin' })
+    expect(status().textContent).toContain(VERDICT.NPLV)
+    expect(status().textContent).toContain('At least knee deep at this spot (MMDA level).')
+    expect(screen.getByText("MMDA's class for the knee level.")).toBeTruthy()
+    expect(screen.getByText('Depth: knee level or deeper, at least 0.33 m (13 in).')).toBeTruthy()
+    cleanup()
+
+    renderCard({ result: pinAt('waist', { levelIsFloor: true }), source: 'pin' })
+    expect(status().textContent).toContain(VERDICT.NPATV)
+    expect(status().textContent).toContain('At least waist deep at this spot (MMDA level).')
+    expect(screen.getByText('Depth: waist level or deeper, at least 0.66 m (26 in).')).toBeTruthy()
+  })
+
+  it('gives a floor whose class is PATV "No verdict: the water may be deeper", never the word "Passable"', () => {
+    for (const level of LEVELS.filter((l) => PASSABILITY[l] === 'PATV')) {
+      for (const lang of ['en', 'fil'] as const) {
+        renderCard({ result: pinAt(level, { levelIsFloor: true }), source: 'pin' }, lang)
+        const name = (lang === 'en' ? EN : FIL)[`result.levelName.${level}`].text
+        const expected =
+          lang === 'en'
+            ? `No verdict: the water may be deeper than the ${name} level.`
+            : `Walang verdict: maaaring mas malalim ang tubig kaysa sa ${name} level.`
+        expect(screen.getByText(expected), `${lang} ${level}`).toBeTruthy()
+        expect(status().firstElementChild?.textContent, `${lang} ${level}`).toBe(expected)
+        expect(text(), `${lang} ${level}`).not.toMatch(/passable/i)
+        expect(text(), `${lang} ${level}`).not.toMatch(/Verdict (at this spot|sa spot)|MMDA's class for|Ang class ng MMDA para/)
+        cleanup()
+        localStorage.clear()
+      }
+    }
+  })
+
+  it('shows the level line of a PATV floor as it was, and its depth line as "or deeper"', () => {
+    renderCard({ result: pinAt('gutter', { levelIsFloor: true }), source: 'pin' })
+    expect(status().textContent).toContain('At least gutter deep at this spot (MMDA level).')
+    expect(screen.getByText('Depth: gutter level or deeper, at least 0.13 m (5 in).')).toBeTruthy()
+    cleanup()
+
+    renderCard({ result: pinAt('below_gutter', { levelIsFloor: true }), source: 'pin' })
+    expect(status().textContent).toContain('At least below gutter deep at this spot.')
+    expect(screen.getByText('Depth: below gutter level or deeper.')).toBeTruthy()
+  })
+
+  it('puts the depth line in the notes after the inches line, as a range and never as a measurement', async () => {
+    renderCard({ result: await takePhoto() })
+    const inches = screen.getByText('Estimated 15 to 18 in (0.38 to 0.46 m).')
+    const depth = screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')
+    expect(inches.compareDocumentPosition(depth) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(depth.closest('[role="status"]')).toBeNull()
+    expect(text()).not.toMatch(/measured depth|exactly/i)
+  })
+
+  it('shows the depth line of every level on a pin, which carries no inches', () => {
+    for (const level of LEVELS) {
+      renderCard({ result: pinAt(level), source: 'pin' })
+      expect(text(), level).toMatch(/Depth: .+ level/)
+      expect(text(), level).not.toMatch(/Estimated/)
+      cleanup()
+    }
+  })
+
+  it('says nothing that bends the banned words, the crossing phrases or the whole-road rule, on any level or floor', () => {
+    for (const level of LEVELS) {
+      for (const floor of [false, true]) {
+        renderCard({ result: pinAt(level, { levelIsFloor: floor }), source: 'pin' })
+        expect(text(), `${level} ${floor}`).not.toMatch(BANNED_WORDS)
+        expect(text(), `${level} ${floor}`).not.toMatch(CROSSING)
+        expect(text(), `${level} ${floor}`).not.toMatch(WHOLE_ROAD)
+        cleanup()
+      }
+    }
+  })
+})
+
 describe('the other outcomes', () => {
   it('"no flood seen" reads "No flood seen at this spot.", with an empty gauge and nothing a level would carry', async () => {
     renderCard({ result: await takePhoto('no_flood_seen') })
@@ -262,14 +383,23 @@ describe('the other outcomes', () => {
     const cells = [...screen.getByTestId('gauge').querySelectorAll<HTMLElement>('[data-cell]')]
     expect(cells).toHaveLength(9)
     expect(cells.every((cell) => cell.dataset.state === 'empty')).toBe(true)
-    expect(text()).not.toMatch(/deep at this spot|MMDA lists|reference object|Estimated/)
+    expect(text()).not.toMatch(/deep at this spot|MMDA lists|reference object|Estimated|verdict|Depth:/i)
   })
 
-  it('a refusal shows D19\'s line and the reason line, with no frame around it', async () => {
+  it('a refusal opens with "No verdict", then D19\'s line and the reason line, with no frame around it', async () => {
     renderCard({ result: await takePhoto('refused_too_dark') })
     expect(screen.getByRole('status').textContent).toContain(D19)
     expect(screen.getByText('The photo is too dark to read.')).toBeTruthy()
-    expect(text()).not.toContain("Lusot can't tell from this photo.")
+    // "No verdict" is the bold headline, and D19's line follows it at normal weight (C639).
+    const none = screen.getByText("No verdict: Lusot can't tell from this photo.")
+    expect(none.className).toMatch(/\bfont-bold\b/)
+    const d19 = screen.getByText(D19)
+    expect(d19.className).not.toMatch(/font-bold/)
+    const reason = screen.getByText('The photo is too dark to read.')
+    expect(none.compareDocumentPosition(d19) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(d19.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(text()).not.toContain('Passable')
+    expect(text()).not.toContain('Depth:')
     expect(text()).not.toContain('Someone reporting this spot would see:')
     expect(screen.queryByTestId('gauge')).toBeNull()
     expect(text()).not.toContain('Processing failed')
@@ -280,6 +410,7 @@ describe('the other outcomes', () => {
     expect(screen.getByRole('status').textContent).toContain('Processing failed, try again.')
     expect(screen.getByText('Lusot had an error while analyzing the photo.')).toBeTruthy()
     expect(text()).not.toContain(D19)
+    expect(text()).not.toMatch(/verdict|Depth:/i)
     expect(screen.queryByTestId('gauge')).toBeNull()
   })
 
@@ -336,6 +467,7 @@ describe('the other outcomes', () => {
     expect(onNewPhoto).not.toHaveBeenCalled()
     expect(screen.queryByTestId('gauge')).toBeNull()
     expect(text()).not.toMatch(/Processing failed|No flood seen|deep at this spot|tell from this photo/)
+    expect(text()).not.toMatch(/verdict|Depth:/i)
   })
 
   it('a report that has no final status is "No result yet" too, never a made-up outcome', async () => {
@@ -391,6 +523,7 @@ describe('a pause', () => {
 
     const paused = 'New analyses are paused right now. The map and the Tested page still work.'
     expect(screen.getByRole('status').textContent).toBe(paused)
+    expect(text()).not.toMatch(/verdict|Depth:/i)
     expect(text()).not.toContain('Processing failed')
     expect(screen.queryByText('New analyses are paused right now.')).toBeNull() // the reason line
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
@@ -447,6 +580,9 @@ describe('a pause', () => {
     expect(paused).toBe('New analyses are paused right now. The map and the Tested page still work.')
     expect(reading).toContain('Saved result from Oct 29, 2026')
     expect(reading).toContain('Knee deep at this spot (MMDA level).')
+    // The verdict and the depth range show on a saved result too (C639); the measured inches don't.
+    expect(reading).toContain('Verdict at this spot: Not passable to light vehicles')
+    expect(screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')).toBeTruthy()
     expect(screen.getByText('This is a saved reading of a credited photo, not a test result.')).toBeTruthy()
     expect(text().indexOf('New analyses are paused')).toBeLessThan(text().indexOf('Photo from'))
     expect(text()).not.toContain('live reading')
@@ -467,7 +603,8 @@ describe('a pause', () => {
     })
 
     expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
-    expect(screen.getByText('MMDA lists this level as not passable to light vehicles (NPLV).')).toBeTruthy()
+    expect(screen.getByText('Verdict at this spot: Not passable to light vehicles')).toBeTruthy()
+    expect(screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')).toBeTruthy()
     expect(screen.getByText('This is a saved reading of a credited photo, not a test result.')).toBeTruthy()
     expect(text()).not.toMatch(/Estimated|Measured from|reference object|Reference \d|Reference objects|Not used/)
     expect(container.querySelector('details')).toBeNull()
@@ -475,7 +612,7 @@ describe('a pause', () => {
 
     // A live card with the same result keeps all of them.
     renderCard({ result: live, source: 'own' })
-    expect(text()).toMatch(/Estimated 15 to 18 in\./)
+    expect(text()).toMatch(/Estimated 15 to 18 in \(0\.38 to 0\.46 m\)\./)
     expect(text()).toContain('Measured from the size of the wheel rim.')
     expect(text()).toContain('From 2 reference objects.')
   })
@@ -489,7 +626,7 @@ describe('a pause', () => {
       published: false,
     }
     renderCard({ result: refused, source: 'sample', savedAt: '2026-10-29T14:20:00Z' })
-    expect(screen.getByText("Lusot can't tell from this photo.")).toBeTruthy()
+    expect(screen.getByText("No verdict: Lusot can't tell from this photo.")).toBeTruthy()
     expect(screen.getByText('Someone reporting this spot would see:')).toBeTruthy()
     expect(screen.getByText(D19)).toBeTruthy()
     cleanup()
@@ -499,6 +636,7 @@ describe('a pause', () => {
     const reading = screen.getAllByRole('status')[1].textContent
     expect(reading).toContain('No flood seen at this spot.')
     expect(reading).toContain('Saved result from Oct 29, 2026')
+    expect(text()).not.toMatch(/verdict|Depth:/i)
   })
 })
 
@@ -538,19 +676,23 @@ describe('a sample and a demo pin', () => {
     expect(onPhotoExpired).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a refused sample as "Lusot can\'t tell from this photo.", its reason, then what someone reporting this spot would see', async () => {
+  it('shows a refused sample as "No verdict: Lusot can\'t tell from this photo.", its reason, then what someone reporting this spot would see', async () => {
     const { sample, result } = await sampleRun('refused_no_usable_reference')
     expect(result.status).toBe('refused')
     renderCard({ result, source: 'sample', sample })
 
     const status = screen.getByRole('status').textContent ?? ''
-    expect(status).toContain("Lusot can't tell from this photo.")
-    expect(screen.getByText('No car or person in the photo could be used to read the depth.')).toBeTruthy()
+    expect(status).toContain("No verdict: Lusot can't tell from this photo.")
+    // Sample 2's reason line was reworded by Rene on Nov 2.
+    expect(screen.getByText("Lusot couldn't use any car or person in this photo to read the depth.")).toBeTruthy()
+    // It replaced the sample's old headline, which would say the same thing twice.
+    expect(screen.queryByText("Lusot can't tell from this photo.")).toBeNull()
+    expect(screen.getByText("No verdict: Lusot can't tell from this photo.").className).toMatch(/\bfont-bold\b/)
     const framing = screen.getByText('Someone reporting this spot would see:')
     const d19 = screen.getByText(D19)
     expect(framing.compareDocumentPosition(d19) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // D19 sits after its frame, and the plain reason sits before it.
-    const reason = screen.getByText('No car or person in the photo could be used to read the depth.')
+    const reason = screen.getByText("Lusot couldn't use any car or person in this photo to read the depth.")
     expect(reason.compareDocumentPosition(framing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
@@ -1252,12 +1394,29 @@ describe('in Taglish', () => {
       published: false,
     }
     renderCard({ result: refused, source: 'sample' }, 'fil')
-    for (const key of ['refusal.sample.cantTell', 'refusal.sample.someoneWouldSee'] as const) {
+    for (const key of ['verdict.none', 'refusal.sample.someoneWouldSee'] as const) {
       expect(FIL[key].reviewed, key).toBe(true)
       const line = screen.getByText(FIL[key].text)
       expect(line.closest('[lang="en"]'), key).toBeNull()
     }
-    expect(screen.queryByText("Lusot can't tell from this photo.")).toBeNull()
+    expect(screen.queryByText("No verdict: Lusot can't tell from this photo.")).toBeNull()
+  })
+
+  it('words the verdict, its sub-line, the depth line and the inches line in Taglish, unmarked', async () => {
+    renderCard({ result: await takePhoto() }, 'fil')
+    for (const line of [
+      'Verdict sa spot na ito: Hindi passable sa light vehicles',
+      'Ang class ng MMDA para sa knee level.',
+      'Lalim: knee level, mga 0.33 hanggang 0.48 m (13 hanggang 19 in).',
+      'Tinatayang 15 hanggang 18 in (0.38 hanggang 0.46 m).',
+    ]) {
+      expect(screen.getByText(line).closest('[lang="en"]'), line).toBeNull()
+    }
+    cleanup()
+
+    renderCard({ result: pinAt('gutter', { levelIsFloor: true }), source: 'pin' }, 'fil')
+    expect(screen.getByText('Walang verdict: maaaring mas malalim ang tubig kaysa sa gutter level.')).toBeTruthy()
+    expect(text()).not.toMatch(/Verdict sa spot|Passable|passable/)
   })
 
   it('words a level result in Taglish, with the level line in Taglish', async () => {
