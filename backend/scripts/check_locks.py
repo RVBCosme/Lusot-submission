@@ -8,8 +8,8 @@ It names each lockfile that no longer matches what uv would write:
   file being checked. The requirement lines are compared; the header, which names the
   command that wrote the file, is not.
 - each laptop script's `.py.lock` in `backend/scripts`, MS6's `eval/tests/run_tests.py` if it
-  exists, and MS2's data tools in `eval/data`, `eval/data/tests` and `eval/set_b` (the
-  tracker's ruling 3b, Nov 2), by `uv lock --script <script> --check`
+  exists, and MS2's data tools in `eval/data`, `eval/data/tests` and `eval/set_b` (added
+  Nov 2, when these locks were found unchecked: docs/log/2026-11-02.md), by `uv lock --script <script> --check`
 
 Standard library only. Run from the repo root: uv run --python 3.13 backend/scripts/check_locks.py
 Exit codes: 0 clean, 1 a lock drifted, 2 uv couldn't be run.

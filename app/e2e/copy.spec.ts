@@ -18,9 +18,14 @@ const RULES = JSON.parse(readFileSync(new URL('../../scripts/copy-rules.json', i
 function failRule(id: string): RegExp {
   const found = RULES.fail.find((rule) => rule.id === id)
   if (found === undefined) throw new Error(`scripts/copy-rules.json has no fail rule ${id}`)
+  // As check_copy.mjs refuses them: g or y would make a match start where the last one ended.
+  if (/[gy]/.test(found.flags)) throw new Error(`fail rule ${id} has a g or y flag`)
   return new RegExp(found.pattern, found.flags)
 }
-const BANNED = new RegExp(`${failRule('banned-safe').source}|${failRule('banned-ligtas').source}`, 'i')
+const SAFE = failRule('banned-safe')
+const LIGTAS = failRule('banned-ligtas')
+if (SAFE.flags !== LIGTAS.flags) throw new Error('banned-safe and banned-ligtas have different flags')
+const BANNED = new RegExp(`${SAFE.source}|${LIGTAS.source}`, SAFE.flags)
 const CROSSING = failRule('crossing-phrase')
 const REPORT_ID = /r_[0-9a-f]{32}/
 const NINE = failRule('mmda-9-levels')
