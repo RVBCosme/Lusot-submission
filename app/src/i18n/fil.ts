@@ -218,6 +218,10 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Ito ang makikita ng sinumang magre-report sa spot na ito:',
     reviewed: true,
   },
+  'refusal.try.tip': {
+    text: 'Mas nababasa ng Lusot ang lalim kapag kita sa photo ang gulong ng nakaparadang kotse o ang taong nakatayo lang.',
+    reviewed: true,
+  },
   'result.levelName.below_gutter': { text: 'mas mababa sa gutter', reviewed: true },
   'result.levelName.gutter': { text: 'gutter', reviewed: true },
   'result.levelName.half_knee': { text: 'half-knee', reviewed: true },
@@ -323,6 +327,7 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Kinunan sa labas ng Metro Manila, kaya ikaw lang ang makakakita ng result na ito. Wala ito sa mapa.',
     reviewed: true,
   },
+  'result.try': { text: 'Sa iyo lang ipinapakita ang resultang ito. Wala ito sa mapa.', reviewed: true },
   'result.noResult': { text: 'Wala pang result. Mas matagal kaysa karaniwan ang analysis.', reviewed: true },
   'result.checkAgain': { text: 'Tingnan ulit', reviewed: true },
   'result.tryAgain': { text: 'Subukan ulit', reviewed: true },
@@ -617,6 +622,43 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'sample.limit.global_cap': {
     text: 'Naabot na ng Lusot ang dami ng sample na kaya nito sa ngayon. Subukan ulit mamaya.',
+    reviewed: true,
+  },
+  'sample.limit.daily_cap': {
+    text: 'Naabot na ng Lusot ang dami ng sample na kaya nito ngayong araw. Subukan ulit mamaya.',
+    reviewed: true,
+  },
+  // The chosen-photo lines' Taglish, approved as written at M20 by the tracker under Rene's delegation (Nov 2, before
+  // 5:05 PM by the clock).
+  'tested.try.title': { text: 'Subukan ang sarili mong photo', reviewed: true },
+  'tested.try.intro': {
+    text: 'Pumili ng photo ng baha mula sa device mo. Binabasa ito ng Lusot sa parehong paraan ng photo na kinunan mo, at ikaw lang ang makakakita ng result. Hindi ito napupunta sa mapa, at itinatago ng Lusot ang report nang 7 araw.',
+    reviewed: true,
+  },
+  'try.choose': { text: 'Pumili ng photo', reviewed: true },
+  'try.chooseAnother': { text: 'Pumili ng ibang photo', reviewed: true },
+  'try.inputLabel': { text: 'Photo ng baha mula sa device mo', reviewed: true },
+  'try.reading': { text: 'Binabasa ng Lusot ang photo mo.', reviewed: true },
+  'try.unsupported': {
+    text: 'Nababasa ng Lusot ang JPEG, PNG o WebP na photo. Pumili ng ibang photo.',
+    reviewed: true,
+  },
+  'try.unreadable': { text: 'Hindi mabuksan ng Lusot ang photo na ito. Pumili ng ibang photo.', reviewed: true },
+  'try.noApi': { text: 'Hindi kayang magbasa ng photo ang build na ito.', reviewed: true },
+  'try.sendFailed': {
+    text: 'Hindi naipadala ng Lusot ang photo mo. Tingnan ang koneksyon mo at subukan ulit.',
+    reviewed: true,
+  },
+  'try.limit.device_limit': {
+    text: 'Naabot na ng device na ito ang dami ng photo na pinapayagan ng Lusot sa isang oras. Subukan ulit mamaya.',
+    reviewed: true,
+  },
+  'try.limit.global_cap': {
+    text: 'Naabot na ng Lusot ang dami ng piniling photo na kaya nitong basahin sa ngayon. Subukan ulit mamaya.',
+    reviewed: true,
+  },
+  'try.limit.daily_cap': {
+    text: 'Naabot na ng Lusot ang dami ng piniling photo na kaya nitong basahin ngayong araw. Subukan ulit mamaya.',
     reviewed: true,
   },
   // Ask Lusot's lines (plan Task 14): Claude's Taglish drafts, each waiting for Rene's review (M20). The ask.answer.

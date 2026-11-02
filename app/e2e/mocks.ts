@@ -38,6 +38,8 @@ export const LIVE_PIN: PinSpec = pinSpecs()[0]!
 export const DEMO_PIN: PinSpec = pinSpecs().find((pin) => pin.mode === 'demo')!
 // The report a sample's run makes (POST /samples/{sampleId}'s 201).
 export const SAMPLE_RUN_ID = 'r_9b8a7c6d5e4f40312a1b2c3d4e5f6a7b'
+// The report a chosen photo makes (POST /try's 201, C534).
+export const TRY_ID = 'r_3c5e7a9b1d2f4468a0b2c4d6e8f1a3b5'
 
 const CORS = {
   'access-control-allow-origin': '*',
@@ -69,6 +71,9 @@ export interface Behaviour {
   sampleRun: 'run' | 'saved' | 'paused'
   // What a sample's run reads.
   sampleOutcome: Outcome
+  // POST /try (C534): a link (201), MS4's 503 model_calls_paused, or its 429 daily_cap. A chosen photo reads as a knee
+  // level, with mode "try".
+  tryRun: 'ok' | 'model_calls_paused' | 'daily_cap'
 }
 
 // One request the app made to the API or the S3 stand-in, for a test to read. The upload's JSON body and the S3 form's
@@ -109,6 +114,8 @@ function png(width: number, height: number, [r, g, b]: [number, number, number])
 const TILE = png(256, 256, [226, 230, 224])
 // 4:3, like the layers file's 800 x 600.
 const PHOTO = png(400, 300, [108, 128, 138])
+// The file a test chooses for "Try your own photo": a small PNG, which the app re-encodes as a JPEG before it sends it.
+export const TRY_PHOTO = png(64, 48, [108, 128, 138])
 
 export class Mocks {
   readonly behaviour: Behaviour = {
@@ -122,6 +129,7 @@ export class Mocks {
     sampleCount: 3,
     sampleRun: 'run',
     sampleOutcome: { kind: 'level', key: 'knee' },
+    tryRun: 'ok',
   }
   // Requests no route answered: any request to a host outside this machine, and any path the answers don't know.
   readonly unrouted: string[] = []
@@ -129,6 +137,8 @@ export class Mocks {
 
   private readonly startedAt = Date.now()
   private uploaded = false
+  // Whether the chosen photo reached the S3 stand-in.
+  private tryUploaded = false
   // Each live pin's flag count, as POST /reports/{id}/flag has counted it.
   private readonly flagged = new Map<string, number>()
   private capturedAt: string | undefined
@@ -237,6 +247,17 @@ export class Mocks {
     }
   }
 
+  // A chosen photo's report: mode "try", never published, with the run's start as its time and no place (C534).
+  private tryFacts(): ReportFacts {
+    return {
+      reportId: TRY_ID,
+      mode: 'try',
+      published: false,
+      capturedAt: isoSeconds(Date.now()),
+      links: this.links(TRY_ID),
+    }
+  }
+
   private async api(route: Route): Promise<void> {
     const request = route.request()
     const method = request.method()
@@ -258,6 +279,21 @@ export class Mocks {
       await this.gate
       const fields = { 'Content-Type': 'image/jpeg', key: `raw/${OWN_ID}.jpg`, policy: 'e2e-policy', 'x-amz-signature': 'e2e-signature' }
       return this.reply(route, 201, { reportId: OWN_ID, upload: { url: `${FILES_ORIGIN}/uploads/${OWN_ID}`, fields }, expiresInS: 300 })
+    }
+
+    // A chosen photo's link (MS4's C534). The body is kept, so a test can read that only the consent version is sent.
+    if (method === 'POST' && pathname === '/try') {
+      let json: unknown
+      try {
+        json = request.postDataJSON()
+      } catch {
+        json = undefined
+      }
+      this.log(route, { json })
+      if (this.behaviour.tryRun === 'model_calls_paused') return this.reply(route, 503, { error: 'model_calls_paused' })
+      if (this.behaviour.tryRun === 'daily_cap') return this.reply(route, 429, { error: 'daily_cap' })
+      const fields = { 'Content-Type': 'image/jpeg', key: `raw/${TRY_ID}.jpg`, policy: 'e2e-policy', 'x-amz-signature': 'e2e-signature' }
+      return this.reply(route, 201, { reportId: TRY_ID, upload: { url: `${FILES_ORIGIN}/uploads/${TRY_ID}`, fields }, expiresInS: 300 })
     }
 
     if (method === 'GET' && pathname === '/map/pins') {
@@ -334,6 +370,10 @@ export class Mocks {
         return this.reply(route, 200, resultBody(this.behaviour.outcome, this.ownFacts()))
       }
       if (id === SAMPLE_RUN_ID) return this.reply(route, 200, this.sampleBody())
+      if (id === TRY_ID) {
+        if (!this.tryUploaded) return this.reply(route, 200, pendingBody('pending', this.tryFacts()))
+        return this.reply(route, 200, resultBody({ kind: 'level', key: 'knee' }, this.tryFacts()))
+      }
       const spec = this.behaviour.pins.find((pin) => pin.id === id)
       if (spec !== undefined) return this.reply(route, 200, resultBody({ kind: 'level', key: spec.key }, this.pinFacts(spec)))
       return this.reply(route, 404, { error: 'not_found' })
@@ -367,6 +407,15 @@ export class Mocks {
       return this.reply(route, 204)
     }
 
+    // The chosen photo's POST to S3, kept the same way.
+    if (method === 'POST' && pathname === `/uploads/${TRY_ID}`) {
+      const body = request.postDataBuffer()?.toString('latin1') ?? ''
+      const formFields = [...body.matchAll(/Content-Disposition: form-data; name="([^"]+)"/g)].map((match) => match[1]!)
+      this.log(route, { formFields })
+      this.tryUploaded = true
+      return this.reply(route, 204)
+    }
+
     if (method === 'GET') {
       const layers = /^\/layers\/([A-Za-z0-9_-]+)\.json$/.exec(pathname)
       if (layers !== null) {
@@ -376,7 +425,9 @@ export class Mocks {
             ? levelKeyOf(this.behaviour.outcome)
             : id === SAMPLE_RUN_ID
               ? levelKeyOf(this.behaviour.sampleOutcome)
-              : this.behaviour.pins.find((pin) => pin.id === id)?.key
+              : id === TRY_ID
+                ? 'knee'
+                : this.behaviour.pins.find((pin) => pin.id === id)?.key
         if (key !== undefined) return this.reply(route, 200, levelLayers(key))
       }
       if (/^\/(photo|overlay|samples)\/[A-Za-z0-9_-]+\.png$/.test(pathname)) {

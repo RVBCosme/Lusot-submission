@@ -12,8 +12,8 @@ const ASK_THROTTLE_RETRY_MS = 2000
 const UPLOAD_TIMEOUT_MS = 60_000 // the photo: a few hundred KB, maybe over a slow mobile connection
 // MS4's C508: the random device id, sent with uploads, samples and flags only (C606).
 const DEVICE_HEADER = 'X-Lusot-Device'
-// A limit's 429 codes (MS4's C522; Ask Lusot's, amendment 4): shown, never retried.
-const LIMIT_CODES = new Set(['device_limit', 'global_cap', 'question_limit', 'question_cap'])
+// A limit's 429 codes (MS4's C522; Ask Lusot's, amendment 4; the day's cap, C534): shown, never retried.
+const LIMIT_CODES = new Set(['device_limit', 'global_cap', 'daily_cap', 'question_limit', 'question_cap'])
 // A sample's licence (C617, MS4's C512): CC0 or CC BY of any version, or MS4's exact value for a consented photo.
 const SAMPLE_LICENCE = /^(CC0( 1\.0)?|CC BY \d(\.\d)?)$/
 const CONSENTED_LICENCE = 'used with permission'
@@ -78,7 +78,7 @@ export type Reading = {
 export interface ReportResult {
   reportId: string
   status: string
-  mode: 'live' | 'private' | 'sample' | 'eval' | 'demo'
+  mode: 'live' | 'private' | 'sample' | 'eval' | 'demo' | 'try'
   published: boolean
   capturedAt?: string
   refusalReason?: string
@@ -299,6 +299,28 @@ export async function requestUpload(
     if (!res.ok) throw await httpError(res)
     const { reportId, upload } = ((await res.json()) ?? {}) as { reportId?: unknown; upload?: unknown }
     if (typeof reportId !== 'string' || !isPresignedPost(upload)) throw new MalformedAnswerError('POST /uploads')
+    return { reportId, upload }
+  })
+}
+
+// POST /try (MS4's C534): a photo the person chose, for a result only they see. Only the consent version is sent,
+// with no place or time. Never retried: a link whose answer was lost may already be counted against the day's cap.
+export async function requestTry(
+  apiUrl: string,
+  consentVersion: string,
+  deviceId: string,
+  fetchFn: typeof fetch = apiFetch,
+): Promise<{ reportId: string; upload: PresignedPost }> {
+  return withTimeout(REQUEST_TIMEOUT_MS, async (signal) => {
+    const res = await fetchFn(`${apiUrl}/try`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [DEVICE_HEADER]: deviceId },
+      body: JSON.stringify({ consentVersion }),
+      signal,
+    })
+    if (!res.ok) throw await httpError(res)
+    const { reportId, upload } = ((await res.json()) ?? {}) as { reportId?: unknown; upload?: unknown }
+    if (typeof reportId !== 'string' || !isPresignedPost(upload)) throw new MalformedAnswerError('POST /try')
     return { reportId, upload }
   })
 }

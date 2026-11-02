@@ -1035,6 +1035,98 @@ describe('a sample and a demo pin', () => {
   })
 })
 
+// A photo the person chose from their device (C534, C640). It reads like their own photo, but its time is the run's
+// start and it has no place, so the card says neither, and it says only they see it.
+describe('a chosen photo', () => {
+  // Approved at M20 (Nov 2): "shown", since an admin can technically read a stored item.
+  const ONLY_YOU = "This result is shown only to you. It isn't on the map."
+  // What POST /try's report looks like: mode "try", with capturedAt the run's start.
+  const asTry = (result: ReportResult): ReportResult => ({ ...result, mode: 'try' })
+
+  it('a try level shows its verdict and level line, with no photo-taken line though capturedAt is set', async () => {
+    const result = asTry(await takePhoto())
+    expect(result.capturedAt).toBeDefined()
+    expect(result.gpsAccuracyM).toBeDefined()
+    renderCard({ result, source: 'try', fixAccuracyM: 99, now: laterBy25(result) })
+
+    expect(screen.getByText('Verdict at this spot: Not passable to light vehicles')).toBeTruthy()
+    expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
+    expect(screen.getByTestId('gauge')).toBeTruthy()
+    expect(text()).not.toMatch(/Photo taken|Location within/)
+    // Details keeps its references, but not a photo time that is only the run's start.
+    fireEvent.click(screen.getByText('Details'))
+    expect(text()).not.toContain('Photo time')
+    expect(text()).toContain('Reference 1')
+  })
+
+  // The tracker's ruling (C637): D19 and the camera retake tips tell a person to retake a photo from a dry spot, which
+  // is wrong for a photo they chose from their device. A try refusal keeps "No verdict", then why, then one line that
+  // says what Lusot reads best.
+  it('a try refusal shows No verdict, the reason and the try tip, with no D19 and no retake tip', async () => {
+    const TRY_TIP = "Lusot reads depth best from a photo with a parked car's wheel or a person standing still in view."
+    renderCard({ result: asTry(await takePhoto('refused_no_water_found')), source: 'try' })
+
+    const none = screen.getByText(EN['verdict.none'].text)
+    const why = screen.getByText(EN['reason.no_water_found'].text)
+    const tip = screen.getByText(TRY_TIP)
+    expect(none.className).toMatch(/\bfont-bold\b/)
+    expect(none.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(why.compareDocumentPosition(tip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('status').firstElementChild?.querySelector('p')).toBe(none)
+    expect(screen.getByRole('article').getAttribute('data-outcome')).toBe('cant-tell')
+    expect(text()).not.toContain(D19)
+    expect(text()).not.toContain(EN['tip.no_water_found'].text)
+    expect(text()).not.toContain(EN['refusal.sample.someoneWouldSee'].text)
+    expect(text()).not.toMatch(/dry spot|Processing failed/)
+  })
+
+  it('shows the try tip in Taglish, since its Taglish was reviewed at M20 (Nov 2)', async () => {
+    renderCard({ result: asTry(await takePhoto('refused_no_water_found')), source: 'try' }, 'fil')
+    // A refusal line shows English only until its Taglish is reviewed (C619, C724).
+    expect(FIL['refusal.try.tip'].reviewed).toBe(true)
+    expect(screen.getByText(FIL['refusal.try.tip'].text)).toBeTruthy()
+    expect(screen.queryByText(EN['refusal.try.tip'].text)).toBeNull()
+  })
+
+  it("a try reading says only you see it and it isn't on the map, under a level, no flood and can't tell, and only there", async () => {
+    for (const scenario of ['level_knee', 'no_flood_seen', 'refused_too_dark'] as const) {
+      renderCard({ result: asTry(await takePhoto(scenario)), source: 'try' })
+      expect(screen.getByText(ONLY_YOU), scenario).toBeTruthy()
+      cleanup()
+    }
+    // A failure, a pause and a missing result are not readings.
+    for (const scenario of ['failed_model_error', 'failed_model_calls_paused'] as const) {
+      renderCard({ result: asTry(await takePhoto(scenario)), source: 'try' })
+      expect(screen.queryByText(ONLY_YOU), scenario).toBeNull()
+      cleanup()
+    }
+    // Other cards don't say it.
+    renderCard({ result: await takePhoto(), source: 'own' })
+    expect(screen.queryByText(ONLY_YOU)).toBeNull()
+  })
+
+  it('says it in Taglish on a Taglish screen', async () => {
+    renderCard({ result: asTry(await takePhoto()), source: 'try' }, 'fil')
+    expect(screen.getByText('Sa iyo lang ipinapakita ang resultang ito. Wala ito sa mapa.')).toBeTruthy()
+  })
+
+  it('a paused try card links to the map only', async () => {
+    renderCard({ result: asTry(await takePhoto('failed_model_calls_paused')), source: 'try' })
+    expect(screen.getByRole('link', { name: 'Map' }).getAttribute('href')).toBe('#/map')
+    expect(screen.queryByRole('link', { name: 'Tested' })).toBeNull()
+    expect(text()).not.toContain('Processing failed')
+  })
+
+  it('a failed try card offers Try again when onNewPhoto is given', async () => {
+    const onNewPhoto = vi.fn()
+    renderCard({ result: asTry(await takePhoto('failed_model_error')), source: 'try', onNewPhoto })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(onNewPhoto).toHaveBeenCalledTimes(1)
+  })
+})
+
 // Task 14: the photo with Lusot's evidence drawn on it, in the card, for a level result with photo links.
 describe('the photo and its overlay', () => {
   const BLURRED = 'Lusot blurred the faces and plates in this photo.'
