@@ -1019,3 +1019,14 @@ describe('from lg', () => {
     expect(mapGroup()).not.toBeNull()
   })
 })
+
+describe('the empty map\'s primary link carries an icon, hidden from screen readers, and keeps its words', () => {
+  beforeEach(() => mockApi('pins_none'))
+
+  it('"Try a sample" has one', async () => {
+    await open()
+    const link = screen.getByRole('link', { name: text('map.trySample') })
+    expect(link.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(link.textContent).toBe(text('map.trySample'))
+  })
+})

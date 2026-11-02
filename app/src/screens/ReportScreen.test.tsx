@@ -1041,3 +1041,16 @@ function holds(value: unknown, test: (leaf: unknown) => boolean): boolean {
   if (value === null || typeof value !== 'object' || value instanceof Blob) return false
   return Object.values(value).some((child) => holds(child, test))
 }
+
+describe('the report screen\'s primary buttons carry an icon, hidden from screen readers, and keep their words', () => {
+  it('"Take a new photo" after a failed send has one', async () => {
+    fakeApi('level_knee', { upload: [reply(201, { unexpected: true })] })
+    await reachPlace()
+    await send()
+    await advance(30_000)
+
+    const newPhoto = button('report.newPhoto')
+    expect(newPhoto.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(newPhoto.textContent).toBe(text('report.newPhoto'))
+  })
+})

@@ -1,3 +1,4 @@
+import { ArrowRightIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Markdown } from '../components/Markdown'
 import consentText from '../content/consent.en.md?raw'
@@ -70,9 +71,10 @@ export function ConsentScreen({
           onClick={() => {
             if (adult) onContinue()
           }}
-          className={`${BUTTON} border-action bg-action text-on-action disabled:cursor-not-allowed disabled:opacity-50`}
+          className={`${BUTTON} inline-flex items-center justify-center gap-2 border-action bg-action text-on-action disabled:cursor-not-allowed disabled:opacity-50`}
         >
           <T k="consent.continue" />
+          <ArrowRightIcon aria-hidden="true" className="size-5 shrink-0" />
         </button>
         <button type="button" onClick={onCancel} className={`${BUTTON} border-outline`}>
           <T k="consent.notNow" />

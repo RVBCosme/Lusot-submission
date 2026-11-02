@@ -171,3 +171,12 @@ describe('the 18+ check', () => {
     expect(screen.queryByTestId('notice')).toBeNull()
   })
 })
+
+describe('the primary button carries an icon, hidden from screen readers, and keeps its words', () => {
+  it('"Continue" has one, and "Not now" does not', () => {
+    renderScreen('adult')
+    expect(continueButton().querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(continueButton().textContent).toBe(EN['consent.continue'].text)
+    expect(screen.getByRole('button', { name: EN['consent.notNow'].text }).querySelector('svg')).toBeNull()
+  })
+})

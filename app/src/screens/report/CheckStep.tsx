@@ -1,3 +1,4 @@
+import { RotateCcwIcon } from 'lucide-react'
 import { useId } from 'react'
 import { T } from '../../i18n'
 import { qualityRefusal, type QualityScores } from '../../lib/quality'
@@ -5,7 +6,7 @@ import { qualityRefusal, type QualityScores } from '../../lib/quality'
 // Pressing a control fills it with ink and turns its text to the page's colour (S5-R6), as elsewhere in the flow.
 const PRESSED = 'enabled:active:border-ink enabled:active:bg-ink enabled:active:text-surface'
 const BUTTON = `min-h-tap min-w-tap rounded-control border px-4 font-bold ${PRESSED}`
-const PRIMARY = `${BUTTON} border-action bg-action text-on-action`
+const PRIMARY = `${BUTTON} inline-flex items-center justify-center gap-2 border-action bg-action text-on-action`
 const SECONDARY = `${BUTTON} border-outline`
 
 // The phone's quality check (C604, Task 10): a photo the server would call too dark or too blurry gets the retake
@@ -46,6 +47,7 @@ export function CheckStep({
       </div>
       <div className="mt-4 flex flex-wrap gap-3">
         <button type="button" onClick={onRetake} className={PRIMARY}>
+          <RotateCcwIcon aria-hidden="true" className="size-5 shrink-0" />
           <T k="report.retake" />
         </button>
         <button type="button" onClick={onSend} className={SECONDARY}>
