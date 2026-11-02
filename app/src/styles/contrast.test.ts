@@ -60,6 +60,23 @@ describe('the token pairs', () => {
   })
 })
 
+// The brand colours on the logo's navy (the loading screen in index.html, the splash screens): text holds 4.5:1
+// (WCAG 1.4.3), the loading bar's fill holds 3:1 (1.4.11). The bar's track and the waves are decoration, which the
+// artwork keeps faint, so they have no pair.
+describe('the brand colours on the navy', () => {
+  const brand = blocks[':root']
+  const TEXT = ['--lusot-brand-pale', '--lusot-brand-mist', '--lusot-brand-dim']
+
+  it.each(TEXT)('%s text holds 4.5:1', (name) => {
+    const ratio = contrastRatio(brand[name], brand['--lusot-brand-navy'])
+    expect(ratio, `${name} on the navy: ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it("the loading bar's fill (the logo's water blue) holds 3:1", () => {
+    expect(contrastRatio(brand['--lusot-brand-water'], brand['--lusot-brand-navy'])).toBeGreaterThanOrEqual(3)
+  })
+})
+
 // The depth fills (C624; Task 3's review, S5-R6). The gauge is the one place that uses them, and it can't lean on a
 // fill alone, so these pairs record what the ramp can and can't hold. If a token moves, the lists below fail, and the
 // gauge's design is looked at again before they are changed.

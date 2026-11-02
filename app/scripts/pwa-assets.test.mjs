@@ -81,6 +81,32 @@ test("the icons' SVG source uses only the tokens' colours, and its first shape f
   assert.match(svg, /viewBox="0 0 512 512"/);
 });
 
+// The brand colours the logo artwork gives (tokens.css's shared block).
+const token = (name) => new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(tokens)[1].toUpperCase();
+const NAVY = token("--lusot-brand-navy");
+const PALE = token("--lusot-brand-pale");
+const WATER = token("--lusot-brand-water");
+const hexes = (svg) => [...svg.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((m) => m[0].toUpperCase());
+// Everything from <defs> to the last </g>: the mark itself, with no background.
+const markBody = (svg) => /<defs>[\s\S]*<\/g>/.exec(svg)?.[0];
+
+test("the master mark is the logo's L-shaped gauge on a transparent square, in the brand's pale and water colours", () => {
+  assert.ok(existsSync(app("brand/lusot-mark.svg")), "the master is committed beside the artwork it was drawn from");
+  const svg = read("brand/lusot-mark.svg");
+  assert.match(svg, /viewBox="0 0 512 512"/);
+  assert.deepEqual([...new Set(hexes(svg))].sort(), [PALE, WATER].sort());
+  assert.doesNotMatch(svg, /<rect width="512" height="512"/, "no background: the foreground layers are cut from it");
+  assert.match(svg, /<clipPath id="lusot-mark-clip">/, "one outline clips the pale gauge and the water");
+  assert.ok(markBody(svg), "the mark sits between <defs> and the closing </g>");
+});
+
+test("the icon is the master's drawing on the brand navy, so the favicon, the PNGs and the master can't drift apart", () => {
+  const icon = read("public/icons/icon.svg");
+  assert.match(icon, new RegExp(`<rect width="512" height="512" fill="${NAVY}"\\s*/>`, "i"), "the first shape is the navy square");
+  assert.deepEqual([...new Set(hexes(icon))].sort(), [NAVY, PALE, WATER].sort());
+  assert.equal(markBody(icon), markBody(read("brand/lusot-mark.svg")));
+});
+
 test("the page's icon is Lusot's own, and Vite's template icon is gone", () => {
   assert.match(html(), /<link rel="icon" type="image\/svg\+xml" href="\/icons\/icon\.svg"\s*\/?>/);
   assert.doesNotMatch(html(), /favicon\.svg/);
