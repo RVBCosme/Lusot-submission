@@ -198,6 +198,10 @@ export function TestedScreen({
         <p className="mt-2 lg:max-w-prose">
           <T k="tested.try.intro" />
         </p>
+        {/* Before a photo is chosen, what Lusot reads best (Rene's option C, Nov 2): the try refusal's own line. */}
+        <p className="mt-2 lg:max-w-prose">
+          <T k="refusal.try.tip" />
+        </p>
         <TryPhoto apiUrl={apiUrl} />
       </Section>
 

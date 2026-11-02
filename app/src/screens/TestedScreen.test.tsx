@@ -856,6 +856,19 @@ describe('your own photo', () => {
     const samples = screen.getByRole('region', { name: text('tested.samples.title') })
     expect(samples.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
+
+  // Rene's option C (Nov 2): the reviewed try tip shows before a photo is chosen, under the intro, so a person picks a
+  // photo Lusot can read. It is the refusal's own line, reused, so there is no new copy.
+  it('the try section shows the photo-choice tip under its intro, before a photo is chosen', async () => {
+    await openWithSamples()
+    const section = screen.getByRole('region', { name: text('tested.try.title') })
+    const intro = within(section).getByText(text('tested.try.intro'))
+    const tip = within(section).getByText(text('refusal.try.tip'))
+    const choose = within(section).getByRole('button', { name: text('try.choose') })
+
+    expect(intro.compareDocumentPosition(tip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(tip.compareDocumentPosition(choose) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
 
 // ---- a saved result while analysis is paused (Step 6) ----
