@@ -161,7 +161,10 @@ def test_a_photo_named_as_sealed_is_refused(tmp_path, monkeypatch):
         ({"license": "CC0 1.0"}, True),
         ({"license": "CC BY 2.0"}, True),
         ({"license": "CC BY 4.0"}, True),
-        ({"license": "Public domain"}, False),
+        # Rene's OK, Nov 2: Wikimedia Commons' own public-domain photos, by this exact value.
+        ({"license": "Public domain"}, True),
+        ({"license": "public domain"}, False),
+        ({"license": "Public domain\n"}, False),
         ({"license": "PDM 1.0"}, False),
         ({"license": "CC BY-SA 4.0"}, False),
         ({"license": "Attribution-ShareAlike 4.0"}, False),

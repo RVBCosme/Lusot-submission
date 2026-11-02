@@ -14,8 +14,9 @@ const UPLOAD_TIMEOUT_MS = 60_000 // the photo: a few hundred KB, maybe over a sl
 const DEVICE_HEADER = 'X-Lusot-Device'
 // A limit's 429 codes (MS4's C522; Ask Lusot's, amendment 4; the day's cap, C534): shown, never retried.
 const LIMIT_CODES = new Set(['device_limit', 'global_cap', 'daily_cap', 'question_limit', 'question_cap'])
-// A sample's licence (C617, MS4's C512): CC0 or CC BY of any version, or MS4's exact value for a consented photo.
-const SAMPLE_LICENCE = /^(CC0( 1\.0)?|CC BY \d(\.\d)?)$/
+// A sample's licence (C617, MS4's C512): CC0 or CC BY of any version, "Public domain" by that exact value (Rene's OK,
+// Nov 2: Wikimedia Commons' own public-domain photos), or MS4's exact value for a consented photo.
+const SAMPLE_LICENCE = /^(CC0( 1\.0)?|CC BY \d(\.\d)?|Public domain)$/
 const CONSENTED_LICENCE = 'used with permission'
 // Task 4's 9 levels and 3 classes. A pin outside them would break the wording of every viewer's map list.
 const KNOWN_LEVELS: ReadonlySet<unknown> = new Set(LEVELS)
