@@ -9,13 +9,17 @@ const overrides = (value) => `[default.deploy.parameters]\nparameter_overrides =
 test("WebHosting is read from samconfig.toml's parameter_overrides", () => {
   assert.equal(webHosting(overrides("AlarmEmail=a BucketSuffix=abc123 WebHosting=off")), "off");
   assert.equal(webHosting(overrides("WebHosting=on AlarmEmail=a BucketSuffix=abc123")), "on");
+  // Nov 2: the website on Amplify Hosting instead, while CloudFront waits for the account's check.
+  assert.equal(webHosting(overrides("AlarmEmail=a WebHosting=amplify BucketSuffix=abc123")), "amplify");
 });
 
-test("a samconfig.toml that doesn't set WebHosting=on or off by name gives null", () => {
+test("a samconfig.toml that doesn't set WebHosting=on, off or amplify by name gives null", () => {
   for (const text of [
     overrides("AlarmEmail=a BucketSuffix=abc123"),
     overrides("AlarmEmail=a WebHosting=true"),
     overrides("AlarmEmail=a WebHosting=On"),
+    overrides("AlarmEmail=a WebHosting=Amplify"),
+    overrides("AlarmEmail=a WebHosting=cloudfront"),
     overrides("AlarmEmail=a NoWebHosting=off"),
     overrides("WebHosting=on WebHosting=off"),
     `# WebHosting=on\n${overrides("AlarmEmail=a")}`,

@@ -102,8 +102,9 @@ describe('the policy', () => {
     ['the original is deleted', /Lusot deletes your original photo as soon as the result is saved\./],
     ['data is kept 7 days', /7 days after the photo was taken/],
     ['there are no accounts and no names', /Lusot has no accounts\. It never asks for your name, email or phone number\./],
-    ['the hosting keeps no visitor logs', /served from Amazon S3 through Amazon CloudFront with access logging off, so the website keeps no visitor's IP address\./],
-    ['the access logs are none kept', /the website's access logs\s*none kept: access logging is off/],
+    // WebHosting=amplify: Rene's own line, Nov 2.
+    ['the website host records each request', /When you open the Lusot website, our hosting service \(AWS Amplify\) records each request, including your IP address, the page asked for and the time\. Lusot doesn't use these records\. They are kept until the website is taken down after the hackathon's judging, by Dec 31, 2026\./],
+    ['the access logs are kept until the take-down', /the website's access logs, kept by AWS Amplify: each request's IP address, page and time\s*until the website is taken down after the hackathon's judging, by Dec 31, 2026/],
     ['demo pins come from consented or openly licensed photos', /people who agreed to share their photos for this, or from openly licensed photos/],
     ['the credits ending pauses analysis and bills nothing', /When the credits run out, analysis pauses[\s\S]*Nothing is billed beyond the credits\./],
     ['Meta receives a spoken question\'s voice clip', /Meta receives a spoken question's voice clip and may keep it under its own terms\./],
@@ -112,8 +113,9 @@ describe('the policy', () => {
     expect(renderPolicy().textContent).toMatch(pattern)
   })
 
-  it('has no Amplify wording and no "photos you take yourself"', () => {
-    expect(privacyText).not.toMatch(/amplify/i)
+  it('names Amplify only in its two website lines, keeps no CloudFront line, and has no "photos you take yourself"', () => {
+    expect(privacyText.match(/amplify/gi)).toHaveLength(2)
+    expect(privacyText).not.toMatch(/CloudFront|access logging is off/)
     expect(privacyText).not.toMatch(/yourself/i)
     expect(privacyText).not.toMatch(/MS5-Q4|PRIV-Q9/)
   })

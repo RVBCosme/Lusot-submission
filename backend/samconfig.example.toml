@@ -13,6 +13,7 @@ capabilities = "CAPABILITY_IAM"
 resolve_s3 = true
 resolve_image_repos = true
 confirm_changeset = false
-# WebHosting=on serves the website through CloudFront; off leaves it out (used from Oct 31 until AWS
-# verifies the account for CloudFront). npm run deploy refuses a samconfig.toml that doesn't set it.
+# WebHosting=on serves the website through CloudFront; amplify serves it from Amplify Hosting instead
+# (Nov 2, while AWS verifies the account for CloudFront); off leaves it out (used from Oct 31).
+# npm run deploy refuses a samconfig.toml that doesn't set it.
 parameter_overrides = "AlarmEmail=REPLACE_WITH_ALARM_EMAIL BucketSuffix=REPLACE_WITH_6_TO_12_LOWERCASE_LETTERS_OR_DIGITS WebHosting=on"
