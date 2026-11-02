@@ -54,18 +54,19 @@ describe('in the APK', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('fills the bar 20 % a second: 20, 40, 60, 80, 100 at 1 to 5 seconds, announced on the progress bar', () => {
+  it('fills the bar 20 % a second: 20 at once, then 40, 60, 80, 100 at 1 to 4 seconds, announced on the progress bar', () => {
     native(true)
     const { boot, bar } = mount()
-    renderAfterBoot(vi.fn())
-    // At the start it is a determinate bar at nothing, not the indeterminate one.
+    const render = vi.fn()
+    renderAfterBoot(render)
+    // At the start it is a determinate bar at its first step, not the indeterminate one.
     expect(bar.getAttribute('aria-valuemin')).toBe('0')
     expect(bar.getAttribute('aria-valuemax')).toBe('100')
-    expect(bar.getAttribute('aria-valuenow')).toBe('0')
+    expect(bar.getAttribute('aria-valuenow')).toBe('20')
     expect(boot.classList.contains('boot-steps')).toBe(true)
-    expect(bar.style.getPropertyValue('--boot-progress')).toBe('0%')
+    expect(bar.style.getPropertyValue('--boot-progress')).toBe('20%')
 
-    for (const percent of [20, 40, 60, 80, 100]) {
+    for (const percent of [40, 60, 80, 100]) {
       vi.advanceTimersByTime(999)
       // Still the step before, until the second is over.
       expect(bar.getAttribute('aria-valuenow'), `just before ${percent}`).toBe(String(percent - 20))
@@ -73,6 +74,14 @@ describe('in the APK', () => {
       expect(bar.getAttribute('aria-valuenow'), `at ${percent}`).toBe(String(percent))
       expect(bar.style.getPropertyValue('--boot-progress'), `fill at ${percent}`).toBe(`${percent}%`)
     }
+    // The full bar is seen for a second: 100 from 4 s, and the render comes only at 5 s.
+    expect(render).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(999)
+    expect(bar.getAttribute('aria-valuenow')).toBe('100')
+    expect(render).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(render).toHaveBeenCalledTimes(1)
+    expect(bar.getAttribute('aria-valuenow')).toBe('100')
   })
 
   it('keeps the bar\'s name, taken from the status text, and the rest of the screen as it was', () => {
@@ -112,13 +121,13 @@ describe('in the APK', () => {
     const { bar } = mount()
     const setAttribute = bar.setAttribute.bind(bar)
     vi.spyOn(bar, 'setAttribute').mockImplementation((name, value) => {
-      if (name === 'aria-valuenow' && value === '40') throw new Error('gone')
+      if (name === 'aria-valuenow' && value === '60') throw new Error('gone')
       setAttribute(name, value)
     })
     const render = vi.fn()
     renderAfterBoot(render)
     vi.advanceTimersByTime(1000)
-    expect(bar.getAttribute('aria-valuenow')).toBe('20')
+    expect(bar.getAttribute('aria-valuenow')).toBe('40')
     expect(render).not.toHaveBeenCalled()
     vi.advanceTimersByTime(1000)
     expect(render).toHaveBeenCalledTimes(1)
