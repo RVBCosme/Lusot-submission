@@ -23,6 +23,13 @@
   --color-depth-7: var(--lusot-depth-7);
   --color-depth-8: var(--lusot-depth-8);
   --color-depth-9: var(--lusot-depth-9);
+  --color-brand-navy: var(--lusot-brand-navy);
+  --color-brand-pale: var(--lusot-brand-pale);
+  --color-brand-water: var(--lusot-brand-water);
+  --color-brand-mist: var(--lusot-brand-mist);
+  --color-brand-dim: var(--lusot-brand-dim);
+  --color-brand-line: var(--lusot-brand-line);
+  --color-brand-wave: var(--lusot-brand-wave);
 
   --font-sans: var(--lusot-font);
   --text-small: var(--lusot-type-small);

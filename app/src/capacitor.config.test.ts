@@ -3,7 +3,10 @@ import androidIgnore from '../android/.gitignore?raw'
 import buildGradle from '../android/app/build.gradle?raw'
 import manifestXml from '../android/app/src/main/AndroidManifest.xml?raw'
 import config from '../capacitor.config.ts'
+import indexHtml from '../index.html?raw'
 import pkg from '../package.json' with { type: 'json' }
+import { tokenBlocks } from './styles/contrast'
+import tokensCss from './styles/tokens.css?raw'
 
 // The Android build's settings that only a manifest or a config file can hold. The manifest is read as text and
 // parsed as XML, so no test needs a Gradle run. Task 17 sets all of them before the first APK stores anything.
@@ -33,6 +36,18 @@ describe('capacitor.config.ts', () => {
   it('names the app in the WebView user agent, with the version of package.json', () => {
     expect(config.appendUserAgent).toBe(`Lusot/${pkg.version}`)
     expect(config.appendUserAgent?.startsWith('Lusot/0.5')).toBe(true)
+  })
+
+  it("paints the WebView in the brand navy, so no white shows between the navy splash and the page's loading screen", () => {
+    expect(config.backgroundColor).toBe(tokenBlocks(tokensCss)[':root']['--lusot-brand-navy'])
+    expect(config.backgroundColor?.toUpperCase()).toBe('#041A3A')
+  })
+
+  it('tells the system bars that the page is edge to edge from the start, so the layout does not jump', () => {
+    // The page sets viewport-fit=cover; the plugin only learns it once the page is loaded, and this hint gives the
+    // first layout the same answer.
+    expect(indexHtml).toContain('viewport-fit=cover')
+    expect(config.plugins?.SystemBars?.initialViewportFitValueHint).toBe('cover')
   })
 })
 

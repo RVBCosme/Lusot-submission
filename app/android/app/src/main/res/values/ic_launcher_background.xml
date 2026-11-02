@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The gauge ink of app/public/icons/icon.svg, behind the adaptive icon's foreground layer. -->
-    <color name="ic_launcher_background">#16181A</color>
+    <!-- The brand navy of app/public/icons/icon.svg (the lusot-brand-navy token), behind the adaptive icon's foreground
+         layer. pwa-assets.test.mjs keeps it equal to the token. -->
+    <color name="ic_launcher_background">#041A3A</color>
 </resources>

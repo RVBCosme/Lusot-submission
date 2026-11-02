@@ -5,13 +5,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomInt } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { gitRunner, historyEntries, identityDomains, claudeSessionCount, main } from "./check_history.mjs";
+import { gitRunner, historyEntries, identityDomains, claudeSessionCount, main, pathRule } from "./check_history.mjs";
 
 const script = fileURLToPath(new URL("./check_history.mjs", import.meta.url));
 const at = "@";
@@ -534,3 +534,14 @@ test("link and address edge cases", () =>
     assert.match(out, new RegExp(`^${c}:docs/.*\\.md email-path$`, "m"));
     assert.doesNotMatch(out, /sentence\.md|remote\.md|region\.md|sha\.md/);
   }));
+
+test("the committed allow-list names the two brand images exactly, and no other file of app/brand is a free image", () => {
+  const allow = JSON.parse(readFileSync(fileURLToPath(new URL("./history-allow.json", import.meta.url)), "utf8"));
+  for (const path of ["app/brand/Lusot-Logo.png", "app/brand/Lusot-Loading-Screen.png"]) {
+    assert.ok(allow.images.includes(path), `${path} is allow-listed by its exact path`);
+    assert.equal(pathRule(path, allow), null, path);
+  }
+  assert.ok(!allow.images.some((glob) => glob.startsWith("app/brand") && glob.includes("*")), "no glob covers the folder");
+  assert.equal(pathRule("app/brand/another.png", allow), "image");
+  assert.equal(pathRule("app/brand/sub/Lusot-Logo.png", allow), "image");
+});

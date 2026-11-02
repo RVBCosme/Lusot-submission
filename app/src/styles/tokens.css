@@ -33,6 +33,18 @@
   --lusot-gutter: 1rem;
   --lusot-tap: 3rem;
   --lusot-radius: 0.25rem;
+
+  /* The brand, sampled from the logo artwork (app/brand/Lusot-Logo.png) and its loading-screen mock. It is the same in
+     both themes: the icons, the splash screens and the loading screen are navy whichever theme the person uses.
+     index.html's loading screen and the icons' SVG repeat these hex values, because they load before this file;
+     pwa-assets.test.mjs and loadingScreen.test.ts keep them equal to it. */
+  --lusot-brand-navy: #041A3A;
+  --lusot-brand-pale: #E1F4FE;
+  --lusot-brand-water: #0A8BFE;
+  --lusot-brand-mist: #AFCEF3;
+  --lusot-brand-dim: #82A5D0;
+  --lusot-brand-line: #183862;
+  --lusot-brand-wave: #0F3158;
 }
 
 /* Light: pole white, gauge ink, wet concrete, signal blue. */

@@ -108,6 +108,35 @@ describe('the colour tokens', () => {
   })
 })
 
+// The owner's logo artwork (app/brand/Lusot-Logo.png) and loading-screen mock, sampled as the median of solid regions,
+// never of an anti-aliased edge. They sit in the shared :root block, because the brand does not change with the theme:
+// the icons, the splash screens and the loading screen are navy whichever theme the person uses.
+const BRAND_COLOURS: Record<string, string> = {
+  '--lusot-brand-navy': '#041A3A',
+  '--lusot-brand-pale': '#E1F4FE',
+  '--lusot-brand-water': '#0A8BFE',
+  '--lusot-brand-mist': '#AFCEF3',
+  '--lusot-brand-dim': '#82A5D0',
+  '--lusot-brand-line': '#183862',
+  '--lusot-brand-wave': '#0F3158',
+}
+
+describe('the brand tokens', () => {
+  it("hold the logo artwork's colours, in the shared block and in neither theme's", () => {
+    expect(blocks[SHARED]).toMatchObject(BRAND_COLOURS)
+    for (const selector of [LIGHT, DARK_SYSTEM, DARK_CHOSEN]) {
+      for (const name of Object.keys(BRAND_COLOURS)) expect(blocks[selector], `${selector} ${name}`).not.toHaveProperty(name)
+    }
+  })
+
+  it('reach Tailwind as colours, like every other token', () => {
+    const theme = indexCss.match(/@theme inline\s*\{([^}]*)\}/)?.[1] ?? ''
+    for (const name of Object.keys(BRAND_COLOURS)) {
+      expect(theme, name).toContain(`--color-${name.replace('--lusot-', '')}: var(${name});`)
+    }
+  })
+})
+
 describe('the type and spacing tokens', () => {
   const shared = blocks[SHARED]
 

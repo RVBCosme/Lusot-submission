@@ -13,6 +13,14 @@ const config: CapacitorConfig = {
   // The default ('debug') logs every plugin result in debug builds, GPS fixes included, and
   // CLAUDE.md never logs exact locations. Debug the WebView with DevTools instead.
   loggingBehavior: 'none',
+  // The WebView's own background, the brand navy (--lusot-brand-navy in src/styles/tokens.css), so no white shows
+  // between the navy splash and the page's navy loading screen.
+  backgroundColor: '#041A3A',
+  plugins: {
+    // The page sets viewport-fit=cover (index.html), and the plugin reads it only once the page is loaded. Saying it
+    // here keeps the first layout from jumping when it does.
+    SystemBars: { initialViewportFitValueHint: 'cover' },
+  },
 }
 
 export default config
