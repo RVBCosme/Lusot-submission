@@ -383,6 +383,8 @@ describe("GET /reports/{id}", () => {
       [{ ...level, mode: "private", visibleUntil: oneSecondPast }, true],
       [without({ ...level, pk: "SAMPLE", mode: "sample" }, "visibleUntil"), true],
       [without({ ...level, pk: "EVAL", mode: "eval" }, "visibleUntil"), true],
+      // A chosen photo (C534) is never a pin, so its links last until expiresAt.
+      [without({ ...level, pk: "TRY", mode: "try" }, "visibleUntil"), true],
       // An unknown mode, or none, gets no links, even while visible.
       [{ ...level, mode: "bogus" }, false],
       [without(level, "mode"), false],

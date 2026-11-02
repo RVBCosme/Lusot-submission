@@ -777,6 +777,7 @@ def test_failed_photo_cleanup_retries_before_paying(aws, fake, monkeypatch, stor
         ("private", ""),
         ("sample", ""),
         ("eval", ""),
+        ("try", ""),
         ("demo", "demo/"),
     ],
 )
@@ -825,6 +826,10 @@ KNEE_RESULT = ("done", "knee")  # the level case's result, as `result` reads it
         ),
         pytest.param(
             "eval", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, False, False, id="eval"
+        ),
+        # C534: a chosen photo's level is never published.
+        pytest.param(
+            "try", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, False, False, id="try"
         ),
         pytest.param(
             "live",

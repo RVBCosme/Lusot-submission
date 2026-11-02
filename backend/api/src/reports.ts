@@ -111,8 +111,8 @@ async function links(report: ReportItem, nowS: number, deps: ReportDeps): Promis
   return signed;
 }
 
-// C503: links are issued for a live or demo pin while it is visible, and for a private, sample or eval
-// report until expiresAt, which the 404 already bounds. Any other mode, or none, gets no links.
+// C503: links are issued for a live or demo pin while it is visible, and for a private, sample, eval or
+// try (C534) report until expiresAt, which the 404 already bounds. Any other mode, or none, gets no links.
 function linksIssued(report: ReportItem, nowS: number): boolean {
   switch (report.mode) {
     case "live":
@@ -121,6 +121,7 @@ function linksIssued(report: ReportItem, nowS: number): boolean {
     case "private":
     case "sample":
     case "eval":
+    case "try":
       return true;
     default:
       return false;

@@ -24,7 +24,7 @@ export const ddbMock = mockClient(DynamoDBDocumentClient);
 export const s3Mock = mockClient(S3Client);
 export const ssmMock = mockClient(SSMClient);
 
-// index.ts's route() and test_template.py's test_routes_match_the_api_router hold these ten.
+// index.ts's route() and test_template.py's test_routes_match_the_api_router hold these eleven.
 export const ROUTE_KEYS = [
   "POST /uploads",
   "GET /reports/{id}",
@@ -34,6 +34,7 @@ export const ROUTE_KEYS = [
   "POST /reports/{id}/flag",
   "GET /samples",
   "POST /samples/{sampleId}",
+  "POST /try",
   "POST /ask",
   "POST /ask/voice",
 ] as const;
@@ -177,6 +178,7 @@ const ROUTE_EVENTS: Record<RouteKey, Partial<APIGatewayProxyEventV2>> = {
   "POST /reports/{id}/flag": { pathParameters: { id: ID } },
   "GET /samples": {},
   "POST /samples/{sampleId}": { pathParameters: { sampleId: SAMPLE_ID } },
+  "POST /try": { body: JSON.stringify({ consentVersion: "0a1b2c3d" }) },
   "POST /ask": { body: JSON.stringify({ question: "May baha ba dito?", here: ASK_HERE }) },
   "POST /ask/voice": { body: JSON.stringify({ audio: VOICE_AUDIO, here: ASK_HERE }) },
 };

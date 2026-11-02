@@ -2,25 +2,31 @@ import { createHash } from "node:crypto";
 import { type DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { json, type JsonResponse } from "./http";
 
-export type Bucket = "upload" | "sample" | "question";
+export type Bucket = "upload" | "sample" | "try" | "question";
 
-// Per UTC clock hour (C508, MS4-Q13): each device's count, then the count in all.
-export const LIMITS: Record<Bucket, { device: number; all: number }> = {
+// Per UTC clock hour (C508, MS4-Q13): each device's count, then the count in all. A bucket with a
+// day also has a cap in all per UTC day (C534), so judging can't drain the Meta credits.
+export const LIMITS: Record<Bucket, { device: number; all: number; day?: number }> = {
   upload: { device: 10, all: 300 },
-  sample: { device: 5, all: 30 },
+  sample: { device: 5, all: 30, day: 150 },
+  try: { device: 3, all: 20, day: 120 },
   question: { device: 20, all: 60 },
 };
 
-// The refusal codes, in one place: C522's for uploads and samples, Ask Lusot's for questions.
+// The refusal codes, in one place: C522's for uploads, samples and chosen photos, Ask Lusot's for questions.
 export const LIMIT_CODES: Record<Bucket, { device: string; all: string }> = {
   upload: { device: "device_limit", all: "global_cap" },
   sample: { device: "device_limit", all: "global_cap" },
+  try: { device: "device_limit", all: "global_cap" },
   question: { device: "question_limit", all: "question_cap" },
 };
+const DAY_CODE = "daily_cap"; // C534
 
 const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const HOUR_S = 3600;
+const DAY_S = 24 * HOUR_S;
 const TTL_S = 2 * HOUR_S; // the counter outlives its hour by an hour
+const DAY_TTL_S = 2 * DAY_S; // and the day's outlives its day by a day
 
 export interface LimitDeps {
   ddb: DynamoDBDocumentClient;
@@ -46,9 +52,9 @@ export function retryAfterS(nowS: number): number {
   return HOUR_S - (nowS % HOUR_S);
 }
 
-// Counts one against the device's hour and then against the hour in all. Null when both
-// allow it, else the 429 that refuses it. The device goes first, so one device can't use up
-// the hour's cap (spec §4.6).
+// Counts one against the device's hour, then against the hour in all, then, for a bucket with a
+// day cap, against the UTC day in all (C534). Null when all allow it, else the 429 that refuses it.
+// The device goes first, so one device can't use up the hour's cap (spec §4.6).
 export async function take(
   bucket: Bucket,
   deviceHeader: string | undefined,
@@ -63,6 +69,17 @@ export async function take(
     // The hour refused it, so the device's count goes back.
     await decrement(device, deps);
     return refuse(LIMIT_CODES[bucket].all, nowS);
+  }
+  const day = LIMITS[bucket].day;
+  if (day !== undefined) {
+    const dayStartS = nowS - (nowS % DAY_S);
+    const dayKey = `${bucket}#ALL#${new Date(dayStartS * 1000).toISOString().slice(0, 10)}`;
+    if (!(await increment(dayKey, day, dayStartS + DAY_TTL_S, deps))) {
+      // The day refused it, so the hour's two counts go back.
+      await decrement(device, deps);
+      await decrement(`${bucket}#ALL#${hour}`, deps);
+      return refuse(DAY_CODE, nowS, dayStartS + DAY_S - nowS);
+    }
   }
   return null;
 }
@@ -107,7 +124,7 @@ async function increment(pk: string, limit: number, expiresAt: number, deps: Lim
   }
 }
 
-function refuse(error: string, nowS: number): JsonResponse {
+function refuse(error: string, nowS: number, afterS = retryAfterS(nowS)): JsonResponse {
   const res = json(429, { error });
-  return { ...res, headers: { ...res.headers, "retry-after": String(retryAfterS(nowS)) } };
+  return { ...res, headers: { ...res.headers, "retry-after": String(afterS) } };
 }

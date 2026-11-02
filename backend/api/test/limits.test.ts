@@ -115,15 +115,16 @@ describe("take", () => {
     expect(await take("upload", DEVICE, AT_10_59, deps())).toBeNull();
   });
 
-  it("sends its exact update and condition, with :limit 10 and 300 for uploads and 5 and 30 for samples", async () => {
+  it("sends its exact update and condition, with :limit 10 and 300 for uploads and 5, 30 and the day's 150 for samples", async () => {
     const expiresAt = Date.parse("2026-10-30T10:00:00Z") / 1000 + 7200;
-    const increment = (pk: string, limit: number) => ({
+    const dayExpiresAt = Date.parse("2026-10-30T00:00:00Z") / 1000 + 2 * 86400;
+    const increment = (pk: string, limit: number, at = expiresAt) => ({
       TableName: "limits",
       Key: { pk },
       UpdateExpression: "ADD #n :one SET #expiresAt = :expiresAt",
       ConditionExpression: "attribute_not_exists(#n) OR #n < :limit",
       ExpressionAttributeNames: { "#n": "n", "#expiresAt": "expiresAt" },
-      ExpressionAttributeValues: { ":one": 1, ":limit": limit, ":expiresAt": expiresAt },
+      ExpressionAttributeValues: { ":one": 1, ":limit": limit, ":expiresAt": at },
     });
     const device = (bucket: string) => `${bucket}#${sha256(DEVICE)}#2026-10-30T10`;
 
@@ -134,6 +135,7 @@ describe("take", () => {
       increment("upload#ALL#2026-10-30T10", 300),
       increment(device("sample"), 5),
       increment("sample#ALL#2026-10-30T10", 30),
+      increment("sample#ALL#2026-10-30", 150, dayExpiresAt),
     ]);
 
     // The give-back, when the hour's cap refuses.
@@ -241,14 +243,16 @@ describe("take for questions", () => {
     expect(LIMIT_CODES).toEqual({
       upload: { device: "device_limit", all: "global_cap" },
       sample: { device: "device_limit", all: "global_cap" },
+      try: { device: "device_limit", all: "global_cap" },
       question: { device: "question_limit", all: "question_cap" },
     });
     const expected: Record<Bucket, [string, string]> = {
       upload: ["device_limit", "global_cap"],
       sample: ["device_limit", "global_cap"],
+      try: ["device_limit", "global_cap"],
       question: ["question_limit", "question_cap"],
     };
-    for (const bucket of ["upload", "sample", "question"] as const) {
+    for (const bucket of ["upload", "sample", "try", "question"] as const) {
       for (let i = 0; i < LIMITS[bucket].device; i++) await take(bucket, DEVICE, AT_10_59, deps());
       const byDevice = await take(bucket, DEVICE, AT_10_59, deps());
       counts.set(`${bucket}#ALL#2026-10-30T10`, LIMITS[bucket].all);
@@ -275,6 +279,89 @@ describe("take for questions", () => {
       expect([body(byDevice).error, byDevice?.headers["retry-after"]]).toEqual(["question_limit", seconds]);
       expect([body(byHour).error, byHour?.headers["retry-after"]]).toEqual(["question_cap", seconds]);
     }
+  });
+});
+
+// "Try your own photo" (C534): its own bucket, and a cap per UTC day for it and for samples, so judging
+// can't drain the Meta credits.
+describe("take for chosen photos and the day caps", () => {
+  const body = (res: Awaited<ReturnType<typeof take>>) => JSON.parse(res?.body ?? "");
+  const DAY_S = 86400;
+
+  it("caps chosen photos at 3 per device and 20 an hour in all, and 120 a UTC day in all", () => {
+    expect(LIMITS.try).toEqual({ device: 3, all: 20, day: 120 });
+    expect(LIMITS.sample).toEqual({ device: 5, all: 30, day: 150 });
+    // Uploads and questions have no day cap.
+    expect(LIMITS.upload).toEqual({ device: 10, all: 300 });
+    expect(LIMITS.question).toEqual({ device: 20, all: 60 });
+  });
+
+  it("refuses a device's 4th chosen photo of the hour with device_limit, before the hour or the day counts it", async () => {
+    for (let i = 0; i < 3; i++) expect(await take("try", DEVICE, AT_10_59, deps())).toBeNull();
+
+    const res = await take("try", DEVICE, AT_10_59, deps());
+
+    expect(res?.statusCode).toBe(429);
+    expect(body(res)).toEqual({ error: "device_limit" });
+    expect(counts.get(`try#${sha256(DEVICE)}#2026-10-30T10`)).toBe(3);
+    expect(counts.get("try#ALL#2026-10-30T10")).toBe(3);
+    expect(counts.get("try#ALL#2026-10-30")).toBe(3);
+  });
+
+  it("refuses the 21st chosen photo of the hour in all with global_cap, and gives the device's count back", async () => {
+    counts.set("try#ALL#2026-10-30T10", 20);
+
+    const res = await take("try", DEVICE, AT_10_59, deps());
+
+    expect(body(res)).toEqual({ error: "global_cap" });
+    expect(counts.get(`try#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    expect(counts.get("try#ALL#2026-10-30")).toBeUndefined();
+  });
+
+  it("refuses the day's 121st chosen photo with daily_cap and a Retry-After to the next UTC midnight, and gives the hour's counts back", async () => {
+    counts.set("try#ALL#2026-10-30", 120);
+
+    const res = await take("try", DEVICE, AT_10_59, deps());
+
+    expect(res?.statusCode).toBe(429);
+    expect(body(res)).toEqual({ error: "daily_cap" });
+    expect(res?.headers["retry-after"]).toBe(String(Date.parse("2026-10-31T00:00:00Z") / 1000 - AT_10_59));
+    expect(counts.get("try#ALL#2026-10-30")).toBe(120);
+    expect(counts.get(`try#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    expect(counts.get("try#ALL#2026-10-30T10")).toBe(0);
+  });
+
+  it("refuses the day's 151st sample run with daily_cap", async () => {
+    counts.set("sample#ALL#2026-10-30", 150);
+
+    const res = await take("sample", DEVICE, AT_10_59, deps());
+
+    expect(body(res)).toEqual({ error: "daily_cap" });
+    expect(counts.get(`sample#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    expect(counts.get("sample#ALL#2026-10-30T10")).toBe(0);
+  });
+
+  it("keys the day as {bucket}#ALL#{YYYY-MM-DD}, kept 2 days from its start, and starts again the next UTC day", async () => {
+    const AT_23_59 = Date.parse("2026-10-30T23:59:59Z") / 1000;
+    const NEXT_DAY = AT_23_59 + 1;
+    counts.set("try#ALL#2026-10-30", 120);
+    expect(body(await take("try", DEVICE, AT_23_59, deps()))).toEqual({ error: "daily_cap" });
+    expect((await take("try", DEVICE, AT_23_59, deps()))?.headers["retry-after"]).toBe("1");
+
+    expect(await take("try", DEVICE, NEXT_DAY, deps())).toBeNull();
+
+    expect(counts.get("try#ALL#2026-10-31")).toBe(1);
+    const day = updates().filter((input) => input.Key?.pk === "try#ALL#2026-10-31");
+    expect(day).toHaveLength(1);
+    expect(day[0].ExpressionAttributeValues).toEqual({ ":one": 1, ":limit": 120, ":expiresAt": NEXT_DAY + 2 * DAY_S });
+  });
+
+  it("never counts a day for uploads or questions", async () => {
+    await take("upload", DEVICE, AT_10_59, deps());
+    await take("question", DEVICE, AT_10_59, deps());
+
+    expect(updates().map((input) => input.Key?.pk)).not.toContain("upload#ALL#2026-10-30");
+    expect(updates()).toHaveLength(4);
   });
 });
 
