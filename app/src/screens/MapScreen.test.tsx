@@ -806,6 +806,47 @@ describe('with no live and no demo pin', () => {
     expect(within(cards[0] as HTMLElement).getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
   })
 
+  // The example is a result card made by hand, so it words the level as the card does (C639): the verdict as the headline,
+  // what it is the class of, the level line a step smaller, then the depth range among the notes. No class line of the old
+  // kind, which the verdict replaced.
+  it("words the example like a result card: the verdict, whose class it is, the level line, then the depth range", async () => {
+    await open()
+    const card = within(screen.getAllByRole('article')[0] as HTMLElement)
+    const verdict = card.getByText('Verdict at this spot: Not passable to light vehicles')
+    const sub = card.getByText("MMDA's class for the knee level.")
+    const level = card.getByText('Knee deep at this spot (MMDA level).')
+    const landmark = card.getByText("Water reaches three quarters of the way up a parked car's wheel rim.")
+    const depth = card.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')
+    const basis = card.getByText('From 2 reference objects.')
+
+    // The card's sizes: the verdict is the bold headline, its sub-line is small, the level line is a step below the headline.
+    expect(verdict.className).toMatch(/\btext-title\b/)
+    expect(verdict.className).toMatch(/\bfont-bold\b/)
+    expect(sub.className).toMatch(/\btext-small\b/)
+    expect(level.className).toMatch(/\btext-heading\b/)
+    expect(level.className).toMatch(/\bfont-bold\b/)
+    // The card's order, and the depth line among the notes, after the landmark and before the basis.
+    const follows = (a: HTMLElement, b: HTMLElement) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect([follows(verdict, sub), follows(sub, level), follows(level, landmark), follows(landmark, depth), follows(depth, basis)]).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+    ])
+    expect(depth.closest('[role="status"]')).toBeNull()
+    expect(card.queryByText(/MMDA lists this level/)).toBeNull()
+  })
+
+  it('words the example in Taglish too, with the same lines as a result card', async () => {
+    await open({ lang: 'fil' })
+    const card = within(screen.getAllByRole('article')[0] as HTMLElement)
+    expect(card.getByText('Verdict sa spot na ito: Hindi passable sa light vehicles')).toBeTruthy()
+    expect(card.getByText('Ang class ng MMDA para sa knee level.')).toBeTruthy()
+    expect(card.getByText('Lalim: knee level, mga 0.33 hanggang 0.48 m (13 hanggang 19 in).')).toBeTruthy()
+    expect(card.queryByText(/inililista ng MMDA/)).toBeNull()
+  })
+
   it('never pins the example, and never says a place is dry or passable', async () => {
     await open()
     expect(markers()).toHaveLength(0)

@@ -101,8 +101,19 @@ it("D19's English refusal and its Taglish are reviewed, and so is every line Ren
   expect(FIL['report.refused.gps_too_coarse'].reviewed).toBe(true)
 })
 
-it("screen-line keys are the refusal, reason, refusal tip, retake, consent and privacy lines, and Ask Lusot's answer", () => {
-  for (const key of ['refusal.d19', 'reason.too_dark', 'tip.no_usable_reference', 'retake.tip', 'consent.title', 'privacy.title', 'ask.answer.crossing']) {
+it("screen-line keys are the refusal, reason, refusal tip, retake, consent and privacy lines, Ask Lusot's answer and the verdict", () => {
+  for (const key of [
+    'refusal.d19',
+    'reason.too_dark',
+    'tip.no_usable_reference',
+    'retake.tip',
+    'consent.title',
+    'privacy.title',
+    'ask.answer.crossing',
+    'verdict.patv',
+    'verdict.mayBeDeeper',
+    'verdict.unknownDepth',
+  ]) {
     expect(isScreenLineKey(key as StringKey), key).toBe(true)
   }
   const others = ['nav.map', 'layout.screenLine', 'about.notAffiliated', 'about.privacy.link', 'reasonable.x', 'ask.ui.send', 'ask.error.voiceFailed']
@@ -147,6 +158,18 @@ it('resolveText shows a screen-line key in Taglish once its Taglish is reviewed'
   withEntry(FIL, 'reason.too_dark', { ...draft, reviewed: true }, () => {
     expect(resolveText('fil', 'reason.too_dark')).toEqual({ text: draft.text, lang: 'fil' })
   })
+})
+
+// The verdict says "Passable" or "No verdict" about a spot, so an unreviewed Taglish edit to it can't reach a screen (C639).
+it('resolveText keeps an unreviewed verdict line in English on a Taglish screen, and shows it once reviewed', () => {
+  for (const key of ['verdict.patv', 'verdict.mayBeDeeper', 'verdict.unknownDepth'] as const) {
+    const draft = FIL[key]
+    expect(draft.reviewed, key).toBe(true)
+    expect(resolveText('fil', key), key).toEqual({ text: draft.text, lang: 'fil' })
+    withEntry(FIL, key, { ...draft, reviewed: false }, () => {
+      expect(resolveText('fil', key), key).toEqual({ text: EN[key].text, lang: 'en' })
+    })
+  }
 })
 
 it('makeT fills {name} placeholders and leaves the rest as they are', () => {

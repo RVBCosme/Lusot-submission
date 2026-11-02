@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest'
+import rulesMd from '../../../eval/rules.md?raw'
 import rulesPy from '../../../backend/analysis/src/lusot_analysis/rules.py?raw'
 import { EN } from '../i18n/en'
 import geometryPy from '../../../backend/analysis/src/lusot_analysis/pipeline/geometry.py?raw'
@@ -15,7 +16,11 @@ import {
   PASSABILITY,
   PEOPLE_LANDMARKS,
   REFUSED_REASONS,
+  UPPER_LIMIT_IN,
   WHEEL_LANDMARKS,
+  lowerLimitIn,
+  toMetres,
+  type Level,
 } from './levels'
 
 // The body of the Python literal that starts at `start` (for example `LEVELS: tuple[str, ...] = (`), up to the
@@ -150,4 +155,44 @@ it("the drop causes are the ones the pipeline writes into a dropped reference's 
     .map((key) => key.slice('dropped.'.length))
     .sort()
   expect(lines).toEqual([...written, 'other'].sort())
+})
+
+// The depth limits and classes of eval/rules.md's level table, which the fixed evaluation rules and the depth line both
+// rest on. The test reads that file's table and holds the app's three copies of it (LEVELS, UPPER_LIMIT_IN and
+// PASSABILITY) to it row by row, so a change to either side fails here instead of drifting.
+it("the level table of eval/rules.md matches LEVELS, UPPER_LIMIT_IN and PASSABILITY, row by row", () => {
+  const rows = rulesMd
+    .split(/\r?\n/)
+    .map((line) => /^\|\s*(\d+)\s*\|\s*(\w+)\s*\|\s*d\s*(≤|>)\s*(\d+)\s*\|\s*(PATV|NPLV|NPATV)\s*\|\s*$/.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+  expect(rows, 'the 9 rows of rules.md §1 are found').toHaveLength(9)
+  rows.forEach(([, index, level, sign, limit, cls], position) => {
+    expect(Number(index), level).toBe(position)
+    expect(LEVELS[position], `row ${position}`).toBe(level)
+    // "d ≤ n" closes a level at n inches; the last row, "d > n", has no upper limit.
+    expect(UPPER_LIMIT_IN[level as Level], level).toBe(sign === '≤' ? Number(limit) : null)
+    expect(PASSABILITY[level as Level], level).toBe(cls)
+  })
+  expect(Object.keys(UPPER_LIMIT_IN)).toEqual([...LEVELS])
+  // The last level is open above the last limit, which is the previous level's upper limit: read from the "d > n" row.
+  expect(UPPER_LIMIT_IN.above_chest).toBeNull()
+  const open = rows.find(([, , , sign]) => sign === '>')
+  expect(open, 'the open row "d > n" is found').toBeDefined()
+  expect(UPPER_LIMIT_IN.chest).toBe(Number((open as RegExpExecArray)[4]))
+})
+
+it("a level's lower limit is the previous level's upper limit, and the first level starts at 0", () => {
+  expect(LEVELS.map((level) => lowerLimitIn(level))).toEqual([0, 5, 8, 10, 13, 19, 26, 37, 45])
+  for (const level of LEVELS.slice(1)) {
+    expect(lowerLimitIn(level), level).toBe(UPPER_LIMIT_IN[LEVELS[LEVELS.indexOf(level) - 1]])
+  }
+})
+
+// Metres are inches times 0.0254, shown to 2 places. Models never output inches; code does the measuring (CLAUDE.md).
+it('the metres of each level limit are pinned: 0.13, 0.20, 0.25, 0.33, 0.48, 0.66, 0.94 and 1.14', () => {
+  const upper = LEVELS.map((level) => UPPER_LIMIT_IN[level]).filter((limit): limit is number => limit !== null)
+  expect(upper.map(toMetres)).toEqual(['0.13', '0.20', '0.25', '0.33', '0.48', '0.66', '0.94', '1.14'])
+  expect(toMetres(0)).toBe('0.00')
+  expect(toMetres(15)).toBe('0.38')
+  expect(toMetres(14.9)).toBe('0.38')
 })

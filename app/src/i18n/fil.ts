@@ -208,8 +208,7 @@ export const FIL: Record<StringKey, Entry> = {
   },
   // The wording of results (MS5 Task 4). Claude's drafts, passed in the M20 review. MMDA's own level
   // names stay in English, as people say them. The reason lines show their English text until reviewed (C619).
-  // C637's two lines, drafted for Rene. Refusal keys show English on a Taglish screen until reviewed (C619).
-  'refusal.sample.cantTell': { text: 'Hindi masabi ng Lusot mula sa photo na ito.', reviewed: true },
+  // C637's line, drafted for Rene. Refusal keys show English on a Taglish screen until reviewed (C619).
   'refusal.sample.someoneWouldSee': {
     text: 'Ito ang makikita ng sinumang magre-report sa spot na ito:',
     reviewed: true,
@@ -245,6 +244,22 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'result.class.aboveChest': {
     text: 'Mas malalim sa chest level ng MMDA, na inililista ng MMDA bilang hindi passable sa anumang sasakyan (NPATV).',
+    reviewed: true,
+  },
+  // C639 (Rene, Nov 2): the verdict at this spot and the level's depth range, as in en.ts. MMDA's class names stay
+  // in English, as people say them.
+  'verdict.patv': { text: 'Verdict sa spot na ito: Passable sa lahat ng sasakyan', reviewed: true },
+  'verdict.nplv': { text: 'Verdict sa spot na ito: Hindi passable sa light vehicles', reviewed: true },
+  'verdict.npatv': { text: 'Verdict sa spot na ito: Hindi passable sa anumang sasakyan', reviewed: true },
+  'verdict.classOf': { text: 'Ang class ng MMDA para sa {level} level.', reviewed: true },
+  'verdict.mayBeDeeper': { text: 'Walang verdict: maaaring mas malalim ang tubig kaysa sa {level} level.', reviewed: true },
+  'verdict.none': { text: 'Walang verdict: hindi masabi ng Lusot mula sa photo na ito.', reviewed: true },
+  'verdict.unknownDepth': { text: 'Walang verdict: hindi masabi ng Lusot kung gaano kalalim ang tubig.', reviewed: true },
+  'depth.range': { text: 'Lalim: {level} level, mga {minM} hanggang {maxM} m ({minIn} hanggang {maxIn} in).', reviewed: true },
+  'depth.upTo': { text: 'Lalim: {level} level, hanggang {maxM} m ({maxIn} in).', reviewed: true },
+  'depth.over': { text: 'Lalim: {level} level, lampas {minM} m ({minIn} in).', reviewed: true },
+  'depth.floor': {
+    text: 'Lalim: {level} level o mas malalim, hindi bababa sa {minM} m ({minIn} in).',
     reviewed: true,
   },
   'result.landmark.tire_only': {
@@ -294,8 +309,8 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'result.basis.one': { text: 'Mula sa {count} reference object.', reviewed: true },
   'result.basis.other': { text: 'Mula sa {count} reference object.', reviewed: true },
-  'result.inches.range': { text: 'Tinatayang {min} hanggang {max} in.', reviewed: true },
-  'result.inches.same': { text: 'Tinatayang {min} in.', reviewed: true },
+  'result.inches.range': { text: 'Tinatayang {min} hanggang {max} in ({minM} hanggang {maxM} m).', reviewed: true },
+  'result.inches.same': { text: 'Tinatayang {min} in ({minM} m).', reviewed: true },
   'result.levelFrom.geometry': { text: 'Sinukat mula sa laki ng rim ng gulong.', reviewed: true },
   'result.noFlood': { text: 'Walang bahang nakita sa spot na ito.', reviewed: true },
   'result.failed': { text: 'Nabigo ang pagproseso, subukan ulit.', reviewed: true },
@@ -331,7 +346,7 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: true,
   },
   'reason.no_usable_reference': {
-    text: 'Walang kotse o tao sa photo na magagamit para basahin ang lalim.',
+    text: 'Hindi nagamit ng Lusot ang anumang kotse o tao sa photo na ito para basahin ang lalim.',
     reviewed: true,
   },
   'reason.references_disagree': {
