@@ -85,11 +85,23 @@ describe('the notice', () => {
     renderScreen('notice')
 
     expect(within(notice()).getByRole('heading', { level: 1 }).textContent).toBe('Before your first photo or question')
-    expect(within(notice()).getAllByRole('listitem')).toHaveLength(7)
+    expect(within(notice()).getAllByRole('listitem')).toHaveLength(8)
     expect(notice().querySelector('input, button, a')).toBeNull()
     expect(notice().textContent).not.toContain(SCREEN_LINE)
     expect(notice().textContent).not.toContain(NOT_AFFILIATED)
     expect(consentText).not.toMatch(/\[ \]|\[Continue\]|\[Not now\]|Read the privacy policy/)
+  })
+
+  it('puts the chosen-photo bullet right after the public-pin bullet', () => {
+    renderScreen('notice')
+    const bullets = within(notice())
+      .getAllByRole('listitem')
+      .map((item) => item.textContent ?? '')
+    const pin = bullets.findIndex((bullet) => bullet.startsWith('A reading inside Metro Manila becomes a public pin'))
+    const chosen = bullets.findIndex((bullet) => bullet.startsWith('You can also choose a photo from your device'))
+
+    expect(pin).toBeGreaterThan(-1)
+    expect(chosen).toBe(pin + 1)
   })
 
   it('on #/report, the page holds the screen line once, in the bar, not in the notice', () => {
@@ -113,6 +125,8 @@ describe('the notice', () => {
     ['the map images show OpenStreetMap the area, within about 300 m', /Placing the pin loads OpenStreetMap's map images[^.]*the area on your screen, within about 300 m of you\./],
     ['a spoken question goes to Meta as a voice clip', /for a spoken question, its voice clip of up to 15 seconds, which Meta's speech service turns into text\./],
     ['no accounts, no names', /No accounts, no names\./],
+    // The Tested page's "Try your own photo" (C534, C640): a chosen photo is handled as a report's is.
+    ['a photo chosen from the device is handled the same way, and its result is only the person\'s', /You can also choose a photo from your device on the Tested page\. It's handled the same way: faces blurred first, then sent to Meta, which may use it to improve its products\. Its result is shown only to you, never put on the map, and the report is deleted after 7 days\./],
     // WebHosting=amplify (Rene, Nov 2).
     ['the website host records each request', /When you use the website, its hosting service \(AWS Amplify\) records each request with your IP address, kept until the website is taken down, by Dec 31, 2026\./],
   ])('says %s', (_what, pattern) => {

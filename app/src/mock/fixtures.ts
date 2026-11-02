@@ -366,7 +366,7 @@ function dryLayers(): OverlayData {
 
 export interface ReportFacts {
   reportId: string
-  mode: 'live' | 'private' | 'sample' | 'demo'
+  mode: 'live' | 'private' | 'sample' | 'demo' | 'try'
   published: boolean
   capturedAt: string
   gpsAccuracyM?: number

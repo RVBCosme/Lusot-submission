@@ -14,7 +14,7 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 
 | What | When | Why |
 |---|---|---|
-| A photo you take in the app | when you report | to estimate the depth at that spot |
+| A photo you take in the app, or one you choose on the Tested page | when you send it | to estimate the depth shown in it |
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |
@@ -28,7 +28,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 
 1. **Faces are blurred automatically before Meta receives the photo.** On Lusot's own server, a face detector that isn't Meta's blurs the faces it finds. Automatic blurring can miss some faces: very small, side-on, partly covered or in the dark. A face it misses reaches Meta unblurred.
 2. **Meta analyses the face-blurred photo.** Lusot sends it to Meta's AI service, which outlines the water, wheels and people and names where the water reaches. Licence plates are not blurred before Meta receives the photo, only before Lusot stores it. So Meta receives them, along with everything else in the photo, such as bodies, clothes, houses and signs.
-3. **Meta may use what it receives to improve its products.** While Meta's hackathon credits pay for Lusot's calls, Meta's billing page says content sent under those credits may be used for product improvement. When the credits run out, analysis pauses, and the app says "New analyses are paused right now. The map and the Tested page still work." Nothing is billed beyond the credits. Lusot uses photos only to estimate depth at one spot and show that result.
+3. **Meta may use what it receives to improve its products.** While Meta's hackathon credits pay for Lusot's calls, Meta's billing page says content sent under those credits may be used for product improvement. If the credits run out before the hackathon's judging ends, Lusot pays for the analysis itself. Analysis pauses after the judging (Nov 10, 2026, Manila time), or sooner at a fixed spending limit, and the app says "New analyses are paused right now. The map and the Tested page still work." You are never charged. Lusot uses photos only to estimate depth at one spot and show that result.
 4. **Faces and plates are blurred before Lusot keeps a copy.** Until the analysis ends, your original waits in a private storage area that only Lusot's analysis and its administrator can open. Then faces are blurred again, and licence plates are blurred, using the outlines Meta returns, which can also miss some. Other details in the photo stay visible.
 5. **The original is deleted.** Lusot deletes your original photo as soon as the result is saved. An automatic rule removes any original left behind, usually within two days, for example after a failed analysis.
 6. **Only a blurred copy is kept,** and only when Lusot gives a level.
@@ -54,6 +54,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 - **The pin feed** carries only what the map shows, never photos, outlines or device ids. Other flood maps may copy pins from the feed, and Lusot can't delete their copies.
 - **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos. They come from people who agreed to share their photos for this, or from openly licensed photos (CC0, public domain or CC BY, never BY-SA, from Wikimedia Commons and Flickr). Each is credited on screen with its author, licence and a link to the file. Faces and plate numbers are blurred in all of them. An open-licensed demo pin shows the photo's own date, marked as an archive photo, and is always shown as a demo pin. They stay up longer than 3 hours and 7 days, and never count as reports.
 - **Outside Metro Manila.** A photo taken outside Metro Manila is analysed, and the result is shown only to you. It never becomes a pin. The photo still goes to Meta as described above, and the report is kept for 7 days like any other.
+- **A photo you choose.** On the Tested page you can choose a photo from your device instead of taking one. Your device re-saves it first, which drops details stored in the file, such as where it was taken. It is analysed the same way and goes to Meta as described above. The result is shown only to you, never becomes a pin, and the report is kept for 7 days like any other.
 
 ## Ask Lusot
 

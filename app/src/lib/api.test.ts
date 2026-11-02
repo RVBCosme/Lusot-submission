@@ -16,6 +16,7 @@ import {
   postToS3,
   RequestTimeoutError,
   type Reading,
+  requestTry,
   requestUpload,
   runSample,
 } from './api'
@@ -459,6 +460,43 @@ it('runSample throws HttpError on a 503 uploads_paused and a 404 not_found', asy
 it('runSample throws on a 201 without a report id', async () => {
   // Polling "undefined" for 10 minutes would only end on "No result yet".
   await expect(runSample(API, 'manila-espana-01', DEVICE, fetchReplying(json(201, {})))).rejects.toThrow()
+})
+
+it('requestTry sends only consentVersion with the device header and returns the link', async () => {
+  const fetchFn = fetchReplying(json(201, { reportId: ID, upload: UPLOAD, expiresInS: 300 }))
+
+  const result = await requestTry(API, '0a1b2c3d', DEVICE, fetchFn)
+
+  expect(result).toEqual({ reportId: ID, upload: UPLOAD })
+  expect(fetchFn).toHaveBeenCalledOnce()
+  const [url, init] = fetchFn.mock.calls[0]
+  expect(url).toBe(`${API}/try`)
+  expect(init?.method).toBe('POST')
+  expect(headersOf(fetchFn).get('content-type')).toBe('application/json')
+  expect(headersOf(fetchFn).get('x-lusot-device')).toBe(DEVICE)
+  expect(init?.body).toBe('{"consentVersion":"0a1b2c3d"}')
+})
+
+it.each([
+  [503, 'model_calls_paused', false],
+  [429, 'daily_cap', true],
+])("requestTry throws HttpError with the API's code: %i %s", async (status, code, isDeviceLimit) => {
+  const refused = requestTry(API, '0a1b2c3d', DEVICE, fetchReplying(json(status, { error: code })))
+
+  await expect(refused).rejects.toBeInstanceOf(HttpError)
+  await expect(refused).rejects.toMatchObject({ status, code, isDeviceLimit })
+})
+
+it.each([
+  ['a null body', null],
+  ['no upload', { reportId: ID, expiresInS: 300 }],
+  ['a report id that is not text', { reportId: 42, upload: UPLOAD }],
+  ['an upload without a url', { reportId: ID, upload: { fields: UPLOAD.fields } }],
+])('requestTry throws MalformedAnswerError on a 201 with %s', async (_, body) => {
+  const attempt = requestTry(API, '0a1b2c3d', DEVICE, fetchReplying(json(201, body)))
+
+  await expect(attempt).rejects.toBeInstanceOf(MalformedAnswerError)
+  await expect(attempt).rejects.toMatchObject({ name: 'MalformedAnswerError' })
 })
 
 it('flagPin posts to the pin and gives its count, a repeat included', async () => {

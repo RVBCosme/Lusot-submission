@@ -231,6 +231,13 @@ export const EN = {
   // the M20 review passed the other names, the lines for a floor on an added level and every other line below.
   // C637: a sample's refusal doesn't ask a judge to retake a photo they didn't take, so D19's line sits inside a frame.
   'refusal.sample.someoneWouldSee': { text: 'Someone reporting this spot would see:', reviewed: true },
+  // The tracker's ruling (C637): a photo the person chose isn't one to retake, so its refusal has no D19 and no retake
+  // tip, only what Lusot reads best. It was approved as written at M20 by the tracker under Rene's delegation (Nov 2,
+  // before 5:05 PM by the clock).
+  'refusal.try.tip': {
+    text: "Lusot reads depth best from a photo with a parked car's wheel or a person standing still in view.",
+    reviewed: true,
+  },
   'result.levelName.below_gutter': { text: 'below gutter', reviewed: true },
   'result.levelName.gutter': { text: 'gutter', reviewed: true },
   'result.levelName.half_knee': { text: 'half-knee', reviewed: true },
@@ -328,6 +335,8 @@ export const EN = {
     text: "Taken outside Metro Manila, so only you see this result. It isn't on the map.",
     reviewed: true,
   },
+  // A photo the person chose on the Tested page (C534, C640).
+  'result.try': { text: "This result is shown only to you. It isn't on the map.", reviewed: true },
   'result.noResult': { text: 'No result yet. The analysis is taking longer than usual.', reviewed: true },
   'result.checkAgain': { text: 'Check again', reviewed: true },
   'result.tryAgain': { text: 'Try again', reviewed: true },
@@ -629,6 +638,41 @@ export const EN = {
   },
   'sample.limit.global_cap': {
     text: 'Lusot has run as many samples as it can for now. Try again later.',
+    reviewed: true,
+  },
+  'sample.limit.daily_cap': {
+    text: 'Lusot has run as many samples as it can today. Try again later.',
+    reviewed: true,
+  },
+  // A photo the person chooses on the Tested page (C534, C640). Its result is shown only to them, and a limit names no
+  // time, as a sample's doesn't. Each line was approved as written at M20 by the tracker under Rene's delegation
+  // (Nov 2, before 5:05 PM by the clock).
+  'tested.try.title': { text: 'Try your own photo', reviewed: true },
+  'tested.try.intro': {
+    text: 'Choose a flood photo from your device. Lusot reads it the same way as a photo you take, and shows the result only to you. It never goes on the map, and Lusot keeps the report for 7 days.',
+    reviewed: true,
+  },
+  'try.choose': { text: 'Choose a photo', reviewed: true },
+  'try.chooseAnother': { text: 'Choose another photo', reviewed: true },
+  'try.inputLabel': { text: 'Flood photo from your device', reviewed: true },
+  'try.reading': { text: 'Lusot is reading your photo.', reviewed: true },
+  'try.unsupported': { text: 'Lusot can read a JPEG, PNG or WebP photo. Choose another photo.', reviewed: true },
+  'try.unreadable': { text: "Lusot couldn't open this photo. Choose another photo.", reviewed: true },
+  'try.noApi': { text: "This build can't read photos.", reviewed: true },
+  'try.sendFailed': {
+    text: "Lusot couldn't send your photo. Check your connection and try again.",
+    reviewed: true,
+  },
+  'try.limit.device_limit': {
+    text: 'This device has tried as many photos as Lusot allows in an hour. Try again later.',
+    reviewed: true,
+  },
+  'try.limit.global_cap': {
+    text: 'Lusot has read as many chosen photos as it can for now. Try again later.',
+    reviewed: true,
+  },
+  'try.limit.daily_cap': {
+    text: 'Lusot has read as many chosen photos as it can today. Try again later.',
     reviewed: true,
   },
   // Ask Lusot (its spec §4.4, §4.10, plan Task 14): the screen's controls and errors (ask.ui., ask.error.), and the
