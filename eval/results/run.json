@@ -1,0 +1,53 @@
+{
+  "kind": "sealed",
+  "date": "2026-11-03",
+  "rules_version": "0.11",
+  "freeze_commit": "cf9191f3145c0571d99dadf00ee177554a5afa35",
+  "frozen": {
+    "sam_model": "sam-3.1",
+    "spark_model": "muse-spark-1.3",
+    "prompt": "muse_spark_photo_v1",
+    "schema": "muse_spark_photo_v1",
+    "drawing": "boxes-v1",
+    "blur": "yunet-2023mar/multiscale-1-0.5-0.25/pixelate-gauss-v2",
+    "store": "false",
+    "max_side": "1600",
+    "sam_phrases": "floodwater,wheel,wheel rim,person,vehicle",
+    "tuning": "tuning-v2",
+    "touch_tolerance_px": "5.0",
+    "touch_share_min": "0.25",
+    "ragged_iqr_share": "0.1",
+    "daylight_brightness_min": "80.0",
+    "rim_score_min": "0.5",
+    "rim_size_low": "0.85",
+    "rim_size_high": "1.15",
+    "rim_edge_k": "1.0",
+    "brightness_min": "40.0",
+    "sharpness_min": "25.0",
+    "min_wheel_side_px": "40",
+    "max_vehicles": "6",
+    "max_people": "6",
+    "min_person_side_px": "60",
+    "no_flood_share_max": "0.25",
+    "tire_codes": "tire-codes-v2",
+    "reasoning_effort": "default",
+    "untuned": "no"
+  },
+  "datasets": {
+    "set_a": {
+      "version": "2026-11-02-split",
+      "split_seed": "20261030"
+    },
+    "a_neg": {
+      "version": "2026-11-02-split",
+      "split_seed": "20261030"
+    }
+  },
+  "self_check": "off",
+  "self_check_decided": "2026-10-30",
+  "geometry_default": "on",
+  "baseline_level": "gutter",
+  "baseline_class": null,
+  "stops": [],
+  "service_retries": 0
+}

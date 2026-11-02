@@ -1,0 +1,64 @@
+{
+  "baseline_class": null,
+  "baseline_level": "gutter",
+  "configurations": {
+    "geometry": {
+      "coverage": {
+        "k": 1,
+        "n": 6
+      },
+      "exact": {
+        "k": 0,
+        "n": 1
+      },
+      "failed": 0,
+      "passability": {
+        "k": 0,
+        "n": 0
+      },
+      "refused": 5,
+      "underestimation": {
+        "k": 0,
+        "n": 1
+      },
+      "within_one": {
+        "k": 0,
+        "n": 1
+      }
+    },
+    "landmark": {
+      "coverage": {
+        "k": 1,
+        "n": 6
+      },
+      "exact": {
+        "k": 0,
+        "n": 1
+      },
+      "failed": 0,
+      "passability": {
+        "k": 0,
+        "n": 0
+      },
+      "refused": 5,
+      "underestimation": {
+        "k": 0,
+        "n": 1
+      },
+      "within_one": {
+        "k": 0,
+        "n": 1
+      }
+    }
+  },
+  "date": "2026-11-03",
+  "geometry_stays": false,
+  "inches_shown": false,
+  "kind": "sealed",
+  "rerun": false,
+  "rules_version": "0.11",
+  "service_retries": 0,
+  "set_b": null,
+  "shipped": "landmark",
+  "synthetic": false
+}

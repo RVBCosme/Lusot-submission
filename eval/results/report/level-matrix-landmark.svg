@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="500" viewBox="0 0 560 500" role="img" aria-labelledby="title desc">
+<title id="title">Landmark alone: the alert's level against Lusot's</title>
+<desc id="desc">Answered Set A photos counted by the alert's level, down the side with the deepest at the top, and Lusot's level, across with no flood seen first. The outlined cells are exact agreement.</desc>
+<style>
+svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.surface { fill: var(--surface); }
+text { font-size: 12px; }
+.tick { fill: var(--muted); }
+.label { fill: var(--ink-2); }
+.end { text-anchor: end; }
+.mid { text-anchor: middle; }
+.cell { fill: var(--surface); }
+.s1 { fill: #86b6ef; }
+.n1 { fill: #0b0b0b; }
+.s2 { fill: #3987e5; }
+.n2 { fill: #ffffff; }
+.s3 { fill: #1c5cab; }
+.n3 { fill: #ffffff; }
+.s4 { fill: #0d366b; }
+.n4 { fill: #ffffff; }
+.diag { stroke: var(--axis); stroke-width: 1px; }
+.count { font-size: 13px; font-weight: 600; text-anchor: middle; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835; }
+  .s1 { fill: #184f95; }
+  .n1 { fill: #ffffff; }
+  .s2 { fill: #2a78d6; }
+  .n2 { fill: #ffffff; }
+  .s3 { fill: #6da7ec; }
+  .n3 { fill: #0b0b0b; }
+  .s4 { fill: #b7d3f6; }
+  .n4 { fill: #0b0b0b; }
+}
+</style>
+<rect class="surface" width="560" height="500"/>
+<text class="tick end" x="128" y="56">above_chest</text>
+<rect class="cell" x="137" y="33" width="38" height="38"/>
+<rect class="cell" x="177" y="33" width="38" height="38"/>
+<rect class="cell" x="217" y="33" width="38" height="38"/>
+<rect class="cell" x="257" y="33" width="38" height="38"/>
+<rect class="cell" x="297" y="33" width="38" height="38"/>
+<rect class="cell" x="337" y="33" width="38" height="38"/>
+<rect class="cell" x="377" y="33" width="38" height="38"/>
+<rect class="cell" x="417" y="33" width="38" height="38"/>
+<rect class="cell" x="457" y="33" width="38" height="38"/>
+<rect class="cell diag" x="497" y="33" width="38" height="38"/>
+<text class="tick end" x="128" y="96">chest</text>
+<rect class="cell" x="137" y="73" width="38" height="38"/>
+<rect class="cell" x="177" y="73" width="38" height="38"/>
+<rect class="cell" x="217" y="73" width="38" height="38"/>
+<rect class="cell" x="257" y="73" width="38" height="38"/>
+<rect class="cell" x="297" y="73" width="38" height="38"/>
+<rect class="cell" x="337" y="73" width="38" height="38"/>
+<rect class="cell" x="377" y="73" width="38" height="38"/>
+<rect class="cell" x="417" y="73" width="38" height="38"/>
+<rect class="cell diag" x="457" y="73" width="38" height="38"/>
+<rect class="cell" x="497" y="73" width="38" height="38"/>
+<text class="tick end" x="128" y="136">waist</text>
+<rect class="cell" x="137" y="113" width="38" height="38"/>
+<rect class="cell" x="177" y="113" width="38" height="38"/>
+<rect class="cell" x="217" y="113" width="38" height="38"/>
+<rect class="cell" x="257" y="113" width="38" height="38"/>
+<rect class="cell" x="297" y="113" width="38" height="38"/>
+<rect class="cell" x="337" y="113" width="38" height="38"/>
+<rect class="cell" x="377" y="113" width="38" height="38"/>
+<rect class="cell diag" x="417" y="113" width="38" height="38"/>
+<rect class="cell" x="457" y="113" width="38" height="38"/>
+<rect class="cell" x="497" y="113" width="38" height="38"/>
+<text class="tick end" x="128" y="176">tire</text>
+<rect class="cell" x="137" y="153" width="38" height="38"/>
+<rect class="cell" x="177" y="153" width="38" height="38"/>
+<rect class="cell" x="217" y="153" width="38" height="38"/>
+<rect class="cell" x="257" y="153" width="38" height="38"/>
+<rect class="cell" x="297" y="153" width="38" height="38"/>
+<rect class="cell" x="337" y="153" width="38" height="38"/>
+<rect class="cell diag" x="377" y="153" width="38" height="38"/>
+<rect class="cell" x="417" y="153" width="38" height="38"/>
+<rect class="cell" x="457" y="153" width="38" height="38"/>
+<rect class="cell" x="497" y="153" width="38" height="38"/>
+<text class="tick end" x="128" y="216">knee</text>
+<rect class="cell" x="137" y="193" width="38" height="38"/>
+<rect class="cell" x="177" y="193" width="38" height="38"/>
+<rect class="cell" x="217" y="193" width="38" height="38"/>
+<rect class="cell" x="257" y="193" width="38" height="38"/>
+<rect class="cell" x="297" y="193" width="38" height="38"/>
+<rect class="cell diag" x="337" y="193" width="38" height="38"/>
+<rect class="cell" x="377" y="193" width="38" height="38"/>
+<rect class="cell" x="417" y="193" width="38" height="38"/>
+<rect class="cell" x="457" y="193" width="38" height="38"/>
+<rect class="cell" x="497" y="193" width="38" height="38"/>
+<text class="tick end" x="128" y="256">half_tire</text>
+<rect class="cell" x="137" y="233" width="38" height="38"/>
+<rect class="cell" x="177" y="233" width="38" height="38"/>
+<rect class="cell" x="217" y="233" width="38" height="38"/>
+<rect class="cell" x="257" y="233" width="38" height="38"/>
+<rect class="cell diag" x="297" y="233" width="38" height="38"/>
+<rect class="cell" x="337" y="233" width="38" height="38"/>
+<rect class="cell" x="377" y="233" width="38" height="38"/>
+<rect class="cell" x="417" y="233" width="38" height="38"/>
+<rect class="cell" x="457" y="233" width="38" height="38"/>
+<rect class="cell" x="497" y="233" width="38" height="38"/>
+<text class="tick end" x="128" y="296">half_knee</text>
+<rect class="cell" x="137" y="273" width="38" height="38"/>
+<rect class="cell" x="177" y="273" width="38" height="38"/>
+<rect class="cell" x="217" y="273" width="38" height="38"/>
+<rect class="cell diag" x="257" y="273" width="38" height="38"/>
+<rect class="cell" x="297" y="273" width="38" height="38"/>
+<rect class="cell" x="337" y="273" width="38" height="38"/>
+<rect class="cell" x="377" y="273" width="38" height="38"/>
+<rect class="cell" x="417" y="273" width="38" height="38"/>
+<rect class="cell" x="457" y="273" width="38" height="38"/>
+<rect class="cell" x="497" y="273" width="38" height="38"/>
+<text class="tick end" x="128" y="336">gutter</text>
+<rect class="cell" x="137" y="313" width="38" height="38"/>
+<rect class="cell" x="177" y="313" width="38" height="38"/>
+<rect class="cell diag" x="217" y="313" width="38" height="38"/>
+<rect class="cell" x="257" y="313" width="38" height="38"/>
+<rect class="cell" x="297" y="313" width="38" height="38"/>
+<rect class="cell" x="337" y="313" width="38" height="38"/>
+<g>
+<title>alert gutter, Lusot tire: 1</title>
+<rect class="cell s4" x="377" y="313" width="38" height="38"/>
+<text class="count n4" x="396" y="337">1</text>
+</g>
+<rect class="cell" x="417" y="313" width="38" height="38"/>
+<rect class="cell" x="457" y="313" width="38" height="38"/>
+<rect class="cell" x="497" y="313" width="38" height="38"/>
+<text class="tick end" x="128" y="376">below_gutter</text>
+<rect class="cell" x="137" y="353" width="38" height="38"/>
+<rect class="cell diag" x="177" y="353" width="38" height="38"/>
+<rect class="cell" x="217" y="353" width="38" height="38"/>
+<rect class="cell" x="257" y="353" width="38" height="38"/>
+<rect class="cell" x="297" y="353" width="38" height="38"/>
+<rect class="cell" x="337" y="353" width="38" height="38"/>
+<rect class="cell" x="377" y="353" width="38" height="38"/>
+<rect class="cell" x="417" y="353" width="38" height="38"/>
+<rect class="cell" x="457" y="353" width="38" height="38"/>
+<rect class="cell" x="497" y="353" width="38" height="38"/>
+<text class="tick end" x="160" y="404" transform="rotate(-45 160 404)">no flood seen</text>
+<text class="tick end" x="200" y="404" transform="rotate(-45 200 404)">below_gutter</text>
+<text class="tick end" x="240" y="404" transform="rotate(-45 240 404)">gutter</text>
+<text class="tick end" x="280" y="404" transform="rotate(-45 280 404)">half_knee</text>
+<text class="tick end" x="320" y="404" transform="rotate(-45 320 404)">half_tire</text>
+<text class="tick end" x="360" y="404" transform="rotate(-45 360 404)">knee</text>
+<text class="tick end" x="400" y="404" transform="rotate(-45 400 404)">tire</text>
+<text class="tick end" x="440" y="404" transform="rotate(-45 440 404)">waist</text>
+<text class="tick end" x="480" y="404" transform="rotate(-45 480 404)">chest</text>
+<text class="tick end" x="520" y="404" transform="rotate(-45 520 404)">above_chest</text>
+<text class="label" x="137" y="22">shallower than the alert</text>
+<text class="label mid" x="18" y="212" transform="rotate(-90 18 212)">Alert's level (MMDA or city)</text>
+<text class="label mid" x="336" y="488">Lusot's level</text>
+</svg>
