@@ -127,6 +127,27 @@
 }
 
 /*
+ * An entrance (MS5's polish pass): the result card and the Tested page's samples rise 10 px and fade in over 400 ms, on the
+ * decelerating curve the design system gives entrances. A list staggers by giving each item its own --rise-delay. `backwards`
+ * holds the first frame through the delay and leaves nothing behind afterwards, so a finished card has no transform to make
+ * a stacking context of it. Under reduced motion there is no entrance at all (below).
+ */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise-in {
+  animation: rise-in 400ms cubic-bezier(0.2, 0, 0, 1) var(--rise-delay, 0ms) backwards;
+}
+
+/*
  * Leaflet's maps (Task 11). Leaflet's own stylesheet brings its greys, its blue links and 12 px type; these rules put a
  * map in the tokens instead. Each starts with :root so it wins over Leaflet's whatever the load order. Every colour is
  * a token, so both themes follow. The attribution stays: it is a 48 px target, a plate on the map's corner, on top
@@ -297,7 +318,8 @@
   color: var(--lusot-text-2);
 }
 
-/* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). */
+/* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). The entrance
+   isn't shortened but left out: what rises is simply there. */
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
@@ -306,5 +328,9 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .rise-in {
+    animation: none;
   }
 }

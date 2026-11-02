@@ -210,7 +210,7 @@ describe('no component holds a colour of its own', () => {
   })
 })
 
-describe('the brand top bar, in index.css', () => {
+describe('the brand top bar and the entrance, in index.css', () => {
   // The declarations of the first rule that starts with `selector {`, outside any @media.
   const rule = (selector: string) => {
     const start = indexCss.indexOf(`${selector} {`)
@@ -228,5 +228,22 @@ describe('the brand top bar, in index.css', () => {
 
   it('draws the keyboard\'s focus ring in the brand\'s pale on the bar, where the page\'s own blue would vanish', () => {
     expect(rule('.app-bar :focus-visible')).toMatch(/outline-color:\s*var\(--lusot-brand-pale\)/)
+  })
+
+  it('rises 8 to 12 px and fades in over 350 to 500 ms on the decelerating curve, and holds still when asked for less motion', () => {
+    const keyframes = indexCss.match(/@keyframes rise-in\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
+    expect(keyframes).toMatch(/opacity:\s*0/)
+    const rise = Number(keyframes.match(/translateY\((\d+)px\)/)?.[1])
+    expect(rise).toBeGreaterThanOrEqual(8)
+    expect(rise).toBeLessThanOrEqual(12)
+    const use = rule('.rise-in')
+    expect(use).toMatch(/animation:\s*rise-in\s+(\d+)ms\s+cubic-bezier\(0\.2,\s*0,\s*0,\s*1\)/)
+    const ms = Number(use.match(/rise-in\s+(\d+)ms/)?.[1])
+    expect(ms).toBeGreaterThanOrEqual(350)
+    expect(ms).toBeLessThanOrEqual(500)
+    // The stagger is the item's own delay, a variable it sets.
+    expect(use).toContain('var(--rise-delay, 0ms)')
+    const reduced = indexCss.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
+    expect(reduced).toMatch(/\.rise-in\s*\{[^}]*animation:\s*none/)
   })
 })

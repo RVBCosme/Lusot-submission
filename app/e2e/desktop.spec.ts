@@ -17,7 +17,9 @@ const HEIGHT = 800
 // 24 rem, the width of the list's panel beside the map.
 const PANEL = 384
 
-test.use({ viewport: { width: WIDTH, height: HEIGHT } })
+// The viewport is the desktop's. The entrance of the result card and the samples (index.css's .rise-in) doesn't run for a person
+// who asked for less motion, and axe would read a card half faded in as text with half its contrast, so the spec asks for that.
+test.use({ viewport: { width: WIDTH, height: HEIGHT }, reducedMotion: 'reduce' })
 
 type Box = { x: number; y: number; width: number; height: number }
 
