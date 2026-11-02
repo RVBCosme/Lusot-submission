@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -83,6 +84,32 @@ def test_clean_locks(repo):
     cwd = {" ".join(args): where for args, where in uv.calls}
     assert cwd["uv lock --check"] == repo / "backend" / "analysis"
     assert cwd["uv lock --script backend/scripts/alpha.py --check"] == repo
+
+
+def test_ms2_data_tool_locks_are_checked(repo):
+    # MS7 Task 14's gap, found on Nov 2 (docs/log/2026-11-02.md): MS2's locked scripts in
+    # eval/data, its tests runner and eval/set_b drift unseen otherwise. A script
+    # without a lock is still left out.
+    for folder, name in (
+        ("eval/data", "intake.py"),
+        ("eval/data/tests", "run_tests.py"),
+        ("eval/set_b", "generate.py"),
+    ):
+        where = repo / folder
+        where.mkdir(parents=True, exist_ok=True)
+        (where / name).write_text("print('x')\n", encoding="utf-8")
+        (where / (name + ".lock")).write_text("version = 1\n", encoding="utf-8")
+    (repo / "eval" / "data" / "places.py").write_text("x = 1\n", encoding="utf-8")
+    uv = FakeUv(fail=frozenset({"uv lock --script eval/set_b/generate.py --check"}))
+    assert check_locks.check(uv, repo) == ["eval/set_b/generate.py.lock"]
+    commands = [" ".join(args) for args, _ in uv.calls]
+    for script in (
+        "eval/data/intake.py",
+        "eval/data/tests/run_tests.py",
+        "eval/set_b/generate.py",
+    ):
+        assert f"uv lock --script {script} --check" in commands
+    assert not any("places.py" in c for c in commands)
 
 
 def test_each_kind_of_drift_is_named(repo):
@@ -195,3 +222,17 @@ def test_main_exits_2_without_uv(repo, monkeypatch, capsys):
     monkeypatch.setattr(check_locks, "run", missing)
     assert check_locks.main() == 2
     assert "uv" in capsys.readouterr().err
+
+
+def test_every_tracked_script_lock_is_checked():
+    # The gap above came from a hard-coded folder list: every *.py.lock git tracks must
+    # belong to a script the guard checks, so a lock in a new folder can't drift unseen.
+    repo = Path(__file__).resolve().parents[2]
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.py.lock"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.split()
+    checked = {
+        (p.relative_to(repo).as_posix() + ".lock") for p in check_locks.locked_scripts(repo)
+    }
+    assert tracked
+    assert set(tracked) <= checked, sorted(set(tracked) - checked)

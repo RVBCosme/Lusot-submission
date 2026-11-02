@@ -3,15 +3,32 @@
 // and every level line says "at this spot" (Taglish: "sa spot na ito"). The string-table test checks the tables; this
 // checks what the screens put together. The licences page is checked too, but not the third-party licence texts inside
 // it, which are never reworded (S5-R23, C608): a banned form found there is recorded as an annotation for the controller.
+import { readFileSync } from 'node:fs'
 import type { Page, TestInfo } from '@playwright/test'
 import { pinSpecs } from '../src/mock/fixtures'
 import { DEMO_PIN, expect, LIVE_PIN, test, type Mocks } from './mocks'
 import { acceptAdult, acceptNotice, choose, label, send, takePhoto, type Lang } from './steps'
 
-const BANNED = /safe|ligtas/i
-const CROSSING = /you can cross|go ahead|pwedeng dumaan|tumawid ka|lusutan mo|you can pass/i
+// The banned forms come from scripts/copy-rules.json's `fail` rules (MS7's C819), the one rule set that
+// scripts/check_copy.mjs and the string-table test read too, so the screens are held to the same words.
+type FailRule = { id: string; pattern: string; flags: string }
+const RULES = JSON.parse(readFileSync(new URL('../../scripts/copy-rules.json', import.meta.url), 'utf8')) as {
+  fail: FailRule[]
+}
+function failRule(id: string): RegExp {
+  const found = RULES.fail.find((rule) => rule.id === id)
+  if (found === undefined) throw new Error(`scripts/copy-rules.json has no fail rule ${id}`)
+  // As check_copy.mjs refuses them: g or y would make a match start where the last one ended.
+  if (/[gy]/.test(found.flags)) throw new Error(`fail rule ${id} has a g or y flag`)
+  return new RegExp(found.pattern, found.flags)
+}
+const SAFE = failRule('banned-safe')
+const LIGTAS = failRule('banned-ligtas')
+if (SAFE.flags !== LIGTAS.flags) throw new Error('banned-safe and banned-ligtas have different flags')
+const BANNED = new RegExp(`${SAFE.source}|${LIGTAS.source}`, SAFE.flags)
+const CROSSING = failRule('crossing-phrase')
 const REPORT_ID = /r_[0-9a-f]{32}/
-const NINE = /MMDA['’]s (9|nine) levels|\b(9|nine) MMDA levels/i
+const NINE = failRule('mmda-9-levels')
 const AT_THIS_SPOT: Record<Lang, RegExp> = { en: /at this spot/, fil: /sa spot na ito/ }
 
 // The page's visible text, and apart from it the licence texts on the licences page.
