@@ -108,12 +108,20 @@ PLACE_WORDS = {
     "calumpit-bulacan": "Calumpit, Bulacan",
     "marilao-bulacan": "Marilao, Bulacan",
     "manila": "Manila",
+    # Nov 2, approved by the tracker under Rene's delegation (the same in EN and FIL).
+    "macabebe-pampanga": "Macabebe, Pampanga",
+    "los-banos-laguna": "Los Baños, Laguna",
+    "quezon-city": "Quezon City",
+    "makati": "Makati",
 }
 EVENT_WORDS = {
     "ondoy": "Typhoon Ondoy",
     "rain": "Rain",
     "flood": "Flood",
     "high-tide": "High tide",
+    # The source's own name for the storm (OL083's Commons title says Goni); the slug
+    # keeps the local name (Nov 2, the tracker under Rene's delegation).
+    "rolly": "Typhoon Goni",
 }
 WORDS = {"place": PLACE_WORDS, "event": EVENT_WORDS}
 

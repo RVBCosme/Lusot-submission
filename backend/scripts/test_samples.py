@@ -349,12 +349,21 @@ def test_the_sample_note_and_the_display_words_are_the_approved_ones():
         "calumpit-bulacan": "Calumpit, Bulacan",
         "marilao-bulacan": "Marilao, Bulacan",
         "manila": "Manila",
+        # Approved by the tracker under Rene's delegation, Nov 2 (proper nouns, the same in
+        # English and Taglish), for the samples Rene approved that evening.
+        "macabebe-pampanga": "Macabebe, Pampanga",
+        "los-banos-laguna": "Los Baños, Laguna",
+        "quezon-city": "Quezon City",
+        "makati": "Makati",
     }
     assert samples.EVENT_WORDS == {
         "ondoy": "Typhoon Ondoy",
         "rain": "Rain",
         "flood": "Flood",
         "high-tide": "High tide",
+        # OL083's Commons source names the storm by its international name, Goni; the
+        # slug keeps the local name, Rolly (the tracker under Rene's delegation, Nov 2).
+        "rolly": "Typhoon Goni",
     }
 
 
