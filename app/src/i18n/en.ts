@@ -323,6 +323,8 @@ export const EN = {
     text: "Taken outside Metro Manila, so only you see this result. It isn't on the map.",
     reviewed: true,
   },
+  // A photo the person chose on the Tested page (C534, C640).
+  'result.try': { text: "Only you see this result. It isn't on the map.", reviewed: false },
   'result.noResult': { text: 'No result yet. The analysis is taking longer than usual.', reviewed: true },
   'result.checkAgain': { text: 'Check again', reviewed: true },
   'result.tryAgain': { text: 'Try again', reviewed: true },

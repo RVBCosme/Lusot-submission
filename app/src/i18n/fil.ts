@@ -318,6 +318,7 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Kinunan sa labas ng Metro Manila, kaya ikaw lang ang makakakita ng result na ito. Wala ito sa mapa.',
     reviewed: true,
   },
+  'result.try': { text: 'Ikaw lang ang nakakakita ng resultang ito. Wala ito sa mapa.', reviewed: false },
   'result.noResult': { text: 'Wala pang result. Mas matagal kaysa karaniwan ang analysis.', reviewed: true },
   'result.checkAgain': { text: 'Tingnan ulit', reviewed: true },
   'result.tryAgain': { text: 'Subukan ulit', reviewed: true },

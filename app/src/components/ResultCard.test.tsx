@@ -1035,6 +1035,80 @@ describe('a sample and a demo pin', () => {
   })
 })
 
+// A photo the person chose from their device (C534, C640). It reads like their own photo, but its time is the run's
+// start and it has no place, so the card says neither, and it says only they see it.
+describe('a chosen photo', () => {
+  const ONLY_YOU = "Only you see this result. It isn't on the map."
+  // What POST /try's report looks like: mode "try", with capturedAt the run's start.
+  const asTry = (result: ReportResult): ReportResult => ({ ...result, mode: 'try' })
+
+  it('a try level shows its verdict and level line, with no photo-taken line though capturedAt is set', async () => {
+    const result = asTry(await takePhoto())
+    expect(result.capturedAt).toBeDefined()
+    expect(result.gpsAccuracyM).toBeDefined()
+    renderCard({ result, source: 'try', fixAccuracyM: 99, now: laterBy25(result) })
+
+    expect(screen.getByText('Verdict at this spot: Not passable to light vehicles')).toBeTruthy()
+    expect(screen.getByText('Knee deep at this spot (MMDA level).')).toBeTruthy()
+    expect(screen.getByTestId('gauge')).toBeTruthy()
+    expect(text()).not.toMatch(/Photo taken|Location within/)
+    // Details keeps its references, but not a photo time that is only the run's start.
+    fireEvent.click(screen.getByText('Details'))
+    expect(text()).not.toContain('Photo time')
+    expect(text()).toContain('Reference 1')
+  })
+
+  it('a try refusal shows D19, the reason and the tip', async () => {
+    renderCard({ result: asTry(await takePhoto('refused_no_water_found')), source: 'try' })
+
+    const d19 = screen.getByText(D19)
+    const why = screen.getByText(EN['reason.no_water_found'].text)
+    const tip = screen.getByText(EN['tip.no_water_found'].text)
+    expect(d19.className).toMatch(/\bfont-bold\b/)
+    expect(d19.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(why.compareDocumentPosition(tip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(text()).not.toMatch(/No verdict|Processing failed/)
+  })
+
+  it("a try reading says only you see it and it isn't on the map, under a level, no flood and can't tell, and only there", async () => {
+    for (const scenario of ['level_knee', 'no_flood_seen', 'refused_too_dark'] as const) {
+      renderCard({ result: asTry(await takePhoto(scenario)), source: 'try' })
+      expect(screen.getByText(ONLY_YOU), scenario).toBeTruthy()
+      cleanup()
+    }
+    // A failure, a pause and a missing result are not readings.
+    for (const scenario of ['failed_model_error', 'failed_model_calls_paused'] as const) {
+      renderCard({ result: asTry(await takePhoto(scenario)), source: 'try' })
+      expect(screen.queryByText(ONLY_YOU), scenario).toBeNull()
+      cleanup()
+    }
+    // Other cards don't say it.
+    renderCard({ result: await takePhoto(), source: 'own' })
+    expect(screen.queryByText(ONLY_YOU)).toBeNull()
+  })
+
+  it('says it in Taglish on a Taglish screen', async () => {
+    renderCard({ result: asTry(await takePhoto()), source: 'try' }, 'fil')
+    expect(screen.getByText('Ikaw lang ang nakakakita ng resultang ito. Wala ito sa mapa.')).toBeTruthy()
+  })
+
+  it('a paused try card links to the map only', async () => {
+    renderCard({ result: asTry(await takePhoto('failed_model_calls_paused')), source: 'try' })
+    expect(screen.getByRole('link', { name: 'Map' }).getAttribute('href')).toBe('#/map')
+    expect(screen.queryByRole('link', { name: 'Tested' })).toBeNull()
+    expect(text()).not.toContain('Processing failed')
+  })
+
+  it('a failed try card offers Try again when onNewPhoto is given', async () => {
+    const onNewPhoto = vi.fn()
+    renderCard({ result: asTry(await takePhoto('failed_model_error')), source: 'try', onNewPhoto })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(onNewPhoto).toHaveBeenCalledTimes(1)
+  })
+})
+
 // Task 14: the photo with Lusot's evidence drawn on it, in the card, for a level result with photo links.
 describe('the photo and its overlay', () => {
   const BLURRED = 'Lusot blurred the faces and plates in this photo.'

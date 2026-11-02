@@ -34,7 +34,9 @@ export type ResultCardProps = {
   // A report's answer, or a published pin. A pin is always a level result (MS4's C506).
   result: ReportResult | Pin
   // 'sample' is a card on the Tested page: it has the sample frame and its paused line links to the map only.
-  source: 'own' | 'pin' | 'sample'
+  // 'try' is a photo the person chose there (C534, C640): it reads like 'own', without a photo time or place, and says
+  // only they see it.
+  source: 'own' | 'pin' | 'sample' | 'try'
   sample?: Sample
   photoUrl?: string
   // The phone's own fix, for the accuracy line when the API sends none (N1).
@@ -206,6 +208,7 @@ function ResultCardBody({
   const outcome = outcomeOf(result, noResultYet)
   const report = 'status' in result ? result : undefined
   const isSample = source === 'sample'
+  const isTry = source === 'try'
   // A sample and a demo pin are credited photos with their own date and place, never a live report (C617, C618).
   const isExample = isSample || result.mode === 'demo'
   // The age is read once, when the card first shows: a screen that wants it fresh passes `now`.
@@ -234,13 +237,15 @@ function ResultCardBody({
   const count = result.basis
   const basis = live && count !== undefined && count.vehicles + count.people > 0 ? basisLine(t, count) : undefined
 
-  // Your own report and a live pin: how long ago, and how near. The API's accuracy wins over the phone's own fix.
+  // Your own report and a live pin: how long ago, and how near. The API's accuracy wins over the phone's own fix. A
+  // chosen photo has neither: its capturedAt is the run's start, and it has no place (C534).
   const capturedAt = result.capturedAt
   const taken =
-    capturedAt !== undefined && Number.isFinite(Date.parse(capturedAt))
+    !isTry && capturedAt !== undefined && Number.isFinite(Date.parse(capturedAt))
       ? t('result.photoTaken', { age: ageText(t, capturedAt, clock).text })
       : undefined
-  const accuracyM = usable(result.gpsAccuracyM) ? result.gpsAccuracyM : usable(fixAccuracyM) ? fixAccuracyM : undefined
+  const accuracyM =
+    isTry ? undefined : usable(result.gpsAccuracyM) ? result.gpsAccuracyM : usable(fixAccuracyM) ? fixAccuracyM : undefined
   const accuracy = accuracyM === undefined ? undefined : t('result.accuracy', { m: Math.ceil(accuracyM) })
   const whenAndWhere =
     taken === undefined && accuracy === undefined
@@ -289,7 +294,8 @@ function ResultCardBody({
   const photoBelow = !isSample && outcome === 'level' && level !== undefined
   const showsReading = outcome === 'level' || outcome === 'noFlood' || outcome === 'cantTell'
   const shownPrivate = result.mode === 'private' && showsReading
-  const pausedLinks: PausedLink[] = isSample ? ['map'] : ['map', 'tested']
+  // The Tested page is where a sample and a chosen photo are, so their paused line links to the map only.
+  const pausedLinks: PausedLink[] = isSample || isTry ? ['map'] : ['map', 'tested']
 
   return (
     <article
@@ -430,7 +436,7 @@ function ResultCardBody({
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-2" />
                   {/* What to try next, only on a photo the person took themselves (C637). */}
-                  {source === 'own' && !isExample && (
+                  {(source === 'own' || isTry) && !isExample && (
                     <Note value={tipLine(t, report?.refusalReason ?? '')} className="mt-2" />
                   )}
                 </>
@@ -481,6 +487,12 @@ function ResultCardBody({
         </p>
       )}
 
+      {isTry && showsReading && (
+        <p className="mt-4 text-small text-ink-2">
+          <T k="result.try" />
+        </p>
+      )}
+
       {/* A sample's run is live, or its saved reading. A demo pin's reading was made once, at seeding, so its card never
           calls it live: the Demo badge and the photo's own date say what it is (I1). */}
       {isSample && showsReading && (
@@ -491,7 +503,7 @@ function ResultCardBody({
 
       <Details
         reasonCode={report?.refusalReason}
-        photoTime={isExample ? undefined : capturedAt}
+        photoTime={isExample || isTry ? undefined : capturedAt}
         references={outcome === 'level' && live ? report?.readings : undefined}
       />
 
