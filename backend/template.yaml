@@ -413,6 +413,13 @@ Resources:
             ApiId: !Ref HttpApi
             Method: POST
             Path: /samples/{sampleId}
+        # "Try your own photo" (C534): an upload link for a chosen photo, which never pins.
+        TryPhoto:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /try
         # Ask Lusot: a typed question, and a spoken one as WAV in base64 (its spec §5.1, §5.2).
         AskTyped:
           Type: HttpApi

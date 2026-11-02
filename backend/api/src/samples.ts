@@ -84,7 +84,8 @@ export async function listSamples(deps: SampleDeps): Promise<JsonResponse> {
 }
 
 // POST /samples/{sampleId}: the checks run in the spec's order, the uploads switch, the sample id,
-// then the device's limit and the hour's cap. The run is the real pipeline on the stored copy (MS4-Q8).
+// then the device's limit, the hour's cap and the day's cap (C534). The run is the real pipeline on
+// the stored copy (MS4-Q8).
 export async function runSample(
   sampleId: string | undefined,
   deviceHeader: string | undefined,

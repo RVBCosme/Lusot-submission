@@ -17,6 +17,7 @@ import { createFeed, createMapPins, nearby, nearbyPins, type PinDeps } from "./p
 import { getReport, type ReportDeps } from "./reports";
 import { createManifest, listSamples, runSample, type SampleDeps } from "./samples";
 import { createStopSwitch } from "./stopSwitch";
+import { createTry } from "./tryPhoto";
 import { createUpload, type UploadDeps } from "./uploads";
 
 export type Deps = UploadDeps &
@@ -56,6 +57,8 @@ export async function route(event: RouteEvent, deps: Deps): Promise<JsonResponse
       return listSamples(deps);
     case "POST /samples/{sampleId}":
       return runSample(event.pathParameters?.sampleId, deviceHeader(event), deps);
+    case "POST /try":
+      return createTry(readBody(event), deviceHeader(event), deps);
     case "POST /ask":
       return askRoute(event, deps, "ask", askTyped);
     case "POST /ask/voice":

@@ -209,10 +209,20 @@ def test_routes():
         "POST /reports/{id}/flag",
         "GET /samples",
         "POST /samples/{sampleId}",
+        "POST /try",
         "POST /ask",
         "POST /ask/voice",
     }
     assert route_keys("FeedApi") == {"GET /pins.geojson"}
+
+
+def test_try_route():
+    """C534: "Try your own photo" is one POST route on HttpApi, with the stage's default throttling."""
+    events = props("ApiFunction")["Events"]
+    assert events.get("TryPhoto") == {
+        "Type": "HttpApi",
+        "Properties": {"ApiId": {"Ref": "HttpApi"}, "Method": "POST", "Path": "/try"},
+    }
 
 
 def test_ask_routes():
@@ -237,7 +247,7 @@ def test_routes_match_the_api_router():
     assert router, "route() is missing from index.ts"
     cases = set(re.findall(r'^\s*case "([^"]+)":', router.group(0), re.MULTILINE))
     deployed = route_keys("HttpApi") | route_keys("FeedApi")
-    assert len(deployed) == 10
+    assert len(deployed) == 11
     assert cases == deployed
 
 

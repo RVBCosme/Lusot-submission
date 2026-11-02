@@ -777,6 +777,7 @@ def test_failed_photo_cleanup_retries_before_paying(aws, fake, monkeypatch, stor
         ("private", ""),
         ("sample", ""),
         ("eval", ""),
+        ("try", ""),
         ("demo", "demo/"),
     ],
 )
@@ -825,6 +826,10 @@ KNEE_RESULT = ("done", "knee")  # the level case's result, as `result` reads it
         ),
         pytest.param(
             "eval", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, False, False, id="eval"
+        ),
+        # C534: a chosen photo's level is never published.
+        pytest.param(
+            "try", LEVEL_PHOTO, None, "off", None, KNEE_RESULT, False, False, id="try"
         ),
         pytest.param(
             "live",
@@ -951,6 +956,29 @@ def test_mode_is_read_from_the_item(aws, fake):
     token = item["claimToken"]["S"]
     expected = ITEM | {"mode": {"S": "private"}} | claimed(token, NOW_S, "done")
     assert item == expected | KNEE_UNPUBLISHED
+    assert keys(aws) == LEVEL_KEYS
+
+
+def test_a_try_item_runs_to_an_unpublished_result(aws, fake):
+    # C534: POST /try's item as the API writes it, with pk TRY and no lat, lng or
+    # visibleUntil. It runs as any report does, ends done with its level, is never
+    # published, and its raw photo is deleted, so the analysis needs no change for it.
+    try_item = {
+        "pk": {"S": "TRY"},
+        "sk": {"S": f"{CAPTURED_AT}#{REPORT_ID}"},
+        "reportId": {"S": REPORT_ID},
+        "mode": {"S": "try"},
+        "status": {"S": "pending"},
+        "capturedAt": {"S": CAPTURED_AT},
+        "receivedAt": {"S": CAPTURED_AT},
+    }
+    aws.ddb.put_item(TableName=TABLE, Item=try_item)
+    aws.s3.put_object(Bucket=BUCKET, Key=RAW_KEY, Body=LEVEL_PHOTO)
+    assert handler.handler(message(), None) == NO_FAILURES
+    key = {"pk": try_item["pk"], "sk": try_item["sk"]}
+    item = aws.ddb.get_item(TableName=TABLE, Key=key)["Item"]
+    token = item["claimToken"]["S"]
+    assert item == try_item | claimed(token, NOW_S, "done") | KNEE_UNPUBLISHED
     assert keys(aws) == LEVEL_KEYS
 
 

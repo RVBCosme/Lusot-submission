@@ -13,7 +13,7 @@ const MAX_AHEAD_MS = 2 * 60_000; // slack for a phone clock that runs fast
 const MAX_GPS_ACCURACY_M = 50; // plan Table 4
 const MAX_NUDGE_M = 100; // plan Table 4
 // MS5 sends an 8-hex-digit NOTICE_VERSION; this allows any short version tag.
-const CONSENT_VERSION = /^[A-Za-z0-9._-]{1,32}$/;
+export const CONSENT_VERSION = /^[A-Za-z0-9._-]{1,32}$/;
 const VISIBLE_S = 3 * 60 * 60; // Table 14: the map hides the pin 3 h after capture
 const RETAIN_S = 7 * 24 * 60 * 60; // Table 14: the item is deleted 7 days after capture
 const UPLOAD_EXPIRES_S = 300; // C27: the upload link lasts 5 minutes
@@ -93,6 +93,14 @@ export async function createUpload(
     }),
   );
 
+  return json(201, await rawUpload(reportId, deps));
+}
+
+// The 201's body: the report's id and its photo's presigned POST to raw/ (C27). POST /try sends the same (C534).
+export async function rawUpload(
+  reportId: string,
+  deps: Pick<UploadDeps, "s3" | "bucketName">,
+): Promise<{ reportId: string; upload: unknown; expiresInS: number }> {
   const upload = await createPresignedPost(deps.s3, {
     Bucket: deps.bucketName,
     Key: `raw/${reportId}.jpg`,
@@ -100,7 +108,7 @@ export async function createUpload(
     Fields: { "Content-Type": "image/jpeg" },
     Expires: UPLOAD_EXPIRES_S,
   });
-  return json(201, { reportId, upload, expiresInS: UPLOAD_EXPIRES_S });
+  return { reportId, upload, expiresInS: UPLOAD_EXPIRES_S };
 }
 
 // Returns the request, or a detail string for a 400.
