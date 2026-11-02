@@ -700,7 +700,9 @@ def _settings(args: argparse.Namespace) -> dict[str, object]:
         isinstance(summary, dict)
         and summary.get("kind") == "development"
         and summary.get("baseline_level") in rules.LEVELS
-        and summary.get("baseline_class") in _CLASSES
+        # Null when no development label states a class (rules §2; Rene's option A, Nov 2).
+        and "baseline_class" in summary
+        and (summary["baseline_class"] is None or summary["baseline_class"] in _CLASSES)
         and export._short(summary.get("rules_version"))
         and summary["rules_version"]
     ):

@@ -1135,6 +1135,15 @@ def test_report_ignores_row_order(tmp_path):
         assert build_review(mixed) == build_review(ordered), kind
 
 
+def test_a_sealed_run_whose_labels_state_no_class_reports_a_null_class_baseline(tmp_path):
+    # Rules §2: an alert that states no class leaves its photo out of the passability metric. When
+    # no development label states one, there is no class baseline, and the sealed run records it as
+    # null (Rene's option A, Nov 2). The report still builds, and its summary says so.
+    files = build_report(full_run(tmp_path, baseline_class=None))
+    summary = json.loads(files["summary.json"].decode("utf-8"))
+    assert (summary["baseline_level"], summary["baseline_class"]) == ("knee", None)
+
+
 def test_summary_json(tmp_path):
     run = full_run(tmp_path)
     files = build_report(run)

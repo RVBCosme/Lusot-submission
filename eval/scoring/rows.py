@@ -332,6 +332,15 @@ def _among(allowed: Collection[str], what: str) -> _Check:
     return check
 
 
+def _among_or_null(allowed: Collection[str], what: str) -> _Check:
+    strict = _among(allowed, what)
+
+    def check(value: object, where: str) -> str | None:
+        return None if value is None else strict(value, where)
+
+    return check
+
+
 def _matching(pattern: re.Pattern[str], what: str) -> _Check:
     def check(value: object, where: str) -> str:
         if not isinstance(value, str) or not pattern.fullmatch(value):
@@ -480,7 +489,9 @@ _RUN_FIELDS: dict[str, _Check] = {
     "synthetic": _bool,
     "service_retries": _count,
     "baseline_level": _among(LEVELS, "one of the 9 levels"),
-    "baseline_class": _among(CLASS_NAMES, "PATV, NPLV or NPATV"),
+    # Null when no development label states a class: rules §2 leaves such photos out of the
+    # passability metric, so there is no class baseline (Rene's option A, Nov 2).
+    "baseline_class": _among_or_null(CLASS_NAMES, "PATV, NPLV, NPATV or null"),
 }
 # What frozen.untuned says (rules 4.3): yes when the cutoffs kept their start values
 # (the tuning in force equals START), and no when they were tuned on development data and
