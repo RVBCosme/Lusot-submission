@@ -256,33 +256,6 @@ export async function deployWeb({ run, env, readText, listFiles, upload, zipPath
   }
 }
 
-// Deploys only when run as `node scripts/deploy_web.mjs`, so a test can import deployWeb.
-if (import.meta.main === undefined) throw new Error("scripts/deploy_web.mjs needs Node 22.18 or newer");
-if (import.meta.main) {
-  const zipPath = join(tmpdir(), `lusot-web-${process.pid}.zip`);
-  let code;
-  try {
-    code = await deployWeb({
-      run,
-      env: process.env,
-      readText: (path) => readFileSync(join(root, path), "utf8"),
-      listFiles,
-      // A presigned PUT: the zip as the body, and no header the link wasn't signed for.
-      upload: async (url, path) => {
-        const response = await fetch(url, { method: "PUT", body: readFileSync(path) });
-        return { ok: response.ok, status: response.status };
-      },
-      zipPath,
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      out: (line) => process.stdout.write(`${line}\n`),
-      err: (line) => process.stderr.write(`${line}\n`),
-    });
-  } finally {
-    rmSync(zipPath, { force: true });
-  }
-  process.exit(code);
-}
-
 // Everything under a folder of the repo that isn't a folder, links included, so the type check sees all that sync
 // would upload.
 function listFiles(dir) {
@@ -311,4 +284,32 @@ function run(argv, { env = process.env } = {}) {
     child.on("error", (error) => resolve({ code: 1, stdout, stderr: `${stderr}${error.message}\n` }));
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
   });
+}
+
+// Deploys only when run as `node scripts/deploy_web.mjs`, so a test can import deployWeb. It comes last: its top-level
+// await runs before anything declared below it is set (a test pins this).
+if (import.meta.main === undefined) throw new Error("scripts/deploy_web.mjs needs Node 22.18 or newer");
+if (import.meta.main) {
+  const zipPath = join(tmpdir(), `lusot-web-${process.pid}.zip`);
+  let code;
+  try {
+    code = await deployWeb({
+      run,
+      env: process.env,
+      readText: (path) => readFileSync(join(root, path), "utf8"),
+      listFiles,
+      // A presigned PUT: the zip as the body, and no header the link wasn't signed for.
+      upload: async (url, path) => {
+        const response = await fetch(url, { method: "PUT", body: readFileSync(path) });
+        return { ok: response.ok, status: response.status };
+      },
+      zipPath,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      out: (line) => process.stdout.write(`${line}\n`),
+      err: (line) => process.stderr.write(`${line}\n`),
+    });
+  } finally {
+    rmSync(zipPath, { force: true });
+  }
+  process.exit(code);
 }

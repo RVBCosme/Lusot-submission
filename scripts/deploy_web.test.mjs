@@ -1,9 +1,19 @@
 // Tests for deploy_web.mjs with a fake command runner: nothing is built and nothing reaches AWS.
 // Run: node --test scripts/deploy_web.test.mjs
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { posix } from "node:path";
 import { test } from "node:test";
 import { deployWeb, scrub } from "./deploy_web.mjs";
+
+// Nov 2: the script block's top-level await ran before `const program`, declared below it, was set, so the first real
+// run stopped with "Cannot access 'program' before initialization". The fakes below never reach the real runner.
+test("the run-as-a-script block comes last, so nothing it calls is declared after it", () => {
+  const source = readFileSync(new URL("./deploy_web.mjs", import.meta.url), "utf8");
+  const block = source.indexOf("\nif (import.meta.main) {");
+  assert.ok(block > 0, "the script block is there");
+  assert.doesNotMatch(source.slice(block), /^(?:export )?(?:const|let|var|function|class) /m);
+});
 
 // Built at run time, so neither the repo's 12-digit scan nor a reader meets a literal one here.
 const ACCOUNT = "1234" + "5678" + "9012";
