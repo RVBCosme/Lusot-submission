@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import mark from '../brand/lusot-mark.svg?raw'
 import indexHtml from '../index.html?raw'
 import { EN } from './i18n/en'
+import indexCss from './index.css?raw'
 import mainSource from './main.tsx?raw'
-import { tokenBlocks } from './styles/contrast'
+import { contrastRatio, tokenBlocks } from './styles/contrast'
 import tokensCss from './styles/tokens.css?raw'
 
 // The loading screen in app/index.html: what a person sees from the first byte until the app's own code has run and
@@ -35,6 +36,41 @@ function mount(run: boolean): HTMLElement {
 
 const text = (container: HTMLElement, selector: string) => container.querySelector(selector)?.textContent
 const progressbar = (container: HTMLElement) => container.querySelector('[role="progressbar"]')!
+
+// The inline CSS split at its no-preference blocks (found by their braces): what moves, and what is left for everyone
+// else, a person who asked for less motion included.
+function splitMotion(css: string): { blocks: string; rest: string } {
+  const blocks: string[] = []
+  let rest = css
+  for (;;) {
+    const start = rest.indexOf('@media (prefers-reduced-motion: no-preference)')
+    if (start === -1) break
+    const open = rest.indexOf('{', start)
+    let depth = 0
+    let end = open
+    for (; end < rest.length; end++) {
+      if (rest[end] === '{') depth += 1
+      else if (rest[end] === '}' && --depth === 0) break
+    }
+    blocks.push(rest.slice(open + 1, end))
+    rest = rest.slice(0, start) + rest.slice(end + 1)
+  }
+  return { blocks: blocks.join(' '), rest }
+}
+
+// The colour of `fg` laid at `alpha` over `bg`, as #RRGGBB.
+function over(fg: string, bg: string, alpha: number): string {
+  const channel = (start: number) =>
+    Math.round(parseInt(fg.slice(start, start + 2), 16) * alpha + parseInt(bg.slice(start, start + 2), 16) * (1 - alpha))
+  return '#' + [1, 3, 5].map((start) => channel(start).toString(16).padStart(2, '0')).join('')
+}
+
+// The padding a rule of the inline CSS declares, with the spaces made single.
+function padding(selector: string): string | undefined {
+  const escaped = selector.replace(/[.]/g, '\\.')
+  const body = new RegExp(`(?:^|[\\s}])${escaped}\\s*\\{([^}]*)\\}`).exec(style)?.[1]
+  return body?.match(/(?:^|;)\s*padding:\s*([^;]+)/)?.[1].replace(/\s+/g, ' ').trim()
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -66,9 +102,11 @@ describe('the loading screen, in English', () => {
     expect(text(container, '.boot-place')).toBe('Metro Manila')
   })
 
-  it('has an indeterminate progress bar that is busy and takes its name from the status text', () => {
-    const bar = progressbar(mount(false))
-    expect(bar.getAttribute('aria-busy')).toBe('true')
+  it('is busy as a whole, and its indeterminate progress bar takes its name from the status text', () => {
+    const container = mount(false)
+    expect(container.querySelector('main#boot')?.getAttribute('aria-busy')).toBe('true')
+    const bar = progressbar(container)
+    expect(bar.hasAttribute('aria-busy')).toBe(false)
     for (const value of ['aria-valuenow', 'aria-valuemin', 'aria-valuemax', 'aria-valuetext']) {
       expect(bar.hasAttribute(value), value).toBe(false)
     }
@@ -166,28 +204,28 @@ describe('the loading screen stands alone', () => {
   })
 
   it('moves only for a person with no reduced-motion preference, and holds still for anyone else', () => {
-    // Take out every no-preference block (found by its braces), and what is left may not animate or transition.
-    const blocks: string[] = []
-    let rest = style
-    for (;;) {
-      const start = rest.indexOf('@media (prefers-reduced-motion: no-preference)')
-      if (start === -1) break
-      const open = rest.indexOf('{', start)
-      let depth = 0
-      let end = open
-      for (; end < rest.length; end++) {
-        if (rest[end] === '{') depth += 1
-        else if (rest[end] === '}' && --depth === 0) break
-      }
-      blocks.push(rest.slice(open + 1, end))
-      rest = rest.slice(0, start) + rest.slice(end + 1)
-    }
-    expect(blocks.length).toBeGreaterThan(0)
-    expect(blocks.join(' ')).toMatch(/\.boot-fill\s*\{[^}]*animation:/)
-    expect(blocks.join(' ')).toMatch(/\.boot-waves svg\s*\{[^}]*animation:/)
+    // Take out every no-preference block, and what is left may not animate or transition.
+    const { blocks, rest } = splitMotion(style)
+    expect(blocks).not.toBe('')
+    expect(blocks).toMatch(/\.boot-fill\s*\{[^}]*animation:/)
+    expect(blocks).toMatch(/\.boot-waves svg\s*\{[^}]*animation:/)
+    // The sliding piece is a third of the bar, as the artwork's own mock draws it.
+    expect(blocks).toMatch(/\.boot-fill\s*\{[^}]*width:\s*36%/)
     expect(rest).not.toMatch(/animation|transition/)
-    // The still picture: the fill shows a third of the bar, as the artwork's own mock does.
-    expect(rest).toMatch(/\.boot-fill\s*\{[^}]*width:\s*36%/)
+  })
+
+  it('holds still as a dim, full-width fill, never a share of the bar that would read as stuck progress', () => {
+    const { rest } = splitMotion(style)
+    expect(rest).toMatch(/\.boot-fill\s*\{[^}]*width:\s*100%/)
+    expect(rest).not.toContain('36%')
+    // The dim fill still holds 3:1 against the navy where it lies on the track (WCAG 1.4.11).
+    const alpha = Number(/\.boot-fill\s*\{[^}]*opacity:\s*([\d.]+)/.exec(rest)?.[1])
+    expect(alpha).toBeGreaterThan(0)
+    expect(alpha).toBeLessThan(1)
+    const hex = (selector: string) => new RegExp(`${selector}\\s*\\{[^}]*background:\\s*(#[0-9A-Fa-f]{6})`).exec(rest)![1]
+    const brand = tokenBlocks(tokensCss)[':root']
+    const dim = over(hex('\\.boot-fill'), hex('\\.boot-bar'), alpha)
+    expect(contrastRatio(dim, brand['--lusot-brand-navy'])).toBeGreaterThanOrEqual(3)
   })
 
   it("is painted in the brand tokens' colours and no others", () => {
@@ -206,5 +244,41 @@ describe('the loading screen stands alone', () => {
     expect(style).toMatch(/\.boot\s*\{[^}]*background:\s*#041A3A/i)
     // It never touches the page's own background, which belongs to the theme.
     expect(style).not.toMatch(/(^|[\s,}])(html|body|:root)\s*[,{]/)
+  })
+
+  it('keeps its script in a function of its own, so `lines` and `i` never become globals', () => {
+    expect(script.trim()).toMatch(/^\(function\s*\(\)\s*\{[\s\S]*\}\)\(\);?$/)
+    for (const language of [null, 'fil']) {
+      Reflect.deleteProperty(window, 'lines')
+      Reflect.deleteProperty(window, 'i')
+      if (language) localStorage.setItem('lusot.lang', language)
+      mount(true)
+      expect('lines' in window, `lines, language ${language}`).toBe(false)
+      expect('i' in window, `i, language ${language}`).toBe(false)
+    }
+  })
+
+  it('says what the page really waits for: the render-blocking stylesheet, then the code that replaces the screen', () => {
+    // The comment just above the <style> element.
+    const styleAt = indexHtml.indexOf('<style>')
+    const comment = indexHtml.slice(indexHtml.lastIndexOf('<!--', styleAt), styleAt)
+    expect(comment).toContain("loading screen's styles")
+    expect(comment).not.toMatch(/before any file has loaded/)
+    expect(comment).toMatch(/render-blocking stylesheet/)
+  })
+})
+
+describe('the loading screen clears the system bars', () => {
+  // The app shell's mechanism (.safe-area in index.css): Capacitor 8 injects --safe-area-inset-* on Android, where
+  // env(safe-area-inset-*) is wrong in WebViews before Chromium 140, and a browser falls back to env().
+  const inset = (side: string) => `var(--safe-area-inset-${side}, env(safe-area-inset-${side}, 0px))`
+
+  it('uses the same inset expressions as the app shell', () => {
+    for (const side of ['top', 'bottom']) expect(indexCss).toContain(inset(side))
+  })
+
+  it('adds the top inset to the padding above the mark, and the bottom inset to the padding below the screen line', () => {
+    expect(padding('.boot-centre')).toBe(`calc(2rem + ${inset('top')}) 1.5rem 2rem`)
+    expect(padding('.boot-foot')).toBe(`1rem 1.5rem calc(1.5rem + ${inset('bottom')})`)
   })
 })
