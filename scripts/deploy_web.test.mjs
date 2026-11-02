@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { posix } from "node:path";
 import { test } from "node:test";
-import { deployWeb } from "./deploy_web.mjs";
+import { deployWeb, scrub } from "./deploy_web.mjs";
 
 // Built at run time, so neither the repo's 12-digit scan nor a reader meets a literal one here.
 const ACCOUNT = "1234" + "5678" + "9012";
@@ -510,6 +510,69 @@ test("with WebHosting=amplify, a failed upload stops the run before the deployme
   for (const text of [out, err]) {
     assert.ok(!text.includes("SECRETSIG") && !text.includes(UPLOAD_URL), text);
   }
+});
+
+// Every stop after create-deployment names the job, so a run that stopped midway can be found and checked.
+const JOB_HINT = "aws amplify get-job --app-id d2abcdef123456 --branch-name main --job-id 7";
+
+test("with WebHosting=amplify, each stop after create-deployment names the job and how to check it", async () => {
+  const stops = {
+    "a failed upload": { uploaded: async () => ({ ok: false, status: 403 }) },
+    "a failed start": { answer: (argv) => (argv.includes("start-deployment") ? { code: 254, stderr: "boom" } : undefined) },
+    "a failed job": { answer: (argv) => (argv.includes("get-job") ? { stdout: "FAILED\n" } : undefined) },
+    "a job still running": { answer: (argv) => (argv.includes("get-job") ? { stdout: "RUNNING\n" } : undefined) },
+  };
+  for (const [name, options] of Object.entries(stops)) {
+    const { code, err } = await deploy({ samconfig: AMPLIFY_SAMCONFIG, outputs: AMPLIFY_OUTPUTS, ...options });
+    assert.notEqual(code, 0, name);
+    assert.ok(err.includes(JOB_HINT), `${name}: ${err}`);
+  }
+});
+
+test("with WebHosting=amplify, a network error during the upload stops the run, masked, before the deployment starts", async () => {
+  const { code, argvs, out, err } = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    uploaded: async () => {
+      throw new TypeError(`fetch failed: ${UPLOAD_URL}`);
+    },
+  });
+  assert.equal(code, 1);
+  assert.ok(!argvs.some((argv) => argv.includes("start-deployment")));
+  assert.match(err, /deploy:web stopped: the zip's upload failed: fetch failed/);
+  assert.ok(err.includes(JOB_HINT), err);
+  for (const text of [out, err]) assert.ok(!text.includes("SECRETSIG"), text);
+});
+
+test("with WebHosting=amplify, create-deployment output that isn't a job stops the run before any upload", async () => {
+  for (const stdout of ["not json", JSON.stringify({ jobId: "7" }), "null"]) {
+    const { code, argvs, uploads, err } = await deploy({
+      samconfig: AMPLIFY_SAMCONFIG,
+      outputs: AMPLIFY_OUTPUTS,
+      answer: (argv) => (argv.includes("create-deployment") ? { stdout } : undefined),
+    });
+    assert.equal(code, 1, stdout);
+    assert.equal(uploads.length, 0, stdout);
+    assert.ok(!argvs.some((argv) => argv.includes("start-deployment")), stdout);
+    assert.match(err, /create-deployment gave no job id or upload link/);
+  }
+});
+
+test("with WebHosting=amplify, a file of a type with no set Content-Type stops the run before the zip", async () => {
+  const { code, argvs, err } = await deploy({
+    samconfig: AMPLIFY_SAMCONFIG,
+    outputs: AMPLIFY_OUTPUTS,
+    files: [...DIST, "icons/LICENSE"],
+  });
+  assert.equal(code, 1);
+  assert.equal(argvs.length, 3);
+  assert.ok(!argvs.some((argv) => argv[0] === "tar" || argv[1] === "amplify"));
+  assert.ok(err.includes("app/dist/icons/LICENSE"), err);
+});
+
+test("scrub masks a presigned link whole, its signature included", () => {
+  assert.equal(scrub(`PUT ${UPLOAD_URL} failed`), "PUT <presigned link> failed");
+  assert.equal(scrub("see https://example.org/page"), "see https://example.org/page");
 });
 
 test("with WebHosting=amplify, a stack without Amplify's outputs stops the run before the build", async () => {

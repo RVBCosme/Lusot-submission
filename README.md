@@ -32,7 +32,7 @@ npm run check                         # tests, linters and secret scans; CI runs
 
 `npm run check` runs three parts in order and stops at the first failure: `check:node`, `check:py` and `check:secrets`. Each also runs on its own. Deploying, the smoke test, the probe and the Android build are in the "Commands" section of [CLAUDE.md](CLAUDE.md).
 
-`npm run deploy:web`, after `npm run deploy`, builds the app against the deployed stack's API and puts it on the stack's private S3 bucket behind CloudFront; it prints the web URL.
+`npm run deploy:web`, after `npm run deploy`, builds the app against the deployed stack's API and puts it on the stack's website: with `WebHosting=on`, the private S3 bucket behind CloudFront; with `WebHosting=amplify`, the Amplify Hosting app, as one manual deployment. It prints the web URL.
 
 Building the app (`npm run build -w app`) first runs `prebuild`, which writes `app/public/licences.txt`: the name, version and full licence text of every production package, and of the build-time code that ends up in the page (`app/scripts/shipped-extra.json`). The app's Licences page shows that file. It is generated and git-ignored, and the build stops if a package has no licence file.
 

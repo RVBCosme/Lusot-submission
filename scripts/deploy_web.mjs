@@ -60,7 +60,8 @@ const OUTPUT_KEYS = {
   on: ["ApiUrl", "WebBucketName", "WebDistributionId", "WebUrl"],
   amplify: ["ApiUrl", "WebAmplifyAppId", "WebAmplifyBranchName", "WebAmplifyUrl"],
 };
-// How often, and how long apart, an Amplify job's status is read: 10 minutes in all.
+// How often, and how long apart, an Amplify job's status is read: 10 minutes of waits, plus each read's own time
+// (on IPv6-broken Wi-Fi, an aws call can take about 21 s more).
 const JOB_POLLS = 120;
 const JOB_POLL_MS = 5000;
 
@@ -147,25 +148,36 @@ export async function deployWeb({ run, env, readText, listFiles, upload, zipPath
       try {
         job = JSON.parse(created.stdout);
       } catch {
-        job = {};
+        job = null;
       }
-      if (!job.jobId || !job.zipUploadUrl) throw new Stop("create-deployment gave no job id or upload link");
-      const sent = await upload(job.zipUploadUrl, zipPath);
-      if (!sent.ok) throw new Stop(`the zip's upload failed with HTTP ${sent.status}`);
-      say("upload: ok");
-      await step("start-deployment", aws("amplify", "start-deployment", ...at, "--job-id", job.jobId));
-      let status = "";
-      for (let read = 0; read < JOB_POLLS && status !== "SUCCEED"; read += 1) {
-        if (read > 0) await sleep(JOB_POLL_MS);
-        const got = await step(
-          "reading the deployment's status",
-          aws("amplify", "get-job", ...at, "--job-id", job.jobId, "--query", "job.summary.status", "--output", "text"),
-        );
-        status = got.stdout.trim();
-        if (status === "FAILED" || status === "CANCELLED") throw new Stop(`the Amplify deployment ended ${status}`);
-      }
-      if (status !== "SUCCEED") {
-        throw new Stop(`the Amplify deployment is still ${status} after ${JOB_POLLS} reads: check it with aws amplify get-job`);
+      if (!job?.jobId || !job?.zipUploadUrl) throw new Stop("create-deployment gave no job id or upload link");
+      // From here a stop leaves Amplify's job behind, so it says which job, and how to check it.
+      try {
+        let sent;
+        try {
+          sent = await upload(job.zipUploadUrl, zipPath);
+        } catch (error) {
+          throw new Stop(`the zip's upload failed: ${error?.message ?? error}`);
+        }
+        if (!sent.ok) throw new Stop(`the zip's upload failed with HTTP ${sent.status}`);
+        say("upload: ok");
+        await step("start-deployment", aws("amplify", "start-deployment", ...at, "--job-id", job.jobId));
+        let status = "";
+        for (let poll = 0; poll < JOB_POLLS && status !== "SUCCEED"; poll += 1) {
+          if (poll > 0) await sleep(JOB_POLL_MS);
+          const got = await step(
+            "reading the deployment's status",
+            aws("amplify", "get-job", ...at, "--job-id", job.jobId, "--query", "job.summary.status", "--output", "text"),
+          );
+          status = got.stdout.trim();
+          if (status === "FAILED" || status === "CANCELLED") throw new Stop(`the Amplify deployment ended ${status}`);
+        }
+        if (status !== "SUCCEED") throw new Stop(`the Amplify deployment is still ${status} after ${JOB_POLLS} reads`);
+      } catch (error) {
+        if (error instanceof Stop) {
+          error.message += ` (check it with aws amplify get-job --app-id ${app} --branch-name ${branch} --job-id ${job.jobId})`;
+        }
+        throw error;
       }
       say("deployment: live");
       say(`web: ${amplifyUrl}`);

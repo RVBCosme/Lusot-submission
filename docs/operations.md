@@ -126,3 +126,15 @@ Only a seeded counter is read. Until the seed, the counter reads as `unseeded`, 
      Then clear the switch as step 4 of "When Meta calls pause" says.
   5. Leave every old table for Rene to delete, and note their names in the day's log.
 - **At the submission deploy on Nov 4,** raise the stop from $60 to $140 with step 5's command. It refuses a value above 140 or below the total already spent.
+
+## The website on Amplify (`WebHosting=amplify`, Nov 2)
+
+- **After each `npm run deploy:web`,** check the headers, read-only, before the URL is shared. In Git Bash, run `curl -sI <url>` with the web URL that deploy:web prints, for `/`, `/index.html`, `/sw.js`, `/manifest.webmanifest`, `/icons/icon-192.png` and one `/assets/` file named in `index.html`.
+  - Each must show the five security headers: `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `X-XSS-Protection`.
+  - The asset must show `Cache-Control: public, max-age=31536000, immutable`, and every other path `no-cache, s-maxage=0`.
+  - If one is wrong, tell the tracker before the URL goes anywhere. A header change in the template takes effect only after `npm run deploy` and then `deploy:web` again.
+- **A stopped deploy:web** after `create-deployment` prints the `aws amplify get-job ...` line for the job it left. If the next run's `create-deployment` or `start-deployment` is refused while that job is still pending, stop it first with `aws amplify stop-job --app-id <id> --branch-name main --job-id <n> --profile lusot --no-cli-pager`.
+- **Take the website down by Dec 31, 2026.** The privacy page promises that the access logs, which hold visitors' IP addresses, are kept only until then. Amplify deletes them only with the app.
+  1. Set `WebHosting=off` in `backend/samconfig.toml`, then run `npm run deploy`. It deletes `WebAmplifyApp` and `WebAmplifyBranch`. Deleting the whole stack (MS10) also works.
+  2. Check that `aws amplify list-apps --query "apps[].name" --output text --profile lusot --no-cli-pager` no longer lists `lusot-web`.
+  3. Note the date in the day's log.
