@@ -24,22 +24,23 @@ This guide also covers A-neg, your M8 labels, Set B's cars (M10), the sidewall p
 7. **It looks real:** it's on the verified official page, on the flood day; the scene matches the named spot (signs, landmarks); and nothing is warped, such as text, wheels or hands. Official posts are the main protection against AI fakes, so skip anything doubtful.
 
 Skip a photo if any of these is true:
-- it wasn't posted by MMDA or a city government
+- it isn't MMDA's or a city government's own photo, posted by it or credited to it
 - the spot or time can't be pinned down
 - the alert gives no depth, in words or inches
 - it is a repost of an older photo
 - it was shot at night and nothing is visible
 
 **Which photos to take,** so the set isn't tilted toward easy ones:
-- Collect every eligible photo you find, gutter deep included. Don't pick by how easy it looks.
-- Take at most **2 photos of the same spot per day**, across all posts: the first 2 that pass, in posting order, not the clearest ones.
+- Collect every eligible photo you find, gutter deep included. Don't pick by how easy it looks, or by how clear it is.
+- There is no limit per spot or per day (rules v0.10, Rene, Nov 2): log every eligible photo. The report says how many photos share a spot, so they aren't read as independent.
 
 ## Whose pages count
 
 - MMDA's own Facebook page and X account.
 - A city government's own page, or the official page of one of its offices, such as its disaster office (DRRMO) or its information office. Counting city offices is MS2-Q4's answer (a), approved on Oct 29 by Claude, under your delegation.
+- **A news outlet's repost of the city's own photo** (rules v0.10): a post on X that credits the photo to the city office, with the city's own depth words. Log the office as `poster` and the repost as `post_url`. The final Set A was gathered this way, and the original city posts weren't traced.
 - **Not these:** barangay pages, officials' personal pages, and police or fire pages. If you log one by mistake, the tools count its poster as `other`, and the photo is left out (`eval/rules.md` §9).
-- **Skip a photo the post credits to someone else,** such as a resident or a news outlet, and don't log it. Its poster is still MMDA or the city, so no tool can catch it.
+- **Skip a photo credited to anyone but MMDA or the city,** such as a resident or the news outlet itself, and don't log it. You write the poster yourself, as the credited office, so no tool can catch a photo that isn't the city's own.
 
 Write `poster` and `alert_poster` as `MMDA`, as the city's name (`Quezon City`), or as the city's name followed by one of these office words: `Government`, `City Government`, `City Hall`, `LGU`, `DRRMO`, `CDRRMO`, `PIO`, `Public Information Office` or `Information Office`. For example: `Quezon City DRRMO`, `Manila Public Information Office`. Any other spelling, even a natural one such as "Manila DRRM Office", counts as `other`. The intake warns about every poster and alert poster it counts as `other`; when it does, check the spelling.
 
