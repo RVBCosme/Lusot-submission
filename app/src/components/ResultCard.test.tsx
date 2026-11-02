@@ -891,7 +891,7 @@ describe('a sample and a demo pin', () => {
 
   // The credit states how Lusot changed the photo (C617's CC BY change note), so the card says each change once. MS4's
   // sample credit states the blur only, since the stored photo has no outlines; its demo pin credit states both.
-  const CHANGED_CREDIT ='Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred by Lusot.'
+  const CHANGED_CREDIT = 'Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred by Lusot.'
   const DEMO_CREDIT = 'Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred, and outlines drawn, by Lusot.'
 
   it("says only that it drew outlines when the sample's credit already says the photo was blurred", async () => {

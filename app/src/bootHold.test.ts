@@ -65,14 +65,19 @@ describe('in the APK', () => {
     expect(bar.getAttribute('aria-valuenow')).toBe('20')
     expect(boot.classList.contains('boot-steps')).toBe(true)
     expect(bar.style.getPropertyValue('--boot-progress')).toBe('20%')
+    // The first step shows at once, from the sliding bar: the easing between steps (boot-eased) is not on yet.
+    expect(boot.classList.contains('boot-eased')).toBe(false)
 
     for (const percent of [40, 60, 80, 100]) {
       vi.advanceTimersByTime(999)
       // Still the step before, until the second is over.
       expect(bar.getAttribute('aria-valuenow'), `just before ${percent}`).toBe(String(percent - 20))
+      expect(boot.classList.contains('boot-eased'), `easing just before ${percent}`).toBe(percent > 40)
       vi.advanceTimersByTime(1)
       expect(bar.getAttribute('aria-valuenow'), `at ${percent}`).toBe(String(percent))
       expect(bar.style.getPropertyValue('--boot-progress'), `fill at ${percent}`).toBe(`${percent}%`)
+      // From the second step on, each step eases.
+      expect(boot.classList.contains('boot-eased'), `easing at ${percent}`).toBe(true)
     }
     // The full bar is seen for a second: 100 from 4 s, and the render comes only at 5 s.
     expect(render).not.toHaveBeenCalled()
@@ -161,6 +166,7 @@ describe('on the web', () => {
       expect(bar.hasAttribute(attribute), attribute).toBe(false)
     }
     expect(boot.classList.contains('boot-steps')).toBe(false)
+    expect(boot.classList.contains('boot-eased')).toBe(false)
     expect(bar.style.getPropertyValue('--boot-progress')).toBe('')
   })
 })

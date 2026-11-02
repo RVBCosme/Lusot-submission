@@ -19,8 +19,9 @@
          index.css): Capacitor's --safe-area-inset-* on Android, env() in a browser. It moves only when the person has not
          asked for less motion, and otherwise holds still as a dim, full bar, never a share that would read as stuck. In the
          APK only, src/bootHold.ts holds the screen for 5 seconds and adds the class boot-steps, which turns the bar
-         determinate: its fill is the --boot-progress that the hold sets, 20% a second, easing each step for a person with
-         no reduced-motion preference and stepping at once for anyone else. -->
+         determinate: its fill is the --boot-progress that the hold sets, 20% a second. The first step (20%) shows at once,
+         from the sliding bar; the class boot-eased, added with the second step, eases the steps after it for a person
+         with no reduced-motion preference. Anyone else gets every step at once. -->
     <style>
       .boot{position:fixed;inset:0;display:flex;flex-direction:column;box-sizing:border-box;overflow:auto;background:#041A3A;color:#E1F4FE;text-align:center;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
       .boot-centre{position:relative;z-index:1;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;width:100%;max-width:26rem;margin:auto;padding:calc(2rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 1.5rem 2rem}
@@ -41,7 +42,7 @@
       @media (max-height:32rem){.boot-mark{height:4.5rem}.boot-name{margin-top:.5rem;font-size:2.25rem}.boot-bar{margin-top:1.25rem}.boot-waves{display:none}}
       @keyframes boot-slide{from{transform:translateX(-100%)}to{transform:translateX(280%)}}
       @keyframes boot-drift{from{transform:translateX(0)}to{transform:translateX(33.3333%)}}
-      @media (prefers-reduced-motion: no-preference){.boot-fill{width:36%;opacity:1;animation:boot-slide 1.6s ease-in-out infinite}.boot-waves svg{animation:boot-drift 24s linear infinite}.boot-steps .boot-fill{animation:none;transition:width .3s ease-out}}
+      @media (prefers-reduced-motion: no-preference){.boot-fill{width:36%;opacity:1;animation:boot-slide 1.6s ease-in-out infinite}.boot-waves svg{animation:boot-drift 24s linear infinite}.boot-steps .boot-fill{animation:none}.boot-eased .boot-fill{transition:width .3s ease-out}}
     </style>
   </head>
   <body>

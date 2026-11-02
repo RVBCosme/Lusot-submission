@@ -108,7 +108,10 @@ function Loose({ line, onSuggestion }: { line: AnswerLine; onSuggestion(question
 function cardLineClass(line: AnswerLine): string {
   if (line.key === 'level') return 'block text-balance font-bold'
   if (line.key === 'ask.answer.crossing') return 'mt-1 block border-l-4 border-outline pl-2 font-bold'
-  if (line.key === 'credit' || line.key === 'sample.photoFrom' || line.key === 'ask.answer.demo') {
+  // The credit is the photographer's own line and can hold a licence URL, which has no space to break at, so it may break
+  // anywhere (wrap-anywhere) rather than widen the screen.
+  if (line.key === 'credit') return 'block text-small text-ink-2 wrap-anywhere group-active:text-surface'
+  if (line.key === 'sample.photoFrom' || line.key === 'ask.answer.demo') {
     return 'block text-small text-ink-2 group-active:text-surface'
   }
   return 'block'

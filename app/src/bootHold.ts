@@ -35,6 +35,8 @@ function hold(done: () => void): boolean {
       step += 1
       if (step <= STEPS) {
         try {
+          // From the second step the steps ease (index.html's .boot-eased); the first showed at once.
+          boot.classList.add('boot-eased')
           show(step)
           return
         } catch {

@@ -73,6 +73,8 @@ export interface Behaviour {
   sampleOutcome: Outcome
   // A credit line that replaces every listed sample's own, for a test that needs a long unbroken one (a licence URL).
   sampleCredit?: string
+  // A credit line that replaces the demo pin's own in Ask Lusot's answers, for a test that needs a long unbroken one.
+  askDemoCredit?: string
   // POST /try (C534): a link (201), MS4's 503 model_calls_paused, or its 429 daily_cap. A chosen photo reads as a knee
   // level, with mode "try".
   tryRun: 'ok' | 'model_calls_paused' | 'daily_cap'
@@ -329,6 +331,11 @@ export class Mocks {
       const spoken = pathname === '/ask/voice'
       if (spoken && typeof json.audio !== 'string') return this.reply(route, 400, { error: 'bad_audio' })
       const { status, body } = askReply(spoken ? ASK_TRANSCRIPT : String(json.question ?? ''), json.here !== undefined, this.startedAt, Date.now())
+      // A test's own credit for the demo pin in the answer.
+      const credit = this.behaviour.askDemoCredit
+      if (credit !== undefined && status === 200) {
+        for (const pin of (body.answer as { demo: { credit?: string }[] }).demo) pin.credit = credit
+      }
       // A limit's 429 says how long until the next UTC hour, as the API's does.
       const wait: Record<string, string> =
         status === 429 ? { 'retry-after': String(Math.ceil((3_600_000 - (Date.now() % 3_600_000)) / 1000)) } : {}

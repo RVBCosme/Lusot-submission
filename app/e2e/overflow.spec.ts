@@ -1,10 +1,11 @@
 // No sideways swipe at phone width (Rene's device check, Nov 2): at 360 px neither the document nor the scrolling <main>
-// is wider than its box on the Tested page, About, the licences and the privacy policy. The Tested page is the one that
-// failed: a sample's credit line carries a licence URL, which has no space to break at. Every answer is a route in mocks.ts.
+// is wider than its box on the Tested page, an Ask Lusot answer, About, the licences and the privacy policy. The Tested page
+// is the one that failed: a sample's credit line carries a licence URL, which has no space to break at. Every answer is a
+// route in mocks.ts.
 import type { Page } from '@playwright/test'
 import { sampleList } from '../src/mock/fixtures'
 import { expect, test } from './mocks'
-import { acceptAdult, label } from './steps'
+import { acceptAdult, acceptNotice, label } from './steps'
 
 const L = 'en'
 // A credit as a real sample's can read: the licence's name, then its URL in brackets.
@@ -64,6 +65,19 @@ test('the Tested page does not swipe sideways once a sample has run, with its cr
   const photo = card.getByRole('img').first()
   await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0)
   await expectNoSideways(page, `Tested, the result card of ${FIRST.sampleId}`)
+})
+
+test('Ask Lusot does not swipe sideways when a demo card in its answer has a long credit', async ({ page, mocks }) => {
+  mocks.behaviour.askDemoCredit =
+    'Photo: Example Contributor (mock), CC BY 3.0 (https://commons.wikimedia.org/wiki/File:Marikina_flood_Ondoy_2009_street_scene_original.jpg)'
+  await page.goto('/#/ask')
+  await page.getByRole('textbox', { name: label(L, 'ask.ui.questionLabel') }).fill('Gaano kalalim ang baha sa España cor. Maceda?')
+  await page.getByRole('button', { name: label(L, 'ask.ui.send'), exact: true }).click()
+  await acceptNotice(page, L)
+  const answer = page.getByRole('region', { name: label(L, 'ask.ui.answer') })
+  await expect(answer.getByText(label(L, 'ask.answer.demo'))).toBeVisible()
+  await expect(answer).toContainText(mocks.behaviour.askDemoCredit)
+  await expectNoSideways(page, 'Ask Lusot, an answer with a demo card')
 })
 
 for (const [route, key, name] of [

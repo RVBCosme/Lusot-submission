@@ -254,12 +254,15 @@ describe('the loading screen stands alone', () => {
     expect(rest).not.toMatch(/\.boot-steps[^{]*\{[^}]*background/)
   })
 
-  it('stops the slide and eases each step only for a person with no reduced-motion preference', () => {
+  it('stops the slide for a person with no reduced-motion preference, and eases each step from the second', () => {
     const { blocks, rest } = splitMotion(style)
     expect(blocks).toMatch(/\.boot-steps \.boot-fill\s*\{[^}]*animation:\s*none/)
-    expect(blocks).toMatch(/\.boot-steps \.boot-fill\s*\{[^}]*transition:\s*width\s+[\d.]+m?s/)
+    // The first step (20 %) shows at once, from the sliding bar's width, so the class that starts the hold has no
+    // transition; the one the hold adds with the second step (boot-eased) has it.
+    expect(blocks).not.toMatch(/\.boot-steps \.boot-fill\s*\{[^}]*transition/)
+    expect(blocks).toMatch(/\.boot-eased \.boot-fill\s*\{[^}]*transition:\s*width\s+[\d.]+m?s/)
     // Anyone else gets each step at once: nothing outside the no-preference blocks moves (also checked above).
-    expect(rest).not.toMatch(/transition/)
+    expect(rest).not.toMatch(/transition|boot-eased/)
   })
 
   it("is painted in the brand tokens' colours and no others", () => {
