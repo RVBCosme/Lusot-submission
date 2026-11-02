@@ -227,7 +227,8 @@ export const EN = {
   // C637: a sample's refusal doesn't ask a judge to retake a photo they didn't take, so D19's line sits inside a frame.
   'refusal.sample.someoneWouldSee': { text: 'Someone reporting this spot would see:', reviewed: true },
   // The tracker's ruling (C637): a photo the person chose isn't one to retake, so its refusal has no D19 and no retake
-  // tip, only what Lusot reads best. It was approved as written at M20 by the tracker under Rene's delegation (Nov 2, about 5:2x PM).
+  // tip, only what Lusot reads best. It was approved as written at M20 by the tracker under Rene's delegation (Nov 2,
+  // before 5:05 PM by the clock).
   'refusal.try.tip': {
     text: "Lusot reads depth best from a photo with a parked car's wheel or a person standing still in view.",
     reviewed: true,
@@ -639,7 +640,8 @@ export const EN = {
     reviewed: true,
   },
   // A photo the person chooses on the Tested page (C534, C640). Its result is shown only to them, and a limit names no
-  // time, as a sample's doesn't. Each line was approved as written at M20 by the tracker under Rene's delegation (Nov 2, about 5:2x PM).
+  // time, as a sample's doesn't. Each line was approved as written at M20 by the tracker under Rene's delegation
+  // (Nov 2, before 5:05 PM by the clock).
   'tested.try.title': { text: 'Try your own photo', reviewed: true },
   'tested.try.intro': {
     text: 'Choose a flood photo from your device. Lusot reads it the same way as a photo you take, and shows the result only to you. It never goes on the map, and Lusot keeps the report for 7 days.',

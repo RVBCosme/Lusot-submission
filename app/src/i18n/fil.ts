@@ -623,7 +623,8 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Naabot na ng Lusot ang dami ng sample na kaya nito ngayong araw. Subukan ulit mamaya.',
     reviewed: true,
   },
-  // The chosen-photo lines' Taglish, approved as written at M20 by the tracker under Rene's delegation (Nov 2, about 5:2x PM).
+  // The chosen-photo lines' Taglish, approved as written at M20 by the tracker under Rene's delegation (Nov 2, before
+  // 5:05 PM by the clock).
   'tested.try.title': { text: 'Subukan ang sarili mong photo', reviewed: true },
   'tested.try.intro': {
     text: 'Pumili ng photo ng baha mula sa device mo. Binabasa ito ng Lusot sa parehong paraan ng photo na kinunan mo, at ikaw lang ang makakakita ng result. Hindi ito napupunta sa mapa, at itinatago ng Lusot ang report nang 7 araw.',
