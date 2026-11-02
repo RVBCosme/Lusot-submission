@@ -174,9 +174,11 @@ it("the level table of eval/rules.md matches LEVELS, UPPER_LIMIT_IN and PASSABIL
     expect(PASSABILITY[level as Level], level).toBe(cls)
   })
   expect(Object.keys(UPPER_LIMIT_IN)).toEqual([...LEVELS])
-  // The last level is open above the last limit, which is the previous level's upper limit.
+  // The last level is open above the last limit, which is the previous level's upper limit: read from the "d > n" row.
   expect(UPPER_LIMIT_IN.above_chest).toBeNull()
-  expect(UPPER_LIMIT_IN.chest).toBe(45)
+  const open = rows.find(([, , , sign]) => sign === '>')
+  expect(open, 'the open row "d > n" is found').toBeDefined()
+  expect(UPPER_LIMIT_IN.chest).toBe(Number((open as RegExpExecArray)[4]))
 })
 
 it("a level's lower limit is the previous level's upper limit, and the first level starts at 0", () => {

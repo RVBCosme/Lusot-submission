@@ -84,6 +84,41 @@ test("allows the screen line and the class lines", () => {
   }
 });
 
+// C639, approved by the tracker under Rene's delegation, Nov 2: the six verdict sentences of the result card, exact and
+// case-sensitive, are allowed. A looser variant is still a review hit, so the allowance can't widen the word "passable".
+const VERDICT_LINES = [
+  "Verdict at this spot: Passable to all vehicles",
+  "Verdict at this spot: Not passable to light vehicles",
+  "Verdict at this spot: Not passable to any vehicle",
+  "Verdict sa spot na ito: Passable sa lahat ng sasakyan",
+  "Verdict sa spot na ito: Hindi passable sa light vehicles",
+  "Verdict sa spot na ito: Hindi passable sa anumang sasakyan",
+];
+
+test("C639, approved by the tracker under Rene's delegation, Nov 2: the six verdict sentences give no review hit", () => {
+  assert.equal(VERDICT_LINES.length, 6);
+  for (const line of VERDICT_LINES) {
+    assert.ok(rules.allowed.includes(line), `${line} is in copy-rules.json's allowed`);
+    const { fails, reviews } = hitsOf("notes.md", `${line}\n`);
+    assert.deepEqual(fails, [], line);
+    assert.deepEqual(reviews, [], line);
+  }
+  // A looser variant (another wording, another case, another verdict word) still gives a review hit. (The lowercase class
+  // phrases above are older allowances, taken out wherever they sit, so "verdict at this spot: passable to all vehicles"
+  // is clear through them and not through these six.)
+  for (const loose of [
+    "Passable to all vehicles here",
+    "verdict at this spot: Passable to all vehicles",
+    "Verdict at this spot: Passable to all cars",
+    "Verdict at this spot: Not Passable to light vehicles",
+    "Verdict sa spot na ito: passable sa lahat ng sasakyan",
+  ]) {
+    const { fails, reviews } = hitsOf("notes.md", `${loose}\n`);
+    assert.deepEqual(fails, [], loose);
+    assert.deepEqual(ids(reviews), ["crossing-pass"], loose);
+  }
+});
+
 test("a level line needs at this spot", () => {
   assert.deepEqual(ids(hitsOf("notes.md", "Knee deep.\n").fails), ["level-line"]);
   const ok = hitsOf("notes.md", "Knee deep at this spot (MMDA level).\n");

@@ -45,12 +45,13 @@ async function visibleText(page: Page): Promise<{ text: string; licences: string
   })
 }
 
-// Every level line on the page: the cards', the list rows' and the markers' names.
+// Every level line on the page: the cards', the list rows' and the markers' names. A card's is the line marked
+// data-level-line; the verdict above it is the headline now, and is not a level line (C639).
 async function levelLines(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const lines: string[] = []
     for (const card of document.querySelectorAll('article[data-outcome="level"]')) {
-      const line = card.querySelector('[role="status"] p.text-title')
+      const line = card.querySelector('[data-level-line]')
       if (line !== null) lines.push(line.textContent ?? '')
     }
     for (const row of document.querySelectorAll('ul li [data-line].font-bold')) lines.push(row.textContent ?? '')

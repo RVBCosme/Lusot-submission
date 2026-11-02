@@ -1,4 +1,4 @@
-import { basisLine, classLine, landmarkLine, levelLine } from '../copy/wording'
+import { basisLine, depthLine, landmarkLine, levelLine, verdictLines } from '../copy/wording'
 import { Line, T, useT } from '../i18n'
 import { routeHash } from '../router'
 import { Badge } from './Badge'
@@ -17,6 +17,9 @@ const EXAMPLE = { level: 'knee', landmark: 'rim_three_quarters', basis: { vehicl
 export function EmptyMap() {
   const t = useT()
   const landmark = landmarkLine(t, EXAMPLE.landmark)
+  // Worded as a result card words a level (C639): the verdict, whose class it is, the level line, and the depth range.
+  const verdict = verdictLines(t, EXAMPLE.level, false)
+  const depth = depthLine(t, EXAMPLE.level, false)
   return (
     <section className="space-y-4">
       <div>
@@ -39,6 +42,14 @@ export function EmptyMap() {
           </Badge>
         </div>
         <p className="text-balance text-title font-bold">
+          <Line value={verdict.verdict} />
+        </p>
+        {verdict.sub !== undefined && (
+          <p className="mt-1 text-pretty text-small text-ink-2">
+            <Line value={verdict.sub} />
+          </p>
+        )}
+        <p className="mt-3 text-balance text-heading font-bold">
           <Line value={levelLine(t, EXAMPLE.level, false)} />
         </p>
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
@@ -49,9 +60,11 @@ export function EmptyMap() {
                 <Line value={landmark} />
               </p>
             )}
-            <p className="text-pretty">
-              <Line value={classLine(t, EXAMPLE.level)} />
-            </p>
+            {depth !== undefined && (
+              <p className="text-pretty">
+                <Line value={depth} />
+              </p>
+            )}
             <p className="text-pretty text-ink-2">
               <Line value={basisLine(t, EXAMPLE.basis)} />
             </p>

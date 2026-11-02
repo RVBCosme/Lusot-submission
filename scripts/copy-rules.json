@@ -83,6 +83,12 @@
     "I can't tell you whether to cross or go through.",
     "not passable to light vehicles",
     "not passable to any vehicle",
-    "passable to all vehicles"
+    "passable to all vehicles",
+    "Verdict at this spot: Passable to all vehicles",
+    "Verdict at this spot: Not passable to light vehicles",
+    "Verdict at this spot: Not passable to any vehicle",
+    "Verdict sa spot na ito: Passable sa lahat ng sasakyan",
+    "Verdict sa spot na ito: Hindi passable sa light vehicles",
+    "Verdict sa spot na ito: Hindi passable sa anumang sasakyan"
   ]
 }

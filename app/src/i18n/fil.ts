@@ -254,6 +254,7 @@ export const FIL: Record<StringKey, Entry> = {
   'verdict.classOf': { text: 'Ang class ng MMDA para sa {level} level.', reviewed: true },
   'verdict.mayBeDeeper': { text: 'Walang verdict: maaaring mas malalim ang tubig kaysa sa {level} level.', reviewed: true },
   'verdict.none': { text: 'Walang verdict: hindi masabi ng Lusot mula sa photo na ito.', reviewed: true },
+  'verdict.unknownDepth': { text: 'Walang verdict: hindi masabi ng Lusot kung gaano kalalim ang tubig.', reviewed: true },
   'depth.range': { text: 'Lalim: {level} level, mga {minM} hanggang {maxM} m ({minIn} hanggang {maxIn} in).', reviewed: true },
   'depth.upTo': { text: 'Lalim: {level} level, hanggang {maxM} m ({maxIn} in).', reviewed: true },
   'depth.over': { text: 'Lalim: {level} level, lampas {minM} m ({minIn} in).', reviewed: true },
@@ -261,7 +262,6 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Lalim: {level} level o mas malalim, hindi bababa sa {minM} m ({minIn} in).',
     reviewed: true,
   },
-  'depth.floorNoMetres': { text: 'Lalim: {level} level o mas malalim.', reviewed: true },
   'result.landmark.tire_only': {
     text: 'Umaabot ang tubig sa gulong ng nakaparadang sasakyan, sa ibaba ng rim.',
     reviewed: true,

@@ -50,15 +50,25 @@ export function classLine(t: Translate, level: Level): Text {
   return t(classes[PASSABILITY[level]])
 }
 
+// Whether MMDA's class for a reading may be stated at this spot. An exact level always can. A floor is "at least" a level,
+// so only an NPATV floor can't leave its class; a PATV or NPLV floor could be a deeper level in a worse one. The card's
+// verdict and Ask Lusot's class line both ask this, so a pin and an answer never state a class one of them wouldn't.
+export function classHolds(level: Level, isFloor: boolean): boolean {
+  return !isFloor || PASSABILITY[level] === 'NPATV'
+}
+
 // The headline of a level result (C639, Rene, Nov 2): MMDA's class for the level as a verdict at this spot, with a
 // sub-line saying whose class it is. The seven gauge levels say "MMDA's class for the {level} level"; the two added levels
-// have the line that names the MMDA level they lie beyond (C81). A floor is "at least" a level, so deeper water only
-// worsens an NPLV or NPATV class and those keep their verdict; a PATV floor could really be a deeper level in another
-// class, so it gets "No verdict" and never "Passable", and has no class to attribute.
+// have the line that names the MMDA level they lie beyond (C81). A floor is "at least" a level, so deeper water cannot
+// leave an NPATV class and that keeps its verdict; a PATV or NPLV floor could really be a deeper level in a worse class,
+// so it gets "No verdict" and never "Passable" or "Not passable to light vehicles", and has no class to attribute (the
+// tracker's ruling, Nov 2). A floor on the first level says nothing about depth, and its line says so.
 export function verdictLines(t: Translate, level: Level, isFloor: boolean): { verdict: Text; sub?: Text } {
   const name = t(`result.levelName.${level}`).text
   const passability = PASSABILITY[level]
-  if (isFloor && passability === 'PATV') return { verdict: t('verdict.mayBeDeeper', { level: name }) }
+  if (!classHolds(level, isFloor)) {
+    return { verdict: level === 'below_gutter' ? t('verdict.unknownDepth') : t('verdict.mayBeDeeper', { level: name }) }
+  }
   const verdicts = { PATV: 'verdict.patv', NPLV: 'verdict.nplv', NPATV: 'verdict.npatv' } as const
   return {
     verdict: t(verdicts[passability]),
@@ -67,16 +77,15 @@ export function verdictLines(t: Translate, level: Level, isFloor: boolean): { ve
 }
 
 // The level's depth range in metres and inches, from eval/rules.md's limits (levels.ts), as a range the level stands
-// for and never a measured depth. A floor gives its lower limit alone; below gutter has none worth showing as a floor.
-export function depthLine(t: Translate, level: Level, isFloor: boolean): Text {
+// for and never a measured depth. A floor gives its lower limit alone. A floor on the first level has no depth line at all
+// (its verdict says Lusot can't tell how deep), and a floor on the last is open above the same limit as the exact level, so
+// it reads the same (the tracker's rulings, Nov 2).
+export function depthLine(t: Translate, level: Level, isFloor: boolean): Text | undefined {
   const name = t(`result.levelName.${level}`).text
   const minIn = lowerLimitIn(level)
   const maxIn = UPPER_LIMIT_IN[level]
-  if (isFloor) {
-    return level === 'below_gutter'
-      ? t('depth.floorNoMetres', { level: name })
-      : t('depth.floor', { level: name, minM: toMetres(minIn), minIn })
-  }
+  if (isFloor && level === 'below_gutter') return undefined
+  if (isFloor && maxIn !== null) return t('depth.floor', { level: name, minM: toMetres(minIn), minIn })
   if (maxIn === null) return t('depth.over', { level: name, minM: toMetres(minIn), minIn })
   if (level === 'below_gutter') return t('depth.upTo', { level: name, maxM: toMetres(maxIn), maxIn })
   return t('depth.range', { level: name, minM: toMetres(minIn), maxM: toMetres(maxIn), minIn, maxIn })

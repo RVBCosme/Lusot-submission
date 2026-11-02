@@ -230,6 +230,33 @@ describe('renderAnswer, the vehicle and the cards', () => {
     expect(lines[1].text.text).toBe('At least waist deep at this spot (MMDA level).')
   })
 
+  // The result card's rule (the tracker, Nov 2): a floor is "at least" a level, so only an NPATV floor keeps its class. A
+  // PATV or NPLV floor could be a deeper level in a worse class, and MMDA's class for the floor would read as a verdict.
+  it('a floor whose class is PATV or NPLV gets no class line, and an NPATV floor keeps it', () => {
+    const floor = (over: Partial<AskReport>) => {
+      const deepest = report({ levelIsFloor: true, ...over })
+      return renderAnswer(answer({ reports: [deepest], demo: [], count: 1, deepestId: deepest.id }), en, NOW)
+    }
+    for (const [level, passability] of [['gutter', 'PATV'], ['knee', 'NPLV'], ['below_gutter', 'PATV']] as const) {
+      const lines = floor({ level, passability })
+      expect(keys(lines), level).toEqual(['ask.answer.summaryOne', 'level', 'ask.answer.where'])
+    }
+    for (const level of ['tire', 'above_chest'] as const) {
+      expect(keys(floor({ level, passability: 'NPATV' })), level).toEqual(['ask.answer.summaryOne', 'level', 'class', 'ask.answer.where'])
+    }
+    // An exact reading of the same levels keeps its class line.
+    const exact = report({ level: 'knee', passability: 'NPLV' })
+    expect(keys(renderAnswer(answer({ reports: [exact], demo: [], count: 1, deepestId: exact.id }), en, NOW))).toContain('class')
+  })
+
+  it('a heavy vehicle keeps the crossing line (AskL-Q10) under the level line when the floor gives no class line', () => {
+    const deepest = report({ level: 'knee', passability: 'NPLV', levelIsFloor: true })
+    const lines = renderAnswer(answer({ vehicle: 'heavy', reports: [deepest], demo: [], count: 1, deepestId: deepest.id }), en, NOW)
+
+    expect(keys(lines).slice(0, 5)).toEqual(['ask.answer.summaryOne', 'level', 'ask.answer.crossing', 'ask.answer.where', 'ask.answer.vehicleHeavy'])
+    expect(lines[2]).toMatchObject({ part: 'card', reportId: deepest.id })
+  })
+
   it('an answer without citations has no used marks', () => {
     const lines = renderAnswer(answer({ cited: [] }), en, NOW)
 

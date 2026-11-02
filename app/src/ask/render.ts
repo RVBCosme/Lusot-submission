@@ -3,7 +3,7 @@
 // never word one reading two ways. The order is §4.4's: the crossing line first, the summary, the deepest report's
 // card, the vehicle line, the other cards, then the demo cards.
 import { LEVELS } from '../copy/levels'
-import { classLine, levelLine, type Translate } from '../copy/wording'
+import { classHolds, classLine, levelLine, type Translate } from '../copy/wording'
 import { makeT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import type { AskAnswer, AskReport } from '../lib/api'
@@ -106,9 +106,12 @@ export function renderAnswer(answer: AskAnswer, t: Translate, now: Date): Answer
       const onFoot = answer.vehicle === 'on_foot'
       if (deepest !== undefined) {
         lines.push(card(deepest, 'level', levelLine(t, deepest.level, deepest.levelIsFloor)))
-        // On foot, no class line on any report (plan §9). With a heavy vehicle, the crossing line also sits right under
-        // the class line, so "not passable to light vehicles" never reads as permission (AskL-Q10).
-        if (!onFoot) lines.push(card(deepest, 'class', classLine(t, deepest.level)))
+        // On foot, no class line on any report (plan §9). A PATV or NPLV floor has none either, as on the result card: deeper
+        // water could be a worse class. With a heavy vehicle, the crossing line also sits right under the class line, so
+        // "not passable to light vehicles" never reads as permission (AskL-Q10); it stays when there is no class line.
+        if (!onFoot && classHolds(deepest.level, deepest.levelIsFloor)) {
+          lines.push(card(deepest, 'class', classLine(t, deepest.level)))
+        }
         if (answer.vehicle === 'heavy') lines.push(card(deepest, 'ask.answer.crossing', t('ask.answer.crossing')))
         lines.push(where(deepest))
       }

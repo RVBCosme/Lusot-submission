@@ -222,7 +222,9 @@ function ResultCardBody({
   // The level and what goes with it.
   const level = result.level
   const isFloor = result.levelIsFloor === true
-  const verdict = level === undefined ? undefined : verdictLines(t, level, isFloor)
+  // The verdict alone treats a result with no floor flag as a floor, so a missing flag can never read as "Passable". The
+  // level line, the gauge and the depth line keep reading the flag as it is.
+  const verdict = level === undefined ? undefined : verdictLines(t, level, result.levelIsFloor !== false)
   const landmark = result.landmark === undefined ? undefined : landmarkLine(t, result.landmark)
   // A saved sample answer carries no basis, inches or readings (amendment 10), and the card doesn't rely on the API
   // client having dropped them: it leaves them out whatever it is handed.
@@ -340,7 +342,7 @@ function ResultCardBody({
                 <Line value={verdict.sub} />
               </p>
             )}
-            <p className="mt-3 text-balance text-heading font-bold">
+            <p data-level-line className="mt-3 text-balance text-heading font-bold">
               <Line value={levelLine(t, level, isFloor)} />
             </p>
           </div>
@@ -350,7 +352,9 @@ function ResultCardBody({
               <Note value={landmark} />
               <Note value={live ? levelFromLine(t, report?.levelFrom) : undefined} />
               <Note value={inches} />
-              <Note value={depthLine(t, level, isFloor)} />
+              {/* The inches line, with its metres, is the depth when the API sent inches; the level's range is for when
+                  it didn't (the tracker, Nov 2). */}
+              <Note value={inches === undefined ? depthLine(t, level, isFloor) : undefined} />
               <Note value={isExample ? undefined : whenAndWhere} className="text-ink-2" />
               <Note value={basis} className="text-ink-2" />
             </div>
@@ -404,9 +408,8 @@ function ResultCardBody({
           <div className="flex items-start gap-3">
             <Mark outcome="cantTell" />
             <div className="min-w-0">
-              {/* "No verdict" is the bold headline of every refusal (C639). A sample's refusal doesn't ask a judge to
-                  retake a photo they didn't take: D19's line sits in a frame (C637). Your own refusal is D19's line,
-                  then why. */}
+              {/* A sample's refusal opens with "No verdict" (C639) and doesn't ask a judge to retake a photo they didn't
+                  take: D19's line sits in a frame (C637). Your own refusal is D19's line, bold, then why. */}
               {isSample ? (
                 <>
                   <p className="text-balance text-heading font-bold">
@@ -422,10 +425,7 @@ function ResultCardBody({
                 </>
               ) : (
                 <>
-                  <p className="text-balance text-heading font-bold">
-                    <T k="verdict.none" />
-                  </p>
-                  <p className="mt-2">
+                  <p className="font-bold">
                     <T k="refusal.d19" />
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-2" />

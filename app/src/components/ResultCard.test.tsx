@@ -146,7 +146,8 @@ describe('a level result', () => {
     expect(screen.getByText('Estimated 15 to 18 in (0.38 to 0.46 m).')).toBeTruthy()
     expect(screen.getByText('Verdict at this spot: Not passable to light vehicles')).toBeTruthy()
     expect(screen.getByText("MMDA's class for the knee level.")).toBeTruthy()
-    expect(screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')).toBeTruthy()
+    // The inches line, with its metres, is the depth, so the level's depth range is left out (the tracker, Nov 2).
+    expect(text()).not.toContain('Depth:')
     // The verdict replaced the class line, which would have said the class twice.
     expect(text()).not.toContain('MMDA lists this level')
     // The API's accuracy wins over the fix's.
@@ -301,22 +302,42 @@ describe('the verdict at this spot', () => {
     }
   })
 
-  it('keeps the verdict of an NPLV floor and of an NPATV floor, since deeper water only makes them worse', () => {
-    renderCard({ result: pinAt('knee', { levelIsFloor: true }), source: 'pin' })
-    expect(status().textContent).toContain(VERDICT.NPLV)
-    expect(status().textContent).toContain('At least knee deep at this spot (MMDA level).')
-    expect(screen.getByText("MMDA's class for the knee level.")).toBeTruthy()
-    expect(screen.getByText('Depth: knee level or deeper, at least 0.33 m (13 in).')).toBeTruthy()
-    cleanup()
-
+  // The floor matrix (the tracker's ruling, Nov 2): a floor is "at least" a level, so only an NPATV floor keeps its verdict.
+  // A PATV or NPLV floor gets "No verdict", and the first level's floor says Lusot can't tell how deep.
+  it('keeps the verdict and sub-line of an NPATV floor, since deeper water cannot leave that class', () => {
+    for (const level of ['tire', 'waist', 'chest', 'above_chest'] as const) {
+      renderCard({ result: pinAt(level, { levelIsFloor: true }), source: 'pin' })
+      expect(status().firstElementChild?.textContent, level).toBe(VERDICT.NPATV)
+      expect(status().textContent, level).toContain('At least')
+      expect(status().querySelectorAll('p'), level).toHaveLength(3)
+      cleanup()
+    }
     renderCard({ result: pinAt('waist', { levelIsFloor: true }), source: 'pin' })
-    expect(status().textContent).toContain(VERDICT.NPATV)
+    expect(screen.getByText("MMDA's class for the waist level.")).toBeTruthy()
     expect(status().textContent).toContain('At least waist deep at this spot (MMDA level).')
     expect(screen.getByText('Depth: waist level or deeper, at least 0.66 m (26 in).')).toBeTruthy()
   })
 
+  it('gives an NPLV floor "No verdict: the water may be deeper", with no class line, and an exact NPLV keeps its verdict', () => {
+    for (const level of ['half_tire', 'knee'] as const) {
+      renderCard({ result: pinAt(level, { levelIsFloor: true }), source: 'pin' })
+      const name = EN[`result.levelName.${level}`].text
+      expect(status().firstElementChild?.textContent, level).toBe(`No verdict: the water may be deeper than the ${name} level.`)
+      expect(status().querySelectorAll('p'), level).toHaveLength(2)
+      expect(text(), level).not.toMatch(/Verdict at this spot|MMDA's class for|passable/i)
+      cleanup()
+    }
+    renderCard({ result: pinAt('knee', { levelIsFloor: true }), source: 'pin' })
+    expect(status().textContent).toContain('At least knee deep at this spot (MMDA level).')
+    expect(screen.getByText('Depth: knee level or deeper, at least 0.33 m (13 in).')).toBeTruthy()
+    cleanup()
+
+    renderCard({ result: pinAt('knee'), source: 'pin' })
+    expect(status().firstElementChild?.textContent).toBe(VERDICT.NPLV)
+  })
+
   it('gives a floor whose class is PATV "No verdict: the water may be deeper", never the word "Passable"', () => {
-    for (const level of LEVELS.filter((l) => PASSABILITY[l] === 'PATV')) {
+    for (const level of ['gutter', 'half_knee'] as const) {
       for (const lang of ['en', 'fil'] as const) {
         renderCard({ result: pinAt(level, { levelIsFloor: true }), source: 'pin' }, lang)
         const name = (lang === 'en' ? EN : FIL)[`result.levelName.${level}`].text
@@ -338,18 +359,108 @@ describe('the verdict at this spot', () => {
     renderCard({ result: pinAt('gutter', { levelIsFloor: true }), source: 'pin' })
     expect(status().textContent).toContain('At least gutter deep at this spot (MMDA level).')
     expect(screen.getByText('Depth: gutter level or deeper, at least 0.13 m (5 in).')).toBeTruthy()
-    cleanup()
-
-    renderCard({ result: pinAt('below_gutter', { levelIsFloor: true }), source: 'pin' })
-    expect(status().textContent).toContain('At least below gutter deep at this spot.')
-    expect(screen.getByText('Depth: below gutter level or deeper.')).toBeTruthy()
   })
 
-  it('puts the depth line in the notes after the inches line, as a range and never as a measurement', async () => {
+  it("gives a floor on the first level \"No verdict: Lusot can't tell how deep the water is\", and no depth line at all", () => {
+    for (const lang of ['en', 'fil'] as const) {
+      renderCard({ result: pinAt('below_gutter', { levelIsFloor: true }), source: 'pin' }, lang)
+      const table = lang === 'en' ? EN : FIL
+      expect(status().firstElementChild?.textContent, lang).toBe(table['verdict.unknownDepth'].text)
+      expect(status().querySelectorAll('p'), lang).toHaveLength(2)
+      expect(text(), lang).not.toMatch(/Depth:|Lalim:|may be deeper|maaaring mas malalim|passable/i)
+      cleanup()
+      localStorage.clear()
+    }
+    renderCard({ result: pinAt('below_gutter', { levelIsFloor: true }), source: 'pin' })
+    expect(status().textContent).toContain('At least below gutter deep at this spot.')
+    expect(screen.getByTestId('gauge').getAttribute('data-open')).toBe('true')
+  })
+
+  it('reads the depth of an above-chest floor like the exact level, "over 1.14 m (45 in)"', () => {
+    renderCard({ result: pinAt('above_chest', { levelIsFloor: true }), source: 'pin' })
+    expect(screen.getByText('Depth: above chest level, over 1.14 m (45 in).')).toBeTruthy()
+    // (The gauge's own "or deeper" label is not the depth line.)
+    expect(text()).not.toMatch(/level or deeper|at least 1\.14/)
+  })
+
+  it('the floor matrix on the card: PATV and NPLV floors give no verdict, an NPATV floor keeps its own, in both languages', () => {
+    const headlineOf = (level: Level, lang: 'en' | 'fil') => {
+      renderCard({ result: pinAt(level, { levelIsFloor: true }), source: 'pin' }, lang)
+      const headline = status().firstElementChild?.textContent ?? ''
+      cleanup()
+      localStorage.clear()
+      return headline
+    }
+    for (const lang of ['en', 'fil'] as const) {
+      const table = lang === 'en' ? EN : FIL
+      for (const level of LEVELS) {
+        const name = table[`result.levelName.${level}`].text
+        let expected = table['verdict.mayBeDeeper'].text.replace('{level}', name)
+        if (PASSABILITY[level] === 'NPATV') expected = table['verdict.npatv'].text
+        if (level === 'below_gutter') expected = table['verdict.unknownDepth'].text
+        const headline = headlineOf(level, lang)
+        expect(headline, `${lang} ${level}`).toBe(expected)
+        expect(headline, `${lang} ${level}`).not.toBe(table['verdict.patv'].text)
+        expect(headline, `${lang} ${level}`).not.toBe(table['verdict.nplv'].text)
+      }
+    }
+  })
+
+  // A result that carries no flag at all is treated as a floor for the verdict only, so a missing flag can never read as
+  // "Passable". The level line, the gauge and the depth line are left as they were.
+  it('treats a missing floor flag as a floor for the verdict only, so it never says "Passable"', async () => {
+    const gutter = { ...(await takePhoto()), level: 'gutter' as const, levelIsFloor: undefined, depthInMin: undefined, depthInMax: undefined }
+    renderCard({ result: gutter })
+    expect(status().firstElementChild?.textContent).toBe('No verdict: the water may be deeper than the gutter level.')
+    expect(text()).not.toMatch(/passable/i)
+    expect(status().textContent).toContain('Gutter deep at this spot (MMDA level).')
+    expect(status().textContent).not.toContain('At least')
+    expect(screen.getByText('Depth: gutter level, about 0.13 to 0.20 m (5 to 8 in).')).toBeTruthy()
+    expect(screen.getByTestId('gauge').getAttribute('data-open')).not.toBe('true')
+    cleanup()
+
+    // A flag that says it is not a floor still gives the exact verdict.
+    renderCard({ result: { ...gutter, levelIsFloor: false } })
+    expect(status().firstElementChild?.textContent).toBe(VERDICT.PATV)
+  })
+
+  // MS5's e2e copy check finds the level line through this attribute, not through its size class, so the verdict above it
+  // can't be taken for it.
+  it('marks the level line, and only the level line, so the e2e copy check reads it', async () => {
     renderCard({ result: await takePhoto() })
-    const inches = screen.getByText('Estimated 15 to 18 in (0.38 to 0.46 m).')
+    const marked = document.querySelectorAll('[data-level-line]')
+    expect(marked).toHaveLength(1)
+    expect(marked[0].textContent).toBe('Knee deep at this spot (MMDA level).')
+    expect(marked[0].closest('[role="status"]')).not.toBeNull()
+    expect(status().firstElementChild?.hasAttribute('data-level-line')).toBe(false)
+    cleanup()
+
+    // A floor whose verdict is "No verdict" still has its level line marked.
+    renderCard({ result: pinAt('gutter', { levelIsFloor: true }), source: 'pin' })
+    expect(document.querySelector('[data-level-line]')?.textContent).toBe('At least gutter deep at this spot (MMDA level).')
+  })
+
+  // The inches line, with its metres, is the depth when the API sent inches, so the level's depth range is left out then.
+  it('leaves the depth line out when the inches line shows, and shows it when there are no inches', async () => {
+    const knee = await takePhoto()
+    renderCard({ result: knee })
+    expect(screen.getByText('Estimated 15 to 18 in (0.38 to 0.46 m).')).toBeTruthy()
+    expect(text()).not.toContain('Depth:')
+    cleanup()
+
+    // One end alone is no inches line, so the depth line is back.
+    renderCard({ result: { ...knee, depthInMax: undefined } })
+    expect(screen.queryByText(/Estimated/)).toBeNull()
+    expect(screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')).toBeTruthy()
+    cleanup()
+
+    renderCard({ result: { ...knee, depthInMin: undefined, depthInMax: undefined } })
+    expect(screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')).toBeTruthy()
+  })
+
+  it('puts the depth line in the notes, outside the live region, as a range and never as a measurement', async () => {
+    renderCard({ result: { ...(await takePhoto()), depthInMin: undefined, depthInMax: undefined } })
     const depth = screen.getByText('Depth: knee level, about 0.33 to 0.48 m (13 to 19 in).')
-    expect(inches.compareDocumentPosition(depth) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(depth.closest('[role="status"]')).toBeNull()
     expect(text()).not.toMatch(/measured depth|exactly/i)
   })
@@ -386,18 +497,17 @@ describe('the other outcomes', () => {
     expect(text()).not.toMatch(/deep at this spot|MMDA lists|reference object|Estimated|verdict|Depth:/i)
   })
 
-  it('a refusal opens with "No verdict", then D19\'s line and the reason line, with no frame around it', async () => {
+  it("your own refusal is D19's bold line, then the reason line, with no \"No verdict\" headline and no frame around it", async () => {
     renderCard({ result: await takePhoto('refused_too_dark') })
     expect(screen.getByRole('status').textContent).toContain(D19)
     expect(screen.getByText('The photo is too dark to read.')).toBeTruthy()
-    // "No verdict" is the bold headline, and D19's line follows it at normal weight (C639).
-    const none = screen.getByText("No verdict: Lusot can't tell from this photo.")
-    expect(none.className).toMatch(/\bfont-bold\b/)
+    // D19's line is the bold headline, as it was before C639; "No verdict" is a sample's refusal only (the tracker, Nov 2).
     const d19 = screen.getByText(D19)
-    expect(d19.className).not.toMatch(/font-bold/)
+    expect(d19.className).toMatch(/\bfont-bold\b/)
     const reason = screen.getByText('The photo is too dark to read.')
-    expect(none.compareDocumentPosition(d19) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(d19.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByRole('status').firstElementChild?.querySelector('p')).toBe(d19)
+    expect(text()).not.toMatch(/No verdict|Walang verdict/)
     expect(text()).not.toContain('Passable')
     expect(text()).not.toContain('Depth:')
     expect(text()).not.toContain('Someone reporting this spot would see:')
@@ -1403,15 +1513,21 @@ describe('in Taglish', () => {
   })
 
   it('words the verdict, its sub-line, the depth line and the inches line in Taglish, unmarked', async () => {
-    renderCard({ result: await takePhoto() }, 'fil')
+    const knee = await takePhoto()
+    renderCard({ result: knee }, 'fil')
     for (const line of [
       'Verdict sa spot na ito: Hindi passable sa light vehicles',
       'Ang class ng MMDA para sa knee level.',
-      'Lalim: knee level, mga 0.33 hanggang 0.48 m (13 hanggang 19 in).',
       'Tinatayang 15 hanggang 18 in (0.38 hanggang 0.46 m).',
     ]) {
       expect(screen.getByText(line).closest('[lang="en"]'), line).toBeNull()
     }
+    cleanup()
+
+    // The depth line shows when the API sent no inches.
+    renderCard({ result: { ...knee, depthInMin: undefined, depthInMax: undefined } }, 'fil')
+    const depth = 'Lalim: knee level, mga 0.33 hanggang 0.48 m (13 hanggang 19 in).'
+    expect(screen.getByText(depth).closest('[lang="en"]')).toBeNull()
     cleanup()
 
     renderCard({ result: pinAt('gutter', { levelIsFloor: true }), source: 'pin' }, 'fil')

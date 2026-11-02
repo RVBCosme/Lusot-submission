@@ -255,21 +255,22 @@ export const EN = {
     reviewed: true,
   },
   // The verdict at this spot (C639, Rene, Nov 2): the headline of a level result, in MMDA's class for the level. A
-  // floor whose class is PATV gets "mayBeDeeper" and never "Passable", since deeper water could be another class.
-  // "none" is the headline of a refusal. {level} is a level's name, as 'result.levelName.*' words it.
+  // floor whose class is PATV or NPLV gets "mayBeDeeper" and never "Passable" or "Not passable to light vehicles", since
+  // deeper water could be a worse class; a floor on the first level gets "unknownDepth" instead. Only an NPATV floor keeps
+  // its verdict. "none" is the headline of a sample's refusal. {level} is a level's name, as 'result.levelName.*' words it.
   'verdict.patv': { text: 'Verdict at this spot: Passable to all vehicles', reviewed: true },
   'verdict.nplv': { text: 'Verdict at this spot: Not passable to light vehicles', reviewed: true },
   'verdict.npatv': { text: 'Verdict at this spot: Not passable to any vehicle', reviewed: true },
   'verdict.classOf': { text: "MMDA's class for the {level} level.", reviewed: true },
   'verdict.mayBeDeeper': { text: 'No verdict: the water may be deeper than the {level} level.', reviewed: true },
   'verdict.none': { text: "No verdict: Lusot can't tell from this photo.", reviewed: true },
+  'verdict.unknownDepth': { text: "No verdict: Lusot can't tell how deep the water is.", reviewed: true },
   // The level's depth range, from eval/rules.md's limits (inches times 0.0254, in metres), not a measured depth. A
-  // floor gives its lower limit; the first level's floor has none worth showing.
+  // floor gives its lower limit; the first level's floor has no depth line.
   'depth.range': { text: 'Depth: {level} level, about {minM} to {maxM} m ({minIn} to {maxIn} in).', reviewed: true },
   'depth.upTo': { text: 'Depth: {level} level, up to {maxM} m ({maxIn} in).', reviewed: true },
   'depth.over': { text: 'Depth: {level} level, over {minM} m ({minIn} in).', reviewed: true },
   'depth.floor': { text: 'Depth: {level} level or deeper, at least {minM} m ({minIn} in).', reviewed: true },
-  'depth.floorNoMetres': { text: 'Depth: {level} level or deeper.', reviewed: true },
   // Where the water meets the deciding reference (spec §4.3). A wheel or body line says "a parked car", because
   // moving vehicles never give a reading; a person's line says "an adult in the photo", because the API doesn't
   // say whether that adult was standing or wading.
