@@ -619,6 +619,37 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Naabot na ng Lusot ang dami ng sample na kaya nito ngayong araw. Subukan ulit mamaya.',
     reviewed: false,
   },
+  // Claude's Taglish drafts for the chosen-photo lines, each waiting for the tracker's review (M20).
+  'tested.try.title': { text: 'Subukan ang sarili mong photo', reviewed: false },
+  'tested.try.intro': {
+    text: 'Pumili ng photo ng baha mula sa device mo. Binabasa ito ng Lusot sa parehong paraan ng photo na kinunan mo, at ikaw lang ang makakakita ng result. Hindi ito napupunta sa mapa, at itinatago ng Lusot ang report nang 7 araw.',
+    reviewed: false,
+  },
+  'try.choose': { text: 'Pumili ng photo', reviewed: false },
+  'try.chooseAnother': { text: 'Pumili ng ibang photo', reviewed: false },
+  'try.inputLabel': { text: 'Photo ng baha mula sa device mo', reviewed: false },
+  'try.reading': { text: 'Binabasa ng Lusot ang photo mo.', reviewed: false },
+  'try.unsupported': {
+    text: 'Nababasa ng Lusot ang JPEG, PNG o WebP na photo. Pumili ng ibang photo.',
+    reviewed: false,
+  },
+  'try.unreadable': { text: 'Hindi mabuksan ng Lusot ang photo na ito. Pumili ng ibang photo.', reviewed: false },
+  'try.sendFailed': {
+    text: 'Hindi naipadala ng Lusot ang photo mo. Tingnan ang koneksyon mo at subukan ulit.',
+    reviewed: false,
+  },
+  'try.limit.device_limit': {
+    text: 'Naabot na ng device na ito ang dami ng photo na pinapayagan ng Lusot sa isang oras. Subukan ulit mamaya.',
+    reviewed: false,
+  },
+  'try.limit.global_cap': {
+    text: 'Naabot na ng Lusot ang dami ng piniling photo na kaya nitong basahin sa ngayon. Subukan ulit mamaya.',
+    reviewed: false,
+  },
+  'try.limit.daily_cap': {
+    text: 'Naabot na ng Lusot ang dami ng piniling photo na kaya nitong basahin ngayong araw. Subukan ulit mamaya.',
+    reviewed: false,
+  },
   // Ask Lusot's lines (plan Task 14): Claude's Taglish drafts, each waiting for Rene's review (M20). The ask.answer.
   // keys show their English line until their Taglish is reviewed (C724). The first two example questions are Taglish
   // already and stay as written, the third is translated, and the attribution is OpenStreetMap's own wording.

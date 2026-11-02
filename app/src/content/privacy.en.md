@@ -54,6 +54,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 - **The pin feed** carries only what the map shows, never photos, outlines or device ids. Other flood maps may copy pins from the feed, and Lusot can't delete their copies.
 - **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos. They come from people who agreed to share their photos for this, or from openly licensed photos (CC0, public domain or CC BY, never BY-SA, from Wikimedia Commons and Flickr). Each is credited on screen with its author, licence and a link to the file. Faces and plate numbers are blurred in all of them. An open-licensed demo pin shows the photo's own date, marked as an archive photo, and is always shown as a demo pin. They stay up longer than 3 hours and 7 days, and never count as reports.
 - **Outside Metro Manila.** A photo taken outside Metro Manila is analysed, and the result is shown only to you. It never becomes a pin. The photo still goes to Meta as described above, and the report is kept for 7 days like any other.
+- **A photo you choose.** On the Tested page you can choose a photo from your device instead of taking one. Your device re-saves it first, which drops details stored in the file, such as where it was taken. It is analysed the same way and goes to Meta as described above. The result is shown only to you, never becomes a pin, and the report is kept for 7 days like any other.
 
 ## Ask Lusot
 

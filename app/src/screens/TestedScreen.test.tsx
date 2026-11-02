@@ -333,7 +333,7 @@ describe('words', () => {
     expect(keys.length).toBeGreaterThan(20)
     const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort()
     // Lines added on Nov 2 (C534, C640) wait for the tracker's review (M20): they still need a Taglish line.
-    const awaitingReview = (key: StringKey) => key === 'sample.limit.daily_cap'
+    const awaitingReview = (key: StringKey) => key === 'sample.limit.daily_cap' || key.startsWith('tested.try.')
     for (const key of keys) {
       if (!awaitingReview(key)) {
         expect(EN[key].reviewed, key).toBe(true)
@@ -819,6 +819,22 @@ describe('the samples', () => {
     await settle()
     expect(getSamples).toHaveBeenCalledTimes(3)
     expect(runButtons()).toHaveLength(3)
+  })
+})
+
+// ---- a photo the person chooses (C534, C640) ----
+
+describe('your own photo', () => {
+  it('the Tested page shows the Try your own photo section after the samples', async () => {
+    await openWithSamples()
+    const headings = within(page()).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
+
+    expect(headings.indexOf(text('tested.try.title'))).toBe(headings.indexOf(text('tested.samples.title')) + 1)
+    const section = screen.getByRole('region', { name: text('tested.try.title') })
+    expect(section.textContent).toContain(text('tested.try.intro'))
+    expect(within(section).getByRole('button', { name: text('try.choose') })).toBeTruthy()
+    const samples = screen.getByRole('region', { name: text('tested.samples.title') })
+    expect(samples.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 

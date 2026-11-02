@@ -632,6 +632,35 @@ export const EN = {
     text: 'Lusot has run as many samples as it can today. Try again later.',
     reviewed: false,
   },
+  // A photo the person chooses on the Tested page (C534, C640). Its result is shown only to them, and a limit names no
+  // time, as a sample's doesn't. Every line waits for the tracker's review (M20).
+  'tested.try.title': { text: 'Try your own photo', reviewed: false },
+  'tested.try.intro': {
+    text: 'Choose a flood photo from your device. Lusot reads it the same way as a photo you take, and shows the result only to you. It never goes on the map, and Lusot keeps the report for 7 days.',
+    reviewed: false,
+  },
+  'try.choose': { text: 'Choose a photo', reviewed: false },
+  'try.chooseAnother': { text: 'Choose another photo', reviewed: false },
+  'try.inputLabel': { text: 'Flood photo from your device', reviewed: false },
+  'try.reading': { text: 'Lusot is reading your photo.', reviewed: false },
+  'try.unsupported': { text: 'Lusot can read a JPEG, PNG or WebP photo. Choose another photo.', reviewed: false },
+  'try.unreadable': { text: "Lusot couldn't open this photo. Choose another photo.", reviewed: false },
+  'try.sendFailed': {
+    text: "Lusot couldn't send your photo. Check your connection and try again.",
+    reviewed: false,
+  },
+  'try.limit.device_limit': {
+    text: 'This device has tried as many photos as Lusot allows in an hour. Try again later.',
+    reviewed: false,
+  },
+  'try.limit.global_cap': {
+    text: 'Lusot has read as many chosen photos as it can for now. Try again later.',
+    reviewed: false,
+  },
+  'try.limit.daily_cap': {
+    text: 'Lusot has read as many chosen photos as it can today. Try again later.',
+    reviewed: false,
+  },
   // Ask Lusot (its spec §4.4, §4.10, plan Task 14): the screen's controls and errors (ask.ui., ask.error.), and the
   // answer's lines (ask.answer.), which are screen-line keys, so their Taglish shows only once reviewed (C724). The
   // answer's level and class lines are MS5's own (copy/wording.ts). Every one waits for Rene's review (M20).

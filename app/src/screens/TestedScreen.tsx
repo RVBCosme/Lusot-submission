@@ -1,5 +1,6 @@
 import { useId, useRef, type ReactNode } from 'react'
 import { SampleList } from '../components/SampleList'
+import { TryPhoto } from '../components/TryPhoto'
 import { Line, T, useLanguage, useT, type Text } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { useHeadingFocus } from '../lib/focus'
@@ -128,7 +129,8 @@ function Figures({ summary, reportUrl }: { summary: Summary; reportUrl: string |
 }
 
 // The Tested page (C616, C617): the sealed run's figures once there are some, how Lusot is tested, its known limits and
-// the samples. The figures come from MS6's summary at build time; `summary` and `reportUrl` are for tests.
+// the samples and a photo the person chooses (C534, C640). The figures come from MS6's summary at build time; `summary`
+// and `reportUrl` are for tests.
 export function TestedScreen({
   apiUrl,
   summary = SUMMARY,
@@ -186,6 +188,13 @@ export function TestedScreen({
           <T k="tested.samples.intro" />
         </p>
         <SampleList apiUrl={apiUrl} />
+      </Section>
+
+      <Section title="tested.try.title">
+        <p className="mt-2">
+          <T k="tested.try.intro" />
+        </p>
+        <TryPhoto apiUrl={apiUrl} />
       </Section>
 
       <p className="mt-8 text-small text-ink-2">
