@@ -29,14 +29,17 @@ const SECTION: Record<Route['name'], Section> = {
 
 // The current section is underlined and in the action colour, not bolded, so its label keeps its width and doesn't wrap.
 // Each label stays on one line: at 360 px, Taglish's "Mag-report" broke at its hyphen (Rene's phone test, Nov 1). A
-// label that doesn't fit widens its link, and the row wraps instead (see the <ul>).
+// label that doesn't fit widens its link, and the row wraps instead (see the <ul>). From lg each link is an icon beside its
+// label, with the same underline for the current section.
 const LINK =
-  'flex min-h-tap flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 py-1 text-small active:opacity-70 aria-[current=page]:text-action aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4'
+  'flex min-h-tap flex-col items-center justify-center gap-0.5 whitespace-nowrap px-1 py-1 text-small active:opacity-70 aria-[current=page]:text-action aria-[current=page]:underline aria-[current=page]:decoration-2 aria-[current=page]:underline-offset-4 lg:flex-row lg:gap-2 lg:px-3 lg:text-body'
 
+// The phone's bar of tabs along the bottom, and from lg the same nav, drawn in the top bar (Layout.tsx): the page holds
+// one nav at every width, so there is never a second landmark for a screen reader to find.
 export function BottomNav({ route, reportDisabled }: { route: Route; reportDisabled: boolean }) {
   const current = SECTION[route.name]
   return (
-    <nav>
+    <nav className="lg:relative lg:z-[1100] lg:col-start-2 lg:row-start-1 lg:self-center lg:py-1">
       {/* At large text sizes the links wrap to a second row rather than run off the screen. */}
       <ul className="flex flex-wrap">
         {ITEMS.map(({ section, label, Icon }) => {
@@ -47,7 +50,7 @@ export function BottomNav({ route, reportDisabled }: { route: Route; reportDisab
             </>
           )
           return (
-            <li key={section} className="flex-1">
+            <li key={section} className="flex-1 lg:flex-none">
               {section === 'report' && reportDisabled ? (
                 // A link with no address can't be followed (WAI-ARIA's disabled link). The banner says why.
                 <a role="link" aria-disabled="true" className={`${LINK} cursor-not-allowed opacity-50`}>

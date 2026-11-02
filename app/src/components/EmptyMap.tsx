@@ -21,7 +21,7 @@ export function EmptyMap() {
   const verdict = verdictLines(t, EXAMPLE.level, false)
   const depth = depthLine(t, EXAMPLE.level, false)
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 lg:p-4">
       <div>
         <h2 className="text-balance text-heading font-bold">
           <T k="map.empty.title" />

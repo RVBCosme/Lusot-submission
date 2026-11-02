@@ -6,6 +6,7 @@ import { ResultCard } from '../components/ResultCard'
 import { T, useT } from '../i18n'
 import { getPins, type Pin } from '../lib/api'
 import { useHeadingFocus } from '../lib/focus'
+import { useDesktop } from '../lib/useDesktop'
 import { flagCount, isOwn, mergeOwnPin, pinStrength } from '../map/pins'
 import { useOwnPin, useSeenOnMap } from '../report/ReportFlowProvider'
 import { navigate, routeHash } from '../router'
@@ -28,8 +29,12 @@ type View = 'map' | 'list'
 // `GET /map/pins` when it opens, every 60,000 ms while the page is visible, and at once when the page comes back; it
 // stops when the page is hidden and when the screen goes. Every list it gets goes to the flow (so the own pin clears
 // once the map holds it) and to the flag counts' memory. Without an API address it reads nothing and says so.
+//
+// From lg (64 rem) the map runs to the edges of the window (Layout.tsx gives the map's screen no side padding), and the
+// list opens in a 24 rem panel on its right with the map beside it, where below lg it takes the map's place.
 export function MapScreen({ apiUrl }: { apiUrl: string }) {
   const t = useT()
+  const desktop = useDesktop()
   const own = useOwnPin()
   const seenOnMap = useSeenOnMap()
   const [view, setView] = useState<View>('map')
@@ -121,14 +126,14 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
   }
 
   return (
-    <section className="flex min-h-full flex-col gap-3">
+    <section className="flex min-h-full flex-col gap-3 lg:gap-0">
       <h1 ref={heading} className="sr-only">
         <T k="nav.map" />
       </h1>
 
       {panel !== 'own' && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 lg:px-4 lg:py-2">
             <div role="group" aria-label={t('map.viewGroup').text} className="flex gap-1">
               <button
                 ref={mapButton}
@@ -150,13 +155,13 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
             )}
           </div>
           {apiUrl === '' && (
-            <p>
+            <p className="lg:px-4 lg:pb-2">
               <T k="map.noApi" />
             </p>
           )}
           {/* In the page from the first draw and empty when there is nothing to say, so a change to it is announced.
               Empty, it takes back the gap above it. */}
-          <p role="status" className="empty:-mt-3">
+          <p role="status" className="empty:-mt-3 lg:px-4 lg:empty:mt-0 lg:not-empty:pb-2">
             {apiUrl === '' ? null : failed ? (
               <T k="map.loadFailed" />
             ) : read === undefined ? (
@@ -167,16 +172,30 @@ export function MapScreen({ apiUrl }: { apiUrl: string }) {
       )}
 
       {/* The map stays mounted while the list or the own result shows, so it keeps its view and its tiles. `hidden`
-          beats `flex` through Tailwind's base rule [hidden] { display: none !important }. */}
-      <div hidden={panel !== 'map'} className="flex min-h-0 flex-1 flex-col gap-3">
-        <MapView pins={shown} now={now} onOpen={open} />
-        {showsEmpty && panel === 'map' && <EmptyMap />}
+          beats `flex` through Tailwind's base rule [hidden] { display: none !important }, and no class can lift it, so
+          from lg the screen asks the window and leaves the map shown beside the list. The row around the map and the list
+          gives its children to the section below lg; from lg it is the row of the map and its panel. The panel's inner box
+          is out of the row's flow, so a long list scrolls in the panel and never makes the screen taller. */}
+      <div className="contents lg:flex lg:min-h-0 lg:flex-1">
+        <div
+          hidden={panel === 'own' || (panel === 'list' && !desktop)}
+          className="flex min-h-0 flex-1 flex-col gap-3 lg:min-w-0 lg:gap-0"
+        >
+          <MapView pins={shown} now={now} onOpen={open} />
+          {showsEmpty && panel === 'map' && <EmptyMap />}
+        </div>
+
+        {panel === 'list' && (
+          <div className="lg:relative lg:w-96 lg:shrink-0 lg:border-l lg:border-outline">
+            <div className="lg:absolute lg:inset-0 lg:overflow-y-auto">
+              {showsEmpty ? <EmptyMap /> : <PinList pins={shown} now={now} onOpenOwn={openOwn} />}
+            </div>
+          </div>
+        )}
       </div>
 
-      {panel === 'list' && (showsEmpty ? <EmptyMap /> : <PinList pins={shown} now={now} onOpenOwn={openOwn} />)}
-
       {panel === 'own' && own !== undefined && (
-        <div className="space-y-4">
+        <div className="space-y-4 lg:mx-auto lg:w-full lg:max-w-page lg:p-4">
           <h2 ref={ownHeading} tabIndex={-1} className="text-title font-bold outline-none">
             <T k="map.own" />
           </h2>

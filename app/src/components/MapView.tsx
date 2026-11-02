@@ -168,14 +168,14 @@ export function MapView({ pins, now, onOpen }: { pins: readonly Pin[]; now: Date
 
   return (
     <div className="flex min-h-56 flex-1 flex-col">
-      <div className="relative isolate min-h-56 flex-1 rounded-control border border-outline">
+      <div className="relative isolate min-h-56 flex-1 rounded-control border border-outline lg:rounded-none lg:border-x-0 lg:border-b-0">
         <button type="button" onClick={locate} className={`absolute left-2 top-2 z-[1000] ${BUTTON}`}>
           <LocateFixedIcon aria-hidden="true" className="size-6" />
           <T k="map.locate" />
         </button>
-        <div ref={container} role="group" aria-label={t('map.mapLabel').text} className="absolute inset-0 rounded-control" />
+        <div ref={container} role="group" aria-label={t('map.mapLabel').text} className="absolute inset-0 rounded-control lg:rounded-none" />
       </div>
-      <p role="status" className="mt-2 text-small empty:mt-0">
+      <p role="status" className="mt-2 text-small empty:mt-0 lg:px-4">
         {locating ? <T k="report.locating" /> : problem === undefined ? null : <T k={problem} />}
       </p>
     </div>

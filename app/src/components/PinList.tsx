@@ -17,7 +17,7 @@ export function PinList({ pins, now, onOpenOwn }: { pins: readonly Pin[]; now: D
   const t = useT()
   const { lang } = useLanguage()
   return (
-    <ul aria-label={t('map.listLabel').text} className="space-y-2">
+    <ul aria-label={t('map.listLabel').text} className="space-y-2 lg:p-3">
       {newestFirst(pins).map((pin) => {
         const { level, when } = pinLines(t, lang, pin, now)
         const own = isOwn(pin)

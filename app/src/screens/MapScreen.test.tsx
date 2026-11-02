@@ -907,3 +907,109 @@ describe('the new lines', () => {
     }
   })
 })
+
+// ---- the desktop layout (from lg, 64 rem) ----
+//
+// The list opens in a panel beside the map, which stays. The script asks the window (lib/useDesktop.ts) because the map is
+// hidden by the `hidden` attribute below lg, and no class can lift that rule. The widths themselves are e2e/desktop.spec.ts's.
+
+describe('from lg', () => {
+  // The window is below lg until a test says otherwise. A render reads it again, as a resize would.
+  let wide = false
+  beforeEach(() => {
+    wide = false
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) =>
+        ({
+          matches: wide && query === '(min-width: 64rem)',
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    )
+  })
+  const atDesktop = (on: boolean) => {
+    wide = on
+  }
+  const mapGroup = () => screen.queryByRole('group', { name: text('map.mapLabel') })
+
+  it('opens the list in a 24 rem panel on the right, and the map stays beside it, as it was', async () => {
+    atDesktop(true)
+    await open()
+    const map = maps[0] as L.Map
+    showList()
+
+    expect(mapGroup()).not.toBeNull()
+    expect(document.querySelector('.leaflet-container')).toBe(map.getContainer())
+    expect(maps).toHaveLength(1)
+    const list = screen.getByRole('list', { name: text('map.listLabel') })
+    expect(rows()).toHaveLength(4)
+    const panel = list.closest('[class~="lg:w-96"]') as HTMLElement
+    expect(panel.classList.contains('lg:shrink-0')).toBe(true)
+    // Inside it, a box out of the row's flow scrolls the list, so a long list never makes the screen taller.
+    expect(['lg:absolute', 'lg:inset-0', 'lg:overflow-y-auto'].every((token) => list.parentElement?.classList.contains(token))).toBe(true)
+    // The map and the panel share one row, which gives its children to the section below lg.
+    const row = panel.parentElement as HTMLElement
+    expect(row.contains(mapGroup())).toBe(true)
+    expect(['contents', 'lg:flex', 'lg:min-h-0', 'lg:flex-1'].every((token) => row.classList.contains(token))).toBe(true)
+  })
+
+  it('still takes the map away below lg, where the list replaces it', async () => {
+    await open()
+    showList()
+
+    expect(mapGroup()).toBeNull()
+    expect(screen.getByRole('list', { name: text('map.listLabel') })).toBeTruthy()
+  })
+
+  it('shows the map beside the list once the window is wide, and takes it away again when it is not', async () => {
+    const view = await open()
+    showList()
+    expect(mapGroup()).toBeNull()
+    const again = () =>
+      view.rerender(
+        <LanguageProvider>
+          <main>
+            <MapScreen apiUrl={API} />
+          </main>
+        </LanguageProvider>,
+      )
+
+    atDesktop(true)
+    again()
+    expect(mapGroup()).not.toBeNull()
+    expect(screen.getByRole('list', { name: text('map.listLabel') })).toBeTruthy()
+
+    atDesktop(false)
+    again()
+    expect(mapGroup()).toBeNull()
+  })
+
+  it("lets the person's own result replace the map and the list, as it does below lg", async () => {
+    atDesktop(true)
+    flow.pin = ownPin
+    await open()
+    showList()
+
+    fireEvent.click(within(rows()[0] as HTMLElement).getByRole('button'))
+
+    expect(screen.getByRole('article').getAttribute('data-outcome')).toBe('level')
+    expect(mapGroup()).toBeNull()
+    expect(screen.queryByRole('list', { name: text('map.listLabel') })).toBeNull()
+  })
+
+  it("has the empty map's example in the panel too, with the map beside it", async () => {
+    atDesktop(true)
+    mockApi('pins_none')
+    await open()
+    showList()
+
+    const heading = screen.getByRole('heading', { name: text('map.empty.title') })
+    expect(heading.closest('[class~="lg:w-96"]')).not.toBeNull()
+    expect(mapGroup()).not.toBeNull()
+  })
+})

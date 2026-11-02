@@ -204,3 +204,91 @@ it('with localStorage throwing on every access, the app renders in English and s
   expect(document.documentElement.lang).toBe('en')
   expect(screen.getByRole('link', { name: EN['nav.map'].text })).toBeTruthy()
 })
+
+// ---- the desktop layout (from lg, 64 rem) ----
+//
+// jsdom applies no stylesheet, so these pin the structure the stylesheet works on: which element is a grid, which
+// elements hand their children to it, and where each child is placed. The browser's side of it (the nav drawn in the top
+// bar, the map across the window, the screen line at the bottom, once) is e2e/desktop.spec.ts's, at 1280 x 800.
+describe('the shell from lg', () => {
+  const has = (element: Element, ...tokens: string[]) => tokens.every((token) => element.classList.contains(token))
+  const banner = () => screen.getByRole('banner')
+  const shell = () => banner().parentElement as HTMLElement
+  const footer = () => document.querySelector('footer') as HTMLElement
+  const after = (first: Node, second: Node) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+  const CENTRED = 'lg:page-x'
+
+  it('has one navigation, after the screen in the page, so the focus order is the phone\'s at every width', () => {
+    renderApp()
+
+    expect(screen.getAllByRole('navigation')).toHaveLength(1)
+    expect(after(banner(), screen.getByRole('main'))).toBe(true)
+    expect(after(screen.getByRole('main'), screen.getByRole('navigation'))).toBe(true)
+    expect(footer().contains(screen.getByRole('navigation'))).toBe(true)
+  })
+
+  it('is the phone\'s below lg: a column that fills the viewport, the screen scrolling, the bar pinned under it', () => {
+    renderApp()
+
+    expect(has(shell(), 'safe-area', 'flex', 'h-screen', 'flex-col')).toBe(true)
+    expect(has(screen.getByRole('main'), '-mx-2', 'px-2', 'py-4', 'min-h-0', 'flex-1', 'overflow-y-auto')).toBe(true)
+    expect(has(footer(), 'relative', 'z-[1100]', 'shrink-0', 'bg-surface')).toBe(true)
+    expect(has(banner(), 'flex', 'flex-wrap', 'justify-between', 'border-b')).toBe(true)
+    // The bottom bar's links are still an icon over a label, in a row that shares the width.
+    const link = screen.getByRole('link', { name: EN['nav.map'].text })
+    expect(has(link, 'flex', 'flex-col', 'min-h-tap')).toBe(true)
+    expect(has(link.parentElement as HTMLElement, 'flex-1')).toBe(true)
+  })
+
+  it('is a grid at lg: the top bar, the notices, the screen and the screen line, in four rows', () => {
+    renderApp({ apiUrl: '' })
+
+    expect(has(shell(), 'lg:grid', 'lg:grid-cols-[auto_minmax(0,1fr)_auto]', 'lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]')).toBe(true)
+    // The header and the footer give their children to the grid. The nav stays in the footer in the page, and is drawn in
+    // the bar: the brand, then the nav, then the language switch, side by side in the first row.
+    expect(has(banner(), 'lg:contents')).toBe(true)
+    expect(has(footer(), 'lg:contents')).toBe(true)
+    expect(has(within(banner()).getByText('Lusot'), 'lg:col-start-1', 'lg:row-start-1')).toBe(true)
+    expect(has(screen.getByRole('navigation'), 'lg:col-start-2', 'lg:row-start-1')).toBe(true)
+    expect(has(within(banner()).getByRole('group'), 'lg:col-start-3', 'lg:row-start-1')).toBe(true)
+    // The notices share the second row, one above the other, across the width.
+    expect(has(screen.getByRole('alert').parentElement as HTMLElement, 'lg:col-span-full', 'lg:row-start-2')).toBe(true)
+    expect(has(screen.getByRole('main'), 'lg:col-span-full', 'lg:row-start-3')).toBe(true)
+    expect(has(screen.getByText(SCREEN_LINE), 'lg:col-span-full', 'lg:row-start-4')).toBe(true)
+  })
+
+  it('has a row for the notices whether or not any shows, and the offline banner is in it', () => {
+    renderApp()
+
+    const notices = screen.getByRole('main').previousElementSibling as HTMLElement
+    expect(has(notices, 'lg:row-start-2')).toBe(true)
+    expect(notices.textContent).toBe('')
+  })
+
+  it('centres every screen at 72 rem, except the map, which runs to the edges of the window', () => {
+    for (const hash of ['#/about', '#/tested', '#/ask', '#/privacy', PIN]) {
+      renderApp({ hash })
+      const main = screen.getByRole('main')
+      expect(has(main, 'lg:mx-0', CENTRED), hash).toBe(true)
+      expect(main.classList.contains('lg:p-0'), hash).toBe(false)
+      cleanup()
+    }
+    for (const hash of ['', '#/map']) {
+      renderApp({ hash })
+      const main = screen.getByRole('main')
+      expect(has(main, 'lg:mx-0', 'lg:p-0'), hash).toBe(true)
+      expect(main.classList.contains(CENTRED), hash).toBe(false)
+      cleanup()
+    }
+  })
+
+  it('draws the nav as a row of icon and label from lg, each link with the same current-page underline', () => {
+    renderApp()
+
+    const link = screen.getByRole('link', { name: EN['nav.map'].text })
+    expect(has(link, 'lg:flex-row', 'lg:gap-2', 'lg:px-3')).toBe(true)
+    expect(has(link.parentElement as HTMLElement, 'lg:flex-none')).toBe(true)
+    expect(link.className).toContain('aria-[current=page]:underline')
+    expect(link.getAttribute('aria-current')).toBe('page')
+  })
+})
