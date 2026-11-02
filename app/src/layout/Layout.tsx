@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { T } from '../i18n'
 import { routeHash, type Route } from '../router'
 import { BottomNav } from './BottomNav'
+import { BrandMark } from './BrandMark'
 import { ErrorBoundary } from './ErrorBoundary'
 import { OfflineBanner } from '../components/OfflineBanner'
 import { LanguageSwitch } from './LanguageSwitch'
@@ -16,21 +17,27 @@ import { ScreenLine } from './ScreenLine'
 // drawn twice, and each width shows one copy (the other is `display: none`, so it is out of the tab order and the
 // accessibility tree): the phone's bar of tabs in the footer, after the screen, and from lg a copy in the header, between
 // the brand and the language switch, so the keyboard and the screen reader meet the bar in the order the eye does (WCAG
-// 2.4.3, 1.3.2). The header and the footer give their children to the grid (`contents`). The screens are centred at 72 rem,
-// by the screen's own side padding, since a wrapper would break the screens that fill it (`min-h-full`); the map runs to
-// the edges of the window. Below lg none of this applies.
+// 2.4.3, 1.3.2). The footer gives its children to the grid (`contents`). The header is a row of its own across the grid, a
+// flex row, so it can be one box: the brand navy (`app-bar`, index.css) runs out through the shell's padding to the window's
+// edges and under the system bars, at both widths. The screens are centred at 72 rem, by the screen's own side padding,
+// since a wrapper would break the screens that fill it (`min-h-full`); the map runs to the edges of the window. Below lg none
+// of this applies.
 export function Layout({ route, apiReady, children }: { route: Route; apiReady: boolean; children: ReactNode }) {
   const mapScreen = route.name === 'map'
   return (
-    <div className="safe-area flex h-screen flex-col supports-[height:100dvh]:h-dvh lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-rows-[auto_auto_minmax(0,1fr)_auto] lg:after:col-span-full lg:after:row-start-1 lg:after:self-end lg:after:border-b lg:after:border-outline">
-      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-outline pb-2 lg:contents">
-        <p className="text-title font-bold lg:col-start-1 lg:row-start-1 lg:self-center lg:px-4 lg:py-1">Lusot</p>
+    <div className="safe-area flex h-screen flex-col supports-[height:100dvh]:h-dvh lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]">
+      <header className="app-bar flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-2 lg:col-span-full lg:row-start-1 lg:flex-nowrap lg:justify-start lg:px-4 lg:pb-0">
+        <div className="flex items-center gap-2">
+          <BrandMark className="h-8 w-auto shrink-0" />
+          <p className="text-title font-bold text-brand-pale">Lusot</p>
+        </div>
         <BottomNav
           route={route}
           reportDisabled={!apiReady}
-          className="hidden lg:relative lg:z-[1100] lg:col-start-2 lg:row-start-1 lg:block lg:self-center lg:py-2"
+          onBrand
+          className="hidden lg:relative lg:z-[1100] lg:block lg:flex-1 lg:py-2"
         />
-        <LanguageSwitch className="lg:col-start-3 lg:row-start-1 lg:self-center lg:px-4 lg:py-1" />
+        <LanguageSwitch onBrand />
       </header>
       {/* The notices share one row of the grid, one above the other. Empty, they take no room. */}
       <div className="lg:col-span-full lg:row-start-2 lg:px-4">

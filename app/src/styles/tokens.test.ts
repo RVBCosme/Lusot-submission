@@ -209,3 +209,24 @@ describe('no component holds a colour of its own', () => {
     expect(source).not.toMatch(LITERAL)
   })
 })
+
+describe('the brand top bar, in index.css', () => {
+  // The declarations of the first rule that starts with `selector {`, outside any @media.
+  const rule = (selector: string) => {
+    const start = indexCss.indexOf(`${selector} {`)
+    return start < 0 ? '' : indexCss.slice(indexCss.indexOf('{', start) + 1, indexCss.indexOf('}', start))
+  }
+
+  it('paints the bar in the brand navy and lets it run out through the shell\'s padding, to the window\'s edges', () => {
+    const band = rule('.app-bar::before')
+    expect(band).toMatch(/background(?:-color)?:\s*var\(--lusot-brand-navy\)/)
+    // The shell's padding, as variables, so the bar can take back the gutter and the system bars' insets.
+    for (const side of ['top', 'right', 'left']) expect(band, side).toContain(`var(--shell-${side})`)
+    expect(rule('.safe-area')).toContain('--shell-top')
+    expect(rule('.safe-area')).toContain('var(--safe-area-inset-top, env(safe-area-inset-top, 0px))')
+  })
+
+  it('draws the keyboard\'s focus ring in the brand\'s pale on the bar, where the page\'s own blue would vanish', () => {
+    expect(rule('.app-bar :focus-visible')).toMatch(/outline-color:\s*var\(--lusot-brand-pale\)/)
+  })
+})

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
+import masterMark from '../../brand/lusot-mark.svg?raw'
 import { EN, type StringKey } from '../i18n/en'
 import { FIL } from '../i18n/fil'
 import { resolveText, type Lang } from '../i18n/index'
@@ -281,7 +282,7 @@ describe('the shell from lg', () => {
     expect(has(shell(), 'safe-area', 'flex', 'h-screen', 'flex-col')).toBe(true)
     expect(has(screen.getByRole('main'), '-mx-2', 'px-2', 'py-4', 'min-h-0', 'flex-1', 'overflow-y-auto')).toBe(true)
     expect(has(footer(), 'relative', 'z-[1100]', 'shrink-0', 'bg-surface')).toBe(true)
-    expect(has(banner(), 'flex', 'flex-wrap', 'justify-between', 'border-b')).toBe(true)
+    expect(has(banner(), 'app-bar', 'flex', 'flex-wrap', 'justify-between')).toBe(true)
     // The bottom bar's links are still an icon over a label, in a row that shares the width.
     const link = within(phoneNav()).getByRole('link', { name: EN['nav.map'].text })
     expect(has(link, 'flex', 'flex-col', 'min-h-tap')).toBe(true)
@@ -292,15 +293,14 @@ describe('the shell from lg', () => {
     renderApp({ apiUrl: '' })
 
     expect(has(shell(), 'lg:grid', 'lg:grid-cols-[auto_minmax(0,1fr)_auto]', 'lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]')).toBe(true)
-    // The header and the footer give their children to the grid. The bar is the brand, then the header's nav, then the
-    // language switch, side by side in the first row; the footer's nav is not displayed from lg, so the screen line is the
-    // only thing the footer gives the grid.
-    expect(has(banner(), 'lg:contents')).toBe(true)
+    // The header is the first row, across the grid, and one box of its own (the brand navy is its background, see 'the
+    // brand top bar'): the brand, then the header's nav, which takes the room between, then the language switch. The footer
+    // gives its children to the grid; its nav is not displayed from lg, so the screen line is the only thing it gives.
+    expect(has(banner(), 'app-bar', 'flex', 'items-center', 'lg:col-span-full', 'lg:row-start-1', 'lg:flex-nowrap', 'lg:justify-start')).toBe(true)
+    expect(banner().classList.contains('lg:contents')).toBe(false)
     expect(has(footer(), 'lg:contents')).toBe(true)
-    expect(has(within(banner()).getByText('Lusot'), 'lg:col-start-1', 'lg:row-start-1')).toBe(true)
-    expect(has(desktopNav(), 'lg:relative', 'lg:z-[1100]', 'lg:col-start-2', 'lg:row-start-1', 'lg:self-center')).toBe(true)
+    expect(has(desktopNav(), 'lg:relative', 'lg:z-[1100]', 'lg:flex-1')).toBe(true)
     expect(phoneNav().className).toBe('lg:hidden')
-    expect(has(within(banner()).getByRole('group'), 'lg:col-start-3', 'lg:row-start-1')).toBe(true)
     // The notices share the second row, one above the other, across the width.
     expect(has(screen.getByRole('alert').parentElement as HTMLElement, 'lg:col-span-full', 'lg:row-start-2')).toBe(true)
     expect(has(screen.getByRole('main'), 'lg:col-span-full', 'lg:row-start-3')).toBe(true)
@@ -354,5 +354,74 @@ describe('the shell from lg', () => {
     expect(has(link.parentElement as HTMLElement, 'lg:flex-none')).toBe(true)
     expect(link.className).toContain('aria-[current=page]:underline')
     expect(link.getAttribute('aria-current')).toBe('page')
+  })
+})
+
+// ---- the brand top bar ----
+//
+// The header is the brand navy (--lusot-brand-navy) at both widths, carrying the owner's L mark and the "Lusot" wordmark,
+// with the nav and the language switch in the brand's pale colours, which hold 4.5:1 on the navy (styles/contrast.test.ts).
+// jsdom applies no stylesheet, so these pin the classes; the colours themselves are checked on the page by
+// e2e/a11y.spec.ts and e2e/desktop.spec.ts (axe's colour contrast).
+describe('the brand top bar', () => {
+  const banner = () => screen.getByRole('banner')
+  const dOf = (svg: string) => [...svg.matchAll(/\sd="([^"]+)"/g)].map((match) => match[1])
+
+  it("draws the owner's L mark before the wordmark, hidden from screen readers, as the master's own paths", () => {
+    renderApp()
+
+    const mark = banner().querySelector('svg[data-brand-mark]')
+    expect(mark).not.toBeNull()
+    expect(mark?.getAttribute('aria-hidden')).toBe('true')
+    expect(mark?.getAttribute('focusable')).toBe('false')
+    expect(mark?.querySelector('title')).toBeNull()
+    expect(Boolean((mark as Node).compareDocumentPosition(within(banner()).getByText('Lusot')) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    // The drawing is brand/lusot-mark.svg's, path for path, so the two can't drift (the boot screen in index.html is held
+    // to the same master by loadingScreen.test.ts).
+    expect(dOf(mark?.outerHTML ?? '')).toEqual(dOf(masterMark))
+  })
+
+  it('sets the wordmark and the header nav in the brand\'s pale colours, which the navy can hold', () => {
+    renderApp()
+
+    expect(within(banner()).getByText('Lusot').classList.contains('text-brand-pale')).toBe(true)
+    const nav = within(banner()).getByRole('navigation', { hidden: true })
+    for (const link of within(nav).getAllByRole('link', { hidden: true })) {
+      expect(link.classList.contains('text-brand-mist'), link.textContent ?? '').toBe(true)
+      expect(link.className, link.textContent ?? '').toContain('aria-[current=page]:text-brand-pale')
+      expect(link.className, link.textContent ?? '').toContain('aria-[current=page]:decoration-brand-water')
+    }
+  })
+
+  it('leaves the phone\'s bar of tabs on the page\'s own colours, not the brand\'s', () => {
+    renderApp()
+
+    const footerNav = within(document.querySelector('footer') as HTMLElement).getByRole('navigation')
+    for (const link of within(footerNav).getAllByRole('link')) {
+      expect(link.className).not.toContain('brand')
+      expect(link.className).toContain('aria-[current=page]:text-action')
+    }
+  })
+
+  it('sets the language switch on the navy, the chosen language filled in pale with navy text', () => {
+    renderApp()
+
+    const group = within(banner()).getByRole('group')
+    for (const button of within(group).getAllByRole('button')) {
+      expect(button.className).toContain('border-brand-dim')
+      expect(button.className).toContain('text-brand-pale')
+      expect(button.className).toContain('aria-pressed:bg-brand-pale')
+      expect(button.className).toContain('aria-pressed:text-brand-navy')
+      expect(button.className).not.toContain('border-outline')
+    }
+  })
+
+  it('keeps the page\'s own language switch, on About, on the page\'s colours', () => {
+    renderApp({ hash: '#/about' })
+
+    const switches = screen.getAllByRole('group', { name: EN['lang.switch'].text })
+    const onPage = switches.filter((group) => !banner().contains(group))
+    expect(onPage).toHaveLength(1)
+    for (const button of within(onPage[0]).getAllByRole('button')) expect(button.className).not.toContain('brand')
   })
 })
