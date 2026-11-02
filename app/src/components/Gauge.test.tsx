@@ -139,8 +139,9 @@ describe('the reading', () => {
   })
 
   // A floor is "at least" a level (the level line says so), so every step from it up is water that may be there: that step
-  // is marked, and each deeper one is drawn as possible, dashed and faint, in its own step's hue.
-  it('draws every step deeper than a floor as possible, dashed and faint, and a shallower one as filled', () => {
+  // is marked, and each deeper one is drawn as possible, a dashed outline and no fill at all. A fill, even a faint one, would
+  // read in the dark theme as a shallow filled cell.
+  it('draws every step deeper than a floor as possible, a dashed outline with no fill, and a shallower one as filled', () => {
     const { state, byLevel } = draw({ level: 'tire', isFloor: true })
     expect(['below_gutter', 'gutter', 'half_knee', 'half_tire', 'knee'].map((level) => state(level as Level))).toEqual(
       Array(5).fill('filled'),
@@ -150,7 +151,8 @@ describe('the reading', () => {
     for (const level of ['waist', 'chest', 'above_chest'] as const) {
       const cell = byLevel(level)
       expect(cell.className, level).toContain('border-dashed')
-      expect(cell.className, level).toMatch(/bg-depth-\d\/\d+/)
+      expect(cell.className, level).not.toMatch(/bg-depth-/)
+      expect(cell.className, level).toContain('bg-transparent')
       expect(cell.className, level).toMatch(/\bborder-outline\b/)
     }
     for (const level of ['waist', 'chest', 'above_chest'] as const) {
@@ -177,10 +179,11 @@ describe('the reading', () => {
     expect(deepest.cells.filter((cell) => cell.dataset.state === 'possible')).toHaveLength(0)
   })
 
-  it('uses no gradient and no shadow: the fade of a floor is a faint fill, the system\'s flat hairlines', () => {
+  it('uses no gradient and no shadow, and no faint fill either: a floor\'s deeper steps are outlines only', () => {
     for (const props of [{ level: 'tire', isFloor: true }, { level: 'above_chest', isFloor: false }] as const) {
       const { gauge } = draw(props)
       expect(gauge.outerHTML).not.toMatch(/bg-linear|bg-gradient|to-transparent|\bfrom-|shadow/)
+      expect(gauge.outerHTML).not.toMatch(/bg-depth-\d\//)
       cleanup()
     }
   })

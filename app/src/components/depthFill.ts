@@ -12,17 +12,3 @@ export const FILL = [
   'bg-depth-8',
   'bg-depth-9',
 ] as const
-
-// A step that the water may reach, deeper than a floor: the same hue, faint. A faint fill, not a gradient: the design
-// system has no gradients, and the dashed edge says "possible" as the fill alone could not.
-export const FAINT = [
-  'bg-depth-1/40',
-  'bg-depth-2/40',
-  'bg-depth-3/40',
-  'bg-depth-4/40',
-  'bg-depth-5/40',
-  'bg-depth-6/40',
-  'bg-depth-7/40',
-  'bg-depth-8/40',
-  'bg-depth-9/40',
-] as const

@@ -1,7 +1,7 @@
 import { ChevronLeftIcon } from 'lucide-react'
 import { LEVELS, OFF_GAUGE, type Level } from '../copy/levels'
 import { Line, T, useT } from '../i18n'
-import { FAINT, FILL } from './depthFill'
+import { FILL } from './depthFill'
 
 // The room a row takes. The seven gauge levels stand one on another and share an edge, so they read as one pole; each
 // of the two added levels stands apart from them, above and below.
@@ -18,8 +18,9 @@ type State = 'marked' | 'filled' | 'possible' | 'empty'
 // along the bottom, in the outline colour. Against the rail stand MMDA's 7 gauge levels as one pole, deepest at the top,
 // each with a tick to the rail and its name beside it, with the 2 added levels drawn apart and dashed, labelled as outside
 // MMDA's gauge. It fills up to the reading, "no flood seen" leaves it empty, and a floor ("at least") is the reading's step
-// with every deeper step drawn as water that may be there: dashed, with a faint fill. It repeats the level line, so screen
-// readers skip it, and no level is ever numbered.
+// with every deeper step drawn as water that may be there: a dashed outline and no fill, since even a faint fill would
+// read as a shallow filled cell in the dark theme. It repeats the level line, so screen readers skip it, and no level is
+// ever numbered.
 //
 // The fills can't carry the reading alone: in light, steps 1 to 4 are under 3:1 against the page, and 7 to 9 are under
 // 3:1 against the outline (in dark, steps 1 to 3 and 6 to 9; styles/contrast.test.ts pins both). So every cell has an
@@ -42,7 +43,7 @@ export function Gauge({ level, isFloor, noFlood = false }: { level?: Level; isFl
         const off = OFF_GAUGE.includes(name)
         const state: State = index === reading ? 'marked' : index < reading ? 'filled' : open ? 'possible' : 'empty'
         const opened = state === 'marked' && open
-        const fill = state === 'empty' ? 'bg-surface' : state === 'possible' ? FAINT[index] : FILL[index]
+        const fill = state === 'empty' ? 'bg-surface' : state === 'possible' ? 'bg-transparent' : FILL[index]
         const edge = `${off || state === 'possible' ? 'border-dashed' : 'border-solid'} ${state === 'marked' ? 'border-4' : 'border-2'}${opened ? ' border-t-0' : ''}`
         const label =
           state === 'marked' ? 'font-bold text-ink' : state === 'filled' ? 'text-ink' : 'text-ink-2'
