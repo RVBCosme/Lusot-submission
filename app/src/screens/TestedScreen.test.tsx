@@ -977,6 +977,16 @@ describe('a sample as a card', () => {
     }
   })
 
+  // A credit can hold a licence URL, which has no space to break at. It may break anywhere, so on a phone it wraps inside the
+  // card and never widens the page (Rene's device check, Nov 2; e2e/overflow.spec.ts measures it).
+  it("lets each sample's credit break anywhere, so a licence URL never widens the page", async () => {
+    await openWithSamples()
+    for (const item of items()) {
+      const credit = within(item).getByText(/^Photo: /).closest('p') as HTMLElement
+      expect(credit.className).toContain('wrap-anywhere')
+    }
+  })
+
   it('rises in, each sample 70 ms after the one before it', async () => {
     await openWithSamples()
     expect([...items()].map((item) => item.classList.contains('rise-in'))).toEqual([true, true, true])

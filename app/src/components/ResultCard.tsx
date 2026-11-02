@@ -342,7 +342,8 @@ function ResultCardBody({
           {photoView}
           <figcaption className="mt-2 text-small text-ink-2">
             <Note value={photoFrom} />
-            {credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
+            {/* A licence URL in the credit has no space to break at, so the line may break anywhere (wrap-anywhere). */}
+            {credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1 wrap-anywhere" />}
             {!photoGone && <PhotoLine {...photoLine} className="mt-1" />}
           </figcaption>
         </figure>
@@ -391,7 +392,9 @@ function ResultCardBody({
               {photoView}
               <figcaption className="mt-2 text-small text-ink-2">
                 {isExample && <Note value={photoFrom} />}
-                {isExample && credit !== undefined && <Note value={{ text: credit, lang: 'en' }} className="mt-1" />}
+                {isExample && credit !== undefined && (
+                  <Note value={{ text: credit, lang: 'en' }} className="mt-1 wrap-anywhere" />
+                )}
                 {!photoGone && <PhotoLine {...photoLine} className={isExample ? 'mt-1' : undefined} />}
               </figcaption>
             </figure>

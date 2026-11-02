@@ -869,9 +869,29 @@ describe('a sample and a demo pin', () => {
     expect(caption()).not.toMatch(/outline/i)
   })
 
+  // A credit can hold a licence URL, which has no space to break at. It may break anywhere, so on a phone it wraps inside the
+  // card and never widens the screen (Rene's device check, Nov 2; e2e/overflow.spec.ts measures it).
+  it('lets a long credit break anywhere, on a sample and on a demo pin', async () => {
+    const urlCredit = 'Photo: Example Contributor (mock), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0)'
+    const { sample, result } = await sampleRun()
+    renderCard({ result, source: 'sample', sample: { ...sample, credit: urlCredit } })
+    expect(screen.getByText(urlCredit).closest('p')?.className).toContain('wrap-anywhere')
+    cleanup()
+
+    const { fetchFn } = mockWith()
+    const demo = (await getPins(API, fetchFn)).find((pin) => pin.mode === 'demo') as Pin
+    const report = (await getReport(API, demo.id, fetchFn)) as ReportResult
+    renderCard({ result: { ...report, credit: urlCredit }, source: 'pin' })
+    expect(screen.getByText(urlCredit).closest('p')?.className).toContain('wrap-anywhere')
+    cleanup()
+
+    renderCard({ result: { ...demo, credit: urlCredit }, source: 'pin', photoUrl: report.photoUrl })
+    expect(screen.getByText(urlCredit).closest('p')?.className).toContain('wrap-anywhere')
+  })
+
   // The credit states how Lusot changed the photo (C617's CC BY change note), so the card says each change once. MS4's
   // sample credit states the blur only, since the stored photo has no outlines; its demo pin credit states both.
-  const CHANGED_CREDIT = 'Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred by Lusot.'
+  const CHANGED_CREDIT ='Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred by Lusot.'
   const DEMO_CREDIT = 'Photo: Example Contributor (mock), CC BY 4.0. Faces and plates blurred, and outlines drawn, by Lusot.'
 
   it("says only that it drew outlines when the sample's credit already says the photo was blurred", async () => {

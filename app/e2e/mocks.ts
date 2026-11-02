@@ -71,6 +71,8 @@ export interface Behaviour {
   sampleRun: 'run' | 'saved' | 'paused'
   // What a sample's run reads.
   sampleOutcome: Outcome
+  // A credit line that replaces every listed sample's own, for a test that needs a long unbroken one (a licence URL).
+  sampleCredit?: string
   // POST /try (C534): a link (201), MS4's 503 model_calls_paused, or its 429 daily_cap. A chosen photo reads as a knee
   // level, with mode "try".
   tryRun: 'ok' | 'model_calls_paused' | 'daily_cap'
@@ -309,7 +311,7 @@ export class Mocks {
       if (this.behaviour.sampleCount === 'error') return this.reply(route, 500, { message: 'Internal Server Error' })
       const samples = sampleList(this.behaviour.sampleCount).map(({ sampleId, credit, license, place, date, event }) => ({
         sampleId,
-        credit,
+        credit: this.behaviour.sampleCredit ?? credit,
         license,
         place,
         date,
