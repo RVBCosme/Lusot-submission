@@ -113,6 +113,8 @@ describe('the notice', () => {
     ['the map images show OpenStreetMap the area, within about 300 m', /Placing the pin loads OpenStreetMap's map images[^.]*the area on your screen, within about 300 m of you\./],
     ['a spoken question goes to Meta as a voice clip', /for a spoken question, its voice clip of up to 15 seconds, which Meta's speech service turns into text\./],
     ['no accounts, no names', /No accounts, no names\./],
+    // WebHosting=amplify (Rene, Nov 2).
+    ['the website host records each request', /When you use the website, its hosting service \(AWS Amplify\) records each request with your IP address, kept until the website is taken down, by Dec 31, 2026\./],
   ])('says %s', (_what, pattern) => {
     renderScreen('notice')
     expect(notice().textContent).toMatch(pattern)

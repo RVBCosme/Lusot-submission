@@ -74,7 +74,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 
 - **The map's images.** When you open the map, your phone loads the map's images from OpenStreetMap's servers, which see your IP address, as any website does. When you place a photo's pin, the map opens around your own position, so those servers also see which area is on your screen, within about 300 m of you.
 - **Your IP address.** When you upload a photo, the notice of your upload that reaches Lusot's queue carries your IP address. If the analysis fails, that notice is kept for up to 7 days so the failure can be checked, then deleted. Service logs keep no photos, locations or IP addresses.
-- **The website.** The website is served from Amazon S3 through Amazon CloudFront with access logging off, so the website keeps no visitor's IP address. What the API does with IP addresses stays as described above, kept no longer than 7 days. This takes effect with the deploy that carries it.
+- **The website.** When you open the Lusot website, our hosting service (AWS Amplify) records each request, including your IP address, the page asked for and the time. Lusot doesn't use these records. They are kept until the website is taken down after the hackathon's judging, by Dec 31, 2026. What the API does with IP addresses stays as described above, kept no longer than 7 days.
 - **An AI assistant.** Lusot's developer may use an AI assistant (Claude, by Anthropic) to check Lusot's logs, flagged reports, privacy requests and the demo video's frames, which can include a report's blurred photo and its pin, or what a privacy request says. Anthropic keeps what it receives for 30 days, or up to 2 years if its systems flag it for a usage-policy check.
 
 ## How long Lusot keeps data
@@ -90,7 +90,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 | your typed questions | not stored |
 | your spoken questions: the voice clip and its text | not stored (the clip stays only in the server's memory until the answer is sent) |
 | OpenStreetMap's answers for place names (a hashed name, the place's name and map position) | 7 days, or 1 day for a place not found |
-| the website's access logs | none kept: access logging is off |
+| the website's access logs, kept by AWS Amplify: each request's IP address, page and time | until the website is taken down after the hackathon's judging, by Dec 31, 2026 |
 
 These limits cover only Lusot's own copies. What Meta keeps is set by Meta's terms.
 
