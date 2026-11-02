@@ -34,7 +34,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 ## Rules that never bend
 
 **Product** (§9, §13)
-- Speak only in 9 ordered levels and MMDA's 3 passability classes (PATV, NPLV, NPATV). The 9 levels are MMDA's 7 gauge levels plus below gutter and above chest. Never call them "MMDA's 9 levels".
+- Speak only in 9 ordered levels and MMDA's 3 passability classes (PATV, NPLV, NPATV). The 9 levels are MMDA's 7 gauge levels plus below gutter and above chest. Never call them "MMDA's 9 levels". Since Nov 2 (Rene), a level result's headline may be a verdict at this spot, always named as MMDA's class for its level, and the "not advice to cross" line stays; a floor whose class is PATV gets no verdict. A result may also show its level's depth range in metres with inches, from eval/rules.md's limits, never presented as a measured depth.
 - Never use the word "safe". Never give crossing advice. Never describe a whole road or route, only "at this spot".
 - A refusal beats a guess. Keep the three outcomes separate: processing failed, no flood seen, and can't tell.
 - **Dry streets and other places (D14):**
