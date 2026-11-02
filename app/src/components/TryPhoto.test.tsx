@@ -326,7 +326,13 @@ describe('one run at a time', () => {
     renderTry()
     // A browser's file input keeps the chosen file's name as its value until a script clears it.
     let value = 'C:\\fakepath\\flood'
-    Object.defineProperty(input(), 'value', { configurable: true, get: () => value, set: (next: string) => (value = next) })
+    Object.defineProperty(input(), 'value', {
+      configurable: true,
+      get: () => value,
+      set: (next: string) => {
+        value = next
+      },
+    })
 
     choose()
 
