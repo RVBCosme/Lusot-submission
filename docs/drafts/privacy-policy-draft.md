@@ -28,7 +28,7 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 
 | What | When | Why |
 |---|---|---|
-| A photo you take in the app, or one you choose on the Tested page | when you report | to estimate the depth at that spot |
+| A photo you take in the app, or one you choose on the Tested page | when you send it | to estimate the depth shown in it |
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |
@@ -152,7 +152,7 @@ Not affiliated with MMDA.
 
 ### What Lusot collects
 
-- *Taglish draft (M20):* Ang photo na kinunan mo sa app, o pinili mo sa Tested page. Kapag nag-report ka. Para tantyahin ang lalim sa spot na iyon.
+- *Taglish draft (M20):* Ang photo na kinunan mo sa app, o pinili mo sa Tested page. Kapag ipinadala mo ito. Para tantyahin ang lalim na makikita rito.
 - *Taglish draft (M20):* Ang lokasyon (GPS) ng phone mo, gaano ito katumpak, at gaano kalayo mo inilipat ang pin. Sa bawat report. Para mailagay ang pin sa spot.
 - *Taglish draft (M20):* Ang oras na kinunan ang photo, at ang oras na dumating ito sa Lusot. Sa bawat report. Para makita kung gaano kabago ang reading, at para tanggihan ang lumang photo.
 - *Taglish draft (M20):* Isang random na device id, ginagawa sa unang pagbukas mo ng Lusot, sa phone o sa browser. Sa bawat report, tanong o flag. Para limitahan kung ilang report at tanong ang maipapadala ng isang device kada oras, at para isang flag lang ang mabilang mula sa bawat device sa isang pin.

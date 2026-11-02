@@ -24,7 +24,7 @@ async function choosePhoto(page: Page): Promise<void> {
 
 const section = (page: Page) => page.getByRole('region', { name: label(L, 'tested.try.title') })
 
-test('choose a photo on Tested → the try card with its verdict and "Only you see this result", and no POST /uploads or map pin', async ({
+test('choose a photo on Tested → the try card with its verdict and "This result is shown only to you", and no POST /uploads or map pin', async ({
   page,
   mocks,
 }) => {

@@ -14,7 +14,7 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 
 | What | When | Why |
 |---|---|---|
-| A photo you take in the app, or one you choose on the Tested page | when you report | to estimate the depth at that spot |
+| A photo you take in the app, or one you choose on the Tested page | when you send it | to estimate the depth shown in it |
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |

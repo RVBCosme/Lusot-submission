@@ -1038,7 +1038,8 @@ describe('a sample and a demo pin', () => {
 // A photo the person chose from their device (C534, C640). It reads like their own photo, but its time is the run's
 // start and it has no place, so the card says neither, and it says only they see it.
 describe('a chosen photo', () => {
-  const ONLY_YOU = "Only you see this result. It isn't on the map."
+  // Approved at M20 (Nov 2): "shown", since an admin can technically read a stored item.
+  const ONLY_YOU = "This result is shown only to you. It isn't on the map."
   // What POST /try's report looks like: mode "try", with capturedAt the run's start.
   const asTry = (result: ReportResult): ReportResult => ({ ...result, mode: 'try' })
 
@@ -1079,12 +1080,12 @@ describe('a chosen photo', () => {
     expect(text()).not.toMatch(/dry spot|Processing failed/)
   })
 
-  it('shows the try tip in English, marked lang="en", until its Taglish is reviewed', async () => {
+  it('shows the try tip in Taglish, since its Taglish was reviewed at M20 (Nov 2)', async () => {
     renderCard({ result: asTry(await takePhoto('refused_no_water_found')), source: 'try' }, 'fil')
-    // A refusal line shows English until its Taglish is reviewed (C619, C724).
-    expect(FIL['refusal.try.tip'].text).not.toBe('')
-    expect(FIL['refusal.try.tip'].reviewed).toBe(false)
-    expect(screen.getByText(EN['refusal.try.tip'].text).getAttribute('lang')).toBe('en')
+    // A refusal line shows English only until its Taglish is reviewed (C619, C724).
+    expect(FIL['refusal.try.tip'].reviewed).toBe(true)
+    expect(screen.getByText(FIL['refusal.try.tip'].text)).toBeTruthy()
+    expect(screen.queryByText(EN['refusal.try.tip'].text)).toBeNull()
   })
 
   it("a try reading says only you see it and it isn't on the map, under a level, no flood and can't tell, and only there", async () => {
@@ -1106,7 +1107,7 @@ describe('a chosen photo', () => {
 
   it('says it in Taglish on a Taglish screen', async () => {
     renderCard({ result: asTry(await takePhoto()), source: 'try' }, 'fil')
-    expect(screen.getByText('Ikaw lang ang nakakakita ng resultang ito. Wala ito sa mapa.')).toBeTruthy()
+    expect(screen.getByText('Sa iyo lang ipinapakita ang resultang ito. Wala ito sa mapa.')).toBeTruthy()
   })
 
   it('a paused try card links to the map only', async () => {
