@@ -47,7 +47,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 - Rene reviews every Taglish line, refusal, safety line and caption before release (M20, M30).
 
 **Privacy and security** (§13)
-- Blur faces and plates before anything is stored. Delete raw photos after analysis. Keep data 7 days. No accounts, no names.
+- Blur faces and plates before anything is stored. Delete raw photos after analysis. Keep data 7 days, except the website's access logs: AWS Amplify keeps them until the Amplify app is deleted, so the app is deleted by Dec 31, 2026 (Rene, Nov 2, 2026). No accounts, no names.
 - **Every Meta call runs on the $150 credits** (Rene, Oct 27; D10). Meta's Billing page says credit-paid content "may be used for product improvement", so:
   - **Faces are blurred first.** Before any photo goes to Meta, a non-Meta detector blurs the faces (D12, C20). The blur is the pipeline's first step and is on from the start, for live uploads, samples, demo pins, tuning and the sealed run alike.
   - **Plates are not blurred first.** They still reach Meta, and SAM masks blur faces and plates again before storage.
@@ -126,7 +126,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 | Map | Leaflet with OpenStreetMap tiles |
 | API | API Gateway HTTP API + Node.js Lambda in TypeScript |
 | Analysis | Python container Lambda: OpenCV, NumPy, meta-sam-parser; image built with Docker Desktop (WSL 2) |
-| Data and infrastructure | S3, SQS with dead-letter queue, DynamoDB (TTL and report-id index), SSM, CloudWatch; the website on S3 and CloudFront, with logging off (MS5-Q4 (c)) |
+| Data and infrastructure | S3, SQS with dead-letter queue, DynamoDB (TTL and report-id index), SSM, CloudWatch; the website on AWS Amplify Hosting since Nov 2 (`WebHosting=amplify`; its access logs last until the app is deleted, by Dec 31, 2026), with S3 and CloudFront, logging off (MS5-Q4 (c)), kept as `WebHosting=on` |
 | AI | Meta Model API via the OpenAI SDK at `https://api.meta.ai/v1`; voice through a plain HTTPS call |
 | Tests and CI | pytest, Vitest, Playwright; GitHub Actions on every push |
 
@@ -230,7 +230,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
     - invalidates CloudFront's cache and waits, then deletes the old assets
   - It prints step statuses and the web URL, and masks ARNs, 12-digit runs and email addresses in a failed step's output.
   - After a web deploy, a tab opened before it must reload before it asks for a location (ruling S5-R27).
-  - The first CloudFront create can take 5 to 15 minutes. A new account may be refused it until AWS verifies the account; then the stack update rolls back and nothing is deleted. That happened on Oct 31, so `deploy:web` runs only while `backend/samconfig.toml` sets `WebHosting=on`, and stops before any AWS call otherwise.
+  - The first CloudFront create can take 5 to 15 minutes. A new account may be refused it until AWS verifies the account; then the stack update rolls back and nothing is deleted. That happened on Oct 31, so the website moved to AWS Amplify on Nov 2. `deploy:web` runs only while `backend/samconfig.toml` sets `WebHosting=on` or `amplify`, and stops before any AWS call otherwise. With `amplify` it zips app/dist, uploads it as a manual Amplify deployment and waits until it is live; Amplify replaces the whole site at once.
 - **End-to-end tests:** run `npx playwright install chromium` once, then `npm run e2e -w app`.
   - It builds into the git-ignored `app/.e2e-dist/none`, never `app/dist`, and mocks every API, S3 and tile request.
   - It needs no AWS login and spends nothing.
