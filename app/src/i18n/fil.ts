@@ -196,6 +196,8 @@ export const FIL: Record<StringKey, Entry> = {
   },
   'licences.osmLink': { text: 'Copyright at lisensya ng OpenStreetMap', reviewed: true },
   'licences.samples': { text: 'May sariling credit ang bawat sample na photo, na makikita kasama ng sample.', reviewed: true },
+  // Rene's own artwork. The wording is his, approved in both languages on Nov 2, 2026.
+  'licences.brand': { text: 'Ang logo at loading screen ng Lusot: © Rene Cosme 2026.', reviewed: true },
   'licences.packagesTitle': { text: 'Mga package na pinagmulan ng app', reviewed: true },
   'licences.packagesNote': {
     text: 'Ang mga production package ng app, ayon sa listahan ng npm. Kasama sa listahan ang package na pinagbabatayan ng Android app, at mga package na naglalarawan lang ng mga type at hindi kasama sa page.',

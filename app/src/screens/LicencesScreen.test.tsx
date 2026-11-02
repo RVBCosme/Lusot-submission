@@ -18,6 +18,7 @@ const NEW_KEYS: StringKey[] = [
   'licences.osm',
   'licences.osmLink',
   'licences.samples',
+  'licences.brand',
   'licences.packagesTitle',
   'licences.packagesNote',
 ]
@@ -116,6 +117,28 @@ describe('the page', () => {
     expect(link.getAttribute('href')).toBe('https://www.openstreetmap.org/copyright')
     expect(screen.getByText(text('licences.samples'))).toBeTruthy()
     expect(document.body.textContent).toContain('OpenStreetMap contributors')
+  })
+
+  it("credits the logo and the loading screen to their owner, among the sources that aren't packages", async () => {
+    answer(TEXT)
+    renderPage()
+    await screen.findByRole('region', { name: text('licences.textLabel') })
+
+    const credit = screen.getByText(text('licences.brand'))
+    const section = screen.getByRole('heading', { level: 2, name: text('licences.otherTitle') }).closest('section')
+    expect(section?.contains(credit)).toBe(true)
+    // Rene's own artwork (© Rene Cosme 2026), approved in both languages on Nov 2.
+    expect(EN['licences.brand'].text).toBe("Lusot's logo and loading screen: © Rene Cosme 2026.")
+    expect(FIL['licences.brand'].text).toBe('Ang logo at loading screen ng Lusot: © Rene Cosme 2026.')
+  })
+
+  it('shows the same credit in Taglish', async () => {
+    writeItem('lusot.lang', 'fil')
+    answer(TEXT)
+    renderPage()
+    await screen.findByRole('region', { name: FIL['licences.textLabel'].text })
+
+    expect(screen.getByText(FIL['licences.brand'].text)).toBeTruthy()
   })
 
   it('heads the package list with what it covers, the Android app and type-only packages included', async () => {

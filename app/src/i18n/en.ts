@@ -211,6 +211,8 @@ export const EN = {
   },
   'licences.osmLink': { text: 'OpenStreetMap copyright and licence', reviewed: true },
   'licences.samples': { text: 'Each sample photo carries its own credit, shown with that sample.', reviewed: true },
+  // Rene's own artwork. The wording is his, approved in both languages on Nov 2, 2026.
+  'licences.brand': { text: "Lusot's logo and loading screen: © Rene Cosme 2026.", reviewed: true },
   'licences.packagesTitle': { text: 'Packages the app is built from', reviewed: true },
   'licences.packagesNote': {
     text: "The app's production packages, as npm lists them. The list includes the package the Android app is built on, and packages that only describe types and don't ship in the page.",

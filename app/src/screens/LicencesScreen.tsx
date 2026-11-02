@@ -59,6 +59,9 @@ export function LicencesScreen() {
         <p className="mt-2">
           <T k="licences.samples" />
         </p>
+        <p className="mt-2">
+          <T k="licences.brand" />
+        </p>
       </section>
 
       <section aria-labelledby={packagesTitle} className="mt-6">
