@@ -61,9 +61,12 @@ describe('no way to pick a photo but the Tested page', () => {
   })
 
   it('nothing in the camera Report flow imports TryPhoto', () => {
+    // The screens, the flow's reducer and its provider (./report/), and the Report screen itself.
     const flow = Object.entries(sources).filter(
-      ([path]) => path.startsWith('./screens/report/') || path === './screens/ReportScreen.tsx',
+      ([path]) =>
+        path.startsWith('./screens/report/') || path.startsWith('./report/') || path === './screens/ReportScreen.tsx',
     )
+    expect(flow.map(([path]) => path)).toContain('./report/ReportFlowProvider.tsx')
     expect(flow.length).toBeGreaterThan(5)
     for (const [path, source] of flow) expect(source, path).not.toContain('TryPhoto')
   })

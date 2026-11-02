@@ -3,10 +3,11 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactN
 import { T, useT } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { HttpError, postToS3, requestTry, type ReportResult } from '../lib/api'
-import { NOTICE_VERSION, useGate } from '../lib/consent'
+import { hasNotice, NOTICE_VERSION, useGate } from '../lib/consent'
 import { getDeviceId } from '../lib/device'
 import { focusFell } from '../lib/focus'
 import { POLL, pollReport } from '../lib/poll'
+import { retryOnce } from '../lib/retry'
 import { photoToJpeg, TRY_TYPES, TryPhotoError } from '../lib/tryPhoto'
 import { PausedNotice, ResultCard } from './ResultCard'
 
@@ -56,6 +57,8 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
   const box = useRef<HTMLDivElement>(null)
   // A choice, between its change event and its outcome. A ref, so two change events in one tick start one run.
   const paying = useRef(false)
+  // Whether the notice gate has let the picker open this visit: with storage blocked, hasNotice() can't say.
+  const gated = useRef(false)
   // The poll, aborted when the page closes.
   const polling = useRef<AbortController | null>(null)
   const alive = useRef(true)
@@ -118,11 +121,10 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     try {
       jpeg = await photoToJpeg(file)
     } catch (err) {
-      if (err instanceof TryPhotoError) {
-        finish({ phase: 'fileProblem', line: err.kind === 'unsupported' ? 'try.unsupported' : 'try.unreadable' })
-      } else {
-        finish({ phase: 'sendFailed' })
-      }
+      // A type Lusot doesn't read, or any other failure to prepare the photo (a decode, a canvas or an encode): the
+      // photo is the problem, not the connection, and nothing was sent.
+      const unsupported = err instanceof TryPhotoError && err.kind === 'unsupported'
+      finish({ phase: 'fileProblem', line: unsupported ? 'try.unsupported' : 'try.unreadable' })
       return
     }
     if (!alive.current) return
@@ -136,7 +138,9 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     }
     if (!alive.current) return
     try {
-      await postToS3(link.upload, jpeg)
+      // One more try on a failure on the way, as a report's upload has (C635). It reuses the same link, so the photo is
+      // analysed and paid for once.
+      await retryOnce(() => postToS3(link.upload, jpeg))
     } catch {
       finish({ phase: 'sendFailed' })
       return
@@ -150,13 +154,18 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     const file = input.files?.[0]
     // Cleared at once, so choosing the same file again fires a change.
     input.value = ''
-    if (file === undefined || paying.current) return
+    // The gate comes first. A photo that arrives without the notice accepted (or the gate passed this visit, with
+    // storage blocked) is dropped and nothing is sent.
+    if (file === undefined || paying.current || !(gated.current || hasNotice())) return
     paying.current = true
     void start(file)
   }
 
   function choose() {
-    gate(() => field.current?.click())
+    gate(() => {
+      gated.current = true
+      field.current?.click()
+    })
   }
 
   function checkAgain(reportId: string) {
@@ -179,7 +188,8 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     case 'result':
       body = (
         <div className="mt-3">
-          <ResultCard result={run.result} source="try" onNewPhoto={choose} />
+          {/* No "Try again" on the card: "Choose another photo" below it is the one way on. */}
+          <ResultCard result={run.result} source="try" />
         </div>
       )
       break
@@ -217,14 +227,25 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
       break
   }
 
+  if (apiUrl === '') {
+    return (
+      <p className="mt-4">
+        <T k="try.noApi" />
+      </p>
+    )
+  }
+
   const label = t('try.inputLabel')
   return (
     <div ref={box} tabIndex={-1} className="outline-none">
-      {/* The one file input in the app (C640). It is out of sight and out of the tab order, since the button opens it. */}
+      {/* The one file input in the app (C640). It is out of sight, out of the tab order and out of the accessibility
+          tree, since only the button opens it, after the notice gate: a screen reader that could activate the input
+          would open the picker with no gate. */}
       <input
         ref={field}
         type="file"
         accept={TRY_TYPES.join(',')}
+        aria-hidden="true"
         aria-label={label.text}
         lang={label.lang}
         tabIndex={-1}

@@ -1058,16 +1058,33 @@ describe('a chosen photo', () => {
     expect(text()).toContain('Reference 1')
   })
 
-  it('a try refusal shows D19, the reason and the tip', async () => {
+  // The tracker's ruling (C637): D19 and the camera retake tips tell a person to retake a photo from a dry spot, which
+  // is wrong for a photo they chose from their device. A try refusal keeps "No verdict", then why, then one line that
+  // says what Lusot reads best.
+  it('a try refusal shows No verdict, the reason and the try tip, with no D19 and no retake tip', async () => {
+    const TRY_TIP = "Lusot reads depth best from a photo with a parked car's wheel or a person standing still in view."
     renderCard({ result: asTry(await takePhoto('refused_no_water_found')), source: 'try' })
 
-    const d19 = screen.getByText(D19)
+    const none = screen.getByText(EN['verdict.none'].text)
     const why = screen.getByText(EN['reason.no_water_found'].text)
-    const tip = screen.getByText(EN['tip.no_water_found'].text)
-    expect(d19.className).toMatch(/\bfont-bold\b/)
-    expect(d19.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const tip = screen.getByText(TRY_TIP)
+    expect(none.className).toMatch(/\bfont-bold\b/)
+    expect(none.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(why.compareDocumentPosition(tip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(text()).not.toMatch(/No verdict|Processing failed/)
+    expect(screen.getByRole('status').firstElementChild?.querySelector('p')).toBe(none)
+    expect(screen.getByRole('article').getAttribute('data-outcome')).toBe('cant-tell')
+    expect(text()).not.toContain(D19)
+    expect(text()).not.toContain(EN['tip.no_water_found'].text)
+    expect(text()).not.toContain(EN['refusal.sample.someoneWouldSee'].text)
+    expect(text()).not.toMatch(/dry spot|Processing failed/)
+  })
+
+  it('shows the try tip in English, marked lang="en", until its Taglish is reviewed', async () => {
+    renderCard({ result: asTry(await takePhoto('refused_no_water_found')), source: 'try' }, 'fil')
+    // A refusal line shows English until its Taglish is reviewed (C619, C724).
+    expect(FIL['refusal.try.tip'].text).not.toBe('')
+    expect(FIL['refusal.try.tip'].reviewed).toBe(false)
+    expect(screen.getByText(EN['refusal.try.tip'].text).getAttribute('lang')).toBe('en')
   })
 
   it("a try reading says only you see it and it isn't on the map, under a level, no flood and can't tell, and only there", async () => {

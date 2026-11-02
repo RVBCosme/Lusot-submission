@@ -28,7 +28,7 @@ Only adults, 18 or older. Before your first upload, Lusot asks you to confirm yo
 
 | What | When | Why |
 |---|---|---|
-| A photo you take in the app | when you report | to estimate the depth at that spot |
+| A photo you take in the app, or one you choose on the Tested page | when you report | to estimate the depth at that spot |
 | Your phone's location (GPS), how accurate it is, and how far you moved the pin | with each report | to put the pin at the spot |
 | The time the photo was taken, and the time it reached Lusot | with each report | to show how recent a reading is, and to turn away old photos |
 | A random device id, made when you first open Lusot, on your phone or in your browser | with each report, question or flag | to limit how many reports and questions one device sends in an hour, and to count one flag per device on a pin |
@@ -68,6 +68,7 @@ Lusot has no accounts. It never asks for your name, email or phone number.
 - **The pin feed** carries only what the map shows, never photos, outlines or device ids. Other flood maps may copy pins from the feed, and Lusot can't delete their copies.
 - **Demo pins and samples.** Lusot also shows labelled demo pins and sample photos. They come from people who agreed to share their photos for this, or from openly licensed photos (CC0, public domain or CC BY, never BY-SA, from Wikimedia Commons and Flickr). Each is credited on screen with its author, licence and a link to the file. Faces and plate numbers are blurred in all of them. An open-licensed demo pin shows the photo's own date, marked as an archive photo, and is always shown as a demo pin. They stay up longer than 3 hours and 7 days, and never count as reports.
 - **Outside Metro Manila.** A photo taken outside Metro Manila is analysed, and the result is shown only to you. It never becomes a pin. The photo still goes to Meta as described above, and the report is kept for 7 days like any other.
+- **A photo you choose.** On the Tested page you can choose a photo from your device instead of taking one. Your device re-saves it first, which drops details stored in the file, such as where it was taken. It is analysed the same way and goes to Meta as described above. The result is shown only to you, never becomes a pin, and the report is kept for 7 days like any other.
 
 ### Ask Lusot
 
@@ -151,7 +152,7 @@ Not affiliated with MMDA.
 
 ### What Lusot collects
 
-- *Taglish draft (M20):* Ang photo na kinunan mo sa app. Kapag nag-report ka. Para tantyahin ang lalim sa spot na iyon.
+- *Taglish draft (M20):* Ang photo na kinunan mo sa app, o pinili mo sa Tested page. Kapag nag-report ka. Para tantyahin ang lalim sa spot na iyon.
 - *Taglish draft (M20):* Ang lokasyon (GPS) ng phone mo, gaano ito katumpak, at gaano kalayo mo inilipat ang pin. Sa bawat report. Para mailagay ang pin sa spot.
 - *Taglish draft (M20):* Ang oras na kinunan ang photo, at ang oras na dumating ito sa Lusot. Sa bawat report. Para makita kung gaano kabago ang reading, at para tanggihan ang lumang photo.
 - *Taglish draft (M20):* Isang random na device id, ginagawa sa unang pagbukas mo ng Lusot, sa phone o sa browser. Sa bawat report, tanong o flag. Para limitahan kung ilang report at tanong ang maipapadala ng isang device kada oras, at para isang flag lang ang mabilang mula sa bawat device sa isang pin.
@@ -185,6 +186,7 @@ Not affiliated with MMDA.
 - *Taglish draft (M20):* **Ang pin feed** ay may dala lang na nakikita sa mapa, hindi kailanman photo, outline o device id. Puwedeng kopyahin ng ibang flood map ang mga pin mula sa feed, at hindi mabubura ng Lusot ang kopya nila.
 - *Taglish draft (M20):* **Demo pin at sample.** Nagpapakita rin ang Lusot ng mga demo pin at sample photo na may label. Galing ang mga ito sa mga taong pumayag na ibahagi ang photo nila para rito, o sa mga photo na bukas ang lisensya (CC0, public domain o CC BY, hindi kailanman BY-SA, mula sa Wikimedia Commons at Flickr). May credit sa screen ang bawat isa, kasama ang author, ang lisensya at link sa file. Naka-blur ang mga mukha at plate number sa lahat ng ito. Ang demo pin na galing sa photo na bukas ang lisensya ay nagpapakita ng sariling petsa ng photo, na may markang archive photo, at laging ipinapakita bilang demo pin. Mas matagal sila kaysa 3 oras at 7 araw, at hindi kailanman binibilang bilang report.
 - *Taglish draft (M20):* **Sa labas ng Metro Manila.** Sinusuri ang photo na kinunan sa labas ng Metro Manila, at ikaw lang ang makakakita ng resulta. Hindi ito nagiging pin. Mapupunta pa rin ang photo sa Meta gaya ng nasa itaas, at sine-save ang report nang 7 araw, tulad ng iba.
+- *Taglish draft (M20):* **Photo na pinili mo.** Sa Tested page, puwede kang pumili ng photo mula sa device mo sa halip na kumuha ng bago. Sine-save muna ulit ito ng device mo, kaya natatanggal ang mga detalyeng nakaimbak sa file, gaya ng kung saan ito kinunan. Sinusuri ito sa parehong paraan at mapupunta sa Meta gaya ng nasa itaas. Ikaw lang ang makakakita ng resulta, hindi ito nagiging pin, at sine-save ang report nang 7 araw, tulad ng iba.
 
 ### Ask Lusot
 

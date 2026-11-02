@@ -63,6 +63,38 @@ describe('photoToJpeg', () => {
     await expect(attempt).rejects.toMatchObject({ kind: 'unreadable' })
   })
 
+  // An engine that doesn't know imageOrientation throws a TypeError for the options object.
+  it('decodes again with no options when the first decode throws a TypeError, as an older engine does', async () => {
+    const file = photo('image/jpeg')
+    const decoded = bitmap(4000, 3000)
+    const decode = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("The provided value 'from-image' is not a valid enum value"))
+      .mockResolvedValueOnce(decoded)
+    vi.stubGlobal('createImageBitmap', decode)
+    stubCanvas()
+
+    const jpeg = await photoToJpeg(file)
+
+    expect(jpeg.type).toBe('image/jpeg')
+    expect(decode).toHaveBeenCalledTimes(2)
+    expect(decode.mock.calls[0][1]).toEqual({ imageOrientation: 'from-image' })
+    expect(decode.mock.calls[1]).toEqual([file])
+    expect(decoded.close).toHaveBeenCalledOnce()
+  })
+
+  it('is unreadable when the decode without options fails too, and after a failure that is not a TypeError it tries only once', async () => {
+    const twice = vi.fn().mockRejectedValue(new TypeError('not a valid enum value'))
+    vi.stubGlobal('createImageBitmap', twice)
+    await expect(photoToJpeg(photo('image/jpeg'))).rejects.toMatchObject({ kind: 'unreadable' })
+    expect(twice).toHaveBeenCalledTimes(2)
+
+    const once = vi.fn().mockRejectedValue(new DOMException('bad image', 'InvalidStateError'))
+    vi.stubGlobal('createImageBitmap', once)
+    await expect(photoToJpeg(photo('image/jpeg'))).rejects.toMatchObject({ kind: 'unreadable' })
+    expect(once).toHaveBeenCalledTimes(1)
+  })
+
   it('closes the bitmap after encoding, and after a failed encode', async () => {
     const encoded = bitmap(4000, 3000)
     vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(encoded))

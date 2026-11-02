@@ -101,7 +101,8 @@ describe('the policy', () => {
     ['plates are blurred before Lusot keeps a copy', /Faces and plates are blurred before Lusot keeps a copy\./],
     ['the original is deleted', /Lusot deletes your original photo as soon as the result is saved\./],
     ['data is kept 7 days', /7 days after the photo was taken/],
-    // The Tested page's "Try your own photo" (C534, C640).
+    // The Tested page's "Try your own photo" (C534, C640). The collects table names it too, and keeps its other cells.
+    ['the collects table covers a photo chosen on the Tested page', /A photo you take in the app, or one you choose on the Tested page\s*when you report\s*to estimate the depth at that spot/],
     ['a chosen photo is re-saved on the device, goes to Meta, and is shown only to the person', /A photo you choose\. On the Tested page you can choose a photo from your device instead of taking one\. Your device re-saves it first, which drops details stored in the file, such as where it was taken\. It is analysed the same way and goes to Meta as described above\. The result is shown only to you, never becomes a pin, and the report is kept for 7 days like any other\./],
     ['there are no accounts and no names', /Lusot has no accounts\. It never asks for your name, email or phone number\./],
     // WebHosting=amplify: Rene's own line, Nov 2.

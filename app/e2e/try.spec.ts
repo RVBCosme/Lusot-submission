@@ -12,15 +12,14 @@ const tries = (mocks: Mocks) => mocks.requests.filter((r) => r.method === 'POST'
 // The photo's POST to the S3 stand-in, for the try report only.
 const toS3 = (mocks: Mocks) => mocks.requests.filter((r) => r.method === 'POST' && r.path.startsWith('/uploads/'))
 
-// The Tested page, "Choose a photo", the notice gate, then the photo into the labelled input. setInputFiles stands in
-// for the system's picker, which a test can't see.
+// The Tested page, "Choose a photo", the notice gate, then the photo into the page's one file input. The input is out of
+// the accessibility tree (aria-hidden), so it is found by its type, not by its label. setInputFiles stands in for the
+// system's picker, which a test can't see.
 async function choosePhoto(page: Page): Promise<void> {
   await page.goto('/#/tested')
   await page.getByRole('button', { name: label(L, 'try.choose'), exact: true }).click()
   await acceptNotice(page, L)
-  await page
-    .getByLabel(label(L, 'try.inputLabel'))
-    .setInputFiles({ name: 'flood.png', mimeType: 'image/png', buffer: TRY_PHOTO })
+  await page.locator('input[type=file]').setInputFiles({ name: 'flood.png', mimeType: 'image/png', buffer: TRY_PHOTO })
 }
 
 const section = (page: Page) => page.getByRole('region', { name: label(L, 'tested.try.title') })

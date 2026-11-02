@@ -429,6 +429,18 @@ function ResultCardBody({
                     <T k="refusal.d19" />
                   </p>
                 </>
+              ) : isTry ? (
+                <>
+                  {/* A photo the person chose isn't one to retake: no D19 and no camera tips (the tracker's ruling,
+                      C637). Like a sample, it opens with "No verdict", then why, then what Lusot reads best. */}
+                  <p className="text-balance text-heading font-bold">
+                    <T k="verdict.none" />
+                  </p>
+                  <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-1" />
+                  <p className="mt-2">
+                    <T k="refusal.try.tip" />
+                  </p>
+                </>
               ) : (
                 <>
                   <p className="font-bold">
@@ -436,7 +448,7 @@ function ResultCardBody({
                   </p>
                   <Note value={reasonLine(t, report?.refusalReason ?? '')} className="mt-2" />
                   {/* What to try next, only on a photo the person took themselves (C637). */}
-                  {(source === 'own' || isTry) && !isExample && (
+                  {source === 'own' && !isExample && (
                     <Note value={tipLine(t, report?.refusalReason ?? '')} className="mt-2" />
                   )}
                 </>

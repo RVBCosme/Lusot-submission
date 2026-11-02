@@ -333,7 +333,9 @@ describe('words', () => {
     expect(keys.length).toBeGreaterThan(20)
     const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort()
     // Lines added on Nov 2 (C534, C640) wait for the tracker's review (M20): they still need a Taglish line.
-    const awaitingReview = (key: StringKey) => key === 'sample.limit.daily_cap' || key.startsWith('tested.try.')
+    // Remove at M20 (Rene's review): then these keys join the reviewed check.
+    const AWAITING_REVIEW: readonly StringKey[] = ['sample.limit.daily_cap', 'tested.try.title', 'tested.try.intro']
+    const awaitingReview = (key: StringKey) => AWAITING_REVIEW.includes(key)
     for (const key of keys) {
       if (!awaitingReview(key)) {
         expect(EN[key].reviewed, key).toBe(true)

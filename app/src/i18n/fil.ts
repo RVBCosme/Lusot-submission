@@ -213,6 +213,10 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Ito ang makikita ng sinumang magre-report sa spot na ito:',
     reviewed: true,
   },
+  'refusal.try.tip': {
+    text: 'Mas nababasa ng Lusot ang lalim kapag kita sa photo ang gulong ng nakaparadang kotse o ang taong nakatayo lang.',
+    reviewed: false,
+  },
   'result.levelName.below_gutter': { text: 'mas mababa sa gutter', reviewed: true },
   'result.levelName.gutter': { text: 'gutter', reviewed: true },
   'result.levelName.half_knee': { text: 'half-knee', reviewed: true },
@@ -634,6 +638,7 @@ export const FIL: Record<StringKey, Entry> = {
     reviewed: false,
   },
   'try.unreadable': { text: 'Hindi mabuksan ng Lusot ang photo na ito. Pumili ng ibang photo.', reviewed: false },
+  'try.noApi': { text: 'Hindi kayang magbasa ng photo ang build na ito.', reviewed: false },
   'try.sendFailed': {
     text: 'Hindi naipadala ng Lusot ang photo mo. Tingnan ang koneksyon mo at subukan ulit.',
     reviewed: false,

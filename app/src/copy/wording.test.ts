@@ -309,7 +309,9 @@ it("D19's two lines and every result and reason line, English and Taglish, passe
   const keys = resultAndReasonKeys(EN)
   expect(keys.length).toBeGreaterThan(50)
   // result.try (C534, C640) was added on Nov 2 and waits for the tracker's review (M20).
-  for (const key of keys.filter((key) => key !== 'result.try')) {
+  // Remove at M20 (Rene's review): then it joins the reviewed check.
+  const awaitingReview = ['result.try']
+  for (const key of keys.filter((key) => !awaitingReview.includes(key))) {
     expect(EN[key as keyof typeof EN].reviewed, `en ${key}`).toBe(true)
     expect(FIL[key as keyof typeof FIL].reviewed, `fil ${key}`).toBe(true)
   }

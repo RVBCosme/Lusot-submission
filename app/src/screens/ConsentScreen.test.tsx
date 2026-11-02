@@ -92,6 +92,18 @@ describe('the notice', () => {
     expect(consentText).not.toMatch(/\[ \]|\[Continue\]|\[Not now\]|Read the privacy policy/)
   })
 
+  it('puts the chosen-photo bullet right after the public-pin bullet', () => {
+    renderScreen('notice')
+    const bullets = within(notice())
+      .getAllByRole('listitem')
+      .map((item) => item.textContent ?? '')
+    const pin = bullets.findIndex((bullet) => bullet.startsWith('A reading inside Metro Manila becomes a public pin'))
+    const chosen = bullets.findIndex((bullet) => bullet.startsWith('You can also choose a photo from your device'))
+
+    expect(pin).toBeGreaterThan(-1)
+    expect(chosen).toBe(pin + 1)
+  })
+
   it('on #/report, the page holds the screen line once, in the bar, not in the notice', () => {
     history.replaceState(null, '', '/#/report')
     render(<App apiUrl="https://api.example.test" />)

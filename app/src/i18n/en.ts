@@ -226,6 +226,12 @@ export const EN = {
   // the M20 review passed the other names, the lines for a floor on an added level and every other line below.
   // C637: a sample's refusal doesn't ask a judge to retake a photo they didn't take, so D19's line sits inside a frame.
   'refusal.sample.someoneWouldSee': { text: 'Someone reporting this spot would see:', reviewed: true },
+  // The tracker's ruling (C637): a photo the person chose isn't one to retake, so its refusal has no D19 and no retake
+  // tip, only what Lusot reads best. It waits for the tracker's review (M20).
+  'refusal.try.tip': {
+    text: "Lusot reads depth best from a photo with a parked car's wheel or a person standing still in view.",
+    reviewed: false,
+  },
   'result.levelName.below_gutter': { text: 'below gutter', reviewed: true },
   'result.levelName.gutter': { text: 'gutter', reviewed: true },
   'result.levelName.half_knee': { text: 'half-knee', reviewed: true },
@@ -645,6 +651,7 @@ export const EN = {
   'try.reading': { text: 'Lusot is reading your photo.', reviewed: false },
   'try.unsupported': { text: 'Lusot can read a JPEG, PNG or WebP photo. Choose another photo.', reviewed: false },
   'try.unreadable': { text: "Lusot couldn't open this photo. Choose another photo.", reviewed: false },
+  'try.noApi': { text: "This build can't read photos.", reviewed: false },
   'try.sendFailed': {
     text: "Lusot couldn't send your photo. Check your connection and try again.",
     reviewed: false,

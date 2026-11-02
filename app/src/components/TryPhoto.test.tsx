@@ -49,7 +49,11 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const photo = (type = 'image/jpeg') => new File(['photo bytes'], 'flood', { type })
 
-type Routes = { tryRoute?(): Response | Promise<Response>; s3Route?(): Response; reportRoute?(): Response }
+type Routes = {
+  tryRoute?(): Response | Promise<Response>
+  s3Route?(): Response | Promise<Response>
+  reportRoute?(): Response
+}
 
 // A fake of the three places the component talks to. `calls` lists each request, as "POST /try", "POST S3" or
 // "GET /reports/<id>", in order.
@@ -78,16 +82,34 @@ function mockApi({ tryRoute, s3Route, reportRoute }: Routes = {}) {
   return { calls, seen }
 }
 
-function renderTry({ consented = true }: { consented?: boolean } = {}) {
+function renderTry({ consented = true, apiUrl = API }: { consented?: boolean; apiUrl?: string } = {}) {
   if (consented) localStorage.setItem('lusot.consent', JSON.stringify({ adult: true, notice: NOTICE_VERSION }))
   return render(
     <LanguageProvider>
       <GateProvider>
-        <TryPhoto apiUrl={API} />
+        <TryPhoto apiUrl={apiUrl} />
       </GateProvider>
     </LanguageProvider>,
   )
 }
+
+// localStorage that throws on every access, as a blocked site's does.
+function blockStorage() {
+  vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+    throw new DOMException('The operation is insecure.', 'SecurityError')
+  })
+}
+
+// Moves the fake clock, with the promises it wakes settled inside act (for the tests that use fake timers).
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+}
+const fakeClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
 
 const input = () => screen.getByLabelText(text('try.inputLabel')) as HTMLInputElement
 const choose = (file = photo()) => fireEvent.change(input(), { target: { files: [file] } })
@@ -152,6 +174,60 @@ describe('the entry', () => {
     expect(open).toHaveBeenCalledTimes(1)
     expect(open.mock.contexts[0]).toBe(input())
   })
+
+  // A screen reader reaches an input that is in the accessibility tree, and activating it opens the picker with no gate.
+  it('keeps the file input out of the accessibility tree and the tab order, so only the gated button opens it', () => {
+    renderTry()
+
+    expect(input().getAttribute('aria-hidden')).toBe('true')
+    expect(input().tabIndex).toBe(-1)
+  })
+
+  it('with no notice accepted, a change event on the input sends nothing', async () => {
+    const { calls } = mockApi()
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry({ consented: false })
+    let value = 'C:\\fakepath\\flood'
+    Object.defineProperty(input(), 'value', {
+      configurable: true,
+      get: () => value,
+      set: (next: string) => {
+        value = next
+      },
+    })
+
+    choose()
+    await settle()
+
+    expect(vi.mocked(photoToJpeg)).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+    expect(value).toBe('')
+    expect(screen.queryByText(text('try.reading'))).toBeNull()
+    expect(button('try.choose')).toBeTruthy()
+  })
+
+  it('with storage blocked, a photo chosen after passing the gate this visit is still sent', async () => {
+    blockStorage()
+    const { calls } = mockApi()
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry({ consented: false })
+    fireEvent.click(button('try.choose'))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: text('consent.continue') }))
+
+    choose()
+
+    expect(await screen.findByText(text('result.try'))).toBeTruthy()
+    expect(calls.filter((call) => call === 'POST /try')).toHaveLength(1)
+  })
+
+  it('with no API address, says so and shows no button and no input', () => {
+    renderTry({ apiUrl: '' })
+
+    expect(screen.getByText(text('try.noApi'))).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByLabelText(text('try.inputLabel'))).toBeNull()
+  })
 })
 
 describe('a chosen photo', () => {
@@ -213,6 +289,55 @@ describe('a chosen photo', () => {
 
     expect(await screen.findByText(text('try.unreadable'))).toBeTruthy()
     expect(calls).toEqual([])
+  })
+
+  it('a canvas or encode failure while preparing the photo shows try.unreadable, not try.sendFailed, and sends nothing', async () => {
+    const { calls } = mockApi()
+    vi.mocked(photoToJpeg).mockRejectedValue(new Error('Could not encode the photo as JPEG'))
+    renderTry()
+
+    choose()
+
+    expect(await screen.findByText(text('try.unreadable'))).toBeTruthy()
+    expect(document.body.textContent).not.toContain(text('try.sendFailed'))
+    expect(calls).toEqual([])
+    expect(button('try.chooseAnother')).toBeTruthy()
+  })
+
+  it('a lost connection on the S3 POST is tried once more on the same link, so the photo is paid for once', async () => {
+    fakeClock()
+    let attempts = 0
+    const { calls } = mockApi({
+      s3Route: () => {
+        attempts += 1
+        if (attempts === 1) throw new TypeError('Failed to fetch')
+        return new Response(null, { status: 204 })
+      },
+    })
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry()
+
+    choose()
+    await advance(0)
+    // The retry waits about 2 s (C635).
+    await advance(2000)
+
+    expect(screen.getByText(text('result.try'))).toBeTruthy()
+    expect(calls.filter((call) => call === 'POST /try')).toHaveLength(1)
+    expect(calls.filter((call) => call === 'POST S3')).toHaveLength(2)
+    expect(document.body.textContent).not.toContain(text('try.sendFailed'))
+  })
+
+  it('a failed card offers no "Try again" of its own: "Choose another photo" below it is the one way on', async () => {
+    mockApi({ reportRoute: () => json(200, { reportId: ID, status: 'failed', refusalReason: 'pipeline_error', mode: 'try', published: false }) })
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry()
+
+    choose()
+
+    expect(await screen.findByText('Processing failed, try again.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(button('try.chooseAnother')).toBeTruthy()
   })
 
   it.each(['model_calls_paused', 'uploads_paused'])(
@@ -379,18 +504,10 @@ describe('the wait', () => {
   })
 
   it('a poll past its deadline says "No result yet", and "Check again" polls the same report again', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    fakeClock()
     const { calls } = mockApi({ reportRoute: () => json(200, PENDING) })
     vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
     renderTry()
-    const advance = async (ms: number) => {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(ms)
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0)
-      })
-    }
 
     choose()
     await advance(0)

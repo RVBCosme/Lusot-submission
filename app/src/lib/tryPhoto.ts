@@ -16,12 +16,19 @@ export class TryPhotoError extends Error {
   }
 }
 
-// The chosen file as a JPEG blob. `from-image` turns a sideways phone photo upright, as the person sees it.
+// The chosen file as a JPEG blob. `from-image` turns a sideways phone photo upright, as the person sees it. An older
+// engine that doesn't know the option throws a TypeError for it, so the decode is tried once more with no options; any
+// other failure is a file that won't open.
 export async function photoToJpeg(file: Blob): Promise<Blob> {
   if (!(TRY_TYPES as readonly string[]).includes(file.type)) throw new TryPhotoError('unsupported')
   let bitmap: ImageBitmap
   try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err
+      bitmap = await createImageBitmap(file)
+    }
   } catch {
     throw new TryPhotoError('unreadable')
   }
