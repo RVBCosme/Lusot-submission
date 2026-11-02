@@ -13,7 +13,8 @@ const BUTTON =
 const EXAMPLE = { level: 'knee', landmark: 'rim_three_quarters', basis: { vehicles: 1, people: 1 } } as const
 
 // What the map shows when there are no pins (C618): the plain fact, a way in, and one card that says it is an example.
-// "No reports" is never a statement about a spot, so the note says a spot with no report may still be flooded.
+// "No reports" is never a statement about a spot, so the note says a spot with no report may still be flooded. From lg it
+// keeps to a line of 65 characters, centred, rather than running across the width of a wide window under the map.
 export function EmptyMap() {
   const t = useT()
   const landmark = landmarkLine(t, EXAMPLE.landmark)
@@ -21,7 +22,7 @@ export function EmptyMap() {
   const verdict = verdictLines(t, EXAMPLE.level, false)
   const depth = depthLine(t, EXAMPLE.level, false)
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 lg:mx-auto lg:w-full lg:max-w-prose lg:p-4">
       <div>
         <h2 className="text-balance text-heading font-bold">
           <T k="map.empty.title" />

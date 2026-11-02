@@ -16,10 +16,12 @@ export function Details({
   reasonCode,
   photoTime,
   references = [],
+  className,
 }: {
   reasonCode?: string
   photoTime?: string
   references?: readonly DetailReference[]
+  className?: string
 }) {
   const t = useT()
   const { lang } = useLanguage()
@@ -31,7 +33,7 @@ export function Details({
   })
   if (code === undefined && time === undefined && items.length === 0) return null
   return (
-    <details className="mt-4">
+    <details className={className === undefined ? 'mt-4' : `mt-4 ${className}`}>
       <summary className="flex min-h-tap min-w-tap cursor-pointer items-center text-action underline underline-offset-4">
         <T k="result.details" />
       </summary>

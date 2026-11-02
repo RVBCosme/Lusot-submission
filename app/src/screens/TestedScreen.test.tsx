@@ -501,6 +501,30 @@ describe('the samples', () => {
     expect(await check('level_knee', (_, path) => (path === '/samples' ? json(200, { samples: 'no' }) : undefined))).toBe(0)
   })
 
+  // From lg (64 rem) the page is as wide as the screen. jsdom applies no stylesheet, so this pins the classes the layout works
+  // on; the boxes are e2e/desktop.spec.ts's. A section added after the samples is prose-wide unless it asks for the width.
+  it('lays the samples out in two columns from lg, with the sections of reading kept to a line of 65 characters', async () => {
+    adult()
+    await openWithSamples('level_knee', undefined, sealed())
+    const has = (element: Element | null, ...tokens: string[]) =>
+      element !== null && tokens.every((token) => element.classList.contains(token))
+    const section = (key: StringKey) => screen.getByRole('heading', { name: text(key) }).closest('section')
+
+    const list = runButtons()[0].closest('ul')
+    expect(has(list, 'lg:grid', 'lg:grid-cols-2', 'lg:items-start', 'lg:gap-x-8', 'lg:gap-y-10', 'lg:space-y-0')).toBe(true)
+    expect(list?.querySelectorAll(':scope > li')).toHaveLength(3)
+    // Below lg the list is what it was: one column, 10 steps between the samples.
+    expect(has(list, 'mt-4', 'space-y-10')).toBe(true)
+    for (const key of ['tested.results.title', 'tested.how.title', 'tested.limits.title'] as const) {
+      expect(has(section(key), 'lg:max-w-prose'), key).toBe(true)
+    }
+    expect(section('tested.samples.title')?.classList.contains('lg:max-w-prose')).toBe(false)
+    // The page itself is a phone's reading width below lg and the screen's width from lg.
+    const wrapper = screen.getByRole('heading', { level: 1 }).parentElement
+    expect(has(wrapper, 'max-w-prose', 'lg:max-w-none')).toBe(true)
+    expect(has(screen.getByText(text('about.notAffiliated')), 'lg:max-w-prose')).toBe(true)
+  })
+
   it('a sample run that refuses shows the result card\'s refused outcome with the sample frame, never an error', async () => {
     adult()
     await openWithSamples('refused_no_usable_reference')

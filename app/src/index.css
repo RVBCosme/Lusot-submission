@@ -43,7 +43,17 @@
 
   --spacing-gutter: var(--lusot-gutter);
   --spacing-tap: var(--lusot-tap);
+  --container-page: var(--lusot-page);
   --radius-control: var(--lusot-radius);
+}
+
+/*
+ * A screen's side padding that centres it in the page width: the gutter, or half of what the window has beyond the page
+ * (a padding in %, so the screen's scrollbar stays at the window's edge, and a screen that fills the screen's height keeps
+ * doing so, which a centring wrapper would break). Layout.tsx uses it from lg.
+ */
+@utility page-x {
+  padding-inline: max(var(--lusot-gutter), calc((100% - var(--lusot-page)) / 2));
 }
 
 @layer base {
@@ -72,6 +82,19 @@
   padding-right: calc(var(--lusot-gutter) + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
   padding-bottom: calc(var(--lusot-gutter) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   padding-left: calc(var(--lusot-gutter) + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+}
+
+/*
+ * From lg (64 rem, Tailwind's breakpoint) the gutter moves from the shell to the top bar, the screen line and the screens
+ * (Layout.tsx), so the live map can run to the edges of the window. The system bars' insets stay.
+ */
+@media (min-width: 64rem) {
+  .safe-area {
+    padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+    padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  }
 }
 
 /*

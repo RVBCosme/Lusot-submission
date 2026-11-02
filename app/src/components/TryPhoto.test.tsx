@@ -414,6 +414,65 @@ describe('a chosen photo', () => {
   })
 })
 
+// The section is wide from lg, so the component's own lines (what it is doing, why it refused, that the notice is paused)
+// keep to a line of 65 characters, as the Tested page's text does. The result card keeps the section's whole width.
+describe('from lg', () => {
+  const PROSE = 'lg:max-w-prose'
+  const capped = (element: Element | null) => element?.classList.contains(PROSE) === true
+
+  it('keeps to a line of 65 characters with no API address', () => {
+    renderTry({ apiUrl: '' })
+
+    expect(capped(screen.getByText(text('try.noApi')))).toBe(true)
+  })
+
+  it('keeps to a line of 65 characters while Lusot reads the photo', async () => {
+    mockApi({ reportRoute: () => json(200, PENDING) })
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry()
+
+    choose()
+
+    expect(capped((await screen.findByText(text('try.reading'))).closest('p'))).toBe(true)
+  })
+
+  it.each([
+    ['a file problem', {}, 'image/heic', 'try.unsupported'],
+    ['a limit', { tryRoute: () => json(429, { error: 'device_limit' }) }, 'image/jpeg', 'try.limit.device_limit'],
+    ['a failed send', { tryRoute: () => json(500, { error: 'internal' }) }, 'image/jpeg', 'try.sendFailed'],
+  ] as [string, Routes, string, StringKey][])('keeps %s to a line of 65 characters', async (_name, routes, type, key) => {
+    mockApi(routes)
+    // A HEIC is refused by the real re-encode, so only a JPEG is faked.
+    if (type === 'image/jpeg') vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry()
+
+    choose(photo(type))
+
+    expect(capped(await screen.findByText(text(key)))).toBe(true)
+  })
+
+  it('keeps the paused line (a 503 from /try) to a line of 65 characters', async () => {
+    mockApi({ tryRoute: () => json(503, { error: 'uploads_paused' }) })
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry()
+
+    choose()
+
+    expect(capped((await screen.findByText(text('result.paused'))).closest('.mt-3'))).toBe(true)
+  })
+
+  it("leaves the result card the section's whole width", async () => {
+    mockApi()
+    vi.mocked(photoToJpeg).mockResolvedValue(JPEG)
+    renderTry()
+
+    choose()
+
+    await screen.findByText(text('result.try'))
+    expect(capped(screen.getByRole('article').closest('.mt-3'))).toBe(false)
+  })
+})
+
 describe('one run at a time', () => {
   it('two change events in one tick start one run', async () => {
     const { calls } = mockApi()

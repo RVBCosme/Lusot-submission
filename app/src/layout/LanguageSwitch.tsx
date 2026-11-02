@@ -10,11 +10,11 @@ const OPTIONS: { lang: Lang; name: StringKey }[] = [
   { lang: 'fil', name: 'lang.fil' },
 ]
 
-export function LanguageSwitch() {
+export function LanguageSwitch({ className }: { className?: string }) {
   const { lang, setLang } = useLanguage()
   const label = useT()('lang.switch')
   return (
-    <div role="group" aria-label={label.text} className="flex gap-1">
+    <div role="group" aria-label={label.text} className={className === undefined ? 'flex gap-1' : `flex gap-1 ${className}`}>
       {OPTIONS.map((option) => {
         const name = makeT(option.lang)(option.name)
         return (

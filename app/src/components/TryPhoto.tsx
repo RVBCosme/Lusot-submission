@@ -179,7 +179,7 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     case 'sending':
     case 'waiting':
       body = (
-        <p role="status" className="mt-3 flex min-h-tap items-center gap-2 font-bold">
+        <p role="status" className="mt-3 flex min-h-tap items-center gap-2 font-bold lg:max-w-prose">
           <LoaderCircleIcon aria-hidden="true" className="size-5 shrink-0 animate-spin motion-reduce:animate-none" />
           <T k="try.reading" />
         </p>
@@ -205,7 +205,7 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     case 'paused':
       // The Tested page is where this is, so the paused line links to the map only (C638).
       body = (
-        <div className="mt-3">
+        <div className="mt-3 lg:max-w-prose">
           <PausedNotice links={['map']} />
         </div>
       )
@@ -213,14 +213,14 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
     case 'refused':
     case 'fileProblem':
       body = (
-        <p role="status" className="mt-3">
+        <p role="status" className="mt-3 lg:max-w-prose">
           <T k={run.line} />
         </p>
       )
       break
     case 'sendFailed':
       body = (
-        <p role="status" className="mt-3">
+        <p role="status" className="mt-3 lg:max-w-prose">
           <T k="try.sendFailed" />
         </p>
       )
@@ -229,7 +229,7 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
 
   if (apiUrl === '') {
     return (
-      <p className="mt-4">
+      <p className="mt-4 lg:max-w-prose">
         <T k="try.noApi" />
       </p>
     )
