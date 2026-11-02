@@ -200,14 +200,14 @@ export function SampleList({ apiUrl }: { apiUrl: string }) {
 
   if (apiUrl === '') {
     return (
-      <p className="mt-4">
+      <p className="mt-4 lg:max-w-prose">
         <T k="tested.samples.noApi" />
       </p>
     )
   }
   if (samples === undefined) {
     return (
-      <p role="status" className="mt-4 text-ink-2">
+      <p role="status" className="mt-4 text-ink-2 lg:max-w-prose">
         <T k="tested.samples.loading" />
       </p>
     )
@@ -216,7 +216,7 @@ export function SampleList({ apiUrl }: { apiUrl: string }) {
   return (
     <>
       {samples.length > 0 && (
-        <ul className="mt-4 space-y-10">
+        <ul className="mt-4 space-y-10 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-8 lg:gap-y-10 lg:space-y-0">
           {samples.map((sample) => {
             const id = sample.sampleId
             const state = runs[id]
@@ -237,7 +237,7 @@ export function SampleList({ apiUrl }: { apiUrl: string }) {
         </ul>
       )}
       {samples.length < SHORT_LIST && (
-        <p className="mt-4">
+        <p className="mt-4 lg:max-w-prose">
           <T k="tested.samples.more" />
         </p>
       )}

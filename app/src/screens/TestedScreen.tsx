@@ -27,10 +27,13 @@ const LIMITS: StringKey[] = ['tested.limits.night', 'tested.limits.rain', 'teste
 
 type Figure = { label: StringKey; value: Text }
 
-function Section({ title, children }: { title: StringKey; children: ReactNode }) {
+// From lg the page is as wide as the screen (72 rem), for the samples' two columns. A section of reading keeps to a line of
+// about 65 characters, and a section with something wide in it, such as the samples, asks for the width with `wide`. Any
+// section added after them is a line of reading unless it does.
+function Section({ title, wide = false, children }: { title: StringKey; wide?: boolean; children: ReactNode }) {
   const id = useId()
   return (
-    <section aria-labelledby={id} className="mt-8">
+    <section aria-labelledby={id} className={wide ? 'mt-8' : 'mt-8 lg:max-w-prose'}>
       <h2 id={id} className="text-heading font-bold">
         <T k={title} />
       </h2>
@@ -141,7 +144,7 @@ export function TestedScreen({
   const heading = useRef<HTMLHeadingElement>(null)
   useHeadingFocus(heading, undefined)
   return (
-    <div className="max-w-prose">
+    <div className="max-w-prose lg:max-w-none">
       <h1 ref={heading} className="text-title font-bold outline-none">
         <T k="nav.tested" />
       </h1>
@@ -181,14 +184,14 @@ export function TestedScreen({
         </ul>
       </Section>
 
-      <Section title="tested.samples.title">
-        <p className="mt-2">
+      <Section title="tested.samples.title" wide>
+        <p className="mt-2 lg:max-w-prose">
           <T k="tested.samples.intro" />
         </p>
         <SampleList apiUrl={apiUrl} />
       </Section>
 
-      <p className="mt-8 text-small text-ink-2">
+      <p className="mt-8 text-small text-ink-2 lg:max-w-prose">
         <T k="about.notAffiliated" />
       </p>
     </div>
