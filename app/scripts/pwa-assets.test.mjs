@@ -2,7 +2,7 @@
 // app has no service worker, so none of this is about offline use. Run: node --test "app/scripts/*.test.mjs"
 // Node's file API is fine here: unlike the app's own tests, these scripts aren't type-checked against the browser.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -169,11 +169,12 @@ function decodePng(path) {
 
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
 const NAVY_RGB = rgb(NAVY);
-// How far a pixel is from the navy, summed over the channels (0 to 765): the mark and its soft edge are anything over 30.
+// How far a pixel is from the navy, summed over the channels (0 to 765). The mark's pale is 631 away and its blue 315,
+// so over 150 is a pixel the mark covers by about half or more: its edge, to within half a pixel.
 const awayFromNavy = ([r, g, b]) => Math.abs(r - NAVY_RGB[0]) + Math.abs(g - NAVY_RGB[1]) + Math.abs(b - NAVY_RGB[2]);
 
-// The farthest any drawn pixel lies from the picture's centre, as a fraction of its width, with the pixel counted:
-// `drawn` says which pixels belong to the mark. A mark inside a circle of radius R keeps this at or under R.
+// The farthest any drawn pixel lies from the picture's centre, as a fraction of its width, and how many pixels are
+// drawn: `drawn` says which pixels belong to the mark. A mark inside a circle of radius R keeps this at or under R.
 function reach(img, drawn) {
   const cx = img.width / 2;
   const cy = img.height / 2;
@@ -183,8 +184,8 @@ function reach(img, drawn) {
     for (let x = 0; x < img.width; x++) {
       if (!drawn(img.at(x, y))) continue;
       count += 1;
-      // The far corner of the pixel's square, so a pixel that touches the circle's edge counts as outside it.
-      far = Math.max(far, Math.hypot(Math.abs(x + 0.5 - cx) + 0.5, Math.abs(y + 0.5 - cy) + 0.5));
+      // The pixel's centre: with `drawn` meaning half covered or more, the edge is found to within half a pixel.
+      far = Math.max(far, Math.hypot(x + 0.5 - cx, y + 0.5 - cy));
     }
   }
   return { fraction: far / img.width, count };
@@ -213,7 +214,7 @@ test("the web icons are opaque, full-bleed navy squares of the sizes the manifes
 
 test("the maskable icon keeps its whole mark inside the central 80% circle, and still draws the mark large", () => {
   const img = decodePng("public/icons/icon-maskable-512.png");
-  const { fraction, count } = reach(img, (p) => awayFromNavy(p) > 30);
+  const { fraction, count } = reach(img, (p) => awayFromNavy(p) > 150);
   assert.ok(count > 0, "the mark is drawn");
   assert.ok(fraction <= 0.4, `the mark reaches ${(fraction * 100).toFixed(1)}% of the width from the centre; a mask can cut beyond 40%`);
   assert.ok(fraction >= 0.33, `the mark is not shrunk (it reaches ${(fraction * 100).toFixed(1)}%)`);
@@ -226,4 +227,142 @@ test("the Apple touch icon draws the same mark as the web icons, scaled", () => 
   const water = (img) => img.at(Math.round(img.width * 0.6), Math.round(img.height * 0.75));
   assert.deepEqual(water(touch).slice(0, 3), rgb(WATER));
   assert.deepEqual(water(big).slice(0, 3), rgb(WATER));
+});
+
+// ---- The Android app's icons and splash screens (app/android/app/src/main/res) ----
+
+const RES = "android/app/src/main/res";
+// Android's density buckets and the factor each multiplies a dp size by.
+const DENSITIES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
+const half = (alphaPixel) => alphaPixel[3] > 127;
+// Whether the picture holds a pixel of exactly this colour: the logo's own pale and water blue, so an icon drawn from
+// anything else (the old gauge, say) fails.
+const has = (img, [r, g, b]) => !everyPixel(img, (p) => !(p[0] === r && p[1] === g && p[2] === b && p[3] === 255));
+const drawsLogo = (img) => has(img, rgb(PALE)) && has(img, rgb(WATER));
+// The colour a values file gives a name: `<color name="x">#RRGGBB</color>`, in any file of res/values.
+const colourNamed = (name) => {
+  for (const file of readdirSync(app(`${RES}/values`))) {
+    const found = new RegExp(`<color name="${name}">(#[0-9A-Fa-f]{6})</color>`).exec(read(`${RES}/values/${file}`));
+    if (found) return found[1].toUpperCase();
+  }
+  return undefined;
+};
+
+test("the legacy launcher icons come in five densities: a rounded navy square, and a navy circle", () => {
+  for (const [density, factor] of Object.entries(DENSITIES)) {
+    const size = 48 * factor;
+    for (const name of ["ic_launcher", "ic_launcher_round"]) {
+      const path = `${RES}/mipmap-${density}/${name}.png`;
+      const img = decodePng(path);
+      assert.deepEqual([img.width, img.height], [size, size], path);
+      assert.ok(img.at(0, 0)[3] < 128, `${path}: the corner is cut away`);
+      assert.deepEqual(img.at(size >> 1, 2).slice(0, 4), [...NAVY_RGB, 255], `${path}: the top edge is solid navy`);
+      assert.ok(drawsLogo(img), `${path} draws the logo's pale gauge and water`);
+    }
+  }
+});
+
+test("the adaptive launcher icon layers are 108 dp, transparent, and keep the whole mark inside the 66 dp safe circle", () => {
+  for (const [density, factor] of Object.entries(DENSITIES)) {
+    const size = 108 * factor;
+    const path = `${RES}/mipmap-${density}/ic_launcher_foreground.png`;
+    const img = decodePng(path);
+    assert.deepEqual([img.width, img.height], [size, size], path);
+    for (const [x, y] of [[0, 0], [size - 1, 0], [0, size - 1], [size - 1, size - 1], [size >> 1, 0]]) {
+      assert.equal(img.at(x, y)[3], 0, `${path}: ${x},${y} is transparent`);
+    }
+    const { fraction } = reach(img, half);
+    assert.ok(drawsLogo(img), `${path} draws the logo's pale gauge and water`);
+    assert.ok(fraction <= 33 / 108, `${path}: the mark reaches ${(fraction * 108).toFixed(1)} dp from the centre; the safe circle's radius is 33 dp`);
+    assert.ok(fraction >= 0.9 * (33 / 108), `${path}: the mark is not shrunk (it reaches ${(fraction * 108).toFixed(1)} dp)`);
+  }
+});
+
+test("both adaptive icon files put the foreground layer on the navy colour resource", () => {
+  for (const name of ["ic_launcher", "ic_launcher_round"]) {
+    const xml = read(`${RES}/mipmap-anydpi-v26/${name}.xml`);
+    assert.match(xml, /<adaptive-icon\b/);
+    assert.match(xml, /<background android:drawable="@color\/ic_launcher_background"\s*\/>/);
+    assert.match(xml, /<foreground android:drawable="@mipmap\/ic_launcher_foreground"\s*\/>/);
+  }
+  assert.equal(colourNamed("ic_launcher_background"), NAVY);
+});
+
+// Capacitor's launch splash images (drawable/splash.png and its port and land sizes): navy edge to edge, the mark
+// centred and a third of the shorter side tall.
+const SPLASH_SIZES = {
+  "drawable/splash.png": [480, 320],
+  "drawable-port-mdpi/splash.png": [320, 480],
+  "drawable-port-hdpi/splash.png": [480, 800],
+  "drawable-port-xhdpi/splash.png": [720, 1280],
+  "drawable-port-xxhdpi/splash.png": [960, 1600],
+  "drawable-port-xxxhdpi/splash.png": [1280, 1920],
+  "drawable-land-mdpi/splash.png": [480, 320],
+  "drawable-land-hdpi/splash.png": [800, 480],
+  "drawable-land-xhdpi/splash.png": [1280, 720],
+  "drawable-land-xxhdpi/splash.png": [1600, 960],
+  "drawable-land-xxxhdpi/splash.png": [1920, 1280],
+};
+
+test("the splash images are navy with the mark centred, at the sizes Capacitor's template uses", () => {
+  for (const [file, [width, height]] of Object.entries(SPLASH_SIZES)) {
+    const path = `${RES}/${file}`;
+    const img = decodePng(path);
+    assert.deepEqual([img.width, img.height], [width, height], path);
+    for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
+      assert.deepEqual(img.at(x, y).slice(0, 3), NAVY_RGB, `${path}: corner ${x},${y}`);
+    }
+    // The mark's box: every pixel it covers by about half or more.
+    let [left, top, right, bottom] = [width, height, -1, -1];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (awayFromNavy(img.at(x, y)) <= 150) continue;
+        [left, top, right, bottom] = [Math.min(left, x), Math.min(top, y), Math.max(right, x + 1), Math.max(bottom, y + 1)];
+      }
+    }
+    assert.ok(right > left && drawsLogo(img), `${path} draws the logo's pale gauge and water`);
+    assert.ok(Math.abs((left + right) / 2 - width / 2) <= width * 0.01, `${path}: the mark is centred across`);
+    assert.ok(Math.abs((top + bottom) / 2 - height / 2) <= height * 0.01, `${path}: the mark is centred down`);
+    const tall = (bottom - top) / Math.min(width, height);
+    assert.ok(Math.abs(tall - 0.34) <= 0.012, `${path}: the mark is ${(tall * 100).toFixed(1)}% of the shorter side tall, not 34%`);
+  }
+});
+
+test("the launch theme is Android 12's splash: navy background, the mark as its icon, then the app's own theme", () => {
+  const styles = read(`${RES}/values/styles.xml`);
+  const block = /<style name="AppTheme\.NoActionBarLaunch" parent="Theme\.SplashScreen">([\s\S]*?)<\/style>/.exec(styles)?.[1];
+  assert.ok(block, "the launch theme keeps Capacitor's parent, Theme.SplashScreen (androidx.core:core-splashscreen)");
+  const item = (name) => new RegExp(`<item name="${name}">([^<]*)</item>`).exec(block)?.[1];
+  const background = /^@color\/(\w+)$/.exec(item("windowSplashScreenBackground") ?? "")?.[1];
+  assert.ok(background, "windowSplashScreenBackground names a colour resource");
+  assert.equal(colourNamed(background), NAVY, "and that colour is the brand navy");
+  assert.equal(item("windowSplashScreenAnimatedIcon"), "@drawable/splash_icon");
+  assert.equal(item("postSplashScreenTheme"), "@style/AppTheme.NoActionBar");
+  assert.equal(item("android:background"), "@drawable/splash", "Capacitor's own splash image stays for the plugin and older code");
+  assert.match(styles, /<style name="AppTheme\.NoActionBar"/, "the theme the launch theme hands over to exists");
+});
+
+test("the splash icon is 288 dp, transparent, and keeps the whole mark inside the 192 dp circle Android 12 shows", () => {
+  for (const [density, factor] of Object.entries(DENSITIES)) {
+    const size = 288 * factor;
+    const path = `${RES}/drawable-${density}/splash_icon.png`;
+    const img = decodePng(path);
+    assert.deepEqual([img.width, img.height], [size, size], path);
+    for (const [x, y] of [[0, 0], [size - 1, 0], [0, size - 1], [size - 1, size - 1]]) {
+      assert.equal(img.at(x, y)[3], 0, `${path}: ${x},${y} is transparent`);
+    }
+    const { fraction } = reach(img, half);
+    assert.ok(drawsLogo(img), `${path} draws the logo's pale gauge and water`);
+    assert.ok(fraction <= 96 / 288, `${path}: the mark reaches ${(fraction * 288).toFixed(1)} dp from the centre; the circle's radius is 96 dp`);
+    assert.ok(fraction >= 0.9 * (96 / 288), `${path}: the mark is not shrunk (it reaches ${(fraction * 288).toFixed(1)} dp)`);
+  }
+});
+
+test("the Android values files are well-formed XML: no comment holds a double hyphen, which XML forbids and aapt refuses", () => {
+  for (const file of readdirSync(app(`${RES}/values`))) {
+    const xml = read(`${RES}/values/${file}`);
+    assert.match(xml, /^<\?xml version=["']1\.0["'] encoding=["']utf-8["']\?>\s*<resources>/, file);
+    for (const [, comment] of xml.matchAll(/<!--([\s\S]*?)-->/g)) assert.ok(!comment.includes("--"), `${file}: a comment holds "--"`);
+    assert.equal((xml.match(/<!--/g) ?? []).length, (xml.match(/-->/g) ?? []).length, `${file}: every comment closes`);
+  }
 });

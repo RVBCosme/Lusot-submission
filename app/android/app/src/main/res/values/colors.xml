@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The brand navy (the lusot-brand-navy token): the background of Android 12's splash screen. pwa-assets.test.mjs
+         keeps it equal to the token. -->
+    <color name="splash_background">#041A3A</color>
+</resources>

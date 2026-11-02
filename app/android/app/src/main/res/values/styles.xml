@@ -16,7 +16,17 @@
     </style>
 
 
+    <!-- The launch theme, on Android's splash screen API (androidx.core:core-splashscreen), as Capacitor's template sets
+         it up. Android 12 and later draw the splash themselves: windowSplashScreenBackground is the brand navy and
+         windowSplashScreenAnimatedIcon the mark (drawable-*dpi/splash_icon.png, 288 dp, of which Android shows the middle
+         192 dp circle). Older Android draws the same two through the library. Capacitor's BridgeActivity swaps in
+         AppTheme.NoActionBar when it starts and never calls installSplashScreen, so postSplashScreenTheme is only the
+         library's required hand-over, named for the day something does. android:background and drawable/splash.png are
+         Capacitor's own, kept in the same navy and mark. app/scripts/render-icons.mjs draws the images. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
     </style>
 </resources>

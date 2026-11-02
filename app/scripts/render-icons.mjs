@@ -40,6 +40,45 @@ for (const [name, size] of [["icon-192", 192], ["icon-512", 512], ["icon-maskabl
   add(`public/icons/${name}.png`, { width: size, height: size, shape: "square", scale: 1 });
 }
 
+// The Android app (Android's documentation, checked with Context7 on Nov 2, 2026):
+// - The legacy launcher icons (48 dp) show on Android 7.x only, which has no adaptive icons: a rounded navy square and a
+//   navy circle, the mark at the artwork's scale.
+// - An adaptive icon's layers are 108 dp, and the system may cut everything outside the middle 66 dp circle, so the
+//   foreground's mark must stay inside it: 78% of the square puts the mark's reach at 29.3% of the width, 31.6 dp of
+//   the circle's 33. The navy is the background layer, a colour resource.
+// - The Android 12 splash icon is 288 dp, and the system shows only its middle 192 dp circle (Theme.SplashScreen, no
+//   icon background): 85% of the square puts the mark's reach at 31.9% of the width, 91.8 dp of the circle's 96.
+const DENSITIES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
+const RES = "android/app/src/main/res";
+for (const [density, factor] of Object.entries(DENSITIES)) {
+  const legacy = 48 * factor;
+  add(`${RES}/mipmap-${density}/ic_launcher.png`, { width: legacy, height: legacy, shape: "rounded", scale: 1 });
+  add(`${RES}/mipmap-${density}/ic_launcher_round.png`, { width: legacy, height: legacy, shape: "circle", scale: 1 });
+  add(`${RES}/mipmap-${density}/ic_launcher_foreground.png`, { width: 108 * factor, height: 108 * factor, shape: null, scale: 0.78 });
+  add(`${RES}/drawable-${density}/splash_icon.png`, { width: 288 * factor, height: 288 * factor, shape: null, scale: 0.85 });
+}
+
+// Capacitor's launch splash images, at the sizes its template uses: navy, the mark a third of the shorter side tall. The
+// mark's height is 60.8% of its square (its box runs from 99.2 to 410.7 of 512), so its square is 0.34 / 0.608 of the side.
+const SPLASH_MARK_HEIGHT = 0.34;
+const MARK_HEIGHT = (410.7 - 99.2) / 512;
+const SPLASH_SIZES = {
+  "drawable/splash.png": [480, 320],
+  "drawable-port-mdpi/splash.png": [320, 480],
+  "drawable-port-hdpi/splash.png": [480, 800],
+  "drawable-port-xhdpi/splash.png": [720, 1280],
+  "drawable-port-xxhdpi/splash.png": [960, 1600],
+  "drawable-port-xxxhdpi/splash.png": [1280, 1920],
+  "drawable-land-mdpi/splash.png": [480, 320],
+  "drawable-land-hdpi/splash.png": [800, 480],
+  "drawable-land-xhdpi/splash.png": [1280, 720],
+  "drawable-land-xxhdpi/splash.png": [1600, 960],
+  "drawable-land-xxxhdpi/splash.png": [1920, 1280],
+};
+for (const [file, [width, height]] of Object.entries(SPLASH_SIZES)) {
+  add(`${RES}/${file}`, { width, height, shape: "square", scale: SPLASH_MARK_HEIGHT / MARK_HEIGHT });
+}
+
 const browser = await chromium.launch();
 try {
   const tab = await browser.newPage();
