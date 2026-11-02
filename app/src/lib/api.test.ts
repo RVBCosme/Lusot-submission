@@ -411,6 +411,7 @@ it('getSamples keeps only credited samples under an allowed licence', async () =
     sample('attribution-sa', 'Attribution-ShareAlike 4.0'),
     sample('bync', 'CC BY-NC 2.0'),
     sample('pd', 'Public domain'),
+    sample('pd-lower', 'public domain'),
     sample('m9-v3', 'Used with permission (M9-v3)'),
     sample('uncredited', 'CC0', null),
     sample('blank-credit', 'CC BY 4.0', ' '),
@@ -420,7 +421,8 @@ it('getSamples keeps only credited samples under an allowed licence', async () =
   const kept = await getSamples(API, fetchFn)
 
   expect(fetchFn.mock.calls[0][0]).toBe(`${API}/samples`)
-  expect(kept.map((s) => s.sampleId)).toEqual(['cc0', 'cc0-v1', 'ccby2', 'ccby4', 'consented'])
+  // Public domain by its exact value (Rene's OK, Nov 2: Wikimedia Commons' own public-domain photos).
+  expect(kept.map((s) => s.sampleId)).toEqual(['cc0', 'cc0-v1', 'ccby2', 'ccby4', 'consented', 'pd'])
   expect(kept[0]).toEqual(samples[0])
 })
 

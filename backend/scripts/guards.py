@@ -40,8 +40,9 @@ DATA_DIR = r"C:\Systems\Lusot\lusot-data"  # when LUSOT_DATA_DIR is unset
 FORMATS_PY = Path(__file__).resolve().parents[2] / "eval" / "data" / "formats.py"
 OPEN_MANIFEST = ("set_c", "open-licensed-ph", "open_licensed_manifest.csv")
 CONSENT_LOG = ("consented", "consented_log.csv")
-# MS5's C617 pattern: CC0 or CC BY of any version, so no SA, NC, ND or PD mark.
-OPEN_LICENCES = re.compile(r"(CC0( 1\.0)?|CC BY \d(\.\d)?)")
+# MS5's C617 pattern: CC0 or CC BY of any version, so no SA, NC or ND; and, since Rene's OK
+# on Nov 2, Wikimedia Commons' own "Public domain" by that exact value (no PD Mark variant).
+OPEN_LICENCES = re.compile(r"(CC0( 1\.0)?|CC BY \d(\.\d)?|Public domain)")
 # The donor messages that ask for every use together, the sample and the labelled demo
 # pin among them, so a reply on file is the demo OK (spec §4.5). Only M9-v4 (the
 # tracker's call, Oct 29, 10:31 PM). A version that makes any use optional needs its
