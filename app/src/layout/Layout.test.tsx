@@ -292,7 +292,9 @@ describe('the shell from lg', () => {
   it('is a grid at lg: the top bar, the notices, the screen and the screen line, in four rows', () => {
     renderApp({ apiUrl: '' })
 
-    expect(has(shell(), 'lg:grid', 'lg:grid-cols-[auto_minmax(0,1fr)_auto]', 'lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]')).toBe(true)
+    // One column that may shrink below its content: every child spans the whole width, so there are no side tracks.
+    expect(has(shell(), 'lg:grid', 'lg:grid-cols-[minmax(0,1fr)]', 'lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]')).toBe(true)
+    expect(shell().className).not.toContain('lg:grid-cols-[auto_')
     // The header is the first row, across the grid, and one box of its own (the brand navy is its background, see 'the
     // brand top bar'): the brand, then the header's nav, which takes the room between, then the language switch. The footer
     // gives its children to the grid; its nav is not displayed from lg, so the screen line is the only thing it gives.

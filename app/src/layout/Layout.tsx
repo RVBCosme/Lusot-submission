@@ -13,7 +13,8 @@ import { ScreenLine } from './ScreenLine'
 // to 1,000), so a map can't draw over it. The padding is MS1's safe-area, clear of the phone's bars. Every colour and size
 // comes from the tokens (styles/tokens.css) through Tailwind's theme.
 //
-// From lg (64 rem) the shell is a grid of four rows: the top bar, the notices, the screen, and the screen line. The nav is
+// From lg (64 rem) the shell is a grid of four rows and one column, the column free to shrink below its content: the top
+// bar, the notices, the screen, and the screen line, each across the whole width (`col-span-full`). The nav is
 // drawn twice, and each width shows one copy (the other is `display: none`, so it is out of the tab order and the
 // accessibility tree): the phone's bar of tabs in the footer, after the screen, and from lg a copy in the header, between
 // the brand and the language switch, so the keyboard and the screen reader meet the bar in the order the eye does (WCAG
@@ -25,7 +26,7 @@ import { ScreenLine } from './ScreenLine'
 export function Layout({ route, apiReady, children }: { route: Route; apiReady: boolean; children: ReactNode }) {
   const mapScreen = route.name === 'map'
   return (
-    <div className="safe-area flex h-screen flex-col supports-[height:100dvh]:h-dvh lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]">
+    <div className="safe-area flex h-screen flex-col supports-[height:100dvh]:h-dvh lg:grid lg:grid-cols-[minmax(0,1fr)] lg:grid-rows-[auto_auto_minmax(0,1fr)_auto]">
       <header className="app-bar flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-2 lg:col-span-full lg:row-start-1 lg:flex-nowrap lg:justify-start lg:px-4 lg:pb-0">
         <div className="flex items-center gap-2">
           <BrandMark className="h-8 w-auto shrink-0" />
