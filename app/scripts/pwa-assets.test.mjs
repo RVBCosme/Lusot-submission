@@ -101,7 +101,7 @@ test("the master mark is the logo's L-shaped gauge on a transparent square, in t
   assert.match(svg, /viewBox="0 0 512 512"/);
   assert.deepEqual([...new Set(hexes(svg))].sort(), [PALE, WATER].sort());
   assert.doesNotMatch(svg, /<rect width="512" height="512"/, "no background: the foreground layers are cut from it");
-  assert.match(svg, /<clipPath id="lusot-mark-clip">/, "one outline clips the pale gauge and the water");
+  assert.match(svg, /<clipPath id="mark-clip">/, "one outline clips the pale gauge and the water");
   assert.ok(markBody(svg), "the mark sits between <defs> and the closing </g>");
 });
 
