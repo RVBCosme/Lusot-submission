@@ -140,7 +140,7 @@ it('the cause reader finds each way the pipeline assigns a cause, and leaves out
 
 it("the drop causes are the ones the pipeline writes into a dropped reference's `dropped`, and each has a line", () => {
   const written = pipelineCauses([referencesPy, measurePy, waterlinePy, geometryPy])
-  expect(written).toHaveLength(15)
+  expect(written).toHaveLength(16) // person_small joined in C92
   expect(new Set(DROP_CAUSES).size).toBe(DROP_CAUSES.length)
   // Every cause the pipeline writes is in the app's list, and every cause in the list is written.
   expect([...DROP_CAUSES].sort()).toEqual(written)

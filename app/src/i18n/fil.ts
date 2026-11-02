@@ -420,6 +420,12 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Hindi ginamit, dahil walang sagot ang reading model para sa taong ito.',
     reviewed: true,
   },
+  // C92's line, approved as written at M20 by the tracker under Rene's written delegation (Nov 2, about 4:4x AM),
+  // for Rene's morning sign-off.
+  'dropped.person_small': {
+    text: 'Hindi ginamit, dahil masyadong maliit ang taong ito sa photo para mabasa.',
+    reviewed: true,
+  },
   'dropped.person_not_adult': { text: 'Hindi ginamit, dahil maaaring hindi adult ang taong ito.', reviewed: true },
   'dropped.person_wading': {
     text: 'Hindi ginamit, dahil maaaring hindi nakatigil ang taong ito.',
@@ -460,6 +466,9 @@ export const FIL: Record<StringKey, Entry> = {
   'overlay.ref.body': { text: 'Katawan ng sasakyan {id}', reviewed: true },
   'overlay.ref.person': { text: 'Tao {id}', reviewed: true },
   'overlay.floor': { text: 'Hindi bababa sa {level}', reviewed: true },
+  // Approved by the tracker under Rene's written delegation, Nov 2, about 3:4x AM (en.ts has the reason).
+  'overlay.fromWheel': { text: 'Ang gulong nito ang nagbigay ng reading.', reviewed: true },
+  'overlay.noLevel': { text: 'Walang nabasang level dito.', reviewed: true },
   'map.noApi': { text: 'Hindi maipapakita ng build na ito ang mga report.', reviewed: true },
   'map.loading': { text: 'Kinukuha ang mga report.', reviewed: true },
   'map.loadFailed': { text: 'Hindi makuha ng Lusot ang mga report ngayon. Susubukan ulit ng Lusot.', reviewed: true },

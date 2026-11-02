@@ -4,7 +4,8 @@ A vehicle reads its wheels and, when its wheels are hidden, C53's rows for its b
 A wheel's reading is G4's: the deeper of its Table 8 row and its geometry reading, and
 a type kept for geometry has its geometry reading alone (C318). The deepest of these
 speaks for the vehicle (C43). An adult reads Table 8's people rows (D13). A reading
-step 3 dropped never decides, but it stays, so that combine can refuse with it (C317).
+step 3 dropped, or a small person's (C92), never decides, but it stays, so that
+combine can refuse with it (C317).
 """
 
 from __future__ import annotations
@@ -98,8 +99,10 @@ def measure_boxes(
     Otherwise each wheel or body that step 3 or G4 dropped counts under its cause. A
     vehicle with no reading doesn't take its wheels, as they gave nothing.
 
-    An adult whose waterline gives no reading counts as `person_no_reading`. One that
-    step 3 dropped gives a reference that doesn't decide, and counts under its cause.
+    An adult whose waterline gives no reading counts as `person_no_reading`. A small
+    one (C92) gives a reference that doesn't decide, and counts as `person_small`. One
+    that step 3 dropped gives a reference that doesn't decide, and counts under its
+    cause.
 
     Measured's `causes` and `readings` follow the same counting: a vehicle dropped in
     1 or 3 gives no reading, and its boxes' causes are its own and
@@ -195,8 +198,9 @@ def measure_boxes(
             counted.append((person.id, "person_no_reading"))
             continue
         readings[person.id] = KeptReading(reading, "landmark", None)
-        if person.id in step3_drops:
-            counted.append((person.id, step3_drops[person.id]))
+        if person.small or person.id in step3_drops:
+            cause = "person_small" if person.small else step3_drops[person.id]
+            counted.append((person.id, cause))
             references.append(
                 Reference("person", person.id, person.waterline, reading, decides=False)
             )

@@ -90,12 +90,15 @@ function levelWords(t: Translate, level: Level, isFloor: boolean): Text {
 const floorOf = (ref: OverlayRef) => ref.level_is_floor === true
 
 // The words behind a reference's number: its drop cause alone for a dropped one, with no level; otherwise the level, the
-// landmark where the water meets it, and that the rim's size set the level when it did.
+// landmark where the water meets it, and that the rim's size set the level when it did. One with no level and no cause
+// says why after any landmark: a car body is read through its wheels unless they are hidden (measure.py, C53), and any
+// other gave no level (Rene's Baliuag sample, Nov 2: such lines stopped at the name).
 function reading(t: Translate, ref: OverlayRef): Text[] {
   if (typeof ref.dropped === 'string') return [dropLine(t, ref.dropped)]
   if (!isLevel(ref.level)) {
     const landmark = typeof ref.landmark === 'string' ? landmarkLine(t, ref.landmark) : undefined
-    return landmark === undefined ? [] : [landmark]
+    const why = t(ref.kind === 'body' ? 'overlay.fromWheel' : 'overlay.noLevel')
+    return landmark === undefined ? [why] : [landmark, why]
   }
   const level = levelWords(t, ref.level, floorOf(ref))
   const parts: Text[] = [{ text: `${level.text}.`, lang: level.lang }]

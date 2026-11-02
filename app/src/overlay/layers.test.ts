@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DROP_CAUSES, LEVELS } from '../copy/levels'
-import { dropLine } from '../copy/wording'
+import { dropLine, landmarkLine } from '../copy/wording'
 import { isScreenLineKey, makeT } from '../i18n'
 import { EN } from '../i18n/en'
 import { FIL } from '../i18n/fil'
@@ -243,11 +243,29 @@ describe('refLabel', () => {
     expect(refLabel(en, ref({ id: 5, landmark: 'made_up', level: 'knee' })).text).not.toContain('made_up')
   })
 
-  it("gives only the number's name for a reference with no level and no cause", () => {
-    expect(refLabel(en, ref({ id: 6, kind: 'person', landmark: null, level: null, level_from: null, level_is_floor: null })).text).toBe(
-      'Person 6',
+  // Rene's Baliuag sample (Nov 2): "Car body 2" and "Wheel 4" stood in the legend with no words. A reference with no level
+  // and no cause now says why (measure.py): a car body is read through its wheels unless they are hidden (C53), and any
+  // other reading gave no level. Approved by the tracker under Rene's delegation, Nov 2, about 3:4x AM.
+  it('says why a reference with no level and no cause has none: a car body through its wheel, and no level from the rest', () => {
+    const none = { landmark: null, level: null, level_from: null, level_is_floor: null } as const
+    expect(refLabel(en, ref({ id: 2, kind: 'body', ...none })).text).toBe('Car body 2: Its wheel gave the reading.')
+    expect(refLabel(en, ref({ id: 4, kind: 'wheel', ...none })).text).toBe('Wheel 4: No level was read from this one.')
+    expect(refLabel(en, ref({ id: 6, kind: 'person', ...none })).text).toBe('Person 6: No level was read from this one.')
+    expect(refLabel(en, ref({ id: 6, landmark: 'not_visible', level: null })).text).toBe('Wheel 6: No level was read from this one.')
+    expect(refLabel(fil, ref({ id: 2, kind: 'body', ...none })).text).toBe('Katawan ng sasakyan 2: Ang gulong nito ang nagbigay ng reading.')
+    expect(refLabel(fil, ref({ id: 4, kind: 'wheel', ...none })).text).toBe('Gulong 4: Walang nabasang level dito.')
+    expect(refLabel(fil, ref({ id: 6, kind: 'person', ...none })).text).toBe('Tao 6: Walang nabasang level dito.')
+    // A landmark the app has words for comes first.
+    const hub = landmarkLine(en, 'hub')?.text
+    expect(hub).toBeTruthy()
+    expect(refLabel(en, ref({ id: 4, landmark: 'hub', level: null, level_from: null })).text).toBe(
+      `Wheel 4: ${hub} No level was read from this one.`,
     )
-    expect(refLabel(en, ref({ id: 6, landmark: 'not_visible', level: null })).text).toBe('Wheel 6')
+    // A dropped one keeps its cause alone, and one with a level its reading.
+    expect(refLabel(en, ref({ id: 2, kind: 'body', ...none, dropped: 'vehicle_moving' })).text).toBe(
+      'Car body 2: Not used, since the vehicle may be moving.',
+    )
+    expect(refLabel(en, ref({ id: 5, landmark: null, level: 'knee' })).text).toBe('Wheel 5: Knee.')
   })
 
   it('is in the language of the screen, and carries that language', () => {
@@ -291,6 +309,8 @@ describe("the overlay's new lines", () => {
     'overlay.ref.body',
     'overlay.ref.person',
     'overlay.floor',
+    'overlay.fromWheel',
+    'overlay.noLevel',
   ] as const
   const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort()
 

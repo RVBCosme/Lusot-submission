@@ -425,6 +425,9 @@ export const EN = {
     text: 'Not used, since the reading model gave no answer for this person.',
     reviewed: true,
   },
+  // C92's line, approved as written at M20 by the tracker under Rene's written delegation (Nov 2, about 4:4x AM),
+  // for Rene's morning sign-off.
+  'dropped.person_small': { text: 'Not used, since this person is too small in the photo to read.', reviewed: true },
   'dropped.person_not_adult': { text: 'Not used, since this person may not be an adult.', reviewed: true },
   'dropped.person_wading': { text: 'Not used, since this person may not be standing still.', reviewed: true },
   'dropped.person_no_reading': { text: 'Not used, since this person gave no depth reading.', reviewed: true },
@@ -465,6 +468,10 @@ export const EN = {
   'overlay.ref.body': { text: 'Car body {id}', reviewed: true },
   'overlay.ref.person': { text: 'Person {id}', reviewed: true },
   'overlay.floor': { text: 'At least {level}', reviewed: true },
+  // Why a reference with no level and no cause has none (Rene's Baliuag sample, Nov 2). Approved, with the Taglish, by the
+  // tracker under Rene's written delegation, Nov 2, about 3:4x AM.
+  'overlay.fromWheel': { text: 'Its wheel gave the reading.', reviewed: true },
+  'overlay.noLevel': { text: 'No level was read from this one.', reviewed: true },
   // The live map, its list and pin detail (MS5 Task 13). Every line that says what a pin shows keeps "at this spot"
   // through the level line, and none says anything about a place with no report, since no report is not a dry spot.
   'map.noApi': { text: "This build can't show reports.", reviewed: true },

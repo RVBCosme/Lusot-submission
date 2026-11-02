@@ -73,7 +73,7 @@ class EvidenceEntry:
       `waterline`, a vehicle's `body_waterline`), or None when it is unanswered.
     - `level`, `level_from`: the box's own reading, or None when it gives none. A box
       with two readings shows the one that can decide (R147). A reading step 3
-      dropped keeps its level here (C317). `level_is_floor`: that reading is a floor,
+      dropped, or a small person's (C92), keeps its level here (C317). `level_is_floor`: that reading is a floor,
       "this level or deeper" (C54), which its landmark alone can't tell (M5).
     - `inches`: geometry's unrounded min and max whenever geometry measured the
       wheel, G4's drop included. `rim`: the fit, with a geometry reading only.

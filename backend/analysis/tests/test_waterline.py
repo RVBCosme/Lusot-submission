@@ -14,6 +14,7 @@ from lusot_analysis.pipeline.waterline import (
     Waterline,
     cut_at_waterline,
     find_waterline,
+    lower_half_share,
     water_mask,
 )
 from lusot_analysis.tuning import START
@@ -174,3 +175,16 @@ def test_water_mask_is_the_union():
     empty = water_mask(SamResult("floodwater", [], elapsed_s=0.5, raw=""), (334, 320))
     assert (empty.shape, empty.dtype) == ((334, 320), np.dtype(bool))
     assert not empty.any()
+
+
+def test_lower_half_share_reads_the_rows_from_the_middle_down():
+    # C93: the share of the image's lower half that SAM's water covers. With an odd
+    # height, the middle row counts as lower.
+    water = np.zeros((10, 4), dtype=bool)
+    water[:5] = True  # the upper half never counts
+    water[5:, :2] = True
+    assert lower_half_share(water) == 0.5
+    odd = np.zeros((11, 2), dtype=bool)
+    odd[5:, 0] = True
+    assert lower_half_share(odd) == 0.5
+    assert lower_half_share(np.zeros((4, 4), dtype=bool)) == 0.0

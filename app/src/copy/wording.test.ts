@@ -360,6 +360,12 @@ it('the drop lines passed the M20 review in both tables', () => {
   }
 })
 
+it("C92's small-person line is its own, as the tracker approved it at M20 (Nov 2)", () => {
+  expect(EN['dropped.person_small'].text).toBe('Not used, since this person is too small in the photo to read.')
+  expect(FIL['dropped.person_small'].text).toBe('Hindi ginamit, dahil masyadong maliit ang taong ito sa photo para mabasa.')
+  expect(EN['dropped.person_small'].text).not.toBe(EN['dropped.person_no_reading'].text)
+})
+
 it('a reference line is its drop cause when it was dropped, else where the water meets it, else nothing', () => {
   expect(referenceLine(en, { dropped: 'person_not_adult', landmark: null })).toEqual(dropLine(en, 'person_not_adult'))
   // A dropped reference has no level, and whatever landmark it holds is not shown: the cause is.
