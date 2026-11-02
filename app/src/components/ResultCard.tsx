@@ -83,6 +83,14 @@ const ICON: Partial<Record<Outcome, { name: string; Icon: LucideIcon }>> = {
   noResult: { name: 'no-result', Icon: HourglassIcon },
 }
 
+// From lg a live level card with its photo, or a demo pin's, is two columns, 11 to 9 (the photo about 55%), by CSS grid
+// alone and not by moving anything in the page: the reading (the verdict, the level line, the gauge and its notes) stays
+// first in the page and sits in the right column, and the photo, after it in the page, in the left. `dense` lets the photo
+// go back up beside the reading. Everything after them runs across both columns. A card with no photo beside it, and a
+// sample (half the Tested page's width), stay one column.
+const TWO_COLUMNS =
+  'lg:grid lg:grid-flow-dense lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)] lg:items-start lg:gap-x-8'
+
 const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 const BUTTON =
   'mt-3 inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
@@ -287,6 +295,9 @@ function ResultCardBody({
   // A live card, and a demo pin's, show the photo under the level line and the gauge, so the line is on the first screen
   // (addition 4, I2); a demo pin's Demo badge stays first. A sample's photo comes first, as the Tested page has it.
   const photoBelow = !isSample && outcome === 'level' && level !== undefined
+  // The photo's figure under the reading, or a demo pin's credit and date with it even with no photo to show.
+  const figureBelow = photoBelow && (isExample || (live && photoView !== null && !photoGone))
+  const across = figureBelow ? ' lg:col-span-full' : ''
   const showsReading = outcome === 'level' || outcome === 'noFlood' || outcome === 'cantTell'
   const shownPrivate = result.mode === 'private' && showsReading
   const pausedLinks: PausedLink[] = isSample ? ['map'] : ['map', 'tested']
@@ -294,16 +305,16 @@ function ResultCardBody({
   return (
     <article
       data-outcome={OUTCOME_ATTRIBUTE[outcome]}
-      className={`rounded-control bg-surface p-4 ${EDGE[outcome]} border-outline`}
+      className={`rounded-control bg-surface p-4 ${EDGE[outcome]} border-outline${figureBelow ? ` ${TWO_COLUMNS}` : ''}`}
     >
       {(outcome === 'paused' || savedAt !== undefined) && (
-        <div className={outcome === 'paused' ? '' : 'mb-4 border-b border-outline pb-2'}>
+        <div className={(outcome === 'paused' ? '' : 'mb-4 border-b border-outline pb-2') + across}>
           <PausedNotice links={pausedLinks} />
         </div>
       )}
 
       {isExample && photoBelow && (
-        <div className="mb-4">
+        <div className={`mb-4${across}`}>
           <Badge>
             <T k="badge.demo" />
           </Badge>
@@ -327,42 +338,44 @@ function ResultCardBody({
 
       {outcome === 'level' && level !== undefined && verdict !== undefined && (
         <>
-          <div role="status">
-            {saved !== undefined && (
-              <p className="text-small font-bold">
-                <Line value={t('sample.savedFrom', { date: saved })} />
+          <div className={figureBelow ? 'lg:col-start-2' : undefined}>
+            <div role="status">
+              {saved !== undefined && (
+                <p className="text-small font-bold">
+                  <Line value={t('sample.savedFrom', { date: saved })} />
+                </p>
+              )}
+              {/* The verdict is the headline (C639); the level line it rests on follows a step smaller. */}
+              <p className="text-balance text-title font-bold">
+                <Line value={verdict.verdict} />
               </p>
-            )}
-            {/* The verdict is the headline (C639); the level line it rests on follows a step smaller. */}
-            <p className="text-balance text-title font-bold">
-              <Line value={verdict.verdict} />
-            </p>
-            {verdict.sub !== undefined && (
-              <p className="mt-1 text-pretty text-small text-ink-2">
-                <Line value={verdict.sub} />
+              {verdict.sub !== undefined && (
+                <p className="mt-1 text-pretty text-small text-ink-2">
+                  <Line value={verdict.sub} />
+                </p>
+              )}
+              <p data-level-line className="mt-3 text-balance text-heading font-bold">
+                <Line value={levelLine(t, level, isFloor)} />
               </p>
-            )}
-            <p data-level-line className="mt-3 text-balance text-heading font-bold">
-              <Line value={levelLine(t, level, isFloor)} />
-            </p>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
-            <Gauge level={level} isFloor={isFloor} />
-            <div className="min-w-0 flex-1 basis-48 space-y-2">
-              <Note value={landmark} />
-              <Note value={live ? levelFromLine(t, report?.levelFrom) : undefined} />
-              <Note value={inches} />
-              {/* The inches line, with its metres, is the depth when the API sent inches; the level's range is for when
-                  it didn't (the tracker, Nov 2). */}
-              <Note value={inches === undefined ? depthLine(t, level, isFloor) : undefined} />
-              <Note value={isExample ? undefined : whenAndWhere} className="text-ink-2" />
-              <Note value={basis} className="text-ink-2" />
+            </div>
+            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
+              <Gauge level={level} isFloor={isFloor} />
+              <div className="min-w-0 flex-1 basis-48 space-y-2">
+                <Note value={landmark} />
+                <Note value={live ? levelFromLine(t, report?.levelFrom) : undefined} />
+                <Note value={inches} />
+                {/* The inches line, with its metres, is the depth when the API sent inches; the level's range is for when
+                    it didn't (the tracker, Nov 2). */}
+                <Note value={inches === undefined ? depthLine(t, level, isFloor) : undefined} />
+                <Note value={isExample ? undefined : whenAndWhere} className="text-ink-2" />
+                <Note value={basis} className="text-ink-2" />
+              </div>
             </div>
           </div>
           {/* The photo comes under the level line, so that line stays on the first screen. A demo pin keeps its credit and
               date with it, even with no photo to show. */}
-          {photoBelow && (isExample || (live && photoView !== null && !photoGone)) && (
-            <figure className="mt-4">
+          {figureBelow && (
+            <figure className="mt-4 lg:col-start-1 lg:mt-0">
               {photoView}
               <figcaption className="mt-2 text-small text-ink-2">
                 {isExample && <Note value={photoFrom} />}
@@ -476,7 +489,7 @@ function ResultCardBody({
       )}
 
       {shownPrivate && (
-        <p className="mt-4">
+        <p className={`mt-4${across}`}>
           <T k="result.private" />
         </p>
       )}
@@ -493,13 +506,14 @@ function ResultCardBody({
         reasonCode={report?.refusalReason}
         photoTime={isExample ? undefined : capturedAt}
         references={outcome === 'level' && live ? report?.readings : undefined}
+        className={figureBelow ? 'lg:col-span-full' : undefined}
       />
 
       {/* New tab, so a result that is only in memory isn't lost when someone follows a link. */}
       <ul
         aria-label={t('about.officialTitle').text}
         lang={t('about.officialTitle').lang}
-        className="mt-2 flex flex-wrap gap-x-6"
+        className={`mt-2 flex flex-wrap gap-x-6${across}`}
       >
         {OFFICIAL_SITES.map(({ href, label }) => (
           <li key={href}>

@@ -1756,3 +1756,82 @@ describe('the words on the card', () => {
     }
   })
 })
+
+// The desktop layout (from lg, 64 rem). jsdom applies no stylesheet, so this pins the structure the grid works on: the
+// reading in the right column and the photo in the left, still in the page's order, and everything else across both. The
+// browser's side (the photo's box left of the verdict's) is e2e/desktop.spec.ts's, at 1280 x 800.
+describe('from lg', () => {
+  const has = (element: Element | null, ...tokens: string[]) =>
+    element !== null && tokens.every((token) => element.classList.contains(token))
+  const after = (first: Node, second: Node) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+  const card = () => screen.getByRole('article')
+  const photoFigure = () => card().querySelector('figure') as HTMLElement
+  const TWO_COLUMNS = ['lg:grid', 'lg:grid-flow-dense', 'lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]', 'lg:items-start', 'lg:gap-x-8']
+
+  it('puts a live level result in two columns, the reading on the right and the photo on the left, in the page\'s order', async () => {
+    renderCard({ result: await takePhoto() })
+    await screen.findByTestId('overlay-svg')
+
+    expect(has(card(), ...TWO_COLUMNS)).toBe(true)
+    const reading = screen.getByRole('status').parentElement as HTMLElement
+    expect(has(reading, 'lg:col-start-2')).toBe(true)
+    expect(reading.parentElement).toBe(card())
+    // The verdict, the level line and the gauge are one column; the page reads them first, as it always has.
+    expect(reading.contains(screen.getByText('Knee deep at this spot (MMDA level).'))).toBe(true)
+    expect(reading.contains(screen.getByTestId('gauge'))).toBe(true)
+    expect(has(photoFigure(), 'lg:col-start-1', 'lg:mt-0')).toBe(true)
+    expect(photoFigure().parentElement).toBe(card())
+    expect(after(reading, photoFigure())).toBe(true)
+  })
+
+  it('runs the lines, the details and the official links under it across both columns', async () => {
+    const result = { ...(await takePhoto()), mode: 'private' as const }
+    renderCard({ result })
+    await screen.findByTestId('overlay-svg')
+
+    const details = card().querySelector('details')
+    expect(details).not.toBeNull()
+    expect(has(details, 'lg:col-span-full')).toBe(true)
+    expect(has(screen.getByText(EN['result.private'].text), 'lg:col-span-full')).toBe(true)
+    expect(has(screen.getByRole('list', { name: EN['about.officialTitle'].text }), 'lg:col-span-full')).toBe(true)
+    expect(after(photoFigure(), card().querySelector('details') as Node)).toBe(true)
+  })
+
+  it("runs a demo pin's badge across both columns, above the reading", async () => {
+    renderCard({ result: { ...(await takePhoto()), mode: 'demo' } })
+    await screen.findByTestId('overlay-svg')
+
+    const badge = screen.getByText(EN['badge.demo'].text).closest('div') as HTMLElement
+    expect(has(badge, 'lg:col-span-full')).toBe(true)
+    expect(has(card(), ...TWO_COLUMNS)).toBe(true)
+    expect(after(badge, screen.getByRole('status'))).toBe(true)
+  })
+
+  it('stays one column when there is no photo to put beside the reading', () => {
+    renderCard({ result: pinAt('knee'), source: 'pin' })
+
+    expect(card().classList.contains('lg:grid')).toBe(false)
+    expect(has(screen.getByRole('status').parentElement, 'lg:col-start-2')).toBe(false)
+    expect(card().querySelector('figure')).toBeNull()
+  })
+
+  it('stays one column on a sample, which sits in half the Tested page', async () => {
+    const run = mockWith()
+    const samples = await getSamples(API, run.fetchFn)
+    const started = (await runSample(API, samples[0].sampleId, DEVICE, run.fetchFn)) as { reportId: string }
+    const result = await pollReport(API, started.reportId, { fetchFn: run.fetchFn, sleep: run.c.sleep, now: run.c.now })
+    renderCard({ result, source: 'sample', sample: samples[0] })
+
+    expect(card().classList.contains('lg:grid')).toBe(false)
+    expect(card().querySelector('[class*="lg:col-"]')).toBeNull()
+  })
+
+  it('stays one column for a refusal and a failure, which have no photo beside them', async () => {
+    renderCard({ result: await takePhoto('refused_no_usable_reference') })
+    expect(card().classList.contains('lg:grid')).toBe(false)
+    cleanup()
+
+    renderCard({ result: await takePhoto('failed_model_error') })
+    expect(card().classList.contains('lg:grid')).toBe(false)
+  })
+})
