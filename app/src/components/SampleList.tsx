@@ -387,7 +387,8 @@ function Preview({ sample, captionId, onPhotoError }: { sample: Sample; captionI
             <Line value={from} />
           </p>
         )}
-        <p className="mt-1">
+        {/* A licence URL in the credit has no space to break at, so the line may break anywhere (wrap-anywhere). */}
+        <p className="mt-1 wrap-anywhere">
           <Line value={{ text: sample.credit, lang: 'en' }} />
         </p>
         {!creditStatesChange(sample.credit) && (

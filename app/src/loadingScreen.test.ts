@@ -79,18 +79,23 @@ afterEach(() => {
 })
 
 describe('the loading screen, in English', () => {
-  it('sits inside the React root, so the first render replaces it, with no delay of its own', () => {
+  it('sits inside the React root, so the first render replaces it, with no delay of its own on the web', () => {
     const container = mount(false)
     expect(container.querySelector('main#boot')).not.toBeNull()
     expect(mainSource).toMatch(/createRoot\(document\.getElementById\('root'\)!/)
 
     const root = createRoot(container)
+    // Making the root leaves the screen in place; only its first render replaces it. That is what lets the APK hold the
+    // screen for its five steps (bootHold.ts) before it renders, with the root already made.
+    expect(container.querySelector('#boot')).not.toBeNull()
     flushSync(() => root.render(createElement('p', null, 'the app')))
     expect(container.querySelector('#boot')).toBeNull()
     expect(container.querySelector('script')).toBeNull()
     expect(container.textContent).toBe('the app')
     root.unmount()
 
+    // The page's own script waits for nothing: the hold of the APK's cold start is in the app's code (bootHold.ts), and
+    // the website renders at once.
     expect(script).not.toMatch(/setTimeout|setInterval|requestAnimationFrame|await|Promise/)
   })
 
@@ -238,6 +243,26 @@ describe('the loading screen stands alone', () => {
     const brand = tokenBlocks(tokensCss)[':root']
     const dim = over(hex('\\.boot-fill'), hex('\\.boot-bar'), alpha)
     expect(contrastRatio(dim, brand['--lusot-brand-navy'])).toBeGreaterThanOrEqual(3)
+  })
+
+  // The APK holds the screen for five steps of 20 % (bootHold.ts), and the class it adds turns the bar determinate: the
+  // fill's width is the --boot-progress the hold sets. It steps with no transition for a person who asked for less motion.
+  it('has a determinate bar for the APK: the fill takes its width from --boot-progress, in full colour', () => {
+    const { rest } = splitMotion(style)
+    expect(rest).toMatch(/\.boot-steps \.boot-fill\s*\{[^}]*width:\s*var\(--boot-progress,\s*0%\)[^}]*opacity:\s*1[;}]/)
+    // The track and the fill's colours are the indeterminate bar's own.
+    expect(rest).not.toMatch(/\.boot-steps[^{]*\{[^}]*background/)
+  })
+
+  it('stops the slide for a person with no reduced-motion preference, and eases each step from the second', () => {
+    const { blocks, rest } = splitMotion(style)
+    expect(blocks).toMatch(/\.boot-steps \.boot-fill\s*\{[^}]*animation:\s*none/)
+    // The first step (20 %) shows at once, from the sliding bar's width, so the class that starts the hold has no
+    // transition; the one the hold adds with the second step (boot-eased) has it.
+    expect(blocks).not.toMatch(/\.boot-steps \.boot-fill\s*\{[^}]*transition/)
+    expect(blocks).toMatch(/\.boot-eased \.boot-fill\s*\{[^}]*transition:\s*width\s+[\d.]+m?s/)
+    // Anyone else gets each step at once: nothing outside the no-preference blocks moves (also checked above).
+    expect(rest).not.toMatch(/transition|boot-eased/)
   })
 
   it("is painted in the brand tokens' colours and no others", () => {
