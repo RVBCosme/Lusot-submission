@@ -1,4 +1,4 @@
-// "Try your own photo" (C534, C639): POST /try gives an upload link for a photo the person chose. It runs the same
+// "Try your own photo" (C534, C640): POST /try gives an upload link for a photo the person chose. It runs the same
 // pipeline as a report, and its result is shown only to that person: no location, no capture time and no pin.
 import { createHash } from "node:crypto";
 import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client-dynamodb";

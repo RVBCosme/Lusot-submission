@@ -7,7 +7,7 @@ const RETAIN_S = 7 * 24 * 60 * 60; // Table 14: the item is deleted 7 days after
 
 // POST /try (C534): an upload link for a photo the person chose, run through the same pipeline as a report. The
 // item has no location and no visibleUntil, and only live and demo results publish (C516), so it never pins: W20
-// rests here, not on the app (C639). The checks run in this order: the uploads switch, the model-calls switch (no
+// rests here, not on the app (C640). The checks run in this order: the uploads switch, the model-calls switch (no
 // photo is taken while no run could follow), the body, then the device's limit, the hour's cap and the day's cap.
 export async function createTry(
   rawBody: string | undefined,

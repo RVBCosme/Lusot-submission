@@ -75,7 +75,8 @@ export async function take(
     const dayStartS = nowS - (nowS % DAY_S);
     const dayKey = `${bucket}#ALL#${new Date(dayStartS * 1000).toISOString().slice(0, 10)}`;
     if (!(await increment(dayKey, day, dayStartS + DAY_TTL_S, deps))) {
-      // The day refused it, so the hour's two counts go back.
+      // The day refused it, so the hour's two counts go back. Until they do, a request at the same moment
+      // can be refused by the device or the hour instead of the day: a refusal either way, never a run.
       await decrement(device, deps);
       await decrement(`${bucket}#ALL#${hour}`, deps);
       return refuse(DAY_CODE, nowS, dayStartS + DAY_S - nowS);
