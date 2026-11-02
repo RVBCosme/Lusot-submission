@@ -626,6 +626,10 @@ export const EN = {
     text: 'Lusot has run as many samples as it can for now. Try again later.',
     reviewed: true,
   },
+  'sample.limit.daily_cap': {
+    text: 'Lusot has run as many samples as it can today. Try again later.',
+    reviewed: false,
+  },
   // Ask Lusot (its spec §4.4, §4.10, plan Task 14): the screen's controls and errors (ask.ui., ask.error.), and the
   // answer's lines (ask.answer.), which are screen-line keys, so their Taglish shows only once reviewed (C724). The
   // answer's level and class lines are MS5's own (copy/wording.ts). Every one waits for Rene's review (M20).

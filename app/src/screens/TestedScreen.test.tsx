@@ -332,9 +332,13 @@ describe('words', () => {
     const keys = (Object.keys(EN) as StringKey[]).filter((key) => key.startsWith('tested.') || key.startsWith('sample.'))
     expect(keys.length).toBeGreaterThan(20)
     const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort()
+    // Lines added on Nov 2 (C534, C640) wait for the tracker's review (M20): they still need a Taglish line.
+    const awaitingReview = (key: StringKey) => key === 'sample.limit.daily_cap'
     for (const key of keys) {
-      expect(EN[key].reviewed, key).toBe(true)
-      expect(FIL[key].reviewed, key).toBe(true)
+      if (!awaitingReview(key)) {
+        expect(EN[key].reviewed, key).toBe(true)
+        expect(FIL[key].reviewed, key).toBe(true)
+      }
       expect(FIL[key].text, key).not.toBe('')
       expect(placeholders(FIL[key].text), key).toEqual(placeholders(EN[key].text))
     }
@@ -761,6 +765,20 @@ describe('the samples', () => {
       expect(pollReport).not.toHaveBeenCalled()
       cleanup()
     }
+  })
+
+  it('a sample refused by daily_cap shows sample.limit.daily_cap and keeps Run this sample hidden', async () => {
+    adult()
+    // MS4's C534: a day's cap on paid sample runs. Nothing ran, and the app never retries it.
+    await openWithSamples('level_knee', (method, path) =>
+      method === 'POST' && path.startsWith('/samples/') ? json(429, { error: 'daily_cap' }) : undefined,
+    )
+    await runFirst()
+    expect(shows('sample.limit.daily_cap')).toBe(true)
+    expect(runButtons()).toHaveLength(2)
+    await advance(10_000)
+    expect(runSample).toHaveBeenCalledOnce()
+    expect(pollReport).not.toHaveBeenCalled()
   })
 
   it('the poll stops when the page closes', async () => {

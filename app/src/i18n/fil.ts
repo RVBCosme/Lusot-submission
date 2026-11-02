@@ -614,6 +614,10 @@ export const FIL: Record<StringKey, Entry> = {
     text: 'Naabot na ng Lusot ang dami ng sample na kaya nito sa ngayon. Subukan ulit mamaya.',
     reviewed: true,
   },
+  'sample.limit.daily_cap': {
+    text: 'Naabot na ng Lusot ang dami ng sample na kaya nito ngayong araw. Subukan ulit mamaya.',
+    reviewed: false,
+  },
   // Ask Lusot's lines (plan Task 14): Claude's Taglish drafts, each waiting for Rene's review (M20). The ask.answer.
   // keys show their English line until their Taglish is reviewed (C724). The first two example questions are Taglish
   // already and stay as written, the third is translated, and the attribution is OpenStreetMap's own wording.

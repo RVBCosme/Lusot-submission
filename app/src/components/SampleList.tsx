@@ -69,6 +69,8 @@ function afterFailure(err: unknown): Run {
   if (err.status === 503 && err.code === 'uploads_paused') return { phase: 'paused' }
   if (err.status === 429 && err.code === 'device_limit') return { phase: 'refused', line: 'sample.limit.device_limit' }
   if (err.status === 429 && err.code === 'global_cap') return { phase: 'refused', line: 'sample.limit.global_cap' }
+  // MS4's C534: the day's cap on paid sample runs, shared with the chosen photos.
+  if (err.status === 429 && err.code === 'daily_cap') return { phase: 'refused', line: 'sample.limit.daily_cap' }
   if (err.status === 404) return { phase: 'refused', line: 'sample.gone' }
   if (err.status >= 500) return { phase: 'unanswered' }
   return { phase: 'failed' }
