@@ -589,3 +589,12 @@ describe('the wait', () => {
     expect(screen.getByText(text('try.reading'))).toBeTruthy()
   })
 })
+
+describe('the primary button carries an icon, hidden from screen readers, and keeps its words', () => {
+  it('"Choose a photo" has one', () => {
+    mockApi()
+    renderTry()
+    expect(button('try.choose').querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(button('try.choose').textContent).toBe(text('try.choose'))
+  })
+})

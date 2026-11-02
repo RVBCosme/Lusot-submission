@@ -1,3 +1,4 @@
+import { SendHorizontalIcon } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import { PlaceMap } from '../../components/PlaceMap'
 import { T } from '../../i18n'
@@ -68,8 +69,9 @@ export function PlaceStep({
         <button
           type="button"
           onClick={() => onSend({ lat: placed.lat, lng: placed.lng, nudgeM: moved })}
-          className={`${BUTTON} w-full border-action bg-action text-on-action`}
+          className={`${BUTTON} inline-flex w-full items-center justify-center gap-2 border-action bg-action text-on-action`}
         >
+          <SendHorizontalIcon aria-hidden="true" className="size-5 shrink-0" />
           <T k="place.send" />
         </button>
       </div>

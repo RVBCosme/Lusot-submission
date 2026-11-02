@@ -417,3 +417,11 @@ describe('the place step', () => {
     }
   })
 })
+
+describe('the primary button carries an icon, hidden from screen readers, and keeps its words', () => {
+  it('"Send" has one', () => {
+    renderStep()
+    expect(sendButton().querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(sendButton().textContent).toBe(text('place.send'))
+  })
+})

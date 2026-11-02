@@ -75,13 +75,15 @@
  * Keeps the title and the footer line clear of Android's status and navigation bars. Capacitor 8
  * draws the WebView edge to edge when the page sets viewport-fit=cover; its SystemBars plugin then
  * injects --safe-area-inset-*, because env(safe-area-inset-*) is wrong in Android WebView before
- * 140. Browsers fall back to env(). The gutter is the page's own margin.
+ * 140. Browsers fall back to env(). The gutter is the page's own margin; the top takes half of it, since the brand bar
+ * (below) fills the space above the title. The padding is held in --shell-* so that bar can reach back through it.
  */
 .safe-area {
-  padding-top: calc(var(--lusot-gutter) + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
-  padding-right: calc(var(--lusot-gutter) + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
-  padding-bottom: calc(var(--lusot-gutter) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
-  padding-left: calc(var(--lusot-gutter) + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+  --shell-top: calc(var(--lusot-gutter) / 2 + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  --shell-right: calc(var(--lusot-gutter) + var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  --shell-bottom: calc(var(--lusot-gutter) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  --shell-left: calc(var(--lusot-gutter) + var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+  padding: var(--shell-top) var(--shell-right) var(--shell-bottom) var(--shell-left);
 }
 
 /*
@@ -90,11 +92,59 @@
  */
 @media (min-width: 64rem) {
   .safe-area {
-    padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
-    padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
-    padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
-    padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+    --shell-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+    --shell-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    --shell-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    --shell-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
   }
+}
+
+/*
+ * The brand top bar: the header in the brand navy, at both widths. The navy is the bar's ::before, drawn out through the
+ * shell's padding (--shell-*, above) to the window's top and sides, so it fills the space under the system bars too, while
+ * the title, the nav and the switch stay inside the gutter. It sits behind the bar's own content (isolation, z-index -1).
+ * The page's focus ring is the action blue, which the navy can't hold in the light theme, so on the bar it is the brand's
+ * pale (the pale holds 3:1 and more against the navy: styles/contrast.test.ts).
+ */
+.app-bar {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-bar::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: calc(-1 * var(--shell-top));
+  right: calc(-1 * var(--shell-right));
+  bottom: 0;
+  left: calc(-1 * var(--shell-left));
+  background-color: var(--lusot-brand-navy);
+}
+
+.app-bar :focus-visible {
+  outline-color: var(--lusot-brand-pale);
+}
+
+/*
+ * An entrance (MS5's polish pass): the result card and the Tested page's samples rise 10 px and fade in over 400 ms, on the
+ * decelerating curve the design system gives entrances. A list staggers by giving each item its own --rise-delay. `backwards`
+ * holds the first frame through the delay and leaves nothing behind afterwards, so a finished card has no transform to make
+ * a stacking context of it. Under reduced motion there is no entrance at all (below).
+ */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise-in {
+  animation: rise-in 400ms cubic-bezier(0.2, 0, 0, 1) var(--rise-delay, 0ms) backwards;
 }
 
 /*
@@ -268,7 +318,8 @@
   color: var(--lusot-text-2);
 }
 
-/* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). */
+/* Reduced motion (C625): nothing animates or eases, and the overlay's final frame shows at once (C615). The entrance
+   isn't shortened but left out: what rises is simply there. */
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
@@ -277,5 +328,9 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .rise-in {
+    animation: none;
   }
 }

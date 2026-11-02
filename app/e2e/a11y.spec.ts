@@ -9,6 +9,11 @@ import { acceptNotice, choose, label, send, takePhoto } from './steps'
 const L = 'en'
 const TAP = 48
 
+// The result card and the samples fade in over 400 ms (index.css's .rise-in), and axe reads a card that is half faded in as
+// text with half its contrast, so it would flag a screen that is fine. This spec runs as a person who asked for less motion,
+// for which the entrance doesn't run; that it holds still then, and that it runs otherwise, is pinned by styles/tokens.test.ts.
+test.use({ reducedMotion: 'reduce' })
+
 async function expectNoSeriousFinding(page: Page, where: string): Promise<void> {
   const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
   const serious = violations

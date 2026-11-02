@@ -1,5 +1,5 @@
-import { LoaderCircleIcon } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { LoaderCircleIcon, PlayIcon } from 'lucide-react'
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Line, T, useLanguage, useT } from '../i18n'
 import type { StringKey } from '../i18n/en'
 import { LEVELS } from '../copy/levels'
@@ -19,7 +19,7 @@ const SHORT_LIST = 3
 const LINK_REFRESH_MS = 60_000
 
 const BUTTON =
-  'mt-3 inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
+  'mt-3 inline-flex min-h-tap items-center gap-2 rounded-control bg-action px-4 font-bold text-on-action ' +
   'enabled:active:bg-ink enabled:active:text-surface disabled:cursor-not-allowed disabled:opacity-50'
 
 // Where one sample's run stands. Only this screen holds it, so a report id never outlives the page (spec §4.4).
@@ -43,6 +43,11 @@ const runnable = (run: Run | undefined) => run === undefined || run.phase === 'f
 // asks: a new run is a new report, paid once (M4). A paused run reads as a pause, never a failure (C638), so not then.
 const failedRun = (run: Run | undefined) =>
   run?.phase === 'result' && run.result.status === 'failed' && run.result.refusalReason !== 'model_calls_paused'
+
+// Each sample rises in a little after the one before it (index.css's .rise-in), so a list of them arrives as one gesture
+// and not all at once. The step is 70 ms, and the later ones don't wait longer than the sixth.
+const STAGGER_MS = 70
+const STAGGER_ITEMS = 5
 
 // A card's stand-in result while there is none yet: the card shows "No result yet" for it (C601).
 const NO_RESULT: ReportResult = { reportId: '', status: 'pending', mode: 'sample', published: false }
@@ -219,12 +224,13 @@ export function SampleList({ apiUrl }: { apiUrl: string }) {
     <>
       {samples.length > 0 && (
         <ul className="mt-4 space-y-10 lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-8 lg:gap-y-10 lg:space-y-0">
-          {samples.map((sample) => {
+          {samples.map((sample, index) => {
             const id = sample.sampleId
             const state = runs[id]
             return (
               <SampleItem
                 key={id}
+                index={index}
                 sample={sample}
                 run={state}
                 busy={busy}
@@ -248,6 +254,7 @@ export function SampleList({ apiUrl }: { apiUrl: string }) {
 }
 
 function SampleItem({
+  index,
   sample,
   run,
   busy,
@@ -255,6 +262,7 @@ function SampleItem({
   onCheckAgain,
   onPhotoExpired,
 }: {
+  index: number
   sample: Sample
   run: Run | undefined
   busy: boolean
@@ -283,6 +291,7 @@ function SampleItem({
         <ResultCard result={run.result} source="sample" sample={sample} onPhotoExpired={onPhotoExpired} />
         {failedRun(run) && (
           <button type="button" disabled={busy} onClick={onRun} className={BUTTON}>
+            <PlayIcon aria-hidden="true" className="size-5 shrink-0" />
             <T k="sample.run" />
           </button>
         )}
@@ -312,8 +321,10 @@ function SampleItem({
       />
     )
   } else {
+    // Before a result the sample is a card of its own, framed by a hairline: the thumbnail and what is known about the
+    // photo, then the button. A result is a result card, which has its own edge, so it isn't framed a second time.
     body = (
-      <>
+      <div data-sample-card="" className="rounded-control border border-outline/30 p-3">
         <Preview sample={sample} captionId={captionId} onPhotoError={onPhotoExpired} />
         {runnable(run) ? (
           <>
@@ -329,18 +340,19 @@ function SampleItem({
               </div>
             )}
             <button type="button" disabled={busy} aria-describedby={captionId} onClick={onRun} className={BUTTON}>
+              <PlayIcon aria-hidden="true" className="size-5 shrink-0" />
               <T k="sample.run" />
             </button>
           </>
         ) : (
           <RunStatus run={run} />
         )}
-      </>
+      </div>
     )
   }
 
   return (
-    <li>
+    <li className="rise-in" style={{ '--rise-delay': `${Math.min(index, STAGGER_ITEMS) * STAGGER_MS}ms` } as CSSProperties}>
       <div ref={box} tabIndex={-1} className="outline-none">
         {body}
       </div>
@@ -348,15 +360,17 @@ function SampleItem({
   )
 }
 
-// The sample's photo, blurred, with its date, place and event, its credit line and what Lusot changed (C617, C637). A
-// credit that already says the photo was blurred states the change, so the line is left out then.
+// The sample's photo, blurred, as a thumbnail beside its date, place and event, its credit line and what Lusot changed
+// (C617, C637). A credit that already says the photo was blurred states the change, so the line is left out then. The
+// thumbnail is a crop, a glance at the scene; the run shows the whole photo with the outlines drawn on it. The words wrap
+// under it when there is no room beside it, as at a large text size.
 function Preview({ sample, captionId, onPhotoError }: { sample: Sample; captionId: string; onPhotoError(): void }) {
   const t = useT()
   const { lang } = useLanguage()
   const from = photoDateLine(t, lang, { date: sample.date, place: sample.place, event: sample.event })
   const alt = t('sample.photoAlt')
   return (
-    <figure>
+    <figure className="flex flex-wrap items-start gap-3">
       {sample.photoUrl !== undefined && (
         <img
           src={sample.photoUrl}
@@ -364,10 +378,10 @@ function Preview({ sample, captionId, onPhotoError }: { sample: Sample; captionI
           lang={alt.lang}
           loading="lazy"
           onError={() => onPhotoError()}
-          className="w-full rounded-control border border-outline"
+          className="size-24 shrink-0 rounded-control border border-outline object-cover lg:size-28"
         />
       )}
-      <figcaption id={captionId} className="mt-2 text-small text-ink-2">
+      <figcaption id={captionId} className="min-w-0 flex-1 basis-40 text-small text-ink-2">
         {from !== undefined && (
           <p className="text-body font-bold text-ink">
             <Line value={from} />

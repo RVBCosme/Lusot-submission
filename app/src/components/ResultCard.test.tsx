@@ -1936,3 +1936,121 @@ describe('from lg', () => {
     expect(card().classList.contains('lg:grid')).toBe(false)
   })
 })
+
+// ---- the polish pass: an entrance, a level chip on a sample, and icons on the card's buttons ----
+
+describe('the entrance', () => {
+  // The card rises and fades in once, when it first shows (index.css's .rise-in, which holds still under reduced motion).
+  // A new result for the same card is a new card, as the key says, and rises again.
+  it('rises in whatever the outcome is: a level, no flood, a refusal, a failure, and no result yet', async () => {
+    for (const scenario of ['level_knee', 'no_flood_seen', 'refused_no_usable_reference', 'failed_pipeline_error'] as const) {
+      renderCard({ result: await takePhoto(scenario) })
+      expect(screen.getByRole('article').classList.contains('rise-in'), scenario).toBe(true)
+      cleanup()
+    }
+    renderCard({ result: { reportId: '', status: 'pending', mode: 'live', published: false }, noResultYet: true })
+    expect(screen.getByRole('article').classList.contains('rise-in')).toBe(true)
+  })
+})
+
+describe('the level chip on a sample', () => {
+  const chip = () => document.querySelector<HTMLElement>('[data-chip="level"]')
+  async function sampleCard(extra: Partial<ReportResult> = {}, lang: 'en' | 'fil' = 'en') {
+    const { fetchFn, c } = mockWith()
+    const samples = await getSamples(API, fetchFn)
+    const started = (await runSample(API, samples[0].sampleId, DEVICE, fetchFn)) as { reportId: string }
+    const result = { ...(await pollReport(API, started.reportId, { fetchFn, sleep: c.sleep, now: c.now })), ...extra }
+    renderCard({ result, source: 'sample', sample: samples[0] }, lang)
+  }
+
+  it("sits beside the Sample badge and names the reading's level in the level's own words, on its step's colour", async () => {
+    await sampleCard()
+    const found = chip()
+    expect(found).not.toBeNull()
+    expect(found?.textContent).toBe('knee')
+    expect(found?.querySelector('[data-swatch]')?.className).toContain('bg-depth-5')
+    // It is the badge's neighbour, in the card's top row, before the photo.
+    expect(found?.previousElementSibling?.textContent).toBe('Sample')
+    // The level line says it all to a screen reader, so the chip is only for the eye.
+    expect(found?.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('says "or deeper" for a floor, and names the two added levels as the gauge does', async () => {
+    await sampleCard({ levelIsFloor: true })
+    expect(chip()?.textContent).toBe('knee or deeper')
+    cleanup()
+    await sampleCard({ level: 'above_chest', levelIsFloor: false })
+    expect(chip()?.textContent).toBe('above chest')
+  })
+
+  // Nothing is deeper than above chest, so a floor there is the same reading as an exact one and says the same.
+  it('says nothing more for a floor at above chest than for an exact above chest', async () => {
+    await sampleCard({ level: 'above_chest', levelIsFloor: true })
+    expect(chip()?.textContent).toBe('above chest')
+    cleanup()
+    await sampleCard({ level: 'above_chest', levelIsFloor: false })
+    expect(chip()?.textContent).toBe('above chest')
+  })
+
+  it('reads in Taglish on a Taglish screen, from the same strings as the gauge', async () => {
+    await sampleCard({ levelIsFloor: true }, 'fil')
+    expect(chip()?.textContent).toBe(`${FIL['result.levelName.knee'].text} ${FIL['gauge.orDeeper'].text}`)
+    cleanup()
+    await sampleCard({ level: 'above_chest', levelIsFloor: true }, 'fil')
+    expect(chip()?.textContent).toBe(FIL['result.levelName.above_chest'].text)
+    cleanup()
+    await sampleCard({ level: 'above_chest', levelIsFloor: false }, 'fil')
+    expect(chip()?.textContent).toBe(FIL['result.levelName.above_chest'].text)
+  })
+
+  it('shows for a saved sample reading too, and carries no number', async () => {
+    const { fetchFn } = mockWith('failed_model_calls_paused')
+    const samples = await getSamples(API, fetchFn)
+    const saved = (await runSample(API, samples[0].sampleId, DEVICE, fetchFn)) as SavedSample
+    const result = { reportId: '', mode: 'sample', published: false, ...saved.result } as ReportResult
+    renderCard({ result, source: 'sample', sample: samples[0], savedAt: saved.savedAt })
+    expect(chip()?.textContent).toBe('knee')
+    expect(chip()?.textContent).not.toMatch(/\d/)
+  })
+
+  it('is not on a refusal or a reading of no flood, which have no level, nor on a failure', async () => {
+    for (const scenario of ['refused_no_usable_reference', 'no_flood_seen', 'failed_pipeline_error'] as const) {
+      const { fetchFn, c } = mockWith(scenario)
+      const samples = await getSamples(API, fetchFn)
+      const started = (await runSample(API, samples[0].sampleId, DEVICE, fetchFn)) as { reportId: string }
+      const result = await pollReport(API, started.reportId, { fetchFn, sleep: c.sleep, now: c.now })
+      renderCard({ result, source: 'sample', sample: samples[0] })
+      expect(chip(), scenario).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('is on a sample only: not on your own report, a chosen photo, a live pin or a demo pin', async () => {
+    renderCard({ result: await takePhoto() })
+    expect(chip()).toBeNull()
+    cleanup()
+    renderCard({ result: { ...(await takePhoto()), mode: 'try' }, source: 'try' })
+    expect(chip()).toBeNull()
+    cleanup()
+    renderCard({ result: pinAt('knee'), source: 'pin' })
+    expect(chip()).toBeNull()
+    cleanup()
+    renderCard({ result: pinAt('knee', { mode: 'demo', credit: PLAIN_CREDIT }), source: 'pin' })
+    expect(chip()).toBeNull()
+  })
+})
+
+describe('the card\'s buttons carry an icon, hidden from screen readers, and keep their words', () => {
+  it('"Try again" and "Check again"', async () => {
+    renderCard({ result: await takePhoto('failed_model_error'), onNewPhoto: vi.fn() })
+    const tryAgain = screen.getByRole('button', { name: 'Try again' })
+    expect(tryAgain.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(tryAgain.textContent).toBe('Try again')
+    cleanup()
+
+    renderCard({ result: { reportId: '', status: 'pending', mode: 'live', published: false }, noResultYet: true, onCheckAgain: vi.fn() })
+    const checkAgain = screen.getByRole('button', { name: 'Check again' })
+    expect(checkAgain.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(checkAgain.textContent).toBe('Check again')
+  })
+})

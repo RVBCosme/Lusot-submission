@@ -125,6 +125,89 @@ describe('the reading', () => {
   it('is never open when there is nothing marked', () => {
     expect(draw({ noFlood: true, isFloor: true }).gauge.getAttribute('data-open')).toBe('false')
   })
+
+  // The reading is told by its weight, its edge and its colour together, never by colour alone: a bold name, a thick edge
+  // and a pointer beside it, and its own step's full fill.
+  it('gives the marked cell its own step in full, with the edge, the pointer and the bold name that mark it too', () => {
+    const { byLevel, gauge } = draw({ level: 'knee' })
+    const cell = byLevel('knee')
+    expect(cell.className).toContain('bg-depth-5')
+    expect(cell.className).not.toMatch(/bg-depth-5\//)
+    expect(cell.className).toContain('border-4')
+    expect(gauge.querySelector('[data-row="knee"] [data-pointer]')).not.toBeNull()
+    expect(gauge.querySelector('[data-row="knee"] [data-label]')?.className).toContain('font-bold')
+  })
+
+  // A floor is "at least" a level (the level line says so), so every step from it up is water that may be there: that step
+  // is marked, and each deeper one is drawn as possible, a dashed outline and no fill at all. A fill, even a faint one, would
+  // read in the dark theme as a shallow filled cell.
+  it('draws every step deeper than a floor as possible, a dashed outline with no fill, and a shallower one as filled', () => {
+    const { state, byLevel } = draw({ level: 'tire', isFloor: true })
+    expect(['below_gutter', 'gutter', 'half_knee', 'half_tire', 'knee'].map((level) => state(level as Level))).toEqual(
+      Array(5).fill('filled'),
+    )
+    expect(state('tire')).toBe('marked')
+    expect(['waist', 'chest', 'above_chest'].map((level) => state(level as Level))).toEqual(Array(3).fill('possible'))
+    for (const level of ['waist', 'chest', 'above_chest'] as const) {
+      const cell = byLevel(level)
+      expect(cell.className, level).toContain('border-dashed')
+      expect(cell.className, level).not.toMatch(/bg-depth-/)
+      expect(cell.className, level).toContain('bg-transparent')
+      expect(cell.className, level).toMatch(/\bborder-outline\b/)
+    }
+    for (const level of ['waist', 'chest', 'above_chest'] as const) {
+      expect(document.querySelector(`[data-row="${level}"] [data-label]`)?.className, level).not.toContain('font-bold')
+    }
+  })
+
+  it('leaves a shallower cell, and every cell of an exact reading, as it was: nothing is possible without a floor', () => {
+    const exact = draw({ level: 'tire', isFloor: false })
+    expect(exact.cells.some((cell) => cell.dataset.state === 'possible')).toBe(false)
+    cleanup()
+    const none = draw({ noFlood: true, isFloor: true })
+    expect(none.cells.some((cell) => cell.dataset.state === 'possible')).toBe(false)
+  })
+
+  it('marks a floor on the last two levels too: the one above is possible, and the deepest has nothing above it', () => {
+    const { state } = draw({ level: 'chest', isFloor: true })
+    expect(state('chest')).toBe('marked')
+    expect(state('above_chest')).toBe('possible')
+    cleanup()
+    // The deepest level has nothing deeper to be possible.
+    const deepest = draw({ level: 'above_chest', isFloor: true })
+    expect(deepest.state('above_chest')).toBe('marked')
+    expect(deepest.cells.filter((cell) => cell.dataset.state === 'possible')).toHaveLength(0)
+  })
+
+  it('uses no gradient and no shadow, and no faint fill either: a floor\'s deeper steps are outlines only', () => {
+    for (const props of [{ level: 'tire', isFloor: true }, { level: 'above_chest', isFloor: false }] as const) {
+      const { gauge } = draw(props)
+      expect(gauge.outerHTML).not.toMatch(/bg-linear|bg-gradient|to-transparent|\bfrom-|shadow/)
+      expect(gauge.outerHTML).not.toMatch(/bg-depth-\d\//)
+      cleanup()
+    }
+  })
+})
+
+describe('the L', () => {
+  // The logo is an L-shaped flood gauge: a pole and its foot. The gauge draws its own rail down the left and its ground
+  // line along the bottom, in the outline colour, as one L around the cells and their names.
+  it('stands the cells on a rail and a ground line in the outline colour, one L around the gauge', () => {
+    const { gauge } = draw({ level: 'knee' })
+    for (const token of ['border-l-4', 'border-b-4', 'border-outline']) expect(gauge.className, token).toContain(token)
+  })
+
+  it('draws a tick on every cell, so the cells read as the marks of one pole', () => {
+    const { cells } = draw({ level: 'knee' })
+    for (const cell of cells) expect(cell.className, cell.dataset.cell).toContain('before:')
+  })
+
+  it('names the 9 levels with their own words, in order from the deepest, and numbers none of them', () => {
+    const { gauge } = draw({ level: 'tire' })
+    const names = [...gauge.querySelectorAll('[data-label]')].map((label) => label.firstChild?.textContent)
+    expect(names).toEqual(['above chest', 'chest', 'waist', 'tire', 'knee', 'half-tire', 'half-knee', 'gutter', 'below gutter'])
+    expect(gauge.textContent).not.toMatch(/\d/)
+  })
 })
 
 describe('in Taglish', () => {

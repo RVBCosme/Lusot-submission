@@ -1,3 +1,4 @@
+import { CameraIcon, LocateFixedIcon, RotateCcwIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { PausedNotice, ResultCard } from '../components/ResultCard'
 import { T } from '../i18n'
@@ -16,7 +17,7 @@ import { WaitingStep } from './report/WaitingStep'
 // Pressing a control fills it with ink and turns its text to the page's colour (S5-R6), as on the camera's view.
 const PRESSED = 'enabled:active:border-ink enabled:active:bg-ink enabled:active:text-surface'
 const BUTTON = `min-h-tap min-w-tap rounded-control border px-4 font-bold ${PRESSED}`
-const PRIMARY = `${BUTTON} border-action bg-action text-on-action`
+const PRIMARY = `${BUTTON} inline-flex items-center justify-center gap-2 border-action bg-action text-on-action`
 const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 
 const REFUSED_LINE: Record<RefusedCode, StringKey> = {
@@ -165,6 +166,7 @@ function Section({ title, children }: { title: StringKey; children: ReactNode })
 function NewPhoto({ onClick, link = false }: { onClick(): void; link?: boolean }) {
   return (
     <button type="button" onClick={onClick} className={link ? `${LINK} cursor-pointer` : PRIMARY}>
+      {!link && <CameraIcon aria-hidden="true" className="size-5 shrink-0" />}
       <T k="report.newPhoto" />
     </button>
   )
@@ -229,6 +231,7 @@ function PlaceView({
             <T k={fix.line} />
           </p>
           <button type="button" onClick={flow.retryFix} className={`${PRIMARY} mt-4`}>
+            <LocateFixedIcon aria-hidden="true" className="size-5 shrink-0" />
             <T k="location.retry" />
           </button>
         </div>
@@ -311,6 +314,11 @@ function ProblemView({
       ) : (
         <div className="mt-4">
           <button type="button" onClick={retry === 'resend' ? onRetry : flow.retryFix} className={PRIMARY}>
+            {retry === 'resend' ? (
+              <RotateCcwIcon aria-hidden="true" className="size-5 shrink-0" />
+            ) : (
+              <LocateFixedIcon aria-hidden="true" className="size-5 shrink-0" />
+            )}
             <T k={retry === 'resend' ? 'result.tryAgain' : 'location.retry'} />
           </button>
         </div>

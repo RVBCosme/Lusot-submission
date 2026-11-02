@@ -4,6 +4,8 @@ import {
   DropletOffIcon,
   HourglassIcon,
   PauseIcon,
+  RefreshCwIcon,
+  RotateCcwIcon,
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -28,6 +30,7 @@ import { ageText, formatDate, photoDateLine } from '../lib/time'
 import { Badge } from './Badge'
 import { Details } from './Details'
 import { Gauge } from './Gauge'
+import { LevelChip } from './LevelChip'
 import { OverlayView } from './OverlayView'
 
 export type ResultCardProps = {
@@ -95,7 +98,7 @@ const TWO_COLUMNS =
 
 const LINK = 'inline-flex min-h-tap min-w-tap items-center text-action underline underline-offset-4'
 const BUTTON =
-  'mt-3 inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
+  'mt-3 inline-flex min-h-tap items-center gap-2 rounded-control bg-action px-4 font-bold text-on-action ' +
   'active:bg-ink active:text-surface'
 
 function outcomeOf(result: ReportResult | Pin, noResultYet: boolean): Outcome {
@@ -311,7 +314,7 @@ function ResultCardBody({
   return (
     <article
       data-outcome={OUTCOME_ATTRIBUTE[outcome]}
-      className={`rounded-control bg-surface p-4 ${EDGE[outcome]} border-outline${figureBelow ? ` ${TWO_COLUMNS}` : ''}`}
+      className={`rise-in rounded-control bg-surface p-4 ${EDGE[outcome]} border-outline${figureBelow ? ` ${TWO_COLUMNS}` : ''}`}
     >
       {(outcome === 'paused' || savedAt !== undefined) && (
         <div className={(outcome === 'paused' ? '' : 'mb-4 border-b border-outline pb-2') + across}>
@@ -328,10 +331,13 @@ function ResultCardBody({
       )}
       {isExample && !photoBelow && (
         <figure className="mb-4">
-          <div className="mb-3">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <Badge>
               <T k={isSample ? 'badge.sample' : 'badge.demo'} />
             </Badge>
+            {/* A sample's level at a glance, beside its badge: the reading itself is a good way down this card, below the
+                photo. A refusal, "no flood seen" and a failure have no level to show. */}
+            {isSample && outcome === 'level' && level !== undefined && <LevelChip level={level} isFloor={isFloor} />}
           </div>
           {photoView}
           <figcaption className="mt-2 text-small text-ink-2">
@@ -484,6 +490,7 @@ function ResultCardBody({
           </div>
           {onNewPhoto !== undefined && (
             <button type="button" onClick={() => onNewPhoto()} className={BUTTON}>
+              <RotateCcwIcon aria-hidden="true" className="size-5 shrink-0" />
               <T k="result.tryAgain" />
             </button>
           )}
@@ -500,6 +507,7 @@ function ResultCardBody({
           </div>
           {onCheckAgain !== undefined && (
             <button type="button" onClick={() => onCheckAgain()} className={BUTTON}>
+              <RefreshCwIcon aria-hidden="true" className="size-5 shrink-0" />
               <T k="result.checkAgain" />
             </button>
           )}

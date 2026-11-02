@@ -12,10 +12,8 @@ const read = (path) => readFileSync(app(path), "utf8");
 const manifest = () => JSON.parse(read("public/manifest.webmanifest"));
 const html = () => read("index.html");
 
-// Task 3's tokens: the first --lusot-surface is the light theme's, the one after the dark media block is the dark's.
+// Task 3's tokens.
 const tokens = read("src/styles/tokens.css");
-const LIGHT_SURFACE = /--lusot-surface:\s*(#[0-9A-Fa-f]{6})/.exec(tokens)[1].toUpperCase();
-const DARK_SURFACE = /:root\[data-theme="dark"\]\s*\{[^}]*--lusot-surface:\s*(#[0-9A-Fa-f]{6})/.exec(tokens)[1].toUpperCase();
 const TOKEN_COLOURS = new Set([...tokens.matchAll(/--lusot-[\w-]+:\s*(#[0-9A-Fa-f]{6})\b/g)].map((m) => m[1].toUpperCase()));
 // The brand colours the logo artwork gives (tokens.css's shared block).
 const token = (name) => new RegExp(`${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(tokens)[1].toUpperCase();
@@ -43,7 +41,8 @@ test("the manifest names the app and opens it on the map, standalone, from its o
 // The manifest's colours are the brand navy, not the page colour: a browser draws the launch splash of an installed app
 // from background_color and the icon before any page loads, and index.html's loading screen carries on from it in the
 // same navy. A light splash would flash between two navy screens. Once the page is up, its own theme-color tags (the
-// next test) set the bar's colour for each scheme, so the manifest's theme_color only colours that splash.
+// next test) carry the same navy for both schemes, so the browser's toolbar matches the navy header, which is navy in the
+// light and the dark theme alike.
 test("the manifest's colours are the brand navy, the colour of the launch splash and of the loading screen after it", () => {
   const m = manifest();
   assert.equal(m.theme_color.toUpperCase(), NAVY);
@@ -67,14 +66,15 @@ test("the manifest lists a 192 and a 512 icon, and a maskable 512, each a PNG of
   assert.equal(icons.length, want.length, "no icon beyond these");
 });
 
-test("the page links the manifest, an Apple touch icon, and a theme colour for each scheme", () => {
+test("the page links the manifest, an Apple touch icon, and the brand navy as the theme colour for each scheme", () => {
   const page = html();
   assert.match(page, /<link rel="manifest" href="\/manifest\.webmanifest"\s*\/?>/);
   assert.match(page, /<link rel="apple-touch-icon" href="\/icons\/apple-touch-icon\.png"\s*\/?>/);
   const themes = [...page.matchAll(/<meta name="theme-color" content="(#[0-9A-Fa-f]{6})" media="([^"]+)"\s*\/?>/g)];
   const byScheme = Object.fromEntries(themes.map((m) => [m[2], m[1].toUpperCase()]));
-  assert.equal(byScheme["(prefers-color-scheme: light)"], LIGHT_SURFACE);
-  assert.equal(byScheme["(prefers-color-scheme: dark)"], DARK_SURFACE);
+  assert.equal(byScheme["(prefers-color-scheme: light)"], NAVY);
+  assert.equal(byScheme["(prefers-color-scheme: dark)"], NAVY);
+  assert.equal(themes.length, 2, "one tag for each scheme, no other");
 });
 
 test("the Apple touch icon is a 180 px PNG", () => {

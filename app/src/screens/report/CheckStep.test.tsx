@@ -66,3 +66,13 @@ describe('the phone\'s quality check (C604)', () => {
     expect(screen.getByRole('button', { name: FIL['report.sendAnyway'].text })).toBeTruthy()
   })
 })
+
+describe('the buttons carry an icon, hidden from screen readers, and keep their words', () => {
+  it('"Retake" has one, and so does "Send anyway" not: only the primary action does', () => {
+    renderCheck()
+    const retake = screen.getByRole('button', { name: en('report.retake') })
+    expect(retake.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(retake.textContent).toBe(en('report.retake'))
+    expect(screen.getByRole('button', { name: en('report.sendAnyway') }).querySelector('svg')).toBeNull()
+  })
+})

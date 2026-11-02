@@ -955,3 +955,45 @@ describe('a saved result while analysis is paused', () => {
     }
   })
 })
+
+// ---- the polish pass: each sample is a card with a thumbnail, rises in a little after the one before, and has an icon ----
+
+describe('a sample as a card', () => {
+  const items = () => (runButtons()[0].closest('ul') as HTMLElement).querySelectorAll<HTMLElement>(':scope > li')
+
+  it("holds the photo as a thumbnail in a framed card, with its date, place, event and credit beside it", async () => {
+    await openWithSamples()
+    for (const item of items()) {
+      const card = item.querySelector<HTMLElement>('[data-sample-card]')
+      expect(card, 'a framed card').not.toBeNull()
+      expect(card?.className).toContain('border')
+      const photo = within(card as HTMLElement).getByRole('img', { name: text('sample.photoAlt') })
+      expect(photo.className).toContain('object-cover')
+      expect(photo.className).toContain('size-24')
+      // The photo is a thumbnail beside the words about it, in one figure, and the button follows the figure.
+      const figure = photo.closest('figure') as HTMLElement
+      expect(figure.querySelector('figcaption')?.textContent).toMatch(/^Photo from .+Photo: /)
+      expect(figure.contains(within(card as HTMLElement).getByRole('button', { name: text('sample.run') }))).toBe(false)
+    }
+  })
+
+  it('rises in, each sample 70 ms after the one before it', async () => {
+    await openWithSamples()
+    expect([...items()].map((item) => item.classList.contains('rise-in'))).toEqual([true, true, true])
+    expect([...items()].map((item) => item.style.getPropertyValue('--rise-delay'))).toEqual(['0ms', '70ms', '140ms'])
+  })
+
+  it('has an icon on "Run this sample", hidden from screen readers, and the same words', async () => {
+    await openWithSamples()
+    for (const button of runButtons()) {
+      expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+      expect(button.textContent).toBe(text('sample.run'))
+    }
+  })
+
+  it('keeps the list to its three items, with none nested inside another', async () => {
+    await openWithSamples()
+    expect(items()).toHaveLength(3)
+    expect(runButtons()[0].closest('ul')?.querySelectorAll('ul')).toHaveLength(0)
+  })
+})

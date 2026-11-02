@@ -1,4 +1,4 @@
-import { LoaderCircleIcon } from 'lucide-react'
+import { ImagePlusIcon, LoaderCircleIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { T, useT } from '../i18n'
 import type { StringKey } from '../i18n/en'
@@ -12,7 +12,7 @@ import { photoToJpeg, TRY_TYPES, TryPhotoError } from '../lib/tryPhoto'
 import { PausedNotice, ResultCard } from './ResultCard'
 
 const BUTTON =
-  'mt-3 inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
+  'mt-3 inline-flex min-h-tap items-center gap-2 rounded-control bg-action px-4 font-bold text-on-action ' +
   'active:bg-ink active:text-surface'
 
 // Where a chosen photo's run stands. Only this component holds it, so a report id never outlives the page.
@@ -255,6 +255,7 @@ export function TryPhoto({ apiUrl }: { apiUrl: string }) {
       {body}
       {!inFlight(run) && (
         <button type="button" onClick={choose} className={BUTTON}>
+          <ImagePlusIcon aria-hidden="true" className="size-5 shrink-0" />
           <T k={run === undefined ? 'try.choose' : 'try.chooseAnother'} />
         </button>
       )}

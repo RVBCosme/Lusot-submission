@@ -1,3 +1,4 @@
+import { FlaskConicalIcon } from 'lucide-react'
 import { basisLine, depthLine, landmarkLine, levelLine, verdictLines } from '../copy/wording'
 import { Line, T, useT } from '../i18n'
 import { routeHash } from '../router'
@@ -5,7 +6,7 @@ import { Badge } from './Badge'
 import { Gauge } from './Gauge'
 
 const BUTTON =
-  'inline-flex min-h-tap items-center rounded-control bg-action px-4 font-bold text-on-action ' +
+  'inline-flex min-h-tap items-center gap-2 rounded-control bg-action px-4 font-bold text-on-action ' +
   'active:bg-ink active:text-surface'
 
 // One fixed reading, taken from Task 6's mock knee-deep result: a parked car's wheel and a person, geometry reading the
@@ -32,6 +33,7 @@ export function EmptyMap() {
         </p>
         <p className="mt-3">
           <a href={routeHash({ name: 'tested' })} className={BUTTON}>
+            <FlaskConicalIcon aria-hidden="true" className="size-5 shrink-0" />
             <T k="map.trySample" />
           </a>
         </p>
