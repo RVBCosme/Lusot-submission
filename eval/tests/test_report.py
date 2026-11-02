@@ -535,7 +535,7 @@ def test_opening_paragraph(tmp_path):
     assert lines[2] == (
         "The frozen pipeline ran once on the sealed sets, on 2026-10-30. Its figures"
         " are agreement with the labels MMDA and the cities posted, mapped by"
-        " eval/rules.md §2 (v0.9) before any result was seen. With samples this small,"
+        " eval/rules.md §2 (v0.10) before any result was seen. With samples this small,"
         " every figure is indicative and carries its n."
     )
 
@@ -1159,7 +1159,7 @@ def test_summary_json(tmp_path):
     assert [summary[key] for key in ("kind", "date", "rules_version")] == [
         "sealed",
         "2026-10-30",
-        "0.9",
+        "0.10",
     ]
     assert (summary["synthetic"], summary["rerun"]) == (False, False)
     assert (summary["shipped"], summary["geometry_stays"], summary["inches_shown"]) == (
@@ -1491,7 +1491,7 @@ def test_frozen_versions_and_data(tmp_path):
     lines = section(report_of(full_run(tmp_path)), "Frozen versions and data")
     # The freeze commit and geometry's live default come before the lists.
     assert lines[:4] == [
-        "Scored by eval/rules.md v0.9.",
+        "Scored by eval/rules.md v0.10.",
         f"Freeze commit: `{'ab' * 20}`.",
         "Geometry's live default before the run (C309): on.",
         "| Frozen | Version |",

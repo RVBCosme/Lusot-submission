@@ -40,14 +40,14 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 - **Dry streets and other places (D14):**
   - A dry street can read "no flood seen": an empty water mask still goes to Muse Spark.
   - Photos taken outside Metro Manila are analysed and shown to the person, but never pinned (`private` mode).
-- **People count fully (D13).** A standing adult can set the level alone, except at ankle depth (C91). With wheels too, the deepest believable reading wins, and a gap of more than one level means refusal.
+- **People count fully (D13).** A standing adult can set the level alone, except at ankle depth (C91) or when under 60 px in the photo (C92). With wheels too, the deepest believable reading wins, and a gap of more than one level means refusal.
 - Every screen carries this line: "Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories."
 - Models never output inches. Muse Spark returns categories, and code does all the measuring.
 - Use the exact model IDs `sam-3.1`, `muse-spark-1.3` and `muse-voice-transcribe-1.0`. Never use `muse-spark-1.3-contributor`.
 - Rene reviews every Taglish line, refusal, safety line and caption before release (M20, M30).
 
 **Privacy and security** (§13)
-- Blur faces and plates before anything is stored. Delete raw photos after analysis. Keep data 7 days. No accounts, no names.
+- Blur faces and plates before anything is stored. Delete raw photos after analysis. Keep data 7 days, except the website's access logs: AWS Amplify keeps them until the Amplify app is deleted, so the app is deleted by Dec 31, 2026 (Rene, Nov 2, 2026). No accounts, no names.
 - **Every Meta call runs on the $150 credits** (Rene, Oct 27; D10). Meta's Billing page says credit-paid content "may be used for product improvement", so:
   - **Faces are blurred first.** Before any photo goes to Meta, a non-Meta detector blurs the faces (D12, C20). The blur is the pipeline's first step and is on from the start, for live uploads, samples, demo pins, tuning and the sealed run alike.
   - **Plates are not blurred first.** They still reach Meta, and SAM masks blur faces and plates again before storage.
@@ -72,13 +72,13 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
   - Set D: `lusot-data\set_d\sealed\`
 
   The deny rules in `.claude/settings.json` match `**/sealed/**`, plus the spellings Windows opens as the same folder: `sealed.`, `sealed ` (with a trailing space) and `sealed::$INDEX_ALLOCATION` (Rene, Oct 30).
-- **Before the split, open no Set A or A-neg photo**, because any of them could end up sealed. After the split, development photos, their masks and their overlays are open for tuning and debugging.
+- **Before the split, open no Set A or A-neg photo**, because any of them could end up sealed. After the split, development photos, their masks and their overlays are open for tuning and debugging. One exception (Rene, Nov 2, 2026): at his request, Claude subagents filled the Set A and A-neg look columns and the M8 labels before the split, without seeing the depth labels; the report says so.
 - Tune cutoffs on development data only.
 - Once Rene approves `eval/rules.md`, every change needs his written OK in its change log. After the sealed run, the scoring rules don't change at all (`eval/rules.md` §10 covers fixes and the one disclosed rerun).
 
 **Data collection** (decided with Rene, Oct 26 and 27, 2026)
 - No automated access to Facebook, X, Instagram, TikTok or YouTube: no scripts, no claude-in-chrome, no use of Rene's login.
-- **Set A** uses only photos that MMDA or a city government posted itself, never news-outlet photos (§11, M7). Rene collects posts by hand into the Set A log, and Claude processes the log.
+- **Set A** uses photos that MMDA or a Metro Manila city office took and labelled with its own depth words; since Nov 2 (rules v0.10) they may be found through news reposts on X that credit the city. Rene collects posts by hand into the Set A log, and Claude processes the log.
 - **Allowed:**
   - a handful of public news articles, read the way a person would, only to find official posts
   - open datasets, within their licences
@@ -126,7 +126,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 | Map | Leaflet with OpenStreetMap tiles |
 | API | API Gateway HTTP API + Node.js Lambda in TypeScript |
 | Analysis | Python container Lambda: OpenCV, NumPy, meta-sam-parser; image built with Docker Desktop (WSL 2) |
-| Data and infrastructure | S3, SQS with dead-letter queue, DynamoDB (TTL and report-id index), SSM, CloudWatch; the website on S3 and CloudFront, with logging off (MS5-Q4 (c)) |
+| Data and infrastructure | S3, SQS with dead-letter queue, DynamoDB (TTL and report-id index), SSM, CloudWatch; the website on AWS Amplify Hosting since Nov 2 (`WebHosting=amplify`; its access logs last until the app is deleted, by Dec 31, 2026), with S3 and CloudFront, logging off (MS5-Q4 (c)), kept as `WebHosting=on` |
 | AI | Meta Model API via the OpenAI SDK at `https://api.meta.ai/v1`; voice through a plain HTTPS call |
 | Tests and CI | pytest, Vitest, Playwright; GitHub Actions on every push |
 
@@ -230,7 +230,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
     - invalidates CloudFront's cache and waits, then deletes the old assets
   - It prints step statuses and the web URL, and masks ARNs, 12-digit runs and email addresses in a failed step's output.
   - After a web deploy, a tab opened before it must reload before it asks for a location (ruling S5-R27).
-  - The first CloudFront create can take 5 to 15 minutes. A new account may be refused it until AWS verifies the account; then the stack update rolls back and nothing is deleted. That happened on Oct 31, so `deploy:web` runs only while `backend/samconfig.toml` sets `WebHosting=on`, and stops before any AWS call otherwise.
+  - The first CloudFront create can take 5 to 15 minutes. A new account may be refused it until AWS verifies the account; then the stack update rolls back and nothing is deleted. That happened on Oct 31, so the website moved to AWS Amplify on Nov 2. `deploy:web` runs only while `backend/samconfig.toml` sets `WebHosting=on` or `amplify`, and stops before any AWS call otherwise. With `amplify` it zips app/dist, uploads it as a manual Amplify deployment and waits until it is live; Amplify replaces the whole site at once.
 - **End-to-end tests:** run `npx playwright install chromium` once, then `npm run e2e -w app`.
   - It builds into the git-ignored `app/.e2e-dist/none`, never `app/dist`, and mocks every API, S3 and tile request.
   - It needs no AWS login and spends nothing.
@@ -238,7 +238,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.
   - It also turns the uploads stop switch on for about 35 s, then off. With the API's 30 s cache, uploads can be refused for about a minute. Never run it during a phone test (M14).
-  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but none of the photos it sent gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
+  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but neither the photos it sent nor the level probe (a run of OL032's seeded sample) gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
   - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). `--bound S` sets each photo's wait in seconds for a final status (default 120).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **The Meta spend stop** (C527, C528): seed the counter once with `uv run backend/scripts/seed_spend.py --usd <total>` (a second seed changes nothing), set the stop with `uv run backend/scripts/set_spend_stop.py --usd <N>` ($60 while building, $140 at submission), and read the total with `$env:AWS_PROFILE = 'lusot'; uv run --locked --directory backend/analysis --with "botocore[crt]==1.43.120" python -m lusot_analysis.spend total` (the pin matches `backend/analysis/uv.lock`).
