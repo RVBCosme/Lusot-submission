@@ -7,7 +7,7 @@ export type Bucket = "upload" | "sample" | "try" | "question";
 // Per UTC clock hour (C508, MS4-Q13): each device's count, then the count in all. A bucket with a
 // day also has a cap in all per UTC day (C534), so judging can't drain the Meta credits.
 export const LIMITS: Record<Bucket, { device: number; all: number; day?: number }> = {
-  upload: { device: 10, all: 300 },
+  upload: { device: 10, all: 300, day: 100 },
   sample: { device: 5, all: 30, day: 150 },
   try: { device: 3, all: 20, day: 120 },
   question: { device: 20, all: 60 },
@@ -21,6 +21,14 @@ export const LIMIT_CODES: Record<Bucket, { device: string; all: string }> = {
   question: { device: "question_limit", all: "question_cap" },
 };
 const DAY_CODE = "daily_cap"; // C534
+
+// Codex finding 3: every upload, sample run and chosen photo pays for one analysis, so all three share one cap per
+// UTC day in all, and a day refused on one route can't be had on another. Each route's own day is below it (uploads
+// 100, chosen photos 120, samples 150), so no one route can fill it: an upload link costs nothing to ask for, so a
+// burst of them mustn't shut the others out. At about $0.03 an analysis, 300 is about $9 a day, under the spend stop.
+export const ANALYSIS_DAY = 300;
+// An upload refused by a day, its own or the shared one, gets global_cap, the one cap the Report screen has a line for.
+const ANALYSIS_CODES: Partial<Record<Bucket, string>> = { upload: "global_cap", sample: DAY_CODE, try: DAY_CODE };
 
 const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const HOUR_S = 3600;
@@ -53,7 +61,8 @@ export function retryAfterS(nowS: number): number {
 }
 
 // Counts one against the device's hour, then against the hour in all, then, for a bucket with a
-// day cap, against the UTC day in all (C534). Null when all allow it, else the 429 that refuses it.
+// day cap, against the UTC day in all (C534), and last, for a paid analysis, against the shared day (ANALYSIS_DAY).
+// Null when all allow it, else the 429 that refuses it.
 // The device goes first, so one device can't use up the hour's cap (spec §4.6).
 export async function take(
   bucket: Bucket,
@@ -71,16 +80,24 @@ export async function take(
     return refuse(LIMIT_CODES[bucket].all, nowS);
   }
   const day = LIMITS[bucket].day;
-  if (day !== undefined) {
-    const dayStartS = nowS - (nowS % DAY_S);
-    const dayKey = `${bucket}#ALL#${new Date(dayStartS * 1000).toISOString().slice(0, 10)}`;
-    if (!(await increment(dayKey, day, dayStartS + DAY_TTL_S, deps))) {
-      // The day refused it, so the hour's two counts go back. Until they do, a request at the same moment
-      // can be refused by the device or the hour instead of the day: a refusal either way, never a run.
-      await decrement(device, deps);
-      await decrement(`${bucket}#ALL#${hour}`, deps);
-      return refuse(DAY_CODE, nowS, dayStartS + DAY_S - nowS);
-    }
+  const dayStartS = nowS - (nowS % DAY_S);
+  const date = new Date(dayStartS * 1000).toISOString().slice(0, 10);
+  const dayKey = `${bucket}#ALL#${date}`;
+  if (day !== undefined && !(await increment(dayKey, day, dayStartS + DAY_TTL_S, deps))) {
+    // The day refused it, so the hour's two counts go back. Until they do, a request at the same moment
+    // can be refused by the device or the hour instead of the day: a refusal either way, never a run.
+    await decrement(device, deps);
+    await decrement(`${bucket}#ALL#${hour}`, deps);
+    return refuse(ANALYSIS_CODES[bucket] ?? DAY_CODE, nowS, dayStartS + DAY_S - nowS);
+  }
+  const analysisCode = ANALYSIS_CODES[bucket];
+  const analysisKey = `analysis#ALL#${date}`;
+  if (analysisCode !== undefined && !(await increment(analysisKey, ANALYSIS_DAY, dayStartS + DAY_TTL_S, deps))) {
+    // The shared day refused it, so every count taken above goes back, the same way.
+    await decrement(device, deps);
+    await decrement(`${bucket}#ALL#${hour}`, deps);
+    if (day !== undefined) await decrement(dayKey, deps);
+    return refuse(analysisCode, nowS, dayStartS + DAY_S - nowS);
   }
   return null;
 }

@@ -72,7 +72,7 @@ The same replay then tested his OL002 and OL001 notes. It counted the people tha
 
 ## Security limits from the code review (Nov 3)
 
-On Nov 3, 2026, a security review of the code with OpenAI's Codex found four Medium issues and no Critical or High one. Finding 3, that uploads stayed open after the chosen-photo daily cap, is being fixed in code with one shared daily cap on all paid analyses, so it isn't listed here. The other three are not fixed in this build. Each is listed with what still bounds it.
+On Nov 3, 2026, a security review of the code with OpenAI's Codex found four Medium issues and no Critical or High one. Finding 3, that uploads stayed open after the chosen-photo daily cap, is fixed in code: uploads, sample runs and chosen photos now share one cap of 300 paid analyses a UTC day, and each route's own day cap is lower, so no one route can use up the day. It isn't listed here. The other three are not fixed in this build. Each is listed with what still bounds it.
 
 ### 1. A report's time and place come from the phone, not from the photo
 
@@ -83,7 +83,7 @@ On Nov 3, 2026, a security review of the code with OpenAI's Codex found four Med
 ### 2. The device ID is chosen by the device
 
 - **The limit:** the app makes a random device ID and keeps it on the phone. A caller can send a different one, which sidesteps the per-device limits and the rule that a device flags a pin only once.
-- **What bounds it:** the limits across all devices still hold: per hour, 300 uploads, 30 sample runs and 20 chosen photos; per day, 150 sample runs and 120 chosen photos. Every Meta call also stops at the spending limit on the Meta credits, and stop switches turn off uploads or model calls without a redeploy. Flag counts are shown, but they never hide a pin by themselves.
+- **What bounds it:** the limits across all devices still hold: per hour, 300 uploads, 30 sample runs and 20 chosen photos; per day, 100 uploads, 150 sample runs and 120 chosen photos, and 300 paid analyses in all. Every Meta call also stops at the spending limit on the Meta credits, and stop switches turn off uploads or model calls without a redeploy. Flag counts are shown, but they never hide a pin by themselves.
 - **A fuller fix,** not built: a second limit tied to the network the request comes from, kept only as a short-lived hash.
 
 ### 3. A nearby search reads more than it returns

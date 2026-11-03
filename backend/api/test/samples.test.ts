@@ -401,13 +401,29 @@ describe("POST /samples/{sampleId}", () => {
       increment(`sample#${sha256(DEVICE)}#2026-10-30T10`, 5),
       increment("sample#ALL#2026-10-30T10", 30),
     ]);
-    // The day's cap in all is 150 (C534); its counter's key has no hour.
+    // The day's cap in all is 150 (C534), and the day shared by every paid analysis is 300 (Codex finding 3); their
+    // counters' keys have no hour.
     for (const update of updates().filter((u) => u.ConditionExpression !== undefined)) {
       const pk = String(update.Key?.pk);
-      const limit = pk === "sample#ALL#2026-10-30" ? 150 : pk.startsWith("sample#ALL#") ? 30 : 5;
+      const limit =
+        pk === "analysis#ALL#2026-10-30" ? 300 : pk === "sample#ALL#2026-10-30" ? 150 : pk.startsWith("sample#ALL#") ? 30 : 5;
       expect(update.ExpressionAttributeValues?.[":limit"], pk).toBe(limit);
     }
     expect(counts.get("sample#ALL#2026-10-30")).toBe(30);
+    expect(counts.get("analysis#ALL#2026-10-30")).toBe(30);
+  });
+
+  // Codex finding 3: the day of paid analyses is shared with uploads and chosen photos.
+  it("refuses a run when the shared day of paid analyses is full, with daily_cap and no item or copy", async () => {
+    counts.set("analysis#ALL#2026-10-30", 300);
+
+    const res = await runSample(LEVEL_SAMPLE, DEVICE, deps());
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({ error: "daily_cap" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(s3Mock.commandCalls(CopyObjectCommand)).toHaveLength(0);
+    expect(counts.get("sample#ALL#2026-10-30")).toBe(0);
   });
 
   it("stops runs while the uploads switch is set", async () => {

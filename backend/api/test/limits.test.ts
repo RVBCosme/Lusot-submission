@@ -3,7 +3,17 @@ import { ConditionalCheckFailedException, DynamoDBClient } from "@aws-sdk/client
 import { DynamoDBDocumentClient, UpdateCommand, type UpdateCommandInput } from "@aws-sdk/lib-dynamodb";
 import { mockClient } from "aws-sdk-client-mock";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type Bucket, deviceKey, giveBack, LIMIT_CODES, LIMITS, type LimitDeps, retryAfterS, take } from "../src/limits";
+import {
+  ANALYSIS_DAY,
+  type Bucket,
+  deviceKey,
+  giveBack,
+  LIMIT_CODES,
+  LIMITS,
+  type LimitDeps,
+  retryAfterS,
+  take,
+} from "../src/limits";
 
 const AT_10_59 = Date.parse("2026-10-30T10:59:00Z") / 1000;
 const AT_11_00 = Date.parse("2026-10-30T11:00:00Z") / 1000;
@@ -78,14 +88,12 @@ describe("take", () => {
 
     const none = `upload#${sha256("none")}#2026-10-30T10`;
     expect(counts.get(none)).toBe(7);
-    expect(updates().filter((input) => input.Key?.pk !== "upload#ALL#2026-10-30T10").every((input) => input.Key?.pk === none)).toBe(true);
+    expect(updates().filter((input) => !String(input.Key?.pk).includes("#ALL#")).every((input) => input.Key?.pk === none)).toBe(true);
   });
 
   it("refuses the 301st upload of the hour in all with global_cap, and gives the device's count back", async () => {
-    // 30 devices at their limit of 10 make the hour's 300.
-    for (let d = 0; d < 30; d++) {
-      for (let i = 0; i < 10; i++) expect(await take("upload", `device-${d}-padding`, AT_10_59, deps())).toBeNull();
-    }
+    // Set directly: the day's cap of 100 uploads now comes before 300 real uploads could fill an hour.
+    counts.set("upload#ALL#2026-10-30T10", 300);
 
     const res = await take("upload", DEVICE, AT_10_59, deps());
 
@@ -133,9 +141,12 @@ describe("take", () => {
     expect(updates()).toEqual([
       increment(device("upload"), 10),
       increment("upload#ALL#2026-10-30T10", 300),
+      increment("upload#ALL#2026-10-30", 100, dayExpiresAt),
+      increment("analysis#ALL#2026-10-30", 300, dayExpiresAt),
       increment(device("sample"), 5),
       increment("sample#ALL#2026-10-30T10", 30),
       increment("sample#ALL#2026-10-30", 150, dayExpiresAt),
+      increment("analysis#ALL#2026-10-30", 300, dayExpiresAt),
     ]);
 
     // The give-back, when the hour's cap refuses.
@@ -162,8 +173,8 @@ describe("take", () => {
     const [first, second] = updates();
     expect(first.Key).toEqual({ pk: `upload#${sha256(DEVICE)}#2026-10-30T10` });
     expect(second.Key).toEqual({ pk: "upload#ALL#2026-10-30T10" });
-    for (const input of updates()) {
-      expect(JSON.stringify(input)).not.toContain(DEVICE);
+    for (const input of updates()) expect(JSON.stringify(input)).not.toContain(DEVICE);
+    for (const input of [first, second]) {
       expect(input.ExpressionAttributeValues?.[":expiresAt"]).toBe(Date.parse("2026-10-30T10:00:00Z") / 1000 + 7200);
     }
   });
@@ -291,8 +302,8 @@ describe("take for chosen photos and the day caps", () => {
   it("caps chosen photos at 3 per device and 20 an hour in all, and 120 a UTC day in all", () => {
     expect(LIMITS.try).toEqual({ device: 3, all: 20, day: 120 });
     expect(LIMITS.sample).toEqual({ device: 5, all: 30, day: 150 });
-    // Uploads and questions have no day cap.
-    expect(LIMITS.upload).toEqual({ device: 10, all: 300 });
+    // Uploads have a day of 100, so they alone can't fill the shared day of paid analyses; questions have no day cap.
+    expect(LIMITS.upload).toEqual({ device: 10, all: 300, day: 100 });
     expect(LIMITS.question).toEqual({ device: 20, all: 60 });
   });
 
@@ -356,12 +367,117 @@ describe("take for chosen photos and the day caps", () => {
     expect(day[0].ExpressionAttributeValues).toEqual({ ":one": 1, ":limit": 120, ":expiresAt": NEXT_DAY + 2 * DAY_S });
   });
 
-  it("never counts a day for uploads or questions", async () => {
+  it("counts an upload's own day, then the shared day, and never a day of any kind for questions", async () => {
     await take("upload", DEVICE, AT_10_59, deps());
     await take("question", DEVICE, AT_10_59, deps());
 
-    expect(updates().map((input) => input.Key?.pk)).not.toContain("upload#ALL#2026-10-30");
-    expect(updates()).toHaveLength(4);
+    expect(updates().map((input) => input.Key?.pk)).toEqual([
+      `upload#${sha256(DEVICE)}#2026-10-30T10`,
+      "upload#ALL#2026-10-30T10",
+      "upload#ALL#2026-10-30",
+      "analysis#ALL#2026-10-30",
+      `question#${sha256(DEVICE)}#2026-10-30T10`,
+      "question#ALL#2026-10-30T10",
+    ]);
+  });
+});
+
+// Codex finding 3: uploads, sample runs and chosen photos all pay for one analysis, so they share one cap per UTC
+// day, and a day refused on one route can't be had on another.
+describe("take and the shared day cap on paid analyses", () => {
+  const body = (res: Awaited<ReturnType<typeof take>>) => JSON.parse(res?.body ?? "");
+  const DAY_S = 86400;
+  const MIDNIGHT = Date.parse("2026-10-31T00:00:00Z") / 1000;
+
+  it("caps paid analyses at 300 a UTC day in all", () => {
+    expect(ANALYSIS_DAY).toBe(300);
+  });
+
+  it("counts an upload, a sample run and a chosen photo against the same day, kept 2 days from its start", async () => {
+    expect(await take("upload", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(await take("sample", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(await take("try", DEVICE, AT_10_59, deps())).toBeNull();
+
+    expect(counts.get("analysis#ALL#2026-10-30")).toBe(3);
+    const day = updates().filter((input) => input.Key?.pk === "analysis#ALL#2026-10-30");
+    expect(day).toHaveLength(3);
+    for (const input of day) {
+      expect(input.ConditionExpression).toBe("attribute_not_exists(#n) OR #n < :limit");
+      expect(input.ExpressionAttributeValues).toEqual({ ":one": 1, ":limit": 300, ":expiresAt": MIDNIGHT - DAY_S + 2 * DAY_S });
+    }
+  });
+
+  it("refuses an upload when the day is full with global_cap, the Report screen's line, and a Retry-After to the next UTC midnight", async () => {
+    counts.set("analysis#ALL#2026-10-30", 300);
+
+    const res = await take("upload", DEVICE, AT_10_59, deps());
+
+    expect(res?.statusCode).toBe(429);
+    expect(body(res)).toEqual({ error: "global_cap" });
+    expect(res?.headers["retry-after"]).toBe(String(MIDNIGHT - AT_10_59));
+    expect(counts.get("analysis#ALL#2026-10-30")).toBe(300);
+    // The hour's two counts and the upload's own day go back.
+    expect(counts.get(`upload#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    expect(counts.get("upload#ALL#2026-10-30T10")).toBe(0);
+    expect(counts.get("upload#ALL#2026-10-30")).toBe(0);
+  });
+
+  it("refuses the day's 101st upload with global_cap and a Retry-After to the next UTC midnight, before the shared day", async () => {
+    counts.set("upload#ALL#2026-10-30", 100);
+
+    const res = await take("upload", DEVICE, AT_10_59, deps());
+
+    expect(body(res)).toEqual({ error: "global_cap" });
+    expect(res?.headers["retry-after"]).toBe(String(MIDNIGHT - AT_10_59));
+    expect(counts.get(`upload#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    expect(counts.get("upload#ALL#2026-10-30T10")).toBe(0);
+    expect(counts.get("analysis#ALL#2026-10-30")).toBeUndefined();
+  });
+
+  // The review of the first cut: uploads cost nothing to ask for, so a burst of them mustn't shut chosen photos and
+  // samples out for the rest of the day.
+  it("leaves room in the shared day for chosen photos and samples once uploads hit their own day", async () => {
+    for (let d = 0; d < 10; d++) {
+      for (let i = 0; i < 10; i++) expect(await take("upload", `device-${d}-padding`, AT_10_59, deps())).toBeNull();
+    }
+    expect(body(await take("upload", "device-another-one", AT_10_59, deps()))).toEqual({ error: "global_cap" });
+
+    expect(await take("try", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(await take("sample", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(counts.get("analysis#ALL#2026-10-30")).toBe(102);
+  });
+
+  it.each(["try", "sample"] as const)(
+    "refuses a %s when the day is full with daily_cap, and gives back the hour's counts and its own day's",
+    async (bucket) => {
+      counts.set("analysis#ALL#2026-10-30", 300);
+
+      const res = await take(bucket, DEVICE, AT_10_59, deps());
+
+      expect(res?.statusCode).toBe(429);
+      expect(body(res)).toEqual({ error: "daily_cap" });
+      expect(res?.headers["retry-after"]).toBe(String(MIDNIGHT - AT_10_59));
+      expect(counts.get(`${bucket}#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+      expect(counts.get(`${bucket}#ALL#2026-10-30T10`)).toBe(0);
+      expect(counts.get(`${bucket}#ALL#2026-10-30`)).toBe(0);
+      expect(counts.get("analysis#ALL#2026-10-30")).toBe(300);
+    },
+  );
+
+  it("doesn't count the shared day when a route's own counter refuses first", async () => {
+    counts.set("try#ALL#2026-10-30", 120);
+
+    expect(body(await take("try", DEVICE, AT_10_59, deps()))).toEqual({ error: "daily_cap" });
+
+    expect(counts.get("analysis#ALL#2026-10-30")).toBeUndefined();
+  });
+
+  it("starts the shared day again at the next UTC midnight", async () => {
+    counts.set("analysis#ALL#2026-10-30", 300);
+
+    expect(await take("upload", DEVICE, MIDNIGHT, deps())).toBeNull();
+
+    expect(counts.get("analysis#ALL#2026-10-31")).toBe(1);
   });
 });
 
