@@ -334,8 +334,8 @@ function toolCtx(q: Question): ToolCtx {
   };
 }
 
-// --- the marks: the geocode by 7.5 s and the pins read by 8.5 s (spec §4.1; 10 s and 11 s for a spoken question,
-// §4.7), the spend write by 12 s and the pause
+// --- the marks: the geocode by 7.5 s and the pins read by 8.5 s (spec §4.1; 11 s and 12 s for a spoken question,
+// §4.7), the spend write by 12.5 s and the pause
 // by 14 s (C736) ---------------------------------------------------------------------------------------------------
 
 // A call that hadn't returned by its mark. Its name is what the log lines show.

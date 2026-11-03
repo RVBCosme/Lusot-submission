@@ -89,8 +89,8 @@ What makes it worth judging (plan Table 21, Table 28; M33, the agentic prize) is
 | By | What must be done |
 |---|---|
 | 7.0 s | the transcript, for a spoken question; otherwise a 503 `voice_failed`. It was 4.0 s until Nov 3 (§4.7). |
-| 7.5 s | the model's last turn. Every Meta call carries this deadline, and a retry that would end after it isn't made. Nominatim is asked only with at least 2.5 s left. The final turn starts only with at least 1.5 s left, and without it the answer comes from turn 1's call (§4.3). |
-| 8.5 s | the answer returned, the plain list included; otherwise a 503 `ask_unavailable` |
+| 7.5 s (11 s for a spoken question, §4.7) | the model's last turn. Every Meta call carries this deadline, and a retry that would end after it isn't made. Nominatim is asked only with at least 2.5 s left. The final turn starts only with at least 1.5 s left, and without it the answer comes from turn 1's call (§4.3). |
+| 8.5 s (12 s spoken) | the answer returned, the plain list included; otherwise a 503 `ask_unavailable` |
 
 The phone sees the answer within about 9 to 9.5 s at worst, inside plan §12's 10 s, with room for the network and a cold start. The budget's clock starts at the handler, while the 10 s promise is at the phone (MS7's L9). For a spoken question, the clip's upload (about 640 KB of base64 for 15 s) comes before the handler's clock starts, so on a weak connection the phone can wait past 10 s; AK3 records the upload time apart, so that is measured, not assumed. The API function's timeout rises from 10 s to 15 s only as a backstop, so a slow plain list still reaches the person instead of API Gateway's error (C701). The probe (C731) measures the real turn times and may move these numbers, by a recorded ruling within C734.
 
@@ -217,8 +217,8 @@ The order (C713):
 - An empty transcript answers `no_speech`. A failed or late transcription answers a 503 `voice_failed`, and the app offers typing.
 - **The voice marks (Nov 3).** Window 2's live capture found 6 to 7 s Taglish clips cut off at the old 4 s mark. The steps before the call take about 1.2 s, so the transcription got about 2.8 s and was aborted. The fix has three parts:
   - The transcription mark is now 7 s.
-  - A spoken question's model and answer marks come 2.5 s later than a typed question's, at 10 s and 11 s (`BUDGET.voiceExtra`, `Deadline.spoken`). A typed question keeps 7.5 s and 8.5 s.
-  - The settle and pause marks stay at 12 s and 14 s, so every request still ends inside the API function's 15 s (C736).
+  - A spoken question's model and answer marks come 3.5 s later than a typed question's, at 11 s and 12 s (`BUDGET.voiceExtra`, `Deadline.spoken`). A typed question keeps 7.5 s and 8.5 s. The extra was 2.5 s in the first fix. A live spoken question about a place outside the spot list then had too little time left for Nominatim, because its transcription had taken about 3 s.
+  - The settle mark is 12.5 s, up from 12 s, and the pause mark stays at 14 s, so every request still ends inside the API function's 15 s (C736). A spoken question's spend write has about 0.5 s; one DynamoDB write takes milliseconds.
 
   A spoken answer can now reach the phone after plan §12's 10 s; the clip's upload already could. The app shows `voice_failed` with the try-again line (`ask.error.unavailable`), not the line for a clip it couldn't hear.
 
