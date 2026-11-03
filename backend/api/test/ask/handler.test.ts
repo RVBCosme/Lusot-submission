@@ -1276,7 +1276,7 @@ describe("POST /ask/voice: the transcript (spec §4.7)", () => {
     expect(lastAskLine()).toMatchObject({ meta_status: status });
   });
 
-  it("the transcription's 4 s count from the handler's start", async () => {
+  it("the transcription's 7 s count from the handler's start", async () => {
     w.modelKey.get.mockImplementation(async () => {
       clock += 500;
       return KEY;

@@ -94,7 +94,8 @@ export async function askTyped(req: AskRequest, deps: AskDeps): Promise<JsonResp
 }
 
 // POST /ask/voice (spec §4.1, §4.7): check the clip, then the pauses, before anything is counted, since transcription
-// is a Meta call; count it, transcribe it by 4 s, and answer the transcript as a typed question, with the transcript.
+// is a Meta call; count it, transcribe it by 7 s, and answer the transcript as a typed question, with the transcript,
+// by marks voiceExtra later (deadline.ts).
 export async function askVoice(req: AskRequest, deps: AskDeps): Promise<JsonResponse> {
   return handle("ask_voice", spoken, req, deps);
 }
@@ -333,7 +334,8 @@ function toolCtx(q: Question): ToolCtx {
   };
 }
 
-// --- the marks: the geocode by 7.5 s and the pins read by 8.5 s (spec §4.1), the spend write by 12 s and the pause
+// --- the marks: the geocode by 7.5 s and the pins read by 8.5 s (spec §4.1; 10 s and 11 s for a spoken question,
+// §4.7), the spend write by 12 s and the pause
 // by 14 s (C736) ---------------------------------------------------------------------------------------------------
 
 // A call that hadn't returned by its mark. Its name is what the log lines show.
