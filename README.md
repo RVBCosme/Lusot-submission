@@ -1,12 +1,113 @@
 # Lusot
 
-Lusot reports how deep a flood is at one spot in Metro Manila, in MMDA's own gauge levels and passability classes, and it shows its evidence. Each report is a phone photo. SAM 3.1 outlines the water, the wheels and the people in it. Muse Spark 1.3 names where the water meets them, and code turns that into a level. Rim geometry adds a depth range in inches only where it passes its release gate. The result goes on a live map, and Ask Lusot answers typed or spoken Taglish questions from nearby reports. When the photo can't support a reading, Lusot says it can't tell.
+**How deep is the flood at this spot?** Lusot reads it from a photo, in MMDA's own gauge levels, and shows its evidence. When a photo can't support a reading, it says it can't tell instead of guessing.
 
 > Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.
 
-**Status:** in development for the Meta Global AI Developer Hackathon (Indie track). Everything in this repository was written during the event, from Oct 27, 2026, except the third-party files and data credited below. Progress is tracked in [docs/PROGRESS.md](docs/PROGRESS.md).
+**Try it:** https://main.duvef5t2zfoy9.amplifyapp.com: open **Tested → Samples → Run this sample**, or **Try your own photo**.
+**Android app:** `[link to the release APK, added at submission]`
+**Demo video (3 min):** `[link, added at submission]`
 
-Not affiliated with MMDA.
+Built for the Meta Global AI Developer Hackathon (Indie track, "Build for Your World"). Everything here was written during the event, from Oct 27, 2026, except the third-party files and data credited below. Not affiliated with MMDA.
+
+## Demo: try it in 2 minutes
+
+Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp.com. Each live reading runs the real pipeline on Meta's models and takes about 40 seconds.
+
+1. **Tested → Samples.** Run these credited photos. Each one runs live, and each read correctly 3 times out of 3 in our checks:
+   - **Typhoon Ondoy, 2009 (people pushing a cart):** tire level, so "Verdict at this spot: Not passable to any vehicle".
+   - **Los Baños, Laguna, Typhoon Ondoy (water up to the waist):** waist level.
+   - **Macabebe, Pampanga, Typhoon Goni, and a Bulacan street:** below gutter, so "Passable to all vehicles", read from an SUV's tyre.
+   - **Makati at night, and dry streets in Manila and Quezon City:** "No flood seen".
+   - **Calumpit, Bulacan:** an honest "can't tell". There's a person at ankle depth and motorcycles, but no landmark Lusot trusts.
+2. **Look at the result:** the verdict, the level on a gauge, the depth range in metres and inches, and the photo with numbered outlines (the one that set the level is highlighted). Open **Details** to see why each object was used or not.
+3. **Try your own photo** (Tested page): choose a flood photo from your device. It works best with a parked car's wheel or a person standing still in view. The result is shown only to you and never goes on the map.
+4. **Map:** live pins from readings in Metro Manila (demo pins are labelled).
+5. **Ask:** type or speak a question about a place, in English or Taglish. The answer comes only from nearby reports and names each one.
+
+The **Android app** (`[APK link]`) is the same app installed on the phone, with its own loading screen. The camera Report flow works on both the app and the website.
+Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chosen photos per device per hour.
+
+## What it does
+
+- **A depth reading from one photo.** Take a photo from a dry spot (Report), run a credited sample (Tested), or choose your own photo (Try your own photo).
+- **A verdict at this spot.** The result names MMDA's passability class for the level ("Not passable to light vehicles"), the level itself ("knee"), and the level's depth range in metres and inches. A gauge shaped like the logo marks the reading among the 9 levels.
+- **Evidence on the photo.** Numbered outlines show the water, the wheels and the people Lusot found, and which one set the level.
+- **A live map.** A reading taken in Metro Manila becomes a pin, so others can see what's happening at that spot.
+- **Ask Lusot.** Ask a question by text or voice, in English or Taglish, and get an answer drawn only from nearby reports, each one named.
+- **An honest "can't tell".** No usable car wheel or standing person, too dark, too blurry: Lusot says so, and says how to retake the photo from a dry spot.
+
+## How it uses Meta's models
+
+| Model | Its one job in Lusot |
+|---|---|
+| **SAM 3.1** (Meta Model API) | Outlines the water, the wheels, the vehicles and the people in the photo |
+| **Muse Spark** (Meta Model API) | Reads where the water meets each outlined object (for example "tire only", "mid-thigh"), and in Ask Lusot decides what to look up and calls Lusot's report tool |
+| **Muse Voice Transcribe** (Meta Model API) | Turns a spoken Taglish question into text |
+
+**Code, not the models, does the measuring:** the models never output a depth. Lusot's own rules (in `eval/rules.md`, fixed before any result was seen) turn each object's waterline into one of 9 ordered levels: MMDA's 7 gauge levels (gutter, half-knee, half-tire, knee, tire, waist, chest) plus below gutter and above chest. The deepest believable reading wins, and readings that disagree by more than one level mean "can't tell".
+
+## How a reading works
+
+1. **Photo in:** from the camera (with location, for the map) or chosen from the device (never on the map).
+2. **Faces are blurred first,** on Lusot's own server, before Meta receives anything.
+3. **SAM 3.1** outlines the water and the objects; **Muse Spark** names each waterline.
+4. **Lusot's rules** drop what can't be trusted (a moving or unusual vehicle, a person who is walking, too small or at ankle depth) and turn the rest into a level and MMDA's class.
+5. **The result** shows the verdict, the level, the depth range and the evidence. The original photo is deleted; a blurred copy is kept for 7 days.
+
+## How Lusot meets the judging criteria
+
+**Impact (30%): Build for Your World.**
+- In July 2025, MMDA identified 49 flood-prone areas in Metro Manila (ABS-CBN, Jul 2025).
+- Drivers, commuters, and jeepney and tricycle riders face the same question every rainy season: how deep is it at this spot right now? Lusot answers it in MMDA's own gauge words (gutter, knee, tire, waist…), which people already use. It shows the evidence, so a reader can judge it.
+- Readings in Metro Manila become live map pins and feed Ask Lusot, so one person's photo helps others nearby.
+
+**Use of Meta AI tooling (25%).**
+- Three Meta models, each with a distinct job, combined with deterministic code:
+  - SAM 3.1 for segmentation;
+  - Muse Spark for waterline reading and as a tool-calling agent in Ask Lusot;
+  - Muse Voice Transcribe for spoken Taglish questions.
+- The models describe what they see; Lusot's published rules turn that into a level. That keeps the result explainable and testable, instead of trusting a model to guess inches.
+
+**Technical depth and execution (20%).**
+- **An honest evaluation:** scoring rules written before any result was seen; a sealed set of city-office photos run once, by the frozen system; every figure reported with its n.
+- **Privacy by design:**
+  - faces are blurred before Meta receives a photo;
+  - originals are deleted;
+  - reports expire after 7 days;
+  - no accounts.
+- **Engineering:**
+  - about 5,900 automated tests (the app, the API, the analysis and the evaluation), run in CI on every push;
+  - secret scanning on every commit;
+  - a serverless AWS backend with rate limits, a spending stop and alarms;
+  - an accessibility check (axe) on the end-to-end suite.
+- **Known limits are published,** not hidden (see below).
+
+**Demo (25%).**
+- A live website and an Android app, running on the real pipeline. See "Demo: try it in 2 minutes" above.
+- Credited samples that hold up live, each checked 3 out of 3.
+- "Try your own photo", with honest feedback when a photo can't be read.
+- The 3-minute video: `[link]`.
+
+## Results: tested where it matters most (indicative, small samples)
+
+The scoring rules were written before any result existed, and a set of photos labelled by MMDA and city offices stayed sealed until the frozen system ran on them once.
+
+| Strength | Evidence |
+|---|---|
+| **No dangerous readings** | 0 readings shallow enough to change the verdict, across every test set |
+| **No false alarms** | 0 of 15 dry-street photos reported as flooded |
+| **Correct when it reads** | 8 of 9 levels matched the label on open-licence photos; 9 of 9 in repeat runs of the live samples |
+| **Reads only what it can verify** | A level is given only when a car's wheel or a standing person is clear in the photo (17% of open-licence flood photos; 1 of 6 sealed, read deeper than the label). Otherwise Lusot says how to retake the photo. |
+
+Full reports: [eval/results/](eval/results/). Scope and design decisions: [docs/research/2026-11-02-known-limits-demo-judgment.md](docs/research/2026-11-02-known-limits-demo-judgment.md).
+
+## Privacy
+
+- Faces are blurred automatically before Meta receives a photo. Automatic blurring can miss some faces (very small, side-on or in the dark). Licence plates are blurred before Lusot stores a copy.
+- The original photo is deleted after analysis. Reports are kept for 7 days.
+- No accounts, no names.
+- The full policy is in the app (About → Privacy).
 
 ## Repository layout
 
