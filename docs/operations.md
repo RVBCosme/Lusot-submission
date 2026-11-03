@@ -11,7 +11,9 @@ The analysis Lambda sets `/lusot/stop/model-calls` to `on` (C527) when:
 - the counter isn't seeded yet, as in a new or re-created limits table
 - it can't write a run's cost to the counter
 
-Each flip logs `spend_stop` or `spend_error`, and `SpendPauseAlarm` emails. The alarm clearing doesn't clear the switch: it stays on until someone clears it.
+Ask Lusot's API sets the same switch on the same grounds (C736). It also sets it when a question's spend write fails or ends after its settle mark, 12.5 s into the request; that is the thinnest margin, about 0.5 s for a spoken question (Nov 3).
+
+Each flip logs `spend_stop` or `spend_error`, and `SpendPauseAlarm` emails. The alarm clearing doesn't clear the switch: it stays on until someone clears it. If `spend_error` ever sets the model-calls stop, reset it with steps 1 to 4 below.
 
 The credit guard (C533) sets the same switch `on` at `CreditExpiresAt`, the UTC time the Meta credits lapse, with no log line: `CreditExpirySchedule` puts the parameter itself. **Past that time, never clear the switch, whatever the counter reads:** a call on lapsed credit bills the card. Ask Rene. About 5 minutes after the time, check that the guard fired:
 
