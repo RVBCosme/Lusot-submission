@@ -14,7 +14,7 @@ Built for the Meta Global AI Developer Hackathon (Indie track, "Build for Your W
 
 Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp.com. Each live reading runs the real pipeline on Meta's models and takes about 40 seconds.
 
-1. **Tested → Samples.** Run these credited photos. Each one runs live, and each read correctly 3 times out of 3 in our checks:
+1. **Tested → Samples.** Run these credited photos. Each one runs live. In our checks each read the same way 3 times out of 3: a level for the flood photos, "No flood seen" for the dry streets, and "can't tell" for Calumpit:
    - **Typhoon Ondoy, 2009 (people pushing a cart):** tire level, so "Verdict at this spot: Not passable to any vehicle".
    - **Los Baños, Laguna, Typhoon Ondoy (water up to the waist):** waist level.
    - **Macabebe, Pampanga, Typhoon Goni, and a Bulacan street:** below gutter, so "Passable to all vehicles", read from an SUV's tyre.
@@ -85,7 +85,7 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 
 **Demo (25%).**
 - A live website and an Android app, running on the real pipeline. See "Demo: try it in 2 minutes" above.
-- Credited samples that hold up live, each checked 3 out of 3.
+- Credited samples that hold up live, each giving the same answer 3 out of 3.
 - "Try your own photo", with honest feedback when a photo can't be read.
 - The 3-minute video: `[link]`.
 
@@ -96,8 +96,8 @@ The scoring rules were written before any result existed, and a set of photos la
 | Strength | Evidence |
 |---|---|
 | **No dangerous readings** | 0 readings shallow enough to change the verdict, across every test set |
-| **No false alarms** | 0 of 15 dry-street photos reported as flooded |
-| **Correct when it reads** | 8 of 9 levels matched the label on open-licence photos; 9 of 9 in repeat runs of the live samples |
+| **No false alarms** | 0 of 15 flood-free street photos reported as flooded |
+| **Correct when it reads** | 8 of 9 levels matched the label on open-licence photos; 9 of 9 levels matched in 15 repeat runs of 3 samples (the other 6 said "can't tell") |
 | **Reads only what it can verify** | A level is given only when a car's wheel or a standing person is clear in the photo (17% of open-licence flood photos; 1 of 6 sealed, read deeper than the label). Otherwise Lusot says how to retake the photo. |
 
 Full reports: [eval/results/](eval/results/). Scope and design decisions: [docs/research/2026-11-02-known-limits-demo-judgment.md](docs/research/2026-11-02-known-limits-demo-judgment.md).

@@ -560,7 +560,8 @@ describe("transcribe", () => {
   });
 
   it("Retry-After past the transcription mark means no retry", async () => {
-    replies = [fail(503, { "retry-after": "3" })];
+    // A second past the mark.
+    replies = [fail(503, { "retry-after": String(BUDGET.transcribeBy / 1000 + 1) })];
     const meta = createMeta(deps());
 
     const err = await failure(meta.transcribe(WAV, OPTS, voiceDeadline(), BUDGET.transcribeBy));

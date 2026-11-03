@@ -273,7 +273,8 @@ describe('AskScreen', () => {
 
   it.each([
     [503, 'voice_paused', 'ask.error.voicePaused'],
-    [503, 'voice_failed', 'ask.error.voiceFailed'],
+    // A failed or late transcription is a passing fault, not a clip that went unheard (Nov 3).
+    [503, 'voice_failed', 'ask.error.unavailable'],
     [422, 'audio_too_short', 'ask.error.voiceFailed'],
     [422, 'audio_too_long', 'ask.error.voiceFailed'],
     [400, 'bad_audio', 'ask.error.voiceFailed'],

@@ -88,7 +88,7 @@ What makes it worth judging (plan Table 21, Table 28; M33, the agentic prize) is
 
 | By | What must be done |
 |---|---|
-| 4.0 s | the transcript, for a spoken question; otherwise a 503 `voice_failed` |
+| 7.0 s | the transcript, for a spoken question; otherwise a 503 `voice_failed`. It was 4.0 s until Nov 3 (§4.7). |
 | 7.5 s | the model's last turn. Every Meta call carries this deadline, and a retry that would end after it isn't made. Nominatim is asked only with at least 2.5 s left. The final turn starts only with at least 1.5 s left, and without it the answer comes from turn 1's call (§4.3). |
 | 8.5 s | the answer returned, the plain list included; otherwise a 503 `ask_unavailable` |
 
@@ -215,6 +215,12 @@ The order (C713):
 - `muse-voice-transcribe-1.0` receives the clip with `mode: "PUSH_TO_TALK"`, `languageBias: ["Tagalog", "English"]` (the probe confirms the names Meta takes), and as `keywords` (plan Table 4) the spot list's display names of at most 30 characters, then three short forms for long names (C741), then each spot's `roads`, each once and each of at most 30 characters, at most 97 in all, names first (C740), a length counted in UTF-8 bytes. On Oct 31 Meta took `["Tagalog", "English"]` as written, the 21 short names alone, and a list of 94; on Nov 1 it took this list of 97. A test pins that exact list, so a spot or road added later fails it before a deploy.
 - The audio stays in the Lambda's memory, goes only to Meta, and is never stored, logged or kept after the answer (plan §13). No `store` setting exists for transcription (F5), so the notice and the policy say that Meta receives the audio and may keep it (§4.9).
 - An empty transcript answers `no_speech`. A failed or late transcription answers a 503 `voice_failed`, and the app offers typing.
+- **The voice marks (Nov 3).** Window 2's live capture found 6 to 7 s Taglish clips cut off at the old 4 s mark. The steps before the call take about 1.2 s, so the transcription got about 2.8 s and was aborted. The fix has three parts:
+  - The transcription mark is now 7 s.
+  - A spoken question's model and answer marks come 2.5 s later than a typed question's, at 10 s and 11 s (`BUDGET.voiceExtra`, `Deadline.spoken`). A typed question keeps 7.5 s and 8.5 s.
+  - The settle and pause marks stay at 12 s and 14 s, so every request still ends inside the API function's 15 s (C736).
+
+  A spoken answer can now reach the phone after plan §12's 10 s; the clip's upload already could. The app shows `voice_failed` with the try-again line (`ask.error.unavailable`), not the line for a clip it couldn't hear.
 
 **M12 is synthetic** (C729; Rene's decision, Oct 29, about 10:46 PM, relayed by the tracker). In place of recordings from 10 adults, the 10 spoken questions are text-to-speech clips in Taglish with street noise mixed in, and every report of them says so. Claude drafts the 10 question scripts, each with the place it means, and Rene reviews them before any clip is made (his rule: Claude annotates first, he reviews). **The engine:** Meta's MMS text-to-speech for Tagalog, `facebook/mms-tts-tgl` (VITS, about 36M parameters, 16 kHz output, run locally with Hugging Face Transformers), licensed CC BY-NC 4.0. The clips are private test data, never shipped or shown, so the non-commercial licence fits; its known weakness is that English words in Taglish are read with Tagalog phonetics, which the results note states. A fixed seed makes each clip reproducible, since the model's durations are random. **The noise:** a CC0 street recording, or generated pink noise if none suits, mixed with FFmpeg at a stated signal-to-noise ratio, then written as 16 kHz mono 16-bit WAV. Synthetic voices are an easier test than real speakers, so AK2's count of places heard right is reported as a synthetic result, never as a test of real voices (plan M12's caution). If voice stays weak on Taglish, plan Table 18's fallback holds: typed questions stay the main path, the transcript stays visible, and voice can leave the video (Rene's call, MS8).
 

@@ -6,9 +6,10 @@ const START = Date.parse("2026-10-30T10:00:00Z");
 describe("BUDGET", () => {
   it("holds the spec's times, counted in ms from the handler's start", () => {
     expect(BUDGET).toEqual({
-      transcribeBy: 4000,
+      transcribeBy: 7000,
       modelBy: 7500,
       answerBy: 8500,
+      voiceExtra: 2500,
       settleBy: 12000,
       pauseBy: 14000,
       minTurn: 1500,
@@ -21,6 +22,43 @@ describe("BUDGET", () => {
     expect(BUDGET.answerBy).toBeLessThan(BUDGET.settleBy);
     expect(BUDGET.settleBy).toBeLessThan(BUDGET.pauseBy);
     expect(BUDGET.pauseBy).toBeLessThan(15_000);
+  });
+
+  it("gives a spoken question a model turn after its latest transcript, and still settles before the settle mark", () => {
+    expect(BUDGET.transcribeBy + BUDGET.minTurn).toBeLessThanOrEqual(BUDGET.modelBy + BUDGET.voiceExtra);
+    expect(BUDGET.answerBy + BUDGET.voiceExtra).toBeLessThan(BUDGET.settleBy);
+  });
+});
+
+describe("Deadline.spoken", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(START);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("moves the model and answer marks voiceExtra later, and keeps the transcription, settle and pause marks", () => {
+    const d = new Deadline(START, () => Date.now()).spoken();
+
+    expect(d.remainingMs(BUDGET.modelBy)).toBe(BUDGET.modelBy + BUDGET.voiceExtra);
+    expect(d.remainingMs(BUDGET.answerBy)).toBe(BUDGET.answerBy + BUDGET.voiceExtra);
+    expect(d.remainingMs(BUDGET.transcribeBy)).toBe(BUDGET.transcribeBy);
+    expect(d.remainingMs(BUDGET.settleBy)).toBe(BUDGET.settleBy);
+    expect(d.remainingMs(BUDGET.pauseBy)).toBe(BUDGET.pauseBy);
+
+    const signal = d.signal(BUDGET.modelBy);
+    vi.advanceTimersByTime(BUDGET.modelBy);
+    expect(signal.aborted).toBe(false);
+    vi.advanceTimersByTime(BUDGET.voiceExtra);
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("counts from the same handler start", () => {
+    const d = new Deadline(START - 1000, () => Date.now()).spoken();
+
+    expect(d.remainingMs(BUDGET.modelBy)).toBe(BUDGET.modelBy + BUDGET.voiceExtra - 1000);
   });
 });
 
