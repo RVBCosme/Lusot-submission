@@ -321,7 +321,7 @@ describe("the spoken run", () => {
       const meta = scriptedVoiceMeta(TRANSCRIPTS[next++], []);
       const transcribe = meta.transcribe.bind(meta);
       meta.transcribe = async (...args: Parameters<typeof transcribe>) => {
-        t += 1000; // the transcription takes a second, inside the handler's 4 s budget
+        t += 1000; // the transcription takes a second, inside the handler's 7 s transcription mark
         return transcribe(...args);
       };
       return meta;
