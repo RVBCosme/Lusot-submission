@@ -92,10 +92,8 @@ describe("take", () => {
   });
 
   it("refuses the 301st upload of the hour in all with global_cap, and gives the device's count back", async () => {
-    // 30 devices at their limit of 10 make the hour's 300.
-    for (let d = 0; d < 30; d++) {
-      for (let i = 0; i < 10; i++) expect(await take("upload", `device-${d}-padding`, AT_10_59, deps())).toBeNull();
-    }
+    // Set directly: the day's cap of 100 uploads now comes before 300 real uploads could fill an hour.
+    counts.set("upload#ALL#2026-10-30T10", 300);
 
     const res = await take("upload", DEVICE, AT_10_59, deps());
 
@@ -143,6 +141,7 @@ describe("take", () => {
     expect(updates()).toEqual([
       increment(device("upload"), 10),
       increment("upload#ALL#2026-10-30T10", 300),
+      increment("upload#ALL#2026-10-30", 100, dayExpiresAt),
       increment("analysis#ALL#2026-10-30", 300, dayExpiresAt),
       increment(device("sample"), 5),
       increment("sample#ALL#2026-10-30T10", 30),
@@ -303,8 +302,8 @@ describe("take for chosen photos and the day caps", () => {
   it("caps chosen photos at 3 per device and 20 an hour in all, and 120 a UTC day in all", () => {
     expect(LIMITS.try).toEqual({ device: 3, all: 20, day: 120 });
     expect(LIMITS.sample).toEqual({ device: 5, all: 30, day: 150 });
-    // Uploads and questions have no day cap.
-    expect(LIMITS.upload).toEqual({ device: 10, all: 300 });
+    // Uploads have a day of 100, so they alone can't fill the shared day of paid analyses; questions have no day cap.
+    expect(LIMITS.upload).toEqual({ device: 10, all: 300, day: 100 });
     expect(LIMITS.question).toEqual({ device: 20, all: 60 });
   });
 
@@ -368,14 +367,14 @@ describe("take for chosen photos and the day caps", () => {
     expect(day[0].ExpressionAttributeValues).toEqual({ ":one": 1, ":limit": 120, ":expiresAt": NEXT_DAY + 2 * DAY_S });
   });
 
-  it("never counts a bucket day for uploads, and never a day of any kind for questions", async () => {
+  it("counts an upload's own day, then the shared day, and never a day of any kind for questions", async () => {
     await take("upload", DEVICE, AT_10_59, deps());
     await take("question", DEVICE, AT_10_59, deps());
 
-    expect(updates().map((input) => input.Key?.pk)).not.toContain("upload#ALL#2026-10-30");
     expect(updates().map((input) => input.Key?.pk)).toEqual([
       `upload#${sha256(DEVICE)}#2026-10-30T10`,
       "upload#ALL#2026-10-30T10",
+      "upload#ALL#2026-10-30",
       "analysis#ALL#2026-10-30",
       `question#${sha256(DEVICE)}#2026-10-30T10`,
       "question#ALL#2026-10-30T10",
@@ -417,9 +416,35 @@ describe("take and the shared day cap on paid analyses", () => {
     expect(body(res)).toEqual({ error: "global_cap" });
     expect(res?.headers["retry-after"]).toBe(String(MIDNIGHT - AT_10_59));
     expect(counts.get("analysis#ALL#2026-10-30")).toBe(300);
-    // The hour's two counts go back.
+    // The hour's two counts and the upload's own day go back.
     expect(counts.get(`upload#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
     expect(counts.get("upload#ALL#2026-10-30T10")).toBe(0);
+    expect(counts.get("upload#ALL#2026-10-30")).toBe(0);
+  });
+
+  it("refuses the day's 101st upload with global_cap and a Retry-After to the next UTC midnight, before the shared day", async () => {
+    counts.set("upload#ALL#2026-10-30", 100);
+
+    const res = await take("upload", DEVICE, AT_10_59, deps());
+
+    expect(body(res)).toEqual({ error: "global_cap" });
+    expect(res?.headers["retry-after"]).toBe(String(MIDNIGHT - AT_10_59));
+    expect(counts.get(`upload#${sha256(DEVICE)}#2026-10-30T10`)).toBe(0);
+    expect(counts.get("upload#ALL#2026-10-30T10")).toBe(0);
+    expect(counts.get("analysis#ALL#2026-10-30")).toBeUndefined();
+  });
+
+  // The review of the first cut: uploads cost nothing to ask for, so a burst of them mustn't shut chosen photos and
+  // samples out for the rest of the day.
+  it("leaves room in the shared day for chosen photos and samples once uploads hit their own day", async () => {
+    for (let d = 0; d < 10; d++) {
+      for (let i = 0; i < 10; i++) expect(await take("upload", `device-${d}-padding`, AT_10_59, deps())).toBeNull();
+    }
+    expect(body(await take("upload", "device-another-one", AT_10_59, deps()))).toEqual({ error: "global_cap" });
+
+    expect(await take("try", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(await take("sample", DEVICE, AT_10_59, deps())).toBeNull();
+    expect(counts.get("analysis#ALL#2026-10-30")).toBe(102);
   });
 
   it.each(["try", "sample"] as const)(

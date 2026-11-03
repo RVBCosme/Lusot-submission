@@ -7,7 +7,7 @@ export type Bucket = "upload" | "sample" | "try" | "question";
 // Per UTC clock hour (C508, MS4-Q13): each device's count, then the count in all. A bucket with a
 // day also has a cap in all per UTC day (C534), so judging can't drain the Meta credits.
 export const LIMITS: Record<Bucket, { device: number; all: number; day?: number }> = {
-  upload: { device: 10, all: 300 },
+  upload: { device: 10, all: 300, day: 100 },
   sample: { device: 5, all: 30, day: 150 },
   try: { device: 3, all: 20, day: 120 },
   question: { device: 20, all: 60 },
@@ -23,10 +23,11 @@ export const LIMIT_CODES: Record<Bucket, { device: string; all: string }> = {
 const DAY_CODE = "daily_cap"; // C534
 
 // Codex finding 3: every upload, sample run and chosen photo pays for one analysis, so all three share one cap per
-// UTC day in all, and a day refused on one route can't be had on another. 300 is the try and sample days (270) and
-// some uploads; at about $0.03 an analysis that is about $9 a day, under the spend stop.
+// UTC day in all, and a day refused on one route can't be had on another. Each route's own day is below it (uploads
+// 100, chosen photos 120, samples 150), so no one route can fill it: an upload link costs nothing to ask for, so a
+// burst of them mustn't shut the others out. At about $0.03 an analysis, 300 is about $9 a day, under the spend stop.
 export const ANALYSIS_DAY = 300;
-// An upload refused by the shared day gets global_cap, the one cap the Report screen has a line for.
+// An upload refused by a day, its own or the shared one, gets global_cap, the one cap the Report screen has a line for.
 const ANALYSIS_CODES: Partial<Record<Bucket, string>> = { upload: "global_cap", sample: DAY_CODE, try: DAY_CODE };
 
 const DEVICE_ID = /^[A-Za-z0-9_-]{8,64}$/;
@@ -87,7 +88,7 @@ export async function take(
     // can be refused by the device or the hour instead of the day: a refusal either way, never a run.
     await decrement(device, deps);
     await decrement(`${bucket}#ALL#${hour}`, deps);
-    return refuse(DAY_CODE, nowS, dayStartS + DAY_S - nowS);
+    return refuse(ANALYSIS_CODES[bucket] ?? DAY_CODE, nowS, dayStartS + DAY_S - nowS);
   }
   const analysisCode = ANALYSIS_CODES[bucket];
   const analysisKey = `analysis#ALL#${date}`;

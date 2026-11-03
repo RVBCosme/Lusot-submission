@@ -413,6 +413,19 @@ describe("POST /samples/{sampleId}", () => {
     expect(counts.get("analysis#ALL#2026-10-30")).toBe(30);
   });
 
+  // Codex finding 3: the day of paid analyses is shared with uploads and chosen photos.
+  it("refuses a run when the shared day of paid analyses is full, with daily_cap and no item or copy", async () => {
+    counts.set("analysis#ALL#2026-10-30", 300);
+
+    const res = await runSample(LEVEL_SAMPLE, DEVICE, deps());
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({ error: "daily_cap" });
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(s3Mock.commandCalls(CopyObjectCommand)).toHaveLength(0);
+    expect(counts.get("sample#ALL#2026-10-30")).toBe(0);
+  });
+
   it("stops runs while the uploads switch is set", async () => {
     ssmMock.on(GetParameterCommand, { Name: "/lusot/stop/uploads" }).resolves({ Parameter: { Value: "on" } });
 
