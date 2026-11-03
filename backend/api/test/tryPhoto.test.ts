@@ -160,6 +160,7 @@ describe("POST /try", () => {
       `try#${sha256(DEVICE)}#2026-10-30T10`,
       "try#ALL#2026-10-30T10",
       "try#ALL#2026-10-30",
+      "analysis#ALL#2026-10-30",
     ]);
 
     // Each counter refusing in turn gives its own code, and no report is stored.
@@ -167,6 +168,7 @@ describe("POST /try", () => {
       [`try#${sha256(DEVICE)}#`, "device_limit"],
       ["try#ALL#2026-10-30T10", "global_cap"],
       ["try#ALL#2026-10-30", "daily_cap"],
+      ["analysis#ALL#2026-10-30", "daily_cap"],
     ] as const) {
       ddbMock.reset();
       ddbMock.on(PutCommand).resolves({});

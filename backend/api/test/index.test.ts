@@ -72,7 +72,7 @@ describe("route", () => {
     const hour = NOW_ISO.slice(0, 13);
     const keys = ddbMock.commandCalls(UpdateCommand).map((call) => call.args[0].input.Key?.pk);
     const hash = createHash("sha256").update(device).digest("hex");
-    expect(keys).toEqual([`upload#${hash}#${hour}`, `upload#ALL#${hour}`]);
+    expect(keys).toEqual([`upload#${hash}#${hour}`, `upload#ALL#${hour}`, `analysis#ALL#${NOW_ISO.slice(0, 10)}`]);
   });
 
   it("decodes a base64 body", async () => {

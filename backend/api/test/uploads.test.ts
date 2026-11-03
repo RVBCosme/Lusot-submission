@@ -276,6 +276,25 @@ describe("POST /uploads", () => {
     expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
   });
 
+  // Codex finding 3: a day of paid analyses used up by chosen photos and samples can't be had by an upload instead.
+  it("refuses an upload when the shared day of paid analyses is full, with global_cap and no item or upload link", async () => {
+    ddbMock.on(UpdateCommand).callsFake((input: UpdateCommandInput) => {
+      if (input.ConditionExpression !== undefined && input.Key?.pk === "analysis#ALL#2026-10-30") {
+        throw new ConditionalCheckFailedException({ message: "The conditional request failed", $metadata: {} });
+      }
+      return {};
+    });
+
+    const res = await createUpload(body(), DEVICE, deps());
+
+    expect(res.statusCode).toBe(429);
+    expect(JSON.parse(res.body)).toEqual({ error: "global_cap" });
+    // The seconds left in the UTC day at 10:06:40.
+    expect(res.headers["retry-after"]).toBe(String(Date.parse("2026-10-31T00:00:00Z") / 1000 - Date.parse("2026-10-30T10:06:40Z") / 1000));
+    expect(ddbMock.commandCalls(PutCommand)).toHaveLength(0);
+    expect(res.body).not.toContain("upload");
+  });
+
   it("never stores a device id on the report", async () => {
     await createUpload(body(), DEVICE, deps());
 

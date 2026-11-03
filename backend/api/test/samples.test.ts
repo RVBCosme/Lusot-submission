@@ -401,13 +401,16 @@ describe("POST /samples/{sampleId}", () => {
       increment(`sample#${sha256(DEVICE)}#2026-10-30T10`, 5),
       increment("sample#ALL#2026-10-30T10", 30),
     ]);
-    // The day's cap in all is 150 (C534); its counter's key has no hour.
+    // The day's cap in all is 150 (C534), and the day shared by every paid analysis is 300 (Codex finding 3); their
+    // counters' keys have no hour.
     for (const update of updates().filter((u) => u.ConditionExpression !== undefined)) {
       const pk = String(update.Key?.pk);
-      const limit = pk === "sample#ALL#2026-10-30" ? 150 : pk.startsWith("sample#ALL#") ? 30 : 5;
+      const limit =
+        pk === "analysis#ALL#2026-10-30" ? 300 : pk === "sample#ALL#2026-10-30" ? 150 : pk.startsWith("sample#ALL#") ? 30 : 5;
       expect(update.ExpressionAttributeValues?.[":limit"], pk).toBe(limit);
     }
     expect(counts.get("sample#ALL#2026-10-30")).toBe(30);
+    expect(counts.get("analysis#ALL#2026-10-30")).toBe(30);
   });
 
   it("stops runs while the uploads switch is set", async () => {
