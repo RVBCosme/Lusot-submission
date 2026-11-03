@@ -1280,7 +1280,7 @@ def test_a_sample_level_has_no_gps_accuracy():
     [
         pytest.param(
             {"samples": set()},
-            "the level probe: sample sf13fd56a4d isn't in the manifest, or its stored"
+            "the level probe: sample sc3cb512491 isn't in the manifest, or its stored"
             " copy is gone",
             id="404",
         ),
@@ -1305,12 +1305,12 @@ def test_a_broken_level_probe_fails_the_run(tmp_path, monkeypatch, capsys, setup
     assert printed(capsys, tmp_path, cloud)[-1] == f"SMOKE FAILED: {reason}"
 
 
-def test_the_level_probe_is_ol032s_sample():
-    # samples.py fixes a sample's id by its source id, so a re-seed of OL032 keeps
-    # the probe's sample.
+def test_the_level_probe_is_ol002s_sample():
+    # samples.py fixes a sample's id by its source id, so a re-seed of OL002 keeps
+    # the probe's sample. OL032's sample left the manifest at the Nov 2 re-seed.
     import samples
 
-    assert smoke_upload.LEVEL_SAMPLE == samples.sample_id("OL032")
+    assert smoke_upload.LEVEL_SAMPLE == samples.sample_id("OL002")
 
 
 def test_a_b1_level_needs_no_probe(tmp_path, monkeypatch, capsys):

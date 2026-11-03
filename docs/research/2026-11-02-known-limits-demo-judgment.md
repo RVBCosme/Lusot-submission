@@ -91,3 +91,8 @@ On Nov 3, 2026, a security review of the code with OpenAI's Codex found four Med
 - **The limit:** a nearby search (`GET /reports`, and Ask Lusot's report tool) reads every stored item in the nine map cells around the point, including pending, private and expired ones, and only then keeps the visible ones. Where many items pile up in one area, each search does more work than its answer needs.
 - **What bounds it:** items are deleted after 7 days, the upload limits cap how many pile up, the API allows 10 requests a second (20 in a burst), and each request stops after 15 seconds.
 - **A fuller fix,** not built: query only current public reports by time, and give each search a fixed read budget.
+
+## Ask Lusot's voice (Nov 3)
+
+- **A spoken question works best with a place in Lusot's spot list,** such as a street or landmark from MMDA's alerts; for other places, type the question. A spoken question spends about 3 s on its transcription, so it has less time left to look up a place outside the list, and that lookup is skipped when too little remains. A typed question can meet the same skip when the model's first turn is slow.
+- **A long clip may not be transcribed in time.** The transcription must end 7 s into the request. Live 6 to 7 s clips took about 3 s, but a clip near the 15 s limit may run past 7 s, and then Lusot says it can't answer right now and to try again in a minute; the question can still be typed.

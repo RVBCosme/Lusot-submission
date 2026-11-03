@@ -158,11 +158,11 @@ PHOTO_DIR = "images"  # the photos themselves, inside C87's folder (R116)
 SEED = 20261028  # C87's draw, fixed in advance as R7's was
 B1_POSITIONS = slice(0, 5)  # of C87's order
 FALLBACK_POSITIONS = slice(5, 20)  # C71
-# The level probe (Nov 2): OL032's seeded sample, samples.sample_id("OL032"), so a re-seed
-# keeps it. Baliuag (CC0); its live run read
-# below_gutter exactly on the agreed relabel under tuning-v2. It runs when no B1 photo
+# The level probe: OL002's seeded sample, samples.sample_id("OL002"), so a re-seed keeps
+# it (Nov 3; OL032's left the manifest at the Nov 2 re-seed). Typhoon Ondoy, 2009; its
+# live runs read tire 5 of 5 in Window 2's Nov 2 variance test. It runs when no B1 photo
 # gives a level, so each deploy proves a level end to end on the same photo.
-LEVEL_SAMPLE = "sf13fd56a4d"
+LEVEL_SAMPLE = "sc3cb512491"
 APP_MAX_SIDE = 1600  # as app/src/lib/capture.ts sends a photo
 APP_JPEG_QUALITY = 85
 FINAL_STATUSES = ("done", "refused", "failed")

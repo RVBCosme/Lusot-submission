@@ -5,12 +5,13 @@ export const BUDGET = {
   transcribeBy: 7000,
   modelBy: 7500, // the model's last turn ends by here
   answerBy: 8500, // the answer is on its way by here
-  // A spoken question's model and answer marks come this much later (Deadline.spoken), so its turns still have room
-  // after a late transcript. Its settle and pause marks stay, inside the 15 s.
-  voiceExtra: 2500,
+  // A spoken question's model and answer marks come this much later (Deadline.spoken), so its turns have about a
+  // typed question's room after its transcript, which took about 3 s live. 2500 until Nov 3, when that left too little
+  // for Nominatim. Its settle and pause marks stay, inside the 15 s.
+  voiceExtra: 3500,
   // After the answer, inside the API function's 15 s timeout (C736): the spend write ends by here, or counts as
-  // failed, and the pause that follows ends by the next mark.
-  settleBy: 12000,
+  // failed, and the pause that follows ends by the next mark. 12000 until Nov 3; a spoken answer's mark is now 12000.
+  settleBy: 12500,
   pauseBy: 14000,
   minTurn: 1500, // a model turn starts only with this much left
   minNominatim: 2500, // Nominatim is asked only with this much left before modelBy: a 1 s wait and a 1.5 s call
