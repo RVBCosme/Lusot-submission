@@ -191,7 +191,8 @@ async function spoken(req: AskRequest, deps: AskDeps, deadline: Deadline, line: 
     return answered({ ...q, transcript }, noSpeech(), null);
   }
   line.transcribe_ms = deps.now() - started;
-  return modelPath({ ...q, text: transcript, transcript }, meta, stopUsd);
+  // The model and answer marks come voiceExtra later for a spoken question (deadline.ts).
+  return modelPath({ ...q, text: transcript, transcript, deadline: deadline.spoken() }, meta, stopUsd);
 }
 
 // A spoken question that ends at its transcription: its log fields, and its billed audio on the spend counter.

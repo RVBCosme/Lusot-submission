@@ -91,7 +91,8 @@ function fakeMeta(steps: Step[]): { meta: Meta; bodies: Record<string, unknown>[
       if (next.reply instanceof Error) throw next.reply;
       return { transcript: next.reply, audioDurationMs: 2000 };
     },
-    async respond(body) {
+    async respond(body, deadline, byMs) {
+      w.modelLeft.push(deadline.remainingMs(byMs));
       bodies.push(JSON.parse(JSON.stringify(body)));
       const next = steps.shift();
       if (next === undefined) throw new Error("the test scripted no reply for this call");
@@ -142,6 +143,7 @@ type World = {
   createMeta: Mock<AskDeps["createMeta"]>;
   heard: Heard[];
   transcribed: { wav: Uint8Array; opts: TranscribeOptions; byMs: number; left: number }[];
+  modelLeft: number[]; // the ms each model call had left before its mark
   lines: string[];
 };
 let w: World;
@@ -250,6 +252,7 @@ beforeEach(() => {
     }),
     heard: [{ reply: QUESTION }],
     transcribed: [],
+    modelLeft: [],
     lines,
   };
 });
@@ -1202,6 +1205,26 @@ describe("POST /ask/voice: the transcript (spec §4.7)", () => {
       audio_ms: 2000,
       transcribe_ms: 0,
     });
+  });
+
+  // Nov 3's live voice capture: a 6.6 s clip's transcription ran past the 4 s mark. A spoken question's model and
+  // answer marks now come BUDGET.voiceExtra later than a typed one's, so a late transcript still gets its turns.
+  it("a spoken question's model turns run to a mark voiceExtra later than a typed question's", async () => {
+    w.heard = [{ reply: QUESTION, takes: 6000 }];
+
+    const res = await speak({ audio: audio() });
+
+    expect(res.statusCode).toBe(200);
+    expect(parsed(res).answer).toMatchObject({ source: "model", kind: "reports" });
+    expect(w.transcribed[0].left).toBe(7000);
+    expect(w.modelLeft[0]).toBe(BUDGET.modelBy + BUDGET.voiceExtra - 6000);
+  });
+
+  it("a typed question's model turns keep the model mark", async () => {
+    const res = await ask({ question: QUESTION });
+
+    expect(res.statusCode).toBe(200);
+    expect(w.modelLeft[0]).toBe(BUDGET.modelBy);
   });
 
   it("the transcript is trimmed, and the answer reads it as a typed question would", async () => {

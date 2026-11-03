@@ -287,7 +287,7 @@ function problemOf(err: unknown): Shown {
       return problem('ask.error.questionCap', { min })
     case 'voice_paused':
       return problem('ask.error.voicePaused')
-    case 'voice_failed':
+    // A failed or late transcription is a passing fault, so it gets the try-again line, not "couldn't hear" (Nov 3).
     case 'bad_audio':
     case 'audio_too_short':
     case 'audio_too_long':
