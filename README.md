@@ -5,8 +5,8 @@
 > Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.
 
 **Try it:** https://main.duvef5t2zfoy9.amplifyapp.com: open **Tested → Samples → Run this sample**, or **Try your own photo**.
-**Android app:** `[link to the release APK, added at submission]`
-**Demo video (3 min):** `[link, added at submission]`
+**Android app:** [Lusot.apk, on the latest release](https://github.com/RVBCosme/Lusot-submission/releases/latest)
+**Demo video (3 min):** https://youtu.be/u402mhh-wps
 
 Built for the Meta Global AI Developer Hackathon (Indie track, "Build for Your World"). Everything here was written during the event, from Oct 27, 2026, except the third-party files and data credited below. Not affiliated with MMDA.
 
@@ -25,7 +25,7 @@ Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp
 4. **Map:** live pins from readings in Metro Manila (demo pins are labelled).
 5. **Ask:** type or speak a question about a place, in English or Taglish. The answer comes only from nearby reports and names each one.
 
-The **Android app** (`[APK link]`) is the same app installed on the phone, with its own loading screen. The camera Report flow works on both the app and the website.
+The **Android app** ([Lusot.apk, on the latest release](https://github.com/RVBCosme/Lusot-submission/releases/latest)) is the same app installed on the phone, with its own loading screen. The camera Report flow works on both the app and the website.
 Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chosen photos per device per hour.
 
 ## What it does
@@ -88,7 +88,7 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 - A live website and an Android app, running on the real pipeline. See "Demo: try it in 2 minutes" above.
 - Credited samples that hold up live, each giving the same answer 3 out of 3.
 - "Try your own photo", with honest feedback when a photo can't be read.
-- The 3-minute video: `[link]`.
+- The 3-minute video: https://youtu.be/u402mhh-wps.
 
 ## Results: tested where it matters most (indicative, small samples)
 
@@ -124,7 +124,7 @@ Full reports: [eval/results/](eval/results/). Scope and design decisions: [docs/
 You need Git, Node.js 22, [uv](https://github.com/astral-sh/uv) and [gitleaks](https://github.com/gitleaks/gitleaks) on your PATH.
 
 ```sh
-git clone <repository URL> lusot
+git clone https://github.com/RVBCosme/Lusot-submission.git lusot
 cd lusot
 npm ci                                # the app's and the API's packages, from the lockfile
 npm run setup                         # git uses .githooks, whose pre-commit hook runs gitleaks
