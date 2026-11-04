@@ -308,7 +308,7 @@ def test_analysis_environment():
         "GEOMETRY_IN_LEVEL",
         "LIMITS_TABLE_NAME",
     }
-    assert env["GEOMETRY_IN_LEVEL"] == "on"  # a quoted literal, never YAML's bare on
+    assert env["GEOMETRY_IN_LEVEL"] == "off"  # a quoted literal; rules §8 dropped geometry
     assert env["LIMITS_TABLE_NAME"] == {"Ref": "LimitsTable"}
 
 

@@ -238,8 +238,8 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.
   - It also turns the uploads stop switch on for about 35 s, then off. With the API's 30 s cache, uploads can be refused for about a minute. Never run it during a phone test (M14).
-  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but neither the photos it sent nor the level probe (a run of OL032's seeded sample) gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
-  - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). `--bound S` sets each photo's wait in seconds for a final status (default 120).
+  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but neither the photos it sent nor the level probe (a run of OL002's seeded sample) gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
+  - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). It expects geometry on, so it fails while `GEOMETRY_IN_LEVEL` is `"off"` (since Nov 4). `--bound S` sets each photo's wait in seconds for a final status (default 120).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **The Meta spend stop** (C527, C528): seed the counter once with `uv run backend/scripts/seed_spend.py --usd <total>` (a second seed changes nothing), set the stop with `uv run backend/scripts/set_spend_stop.py --usd <N>` ($60 while building, $140 at submission), and read the total with `$env:AWS_PROFILE = 'lusot'; uv run --locked --directory backend/analysis --with "botocore[crt]==1.43.120" python -m lusot_analysis.spend total` (the pin matches `backend/analysis/uv.lock`).
 - **MS4's cloud tools,** from the repo root as `uv run backend/scripts/<file> ...`:
@@ -266,7 +266,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - **Claude runs:** `eval/data/intake.py`, `eval/data/m8_sheet.py`, `eval/data/audit.py --dev`, `eval/set_b/generate.py` without `--final`, `eval/set_b/water_check.py` and `eval/data/freeze_record.py`. `backend/analysis/probes/set_b_masks.py` on development cars (it spends Meta credits; log each run's cost).
   - **Rene runs, never an agent:** `eval/data/split.py`, `eval/data/audit.py --sealed`, `set_b_masks.py --final` and `generate.py --final` (Set D's `seal_set_d.py` comes with MS2's Task 18, after MS5's core screens). They refuse to run without his own console. The archive writers ask for the password twice; `audit --sealed` asks for `yes`.
 - **MS3b's offline tools.** Each runs as `uv run --with "botocore[crt]==1.43.120" python probes/<file> ...` from `backend/analysis`. Data paths are absolute, and outputs go under `$env:LUSOT_DATA_DIR`, never into the repo. `dev_eval.py run`, `set_b.py segment` and `set_b.py rims` print the count and cost first, and stop there without `--yes`.
-  - `run_pipeline.py live <photo>` (paid: one photo, about $0.03, with no `--yes` check or cost line) runs one photo through the whole pipeline into a run folder. `replay <photo> <run folder>` is free and makes no Meta call.
+  - `run_pipeline.py live <photo>` (paid: one photo, about $0.03, with no `--yes` check or cost line) runs one photo through the whole pipeline into a run folder. Its `--geometry` defaults to `on`, so pass `--geometry off` to match the live system (since Nov 4). `replay <photo> <run folder>` is free and makes no Meta call.
   - `dev_eval.py run --manifest F` (paid) and `export ... --out DIR --rules-version V` (free; MS6's §4.3 rows).
   - `set_b.py segment --truth F` and `rims --folder DIR` (both paid); `export` and `overlay` (both free).
   - Each tool refuses a path under a `sealed` folder, and a data folder inside the repo, before any call.
@@ -274,7 +274,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - Each refuses with exit 2, before any Meta call, when the counter is unseeded, can't be read, or is at `/lusot/spend/stop-usd`.
   - A failed record prints `spend_error` and exits nonzero; the tracker then adds the amount by hand.
   - `smoke_upload.py` records nothing, since the Lambda counts it.
-- **`GEOMETRY_IN_LEVEL`** in `backend/template.yaml` is a quoted literal, `"on"` or `"off"`, not a parameter (C309, C515). To change it, edit the line and deploy. Unquoted, YAML 1.1 reads `on` as `true`.
+- **`GEOMETRY_IN_LEVEL`** in `backend/template.yaml` is a quoted literal, `"on"` or `"off"`, not a parameter (C309, C515). To change it, edit the line and deploy. Unquoted, YAML 1.1 reads `on` as `true`. It is `"off"` since Nov 4: rules §8's pre-set outcome in the sealed report dropped geometry, so landmark alone ships.
 
 Notes:
 - **AWS:**

@@ -1,6 +1,6 @@
 # Lusot
 
-**How deep is the flood at this spot?** Lusot reads it from a photo, in MMDA's own gauge levels, and shows its evidence. When a photo can't support a reading, it says it can't tell instead of guessing.
+**How deep is the flood at this spot?** Lusot turns people's photos into a live flood map of Metro Manila. Each photo gets a reading in MMDA's own gauge levels, with its evidence drawn on the photo, or an honest "can't tell" when the photo can't support one. Readings become pins on the map, and Ask Lusot answers typed or spoken questions, in English or Taglish, from nearby reports through Muse Spark's tool calls. Wheel geometry (measuring the water against a wheel's known size) didn't pass its pre-set release gate, so it is off. A sealed set of photos labelled by MMDA and city offices was run once by the frozen system.
 
 > Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.
 
@@ -14,13 +14,13 @@ Built for the Meta Global AI Developer Hackathon (Indie track, "Build for Your W
 
 Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp.com. Each live reading runs the real pipeline on Meta's models and takes about 40 seconds.
 
-1. **Tested → Samples.** Run these credited photos. Each one runs live. In our checks each read the same way 3 times out of 3: a level for the flood photos, "No flood seen" for the dry streets, and "can't tell" for Calumpit:
+1. **Tested → Samples.** Run these credited photos. Each one runs live, except while new analyses are paused to protect the shared model budget: then the button shows the photo's saved result instead, dated and marked as saved. In our checks each read the same way 3 times out of 3: a level for the flood photos, "No flood seen" for the dry streets, and "can't tell" for Calumpit:
    - **Typhoon Ondoy, 2009 (people pushing a cart):** tire level, so "Verdict at this spot: Not passable to any vehicle".
    - **Los Baños, Laguna, Typhoon Ondoy (water up to the waist):** waist level.
    - **Macabebe, Pampanga, Typhoon Goni, and a Bulacan street:** below gutter, so "Passable to all vehicles", read from an SUV's tyre.
    - **Makati at night, and dry streets in Manila and Quezon City:** "No flood seen".
    - **Calumpit, Bulacan:** an honest "can't tell". There's a person at ankle depth and motorcycles, but no landmark Lusot trusts.
-2. **Look at the result:** the verdict, the level on a gauge, the depth range in metres and inches, and the photo with numbered outlines (the one that set the level is highlighted). Open **Details** to see why each object was used or not.
+2. **Look at the result:** the verdict (or "No verdict", for some "at least" results; see below), the level on a gauge, the level's depth range in metres and inches, and the photo with numbered outlines (the one that set the level is highlighted). Open **Details** to see why each object was used or not.
 3. **Try your own photo** (Tested page): choose a flood photo from your device. It works best with a parked car's wheel or a person standing still in view. The result is shown only to you and never goes on the map.
 4. **Map:** live pins from readings in Metro Manila (demo pins are labelled).
 5. **Ask:** type or speak a question about a place, in English or Taglish. The answer comes only from nearby reports and names each one.
@@ -31,11 +31,12 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 ## What it does
 
 - **A depth reading from one photo.** Take a photo from a dry spot (Report), run a credited sample (Tested), or choose your own photo (Try your own photo).
-- **A verdict at this spot.** The result names MMDA's passability class for the level ("Not passable to light vehicles"), the level itself ("knee"), and the level's depth range in metres and inches. A gauge shaped like the logo marks the reading among the 9 levels.
+- **A verdict at this spot.** The result names MMDA's passability class for the level ("Not passable to light vehicles"), the level itself ("knee"), and the level's depth range in metres and inches. The range is the level's own range, never a measured depth. A gauge shaped like the logo marks the reading among the 9 levels.
+- **"At least" results.** When the water hides how deep it goes, the reading is "at least" a level: "this level or deeper". It keeps a verdict only when deeper water can't change the class ("Not passable to any vehicle"); otherwise it says "No verdict: the water may be deeper than the … level". An "at least below gutter" result says Lusot can't tell how deep the water is, and shows no depth range.
 - **Evidence on the photo.** Numbered outlines show the water, the wheels and the people Lusot found, and which one set the level.
 - **A live map.** A reading taken in Metro Manila becomes a pin, so others can see what's happening at that spot.
 - **Ask Lusot.** Ask a question by text or voice, in English or Taglish, and get an answer drawn only from nearby reports, each one named.
-- **An honest "can't tell".** No usable car wheel or standing person, too dark, too blurry: Lusot says so, and says how to retake the photo from a dry spot.
+- **An honest "can't tell".** No usable car wheel or adult, too dark, too blurry: Lusot says so, and says how to retake the photo from a dry spot.
 
 ## How it uses Meta's models
 
@@ -45,14 +46,14 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 | **Muse Spark** (Meta Model API) | Reads where the water meets each outlined object (for example "tire only", "mid-thigh"), and in Ask Lusot decides what to look up and calls Lusot's report tool |
 | **Muse Voice Transcribe** (Meta Model API) | Turns a spoken Taglish question into text |
 
-**Code, not the models, does the measuring:** the models never output a depth. Lusot's own rules (in `eval/rules.md`, fixed before any result was seen) turn each object's waterline into one of 9 ordered levels: MMDA's 7 gauge levels (gutter, half-knee, half-tire, knee, tire, waist, chest) plus below gutter and above chest. The deepest believable reading wins, and readings that disagree by more than one level mean "can't tell".
+**Code, not the models, does the measuring:** the models never output a depth. Lusot's own rules (in `eval/rules.md`, fixed before any result was seen) turn each object's waterline into one of 9 ordered levels: MMDA's 7 gauge levels (gutter, half-knee, half-tire, knee, tire, waist, chest) plus below gutter and above chest. The deepest believable reading wins, and an exact reading more than one level below the deepest means "can't tell". An "at least" reading is never too shallow: "at least tire" can stand beside a chest reading.
 
 ## How a reading works
 
 1. **Photo in:** from the camera (with location, for the map) or chosen from the device (never on the map).
 2. **Faces are blurred first,** on Lusot's own server, before Meta receives anything.
 3. **SAM 3.1** outlines the water and the objects; **Muse Spark** names each waterline.
-4. **Lusot's rules** drop what can't be trusted (a moving or unusual vehicle, a person who is walking, too small or at ankle depth) and turn the rest into a level and MMDA's class.
+4. **Lusot's rules** drop what can't be trusted (a moving vehicle, or one that isn't a car or SUV; a person who isn't clearly an adult; a walking person when an adult standing still is in view) and turn the rest into a level and MMDA's class. A person at ankle depth, or too small in the photo, can't set the level alone, and a deeper reading from a small person still makes Lusot say it can't tell.
 5. **The result** shows the verdict, the level, the depth range and the evidence. The original photo is deleted; a blurred copy is kept for 7 days.
 
 ## How Lusot meets the judging criteria
@@ -70,7 +71,7 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 - The models describe what they see; Lusot's published rules turn that into a level. That keeps the result explainable and testable, instead of trusting a model to guess inches.
 
 **Technical depth and execution (20%).**
-- **An honest evaluation:** scoring rules written before any result was seen; a sealed set of city-office photos run once, by the frozen system; every figure reported with its n.
+- **An honest evaluation:** scoring rules written before any result was seen; a sealed set of city-office photos run once, by the frozen system; every figure reported with its n. A release gate set in advance decided whether wheel geometry ships: it didn't pass, so it is off.
 - **Privacy by design:**
   - faces are blurred before Meta receives a photo;
   - originals are deleted;
@@ -98,7 +99,7 @@ The scoring rules were written before any result existed, and a set of photos la
 | **No dangerous readings** | 0 readings shallow enough to change the verdict, across every test set |
 | **No false alarms** | 0 of 15 flood-free street photos reported as flooded |
 | **Correct when it reads** | 8 of 9 levels matched the label on open-licence photos; 9 of 9 levels matched in 15 repeat runs of 3 samples (the other 6 said "can't tell") |
-| **Reads only what it can verify** | A level is given only when a car's wheel or a standing person is clear in the photo (17% of open-licence flood photos; 1 of 6 sealed, read deeper than the label). Otherwise Lusot says how to retake the photo. |
+| **Reads only what it can verify** | A level is given only when a car's wheel or an adult is clear in the photo (17% of open-licence flood photos; 1 of 6 sealed, read deeper than the label). Otherwise Lusot says how to retake the photo. |
 
 Full reports: [eval/results/](eval/results/). Scope and design decisions: [docs/research/2026-11-02-known-limits-demo-judgment.md](docs/research/2026-11-02-known-limits-demo-judgment.md).
 
@@ -128,10 +129,11 @@ cd lusot
 npm ci                                # the app's and the API's packages, from the lockfile
 npm run setup                         # git uses .githooks, whose pre-commit hook runs gitleaks
 uv sync --directory backend/analysis  # the analysis project's Python environment
-npm run check                         # tests, linters and secret scans; CI runs the same checks
+npm run check:node                    # the app's and the API's typecheck, tests and lint
+npm run check:py                      # the analysis and evaluation tests
 ```
 
-`npm run check` runs three parts in order and stops at the first failure: `check:node`, `check:py` and `check:secrets`. Each also runs on its own. Deploying, the smoke test, the probe and the Android build are in the "Commands" section of [CLAUDE.md](CLAUDE.md).
+`npm run check` runs three parts in order and stops at the first failure: `check:node`, `check:py` and `check:secrets`. Each also runs on its own. `check:secrets` runs gitleaks, the account-ID scan and a plan-leak scan, which reads the private build plan; the plan isn't in this repository. Without it the plan-leak scan stops with an error, except in CI (`CI=true`), where it skips with a notice. So a fresh clone runs the first two parts, and those two alone are not a full pass. Deploying, the smoke test, the probe and the Android build are in the "Commands" section of [CLAUDE.md](CLAUDE.md).
 
 `npm run deploy:web`, after `npm run deploy`, builds the app against the deployed stack's API and puts it on the stack's website: with `WebHosting=on`, the private S3 bucket behind CloudFront; with `WebHosting=amplify`, the Amplify Hosting app, as one manual deployment. It prints the web URL.
 
@@ -171,6 +173,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | [jsonschema](https://github.com/python-jsonschema/jsonschema) | Checks Muse Spark's answers against Lusot's JSON schema | MIT |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/4.10.0/models/face_detection_yunet) face detection model (`face_detection_yunet_2023mar.onnx`), by Shiqi Yu and contributors | The face detector behind the face blur, vendored with its licence and source note in `backend/analysis/src/lusot_analysis/models/` | MIT |
 | NASA's portrait of Mae C. Jemison ([S92-40463](https://images.nasa.gov/details/S92-40463)), from Wikimedia Commons | A face-blur test fixture only, never shown in the app; see `backend/analysis/tests/fixtures/faces/SOURCE.md` | Public domain |
+| Nine photos from Wikimedia Commons: [Flooding from Typhoon Ondoy (Ketsana), Philippines 2009. Photo- AusAID (10695910543)](https://commons.wikimedia.org/wiki/File%3AFlooding_from_Typhoon_Ondoy_%28Ketsana%29%2C_Philippines_2009._Photo-_AusAID_%2810695910543%29.jpg), by the Department of Foreign Affairs and Trade; [Typhoon Ketsana aftermath near Laguna Lake1](https://commons.wikimedia.org/wiki/File%3ATyphoon_Ketsana_aftermath_near_Laguna_Lake1.jpg), by IRRI Images; [7897Tidal flooding Marilao, Bulacan 08](https://commons.wikimedia.org/wiki/File%3A7897Tidal_flooding_Marilao%2C_Bulacan_08.jpg), [8830Effects (floods) of Typhoon Goni (2020) in Poblacion, Macabebe 03](https://commons.wikimedia.org/wiki/File%3A8830Effects_%28floods%29_of_Typhoon_Goni_%282020%29_in_Poblacion%2C_Macabebe_03.jpg) and [1007San Miguel, Calumpit, Bulacan 07](https://commons.wikimedia.org/wiki/File%3A1007San_Miguel%2C_Calumpit%2C_Bulacan_07.jpg), by Judgefloro; [09889jfCity Binondo Avenue Manila Streets Landmarksfvf 02](https://commons.wikimedia.org/wiki/File:09889jfCity_Binondo_Avenue_Manila_Streets_Landmarksfvf_02.JPG), [0062jfHoly Spirit (C.O.A.) Commonwealth Avenue Sandiganbayan Quezon Cityfvf 05](https://commons.wikimedia.org/wiki/File:0062jfHoly_Spirit_%28C.O.A.%29_Commonwealth_Avenue_Sandiganbayan_Quezon_Cityfvf_05.jpg) and [09900jfCity Rizal Avenue School Manila Streets Landmarksfvf 07](https://commons.wikimedia.org/wiki/File:09900jfCity_Rizal_Avenue_School_Manila_Streets_Landmarksfvf_07.JPG), by Judgefloro; and [Manila, makati, dela rosa street](https://commons.wikimedia.org/wiki/File:Manila,_makati,_dela_rosa_street.jpg), by Sailko | The Tested page's nine samples (five flood photos and four dry streets), which anyone can run through Lusot. Lusot stores and shows its own copies, with faces and plates blurred, and each sample shows its own credit line (`GET /samples`) | CC BY 2.0 (the two Typhoon Ondoy photos); CC0 (the three by Judgefloro with floods); public domain (the three dry Manila and Quezon City streets); CC BY 3.0 (the Makati street) |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors: the Metro Manila boundary (relation 147488, clipped to OpenStreetMap's coastline) and S2's named test places | The Metro Manila test (`backend/api/src/data/ncr.json`) and its test points (`backend/api/test/fixtures/s2-points.json`), both shared under the same licence; `backend/api/src/data/NCR_SOURCE.md` gives the sources, dates and changes | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors, from [Geofabrik](https://download.geofabrik.de/asia/philippines.html)'s Philippines extract of Oct 29, 2026: the points of Ask Lusot's spot list | The spot list (`backend/api/src/data/spots.json`), whose places are the locations in MMDA's and city governments' public flood alerts and whose points come from the extract, shared under the same licence; `backend/api/src/data/SPOTS_SOURCE.md` gives the sources, the extract's hash and the alert locations left out | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |
 | [Nominatim](https://nominatim.org/), OpenStreetMap's search service at `nominatim.openstreetmap.org`; its results are OpenStreetMap data, © OpenStreetMap contributors | Finds a place that Ask Lusot's spot list doesn't hold. It is called from the API Lambda only, at most once a second, with Lusot's User-Agent, and each answer is cached for 7 days (1 day for a miss), under its [usage policy](https://operations.osmfoundation.org/policies/nominatim/) | Its results: [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |
