@@ -14,7 +14,7 @@ Built for the Meta Global AI Developer Hackathon (Indie track, "Build for Your W
 
 Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp.com. Each live reading runs the real pipeline on Meta's models and takes about 40 seconds.
 
-1. **Tested → Samples.** Run these credited photos. Each one runs live, except while new analyses are paused to protect the shared model budget: then the button shows the photo's saved result instead, dated and marked as saved. In our checks each read the same way 3 times out of 3: a level for the flood photos, "No flood seen" for the dry streets, and "can't tell" for Calumpit:
+1. **Tested → Samples.** Run these credited photos. Each one runs live, except while new analyses are paused to protect the shared model budget: then the button shows the photo's saved result instead, dated and marked as saved. In our checks each read the same way 3 times out of 3: a level for the flood photos, "No flood seen" for the dry streets, and "can't tell" for Calumpit. A live run can still come out differently: the models can read a photo a little differently, and then Lusot says "can't tell", or a call to Meta can time out ("Processing failed, try again."). Then run the sample again. The samples:
    - **Typhoon Ondoy, 2009 (people pushing a cart):** tire level, so "Verdict at this spot: Not passable to any vehicle".
    - **Los Baños, Laguna, Typhoon Ondoy (water up to the waist):** waist level.
    - **Macabebe, Pampanga, Typhoon Goni, and a Bulacan street:** below gutter, so "Passable to all vehicles", read from an SUV's tyre.
@@ -86,7 +86,7 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 
 **Demo (25%).**
 - A live website and an Android app, running on the real pipeline. See "Demo: try it in 2 minutes" above.
-- Credited samples that hold up live, each giving the same answer 3 out of 3.
+- Credited samples that held up in our checks, each giving the same answer 3 out of 3. A live run can still say "can't tell" or time out; run it again.
 - "Try your own photo", with honest feedback when a photo can't be read.
 - The 3-minute video: https://youtu.be/u402mhh-wps.
 
