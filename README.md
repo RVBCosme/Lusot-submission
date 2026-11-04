@@ -53,7 +53,7 @@ Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chos
 1. **Photo in:** from the camera (with location, for the map) or chosen from the device (never on the map).
 2. **Faces are blurred first,** on Lusot's own server, before Meta receives anything.
 3. **SAM 3.1** outlines the water and the objects; **Muse Spark** names each waterline.
-4. **Lusot's rules** drop what can't be trusted (a moving or unusual vehicle; a person who isn't clearly an adult; a walking person when an adult standing still is in view; a person too small or at ankle depth) and turn the rest into a level and MMDA's class.
+4. **Lusot's rules** drop what can't be trusted (a moving vehicle, or one that isn't a car or SUV; a person who isn't clearly an adult; a walking person when an adult standing still is in view) and turn the rest into a level and MMDA's class. A person at ankle depth, or too small in the photo, can't set the level alone, and a deeper reading from a small person still makes Lusot say it can't tell.
 5. **The result** shows the verdict, the level, the depth range and the evidence. The original photo is deleted; a blurred copy is kept for 7 days.
 
 ## How Lusot meets the judging criteria
