@@ -65,6 +65,72 @@
       "blob": "675d8d0afa5ac669f3049ce44ed487b051f62afd",
       "path": "package-lock.json",
       "reason": "a third-party npm package author's address that npm writes into the lockfile"
+    },
+    {
+      "rule": "console-link",
+      "blob": "1bf1f4fb1b95cc94a452ba4ea7618d17ce2dce37",
+      "path": "docs/research/2026-11-01-public-claims.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "463bce8b80a90a725e806081700c3f985c3d1a77",
+      "path": "docs/research/2026-11-01-public-claims.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "9365ae3fd70f1c52757260db59d1548a4ab2a8a7",
+      "path": "docs/research/2026-11-01-public-claims.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "4914577a484a3fa8899946d1e3c099b10693b573",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "531b205b49b19eb27f60c3b755047a1d186bcd8d",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "6c527ba3d465a381a6973d3bd0a870a8d0c81e41",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "73dd69ca28a6106be1d6ea778d9dc244e3fd137d",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "d347c1bd64ca2305678c778fccab6aa89c2d4d9e",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "efee6c23c43a9615c3f1249cd5e9233453538cf7",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "console-link",
+      "blob": "f16eabbcdeb0fb299447a356d964e1532a22b4be",
+      "path": "docs/drafts/ms8/readme-outline.md",
+      "reason": "links to dev.meta.ai's public pages, the event's terms of service (/legal/terms-of-service) and the event page (/events/global-hackathon); not a console. The rule flags any dev.meta.ai link outside /docs and /support"
+    },
+    {
+      "rule": "email",
+      "blob": "bb94b44425560f5d9f72cff0436a5c0074937e16",
+      "path": "backend/analysis/tests/test_run_sealed.py",
+      "reason": "a test's planted address at the reserved .invalid domain, not a person's"
     }
   ],
   "images": [
