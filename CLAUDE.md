@@ -238,8 +238,8 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
 - **Smoke test** of the deployed stack: `uv run backend/scripts/smoke_upload.py`. Expect `SMOKE OK`.
   - Each run adds two reports at the test spot. One ends `failed/pipeline_not_built`. The other (the PNG check's upload link, never used) stays `pending` until it expires after 7 days.
   - It also turns the uploads stop switch on for about 35 s, then off. With the API's 30 s cache, uploads can be refused for about a minute. Never run it during a phone test (M14).
-  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but neither the photos it sent nor the level probe (a run of OL032's seeded sample) gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
-  - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). `--bound S` sets each photo's wait in seconds for a final status (default 120).
+  - `SMOKE NO LEVEL` (exit 3) means every other check passed, but neither the photos it sent nor the level probe (a run of OL002's seeded sample) gave a level (C71). `--fallback` then sends positions 5 to 19 of C87's order, stopping at the first level.
+  - `--geometry N` sends only position N and checks its wheel geometry (MS3b's D1). It expects geometry on, so it fails while `GEOMETRY_IN_LEVEL` is `"off"` (since Nov 4). `--bound S` sets each photo's wait in seconds for a final status (default 120).
 - **Storing the Meta key** in SSM: `$env:MODEL_API_KEY = [Environment]::GetEnvironmentVariable('MODEL_API_KEY','User'); uv run backend/scripts/put_model_key.py`. It prints the key's length, never its value.
 - **The Meta spend stop** (C527, C528): seed the counter once with `uv run backend/scripts/seed_spend.py --usd <total>` (a second seed changes nothing), set the stop with `uv run backend/scripts/set_spend_stop.py --usd <N>` ($60 while building, $140 at submission), and read the total with `$env:AWS_PROFILE = 'lusot'; uv run --locked --directory backend/analysis --with "botocore[crt]==1.43.120" python -m lusot_analysis.spend total` (the pin matches `backend/analysis/uv.lock`).
 - **MS4's cloud tools,** from the repo root as `uv run backend/scripts/<file> ...`:
@@ -274,7 +274,7 @@ Run these from the repo root in PowerShell, after the PATH refresh below, unless
   - Each refuses with exit 2, before any Meta call, when the counter is unseeded, can't be read, or is at `/lusot/spend/stop-usd`.
   - A failed record prints `spend_error` and exits nonzero; the tracker then adds the amount by hand.
   - `smoke_upload.py` records nothing, since the Lambda counts it.
-- **`GEOMETRY_IN_LEVEL`** in `backend/template.yaml` is a quoted literal, `"on"` or `"off"`, not a parameter (C309, C515). To change it, edit the line and deploy. Unquoted, YAML 1.1 reads `on` as `true`.
+- **`GEOMETRY_IN_LEVEL`** in `backend/template.yaml` is a quoted literal, `"on"` or `"off"`, not a parameter (C309, C515). To change it, edit the line and deploy. Unquoted, YAML 1.1 reads `on` as `true`. It is `"off"` since Nov 4: rules §8's pre-set outcome in the sealed report dropped geometry, so landmark alone ships.
 
 Notes:
 - **AWS:**

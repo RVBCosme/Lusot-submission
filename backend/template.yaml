@@ -547,7 +547,8 @@ Resources:
           LIMITS_TABLE_NAME: !Ref LimitsTable
           # Geometry in the level path, "on" or "off" (C309). Quoted, since YAML 1.1 reads a bare on as true.
           # A literal, not a parameter: a deploy that doesn't name a parameter keeps its old value (MS4's C515).
-          GEOMETRY_IN_LEVEL: "on"
+          # Off since Nov 4: the sealed run's pre-set outcome under rules §8 dropped geometry, so landmark alone ships.
+          GEOMETRY_IN_LEVEL: "off"
       Events:
         Upload:
           Type: SQS

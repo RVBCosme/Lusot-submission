@@ -327,8 +327,8 @@ def test_the_decision_passes_only_with_its_flag(repo, capsys):
     edit(
         repo,
         "backend/template.yaml",
-        'GEOMETRY_IN_LEVEL: "on"',
         'GEOMETRY_IN_LEVEL: "off"',
+        'GEOMETRY_IN_LEVEL: "on"',
     )
     commit(repo)
     assert check_freeze.DECISION_VARIABLE == "GEOMETRY_IN_LEVEL"
@@ -351,8 +351,8 @@ def test_another_variable_fails_even_with_the_flag(repo, capsys):
     edit(
         repo,
         "backend/template.yaml",
-        'GEOMETRY_IN_LEVEL: "on"',
         'GEOMETRY_IN_LEVEL: "off"',
+        'GEOMETRY_IN_LEVEL: "on"',
     )
     commit(repo)
     code, out = run(repo, capsys, "--decision", TAG)
@@ -365,8 +365,8 @@ def test_the_decision_must_stay_on_or_off(repo, capsys):
     edit(
         repo,
         "backend/template.yaml",
-        'GEOMETRY_IN_LEVEL: "on"',
-        "GEOMETRY_IN_LEVEL: on",
+        'GEOMETRY_IN_LEVEL: "off"',
+        "GEOMETRY_IN_LEVEL: off",
     )
     commit(repo)
     code, out = run(repo, capsys, "--decision", TAG)
@@ -417,7 +417,7 @@ def test_resource_compare_reads_values_not_text():
     assert not check_freeze.analysis_resource_changed(text, text)
     moved = text.replace("      Timeout: 180\n", "      Timeout: 180 # the ceiling\n")
     assert not check_freeze.analysis_resource_changed(text, moved)
-    flipped = text.replace('GEOMETRY_IN_LEVEL: "on"', 'GEOMETRY_IN_LEVEL: "off"')
+    flipped = text.replace('GEOMETRY_IN_LEVEL: "off"', 'GEOMETRY_IN_LEVEL: "on"')
     assert check_freeze.analysis_resource_changed(text, flipped)
     assert not check_freeze.analysis_resource_changed(
         text, flipped, allow=frozenset({"GEOMETRY_IN_LEVEL"})
