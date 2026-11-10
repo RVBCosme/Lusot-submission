@@ -790,9 +790,9 @@ export const FIL: Record<StringKey, Entry> = {
   'ask.window.minutes': { text: '{n} minuto', reviewed: true },
   'ask.window.minute': { text: '1 minuto', reviewed: true },
   // The portfolio demo build only (Nov 10, 2026). Claude's drafts, waiting for Rene's copy review.
-  'demo.title': { text: 'Demo para sa portfolio: simulated ang mga resulta', reviewed: false },
+  'demo.title': { text: 'Demo para sa portfolio: totoong naka-save na mga sample, simulated ang iba', reviewed: false },
   'demo.body': {
-    text: 'Naka-live ang Lusot noong hackathon (Okt hanggang Nob 2026). Sa kopyang ito, sa browser mo lang sumasagot ang app: walang litrato, lokasyon o tanong na lumalabas sa device mo. Totoong naka-save na resulta ang sample ng Bagyong Ondoy; simulated ang lahat ng iba pang resulta.',
+    text: 'Naka-live ang Lusot noong hackathon (Okt hanggang Nob 2026). Sa kopyang ito, sa browser mo lang sumasagot ang app: walang litrato, lokasyon o tanong na lumalabas sa device mo. Totoong naka-save na resulta ng live na sistema ang siyam na credited na sample sa Tested page. Simulated ang tatlong sample na may (mock), ang mapa, ang Ask Lusot at ang sarili mong mga report.',
     reviewed: false,
   },
   'demo.outcome': { text: 'Simulated na resulta', reviewed: false },

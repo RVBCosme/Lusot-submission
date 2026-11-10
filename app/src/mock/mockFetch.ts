@@ -40,13 +40,14 @@ import {
   type Scenario,
 } from './fixtures'
 import { drawOverlay, drawPhoto } from './draw'
-import { REAL_LAYERS, REAL_SAMPLE, REAL_SAMPLE_ID, realResultBody } from './real/ondoy'
+import { type RealSampleData } from './real/samples-data'
+import { realResultBody, realSample, realSampleEntries } from './real/samples'
 import { DEMO } from '../demo'
 
 export interface MockOptions {
   scenario?: Scenario
   now?: () => number
-  // The portfolio demo (Nov 10, 2026): the one real saved result heads the samples list, and each drawn sample reads
+  // The portfolio demo (Nov 10, 2026): the nine real saved results head the samples list, and each drawn sample reads
   // as its own seeded result rather than the scenario's.
   demo?: boolean
 }
@@ -75,8 +76,8 @@ interface MockReport {
   uploaded: boolean
   reads: number
   final: boolean
-  // A demo run of the real sample: its final answer is the saved real result.
-  real?: boolean
+  // A demo run of a real sample: its final answer is that sample's saved live result.
+  real?: RealSampleData
 }
 
 interface UploadFields {
@@ -277,7 +278,7 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now, d
         return reply(200, pendingBody('processing', facts))
       }
       report.final = true
-      if (report.real) return reply(200, realResultBody(report.id, `${MOCK_FILES_ORIGIN}/layers/${report.id}.json`))
+      if (report.real) return reply(200, realResultBody(report.real, report.id, `${MOCK_FILES_ORIGIN}/layers/${report.id}.json`))
       return reply(200, resultBody(report.outcome, facts))
     }
     const spec = pinSpecs().find((candidate) => candidate.id === id)
@@ -340,7 +341,7 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now, d
   const listSamples = (): Response =>
     reply(200, {
       samples: [
-        ...(demo ? [REAL_SAMPLE] : []),
+        ...(demo ? realSampleEntries() : []),
         ...sampleList(config.sampleCount).map((sample) => {
           const { sampleId, credit, license, place, date, event } = sample
           const { layers, hue } = sampleScene(sample)
@@ -353,10 +354,10 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now, d
   const runSample = (sampleId: string): Response => {
     const refused = refusal()
     if (refused !== undefined) return refused
-    const real = demo && sampleId === REAL_SAMPLE_ID
+    const real = demo ? realSample(sampleId) : undefined
     const sample = sampleList(config.sampleCount).find((candidate) => candidate.sampleId === sampleId)
-    if (!real && sample === undefined) return reply(404, { error: 'not_found' })
-    if (!real && sample !== undefined && config.savedSamples) return reply(200, savedSample(sample))
+    if (real === undefined && sample === undefined) return reply(404, { error: 'not_found' })
+    if (real === undefined && sample !== undefined && config.savedSamples) return reply(200, savedSample(sample))
     const at = now()
     const report = addReport({
       mode: 'sample',
@@ -365,7 +366,7 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now, d
       createdAt: at,
       uploaded: true,
     })
-    if (real) report.real = true
+    if (real !== undefined) report.real = real
     else if (demo && sample !== undefined) report.outcome = sample.seeded
     return reply(201, { reportId: report.id })
   }
@@ -397,7 +398,8 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now, d
   }
 
   const layersFile = (id: string): Response => {
-    if (reports.get(id)?.real) return reply(200, REAL_LAYERS)
+    const real = reports.get(id)?.real
+    if (real !== undefined) return real.layers === undefined ? reply(404, { error: 'not_found' }) : reply(200, real.layers)
     const outcome = reports.get(id)?.outcome
     const key = outcome === undefined ? pinSpecs().find((spec) => spec.id === id)?.key : levelKeyOf(outcome)
     return key === undefined ? reply(404, { error: 'not_found' }) : reply(200, levelLayers(key))

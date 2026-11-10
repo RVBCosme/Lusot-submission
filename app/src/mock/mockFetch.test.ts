@@ -466,20 +466,27 @@ describe('samples', () => {
 
 describe('the portfolio demo (demo: true)', () => {
   const demoWith = (scenario?: Scenario, c = clock()) => ({ fetchFn: createMockFetch({ scenario, now: c.now, demo: true }), c })
+  const REAL_IDS = ['sc3cb512491', 's7245ed07c9', 's213eb6ab87', 'sf7d3540ab0', 'sa5f59c729c', 'sbf49e35980', 'sa3dd1772bc', 's355aadf55b', 'se21e5749b9']
+  const runReal = async (sampleId: string, scenario?: Scenario) => {
+    const { fetchFn, c } = demoWith(scenario)
+    const { reportId } = (await runSample(API, sampleId, DEVICE, fetchFn)) as { reportId: string }
+    const result = (await pollReport(API, reportId, { fetchFn, sleep: c.sleep, now: c.now })) as ReportResult
+    return { fetchFn, reportId, result: result as ReportResult & Record<string, unknown> }
+  }
 
-  it('lists the real saved sample first, credited under its CC BY licence, then the drawn ones', async () => {
+  it('lists the nine real saved samples first, each with its live credit and allowed licence, then the drawn ones', async () => {
     const samples = await getSamples(API, demoWith().fetchFn)
-    expect(samples.map((sample) => sample.sampleId)).toEqual(['sc3cb512491', 'sample-01', 'sample-02', 'sample-03'])
+    expect(samples.map((sample) => sample.sampleId)).toEqual([...REAL_IDS, 'sample-01', 'sample-02', 'sample-03'])
+    for (const sample of samples.slice(0, 9)) {
+      expect(sample.credit).toMatch(/Wikimedia Commons/)
+      expect(sample.photoUrl).toBe(`/demo/${sample.sampleId}.jpg`)
+    }
     expect(samples[0]).toMatchObject({ license: 'CC BY 2.0', event: 'Typhoon Ondoy', date: '2009-10-08' })
-    expect(samples[0].credit).toMatch(/Wikimedia Commons, CC BY 2\.0/)
-    expect(samples[0].credit).toMatch(/real saved result/)
   })
 
-  it('a run of the real sample ends in the saved live result, with its own layers, whatever the scenario', async () => {
+  it('a run of a real level sample ends in its saved live result, with its own layers, whatever the scenario', async () => {
     for (const scenario of ['level_knee', 'no_flood_seen', 'pending_forever'] as const) {
-      const { fetchFn, c } = demoWith(scenario)
-      const { reportId } = (await runSample(API, 'sc3cb512491', DEVICE, fetchFn)) as { reportId: string }
-      const result = (await pollReport(API, reportId, { fetchFn, sleep: c.sleep, now: c.now })) as ReportResult
+      const { fetchFn, reportId, result } = await runReal('sc3cb512491', scenario)
       expect(result).toMatchObject({
         reportId,
         status: 'done',
@@ -488,12 +495,22 @@ describe('the portfolio demo (demo: true)', () => {
         passability: 'NPATV',
         levelFrom: 'landmark',
         capturedAt: '2026-11-04T04:08:02Z',
+        photoUrl: '/demo/sc3cb512491.jpg',
+        overlayUrl: '/demo/sc3cb512491-overlay.jpg',
       })
-      const layersUrl = (result as { layersUrl?: string }).layersUrl
-      expect(layersUrl).toBe(`${MOCK_FILES_ORIGIN}/layers/${reportId}.json`)
-      const layers = (await getLayers(layersUrl!, fetchFn)) as OverlayData
+      expect(result.layersUrl).toBe(`${MOCK_FILES_ORIGIN}/layers/${reportId}.json`)
+      const layers = (await getLayers(result.layersUrl as string, fetchFn)) as OverlayData
       expect(layers).toMatchObject({ width: 1280, height: 853 })
     }
+  })
+
+  it('the other real samples end as they did live: waist, below gutter, no flood seen, and Calumpit refused', async () => {
+    expect((await runReal('s7245ed07c9')).result).toMatchObject({ status: 'done', level: 'waist' })
+    expect((await runReal('sf7d3540ab0')).result).toMatchObject({ status: 'done', level: 'below_gutter', passability: 'PATV' })
+    const dry = (await runReal('sbf49e35980')).result
+    expect(dry).toMatchObject({ status: 'done', noFloodSeen: true })
+    expect(dry.photoUrl).toBeUndefined()
+    expect((await runReal('sa5f59c729c')).result).toMatchObject({ status: 'refused', refusalReason: 'no_usable_reference' })
   })
 
   it('a drawn sample reads as its own seeded result, not the scenario', async () => {
@@ -503,7 +520,7 @@ describe('the portfolio demo (demo: true)', () => {
     expect(result).toMatchObject({ status: 'done', noFloodSeen: true })
   })
 
-  it('outside the demo the real sample is unknown', async () => {
+  it('outside the demo the real samples are unknown', async () => {
     await expect(runSample(API, 'sc3cb512491', DEVICE, mockWith().fetchFn)).rejects.toMatchObject({ status: 404 })
   })
 })

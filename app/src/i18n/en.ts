@@ -774,9 +774,9 @@ export const EN = {
   'ask.window.minutes': { text: '{n} minutes', reviewed: true },
   'ask.window.minute': { text: '1 minute', reviewed: true },
   // The portfolio demo build only (app/src/demo.ts, Nov 10, 2026). Claude's lines, not yet in a copy review.
-  'demo.title': { text: 'Portfolio demo: results are simulated', reviewed: false },
+  'demo.title': { text: 'Portfolio demo: real saved samples, everything else simulated', reviewed: false },
   'demo.body': {
-    text: 'Lusot ran live during the hackathon (Oct to Nov 2026). This copy answers in your browser: no photo, location or question leaves your device. The Typhoon Ondoy sample is a real saved result; every other result is simulated.',
+    text: "Lusot ran live during the hackathon (Oct to Nov 2026). This copy answers in your browser: no photo, location or question leaves your device. The nine credited samples on the Tested page show the live system's real saved results. The three samples marked (mock), the map, Ask Lusot and your own reports are simulated.",
     reviewed: false,
   },
   'demo.outcome': { text: 'Simulated outcome', reviewed: false },

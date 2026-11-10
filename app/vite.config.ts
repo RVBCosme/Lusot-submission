@@ -1,6 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -17,18 +17,18 @@ function evalResults(state: string | undefined): string {
   return fileURLToPath(new URL(`./e2e/fixtures/eval-results/${state}`, import.meta.url))
 }
 
-// The portfolio demo's two pictures (app/demo/, Nov 10, 2026), written to dist/demo/ by a `--mode demo` build only. An
+// The portfolio demo's pictures (app/demo/, Nov 10, 2026), written to dist/demo/ by a `--mode demo` build only. An
 // image the source imports is emitted even when the bundler then drops the code that uses it, so the mock can't import
-// them without every production build carrying them too; app/src/mock/real/ondoy.ts names these paths instead.
-const DEMO_FILES = ['ondoy-photo.jpg', 'ondoy-overlay.jpg']
+// them without every production build carrying them too; app/src/mock/real/samples.ts names these paths instead.
+const DEMO_DIR = new URL('./demo/', import.meta.url)
 function demoFiles(mode: string): Plugin {
   return {
     name: 'lusot-demo-files',
     apply: 'build',
     generateBundle() {
       if (mode !== 'demo') return
-      for (const name of DEMO_FILES) {
-        this.emitFile({ type: 'asset', fileName: `demo/${name}`, source: readFileSync(new URL(`./demo/${name}`, import.meta.url)) })
+      for (const name of readdirSync(DEMO_DIR).filter((file) => file.endsWith('.jpg'))) {
+        this.emitFile({ type: 'asset', fileName: `demo/${name}`, source: readFileSync(new URL(name, DEMO_DIR)) })
       }
     },
   }
