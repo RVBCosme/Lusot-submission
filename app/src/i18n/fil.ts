@@ -789,4 +789,21 @@ export const FIL: Record<StringKey, Entry> = {
   'ask.window.hour': { text: '1 oras', reviewed: true },
   'ask.window.minutes': { text: '{n} minuto', reviewed: true },
   'ask.window.minute': { text: '1 minuto', reviewed: true },
+  // The portfolio demo build only (Nov 10, 2026). Claude's drafts, waiting for Rene's copy review.
+  'demo.title': { text: 'Demo para sa portfolio: simulated ang mga resulta', reviewed: false },
+  'demo.body': {
+    text: 'Naka-live ang Lusot noong hackathon (Okt hanggang Nob 2026). Sa kopyang ito, sa browser mo lang sumasagot ang app: walang litrato, lokasyon o tanong na lumalabas sa device mo. Totoong naka-save na resulta ang sample ng Bagyong Ondoy; simulated ang lahat ng iba pang resulta.',
+    reviewed: false,
+  },
+  'demo.outcome': { text: 'Simulated na resulta', reviewed: false },
+  'demo.scenario.level_knee': { text: 'May level: tuhod', reviewed: false },
+  'demo.scenario.level_below_gutter': { text: 'May level: mas mababa sa gutter', reviewed: false },
+  'demo.scenario.level_above_chest': { text: 'May level: lampas dibdib', reviewed: false },
+  'demo.scenario.no_flood_seen': { text: 'Walang bahang nakita', reviewed: false },
+  'demo.scenario.refused_references_disagree': { text: 'Hindi masabi', reviewed: false },
+  'demo.scenario.failed_model_error': { text: 'Nabigo ang pagproseso', reviewed: false },
+  'demo.privacy': {
+    text: 'Sa demo na ito, walang litrato, lokasyon o tanong na lumalabas sa browser mo, at ang karaniwang request logs lang ang itinatago ng Vercel, ang host. Inilalarawan ng patakaran sa ibaba ang live na sistema noong hackathon.',
+    reviewed: false,
+  },
 }

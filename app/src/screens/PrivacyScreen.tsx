@@ -1,4 +1,5 @@
 import { Markdown } from '../components/Markdown'
+import { DEMO } from '../demo'
 import privacyText from '../content/privacy.en.md?raw'
 import { T } from '../i18n'
 import { EN } from '../i18n/en'
@@ -17,6 +18,11 @@ export function PrivacyScreen() {
       <p className="mt-2 text-small text-ink-2">
         <T k="about.notAffiliated" />
       </p>
+      {DEMO && (
+        <p className="mt-4 rounded-control border border-outline p-2">
+          <T k="demo.privacy" />
+        </p>
+      )}
       <Markdown source={privacyText} lang="en" vars={{ privacyContact: contact }} className="mt-4" testId="policy" />
     </article>
   )

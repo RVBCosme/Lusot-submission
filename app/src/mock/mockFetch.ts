@@ -40,10 +40,15 @@ import {
   type Scenario,
 } from './fixtures'
 import { drawOverlay, drawPhoto } from './draw'
+import { REAL_LAYERS, REAL_SAMPLE, REAL_SAMPLE_ID, realResultBody } from './real/ondoy'
+import { DEMO } from '../demo'
 
 export interface MockOptions {
   scenario?: Scenario
   now?: () => number
+  // The portfolio demo (Nov 10, 2026): the one real saved result heads the samples list, and each drawn sample reads
+  // as its own seeded result rather than the scenario's.
+  demo?: boolean
 }
 
 const MARKER_HEADER = 'x-lusot-mock'
@@ -70,6 +75,8 @@ interface MockReport {
   uploaded: boolean
   reads: number
   final: boolean
+  // A demo run of the real sample: its final answer is the saved real result.
+  real?: boolean
 }
 
 interface UploadFields {
@@ -136,7 +143,7 @@ function match(path: string, pattern: string): string | undefined {
   return new RegExp(`^${pattern}$`).exec(path)?.[1]
 }
 
-export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }: MockOptions = {}): typeof fetch {
+export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now, demo = false }: MockOptions = {}): typeof fetch {
   assertScenario(scenario)
   const config = scenarioConfig(scenario)
   const startedAt = now()
@@ -266,8 +273,11 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }:
       if (!report.uploaded) return reply(200, pendingBody('pending', facts))
       report.reads += 1
       if (report.reads === 1) return reply(200, pendingBody('pending', facts))
-      if (report.reads === 2 || report.outcome.kind === 'pending') return reply(200, pendingBody('processing', facts))
+      if (report.reads === 2 || (report.outcome.kind === 'pending' && !report.real)) {
+        return reply(200, pendingBody('processing', facts))
+      }
       report.final = true
+      if (report.real) return reply(200, realResultBody(report.id, `${MOCK_FILES_ORIGIN}/layers/${report.id}.json`))
       return reply(200, resultBody(report.outcome, facts))
     }
     const spec = pinSpecs().find((candidate) => candidate.id === id)
@@ -329,20 +339,24 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }:
 
   const listSamples = (): Response =>
     reply(200, {
-      samples: sampleList(config.sampleCount).map((sample) => {
-        const { sampleId, credit, license, place, date, event } = sample
-        const { layers, hue } = sampleScene(sample)
-        const photoUrl = image(`sample:${sampleId}`, () => drawPhoto(layers, hue))
-        return { sampleId, credit, license, place, date, event, photoUrl }
-      }),
+      samples: [
+        ...(demo ? [REAL_SAMPLE] : []),
+        ...sampleList(config.sampleCount).map((sample) => {
+          const { sampleId, credit, license, place, date, event } = sample
+          const { layers, hue } = sampleScene(sample)
+          const photoUrl = image(`sample:${sampleId}`, () => drawPhoto(layers, hue))
+          return { sampleId, credit, license, place, date, event, photoUrl }
+        }),
+      ],
     })
 
   const runSample = (sampleId: string): Response => {
     const refused = refusal()
     if (refused !== undefined) return refused
+    const real = demo && sampleId === REAL_SAMPLE_ID
     const sample = sampleList(config.sampleCount).find((candidate) => candidate.sampleId === sampleId)
-    if (sample === undefined) return reply(404, { error: 'not_found' })
-    if (config.savedSamples) return reply(200, savedSample(sample))
+    if (!real && sample === undefined) return reply(404, { error: 'not_found' })
+    if (!real && sample !== undefined && config.savedSamples) return reply(200, savedSample(sample))
     const at = now()
     const report = addReport({
       mode: 'sample',
@@ -351,6 +365,8 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }:
       createdAt: at,
       uploaded: true,
     })
+    if (real) report.real = true
+    else if (demo && sample !== undefined) report.outcome = sample.seeded
     return reply(201, { reportId: report.id })
   }
 
@@ -381,6 +397,7 @@ export function createMockFetch({ scenario = DEFAULT_SCENARIO, now = Date.now }:
   }
 
   const layersFile = (id: string): Response => {
+    if (reports.get(id)?.real) return reply(200, REAL_LAYERS)
     const outcome = reports.get(id)?.outcome
     const key = outcome === undefined ? pinSpecs().find((spec) => spec.id === id)?.key : levelKeyOf(outcome)
     return key === undefined ? reply(404, { error: 'not_found' }) : reply(200, levelLayers(key))
@@ -435,6 +452,7 @@ export const mockFetch: typeof fetch = (input, init) => {
       typeof location === 'undefined' ? '' : location.search,
       import.meta.env.VITE_API_MOCK_SCENARIO,
     ),
+    demo: DEMO,
   })
   return shared(input, init)
 }

@@ -116,7 +116,7 @@ Since Oct 28 (C29), every document lives in this repo. `C:\Systems\Lusot\Lusot-S
 - **Tests:** run them in GitHub Actions on every push (§19). The workflow, `.github/workflows/ci.yml`, runs the same three checks as `npm run check`, plus an `e2e` job: Playwright on the app's end-to-end path and its screen-line spec, with every request mocked.
 - **Merging into `main` (C530, Oct 30; replaces D16's milestone-end pushes for the private repo):** push the branch and wait for its CI to pass, get the tracker's OK, merge with `--no-ff`, run one full `npm run check` on the merged `main` (announced to the tracker; a docs-only merge needs only CI), push `main`, and wait for `main`'s CI.
 - **Alarms** email the address on Rene's Claude account (D17). It is passed at deploy time from a git-ignored config and never written into the repo.
-- **Not used in this project:** Vercel, Supabase, the Claude API, Amazon Bedrock. Ignore plugin suggestions to switch.
+- **Not used in this project:** Supabase, the Claude API, Amazon Bedrock. Ignore plugin suggestions to switch. Since Nov 10, 2026 (Rene), Vercel hosts only the portfolio demo: `vercel.json` builds it with `npm run build:demo -w app` (README, "Portfolio demo on Vercel").
 
 ## Stack
 

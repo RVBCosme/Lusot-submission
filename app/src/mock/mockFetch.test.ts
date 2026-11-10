@@ -464,6 +464,50 @@ describe('samples', () => {
   })
 })
 
+describe('the portfolio demo (demo: true)', () => {
+  const demoWith = (scenario?: Scenario, c = clock()) => ({ fetchFn: createMockFetch({ scenario, now: c.now, demo: true }), c })
+
+  it('lists the real saved sample first, credited under its CC BY licence, then the drawn ones', async () => {
+    const samples = await getSamples(API, demoWith().fetchFn)
+    expect(samples.map((sample) => sample.sampleId)).toEqual(['sc3cb512491', 'sample-01', 'sample-02', 'sample-03'])
+    expect(samples[0]).toMatchObject({ license: 'CC BY 2.0', event: 'Typhoon Ondoy', date: '2009-10-08' })
+    expect(samples[0].credit).toMatch(/Wikimedia Commons, CC BY 2\.0/)
+    expect(samples[0].credit).toMatch(/real saved result/)
+  })
+
+  it('a run of the real sample ends in the saved live result, with its own layers, whatever the scenario', async () => {
+    for (const scenario of ['level_knee', 'no_flood_seen', 'pending_forever'] as const) {
+      const { fetchFn, c } = demoWith(scenario)
+      const { reportId } = (await runSample(API, 'sc3cb512491', DEVICE, fetchFn)) as { reportId: string }
+      const result = (await pollReport(API, reportId, { fetchFn, sleep: c.sleep, now: c.now })) as ReportResult
+      expect(result).toMatchObject({
+        reportId,
+        status: 'done',
+        mode: 'sample',
+        level: 'tire',
+        passability: 'NPATV',
+        levelFrom: 'landmark',
+        capturedAt: '2026-11-04T04:08:02Z',
+      })
+      const layersUrl = (result as { layersUrl?: string }).layersUrl
+      expect(layersUrl).toBe(`${MOCK_FILES_ORIGIN}/layers/${reportId}.json`)
+      const layers = (await getLayers(layersUrl!, fetchFn)) as OverlayData
+      expect(layers).toMatchObject({ width: 1280, height: 853 })
+    }
+  })
+
+  it('a drawn sample reads as its own seeded result, not the scenario', async () => {
+    const { fetchFn, c } = demoWith('level_knee')
+    const { reportId } = (await runSample(API, 'sample-02', DEVICE, fetchFn)) as { reportId: string }
+    const result = await pollReport(API, reportId, { fetchFn, sleep: c.sleep, now: c.now })
+    expect(result).toMatchObject({ status: 'done', noFloodSeen: true })
+  })
+
+  it('outside the demo the real sample is unknown', async () => {
+    await expect(runSample(API, 'sc3cb512491', DEVICE, mockWith().fetchFn)).rejects.toMatchObject({ status: 404 })
+  })
+})
+
 describe('the map', () => {
   const ageOf = (pin: { capturedAt: string }, at = NOW) => at - Date.parse(pin.capturedAt)
 

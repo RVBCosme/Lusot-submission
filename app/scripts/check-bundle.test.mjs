@@ -11,14 +11,14 @@ const script = fileURLToPath(new URL("./check-bundle.mjs", import.meta.url));
 const MARKERS = ["LUSOT_MOCK_API", "LUSOT_E2E_FIXTURE", "api.meta.ai", "MODEL_API_KEY"];
 
 // Runs the check on a throwaway folder holding `files` (path to text or bytes).
-function check(files, args) {
+function check(files, args, flags = []) {
   const dir = mkdtempSync(join(tmpdir(), "lusot-bundle-"));
   try {
     for (const [path, content] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, path)), { recursive: true });
       writeFileSync(join(dir, path), content);
     }
-    const run = spawnSync(process.execPath, [script, ...(args ?? [dir])], { encoding: "utf8" });
+    const run = spawnSync(process.execPath, [script, ...(args ?? [dir]), ...flags], { encoding: "utf8" });
     return { code: run.status, out: run.stdout + run.stderr, dir };
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -63,6 +63,25 @@ for (const marker of MARKERS) {
     const { code, out } = check({ ...CLEAN, "assets/app-123.js": `var a="${marker}";` });
     assert.equal(code, 1, out);
     assert.match(out, /assets[\\/]app-123\.js/);
+    assert.match(out, new RegExp(marker));
+  });
+}
+
+test("--demo passes a build that holds the mock, and fails one that doesn't", () => {
+  const withMock = { ...CLEAN, "assets/app-123.js": 'var a="LUSOT_MOCK_API";' };
+  const passed = check(withMock, undefined, ["--demo"]);
+  assert.equal(passed.code, 0, passed.out);
+  assert.match(passed.out, /\(demo\): clean/);
+  const failed = check(CLEAN, undefined, ["--demo"]);
+  assert.equal(failed.code, 1, failed.out);
+  assert.match(failed.out, /LUSOT_MOCK_API: missing/);
+});
+
+for (const marker of MARKERS.filter((m) => m !== "LUSOT_MOCK_API")) {
+  test(`--demo still fails on ${marker}`, () => {
+    const files = { ...CLEAN, "assets/app-123.js": `var a="LUSOT_MOCK_API";var b="${marker}";` };
+    const { code, out } = check(files, undefined, ["--demo"]);
+    assert.equal(code, 1, out);
     assert.match(out, new RegExp(marker));
   });
 }

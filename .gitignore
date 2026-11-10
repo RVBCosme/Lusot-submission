@@ -5,6 +5,7 @@ _attachments/
 # Secrets and local settings
 .env*
 !.env.example
+!.env.demo
 backend/samconfig.toml
 
 # Sealed evaluation data never enters git (CLAUDE.md, M19)

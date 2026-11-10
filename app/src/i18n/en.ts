@@ -773,6 +773,23 @@ export const EN = {
   'ask.window.hour': { text: '1 hour', reviewed: true },
   'ask.window.minutes': { text: '{n} minutes', reviewed: true },
   'ask.window.minute': { text: '1 minute', reviewed: true },
+  // The portfolio demo build only (app/src/demo.ts, Nov 10, 2026). Claude's lines, not yet in a copy review.
+  'demo.title': { text: 'Portfolio demo: results are simulated', reviewed: false },
+  'demo.body': {
+    text: 'Lusot ran live during the hackathon (Oct to Nov 2026). This copy answers in your browser: no photo, location or question leaves your device. The Typhoon Ondoy sample is a real saved result; every other result is simulated.',
+    reviewed: false,
+  },
+  'demo.outcome': { text: 'Simulated outcome', reviewed: false },
+  'demo.scenario.level_knee': { text: 'A level: knee', reviewed: false },
+  'demo.scenario.level_below_gutter': { text: 'A level: below gutter', reviewed: false },
+  'demo.scenario.level_above_chest': { text: 'A level: above chest', reviewed: false },
+  'demo.scenario.no_flood_seen': { text: 'No flood seen', reviewed: false },
+  'demo.scenario.refused_references_disagree': { text: "Can't tell", reviewed: false },
+  'demo.scenario.failed_model_error': { text: 'Processing failed', reviewed: false },
+  'demo.privacy': {
+    text: 'In this demo, no photo, location or question leaves your browser, and Vercel, the host, keeps only its usual request logs. The policy below describes the live system as it ran during the hackathon.',
+    reviewed: false,
+  },
 } satisfies Record<string, Entry>
 
 export type StringKey = keyof typeof EN
