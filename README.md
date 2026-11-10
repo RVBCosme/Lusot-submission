@@ -4,15 +4,33 @@
 
 > Lusot estimates depth at one spot. It is not advice to cross. Follow MMDA and local advisories.
 
-**Try it:** https://main.duvef5t2zfoy9.amplifyapp.com: open **Tested → Samples → Run this sample**, or **Try your own photo**.
-**Android app:** [Lusot.apk, on the latest release](https://github.com/RVBCosme/Lusot-submission/releases/latest)
-**Demo video (3 min):** https://youtu.be/u402mhh-wps
+> **Status, Nov 10, 2026:** the hackathon is over, and the live system (the AWS stack, its website and the Meta model key) has been shut down. The [portfolio demo](#portfolio-demo-on-vercel) runs the same app in your browser instead.
+
+**Portfolio demo:** https://lusot.vercel.app: open **Tested → Samples** and run the **Typhoon Ondoy** sample, which shows the live system's real saved result. Everything else in the demo is simulated.
+**Demo video (3 min):** https://youtu.be/u402mhh-wps: the live system, as judged.
+**Android app:** [Lusot.apk, on the v1.0.0 release](https://github.com/RVBCosme/Lusot-submission/releases/tag/v1.0.0), kept as a record. It called the live API, so it no longer reads photos.
 
 Built for the Meta Global AI Developer Hackathon (Indie track, "Build for Your World"). Everything here was written during the event, from Oct 27, 2026, except the third-party files and data credited below. Not affiliated with MMDA.
 
-## Demo: try it in 2 minutes
+## Portfolio demo on Vercel
 
-Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp.com. Each live reading runs the real pipeline on Meta's models and takes about 40 seconds.
+https://lusot.vercel.app is the real app, built in demo mode, on a laptop or a phone. It answers every call in the browser, from the app's own development mock, so no photo, location or question leaves the device, and nothing calls AWS or Meta. A banner on every screen says so.
+
+- **Real:** the **Typhoon Ondoy** sample on the Tested page. Its result is the one the live system returned on Nov 4, 2026: the face-blurred photo, the numbered outlines, "Verdict at this spot: Not passable to any vehicle" and the details for each person and vehicle. The Tested page's figures are the real sealed run's.
+- **Simulated:** everything else. The other samples, the map's pins, Ask Lusot's answers, and the result of a report or of your own photo come from the mock, with drawn pictures. The banner's **Simulated outcome** picker chooses how a report or your own photo ends: a level, "No flood seen", "can't tell" or "Processing failed", so every screen can be seen.
+
+How it's built:
+- `npm run build:demo -w app` runs `vite build --mode demo`. In that mode, `app/src/demo.ts` makes `apiFetch` use the mock (`app/src/mock/`). Every other build keeps the real `fetch`, and the bundler drops the mock.
+- `app/.env.demo` sets a placeholder API address that no request reaches.
+- The real result is a fixture: `app/src/mock/real/` holds its JSON, and `app/demo/` its two pictures. Only a demo build writes them to `dist/demo/` (`vite.config.ts`).
+- `node app/scripts/check-bundle.mjs dist --demo` checks the demo build: it must hold the mock, and it must never hold the Meta API's host or the model key's name.
+- `vercel.json` builds with `npm run build:demo -w app` and serves `app/dist`, with the live site's security headers. To deploy: `vercel deploy --prod` from a clone, or connect this repository in the Vercel project's Git settings, so each push to `main` redeploys it.
+
+To run it locally: `npm ci`, then `npm run build:demo -w app`, then `npx vite preview` from `app/`.
+
+## The live demo, as judged (Nov 2026)
+
+This is how the live site worked for judging, until Nov 10, 2026. The site is shut down. The demo video shows it, and the portfolio demo above has the same screens. Each live reading ran the real pipeline on Meta's models and took about 40 seconds.
 
 1. **Tested → Samples.** Run these credited photos. Each one runs live, except while new analyses are paused to protect the shared model budget: then the button shows the photo's saved result instead, dated and marked as saved. In our checks each read the same way 3 times out of 3: a level for the flood photos, "No flood seen" for the dry streets, and "can't tell" for Calumpit. A live run can still come out differently: the models can read a photo a little differently, and then Lusot says "can't tell", or a call to Meta can time out ("Processing failed, try again."). Then run the sample again. The samples:
    - **Typhoon Ondoy, 2009 (people pushing a cart):** tire level, so "Verdict at this spot: Not passable to any vehicle".
@@ -25,7 +43,7 @@ Open the live site on a laptop or a phone: https://main.duvef5t2zfoy9.amplifyapp
 4. **Map:** live pins from readings in Metro Manila (demo pins are labelled).
 5. **Ask:** type or speak a question about a place, in English or Taglish. The answer comes only from nearby reports and names each one.
 
-The **Android app** ([Lusot.apk, on the latest release](https://github.com/RVBCosme/Lusot-submission/releases/latest)) is the same app installed on the phone, with its own loading screen. The camera Report flow works on both the app and the website.
+The **Android app** ([Lusot.apk, on the v1.0.0 release](https://github.com/RVBCosme/Lusot-submission/releases/tag/v1.0.0)) is the same app installed on the phone, with its own loading screen. The camera Report flow works on both the app and the website.
 Fair-use limits, which protect the shared model budget: 5 sample runs and 3 chosen photos per device per hour.
 
 ## What it does
@@ -109,6 +127,7 @@ Full reports: [eval/results/](eval/results/). Scope and design decisions: [docs/
 - The original photo is deleted after analysis. Reports are kept for 7 days.
 - No accounts, no names.
 - The full policy is in the app (About → Privacy).
+- The portfolio demo sends no photo, location or question anywhere. Vercel, its host, keeps its usual request logs.
 
 ## Repository layout
 
@@ -135,7 +154,7 @@ npm run check:py                      # the analysis and evaluation tests
 
 `npm run check` runs three parts in order and stops at the first failure: `check:node`, `check:py` and `check:secrets`. Each also runs on its own. `check:secrets` runs gitleaks, the account-ID scan and a plan-leak scan, which reads the private build plan; the plan isn't in this repository. Without it the plan-leak scan stops with an error, except in CI (`CI=true`), where it skips with a notice. So a fresh clone runs the first two parts, and those two alone are not a full pass. Deploying, the smoke test, the probe and the Android build are in the "Commands" section of [CLAUDE.md](CLAUDE.md).
 
-`npm run deploy:web`, after `npm run deploy`, builds the app against the deployed stack's API and puts it on the stack's website: with `WebHosting=on`, the private S3 bucket behind CloudFront; with `WebHosting=amplify`, the Amplify Hosting app, as one manual deployment. It prints the web URL.
+The AWS stack and its website were shut down on Nov 10, 2026; the template still rebuilds them. `npm run deploy:web`, after `npm run deploy`, builds the app against the deployed stack's API and puts it on the stack's website: with `WebHosting=on`, the private S3 bucket behind CloudFront; with `WebHosting=amplify`, the Amplify Hosting app, as one manual deployment. It prints the web URL.
 
 Building the app (`npm run build -w app`) first runs `prebuild`, which writes `app/public/licences.txt`: the name, version and full licence text of every production package, and of the build-time code that ends up in the page (`app/scripts/shipped-extra.json`). The app's Licences page shows that file. It is generated and git-ignored, and the build stops if a package has no licence file.
 
@@ -173,7 +192,7 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 | [jsonschema](https://github.com/python-jsonschema/jsonschema) | Checks Muse Spark's answers against Lusot's JSON schema | MIT |
 | [YuNet](https://github.com/opencv/opencv_zoo/tree/4.10.0/models/face_detection_yunet) face detection model (`face_detection_yunet_2023mar.onnx`), by Shiqi Yu and contributors | The face detector behind the face blur, vendored with its licence and source note in `backend/analysis/src/lusot_analysis/models/` | MIT |
 | NASA's portrait of Mae C. Jemison ([S92-40463](https://images.nasa.gov/details/S92-40463)), from Wikimedia Commons | A face-blur test fixture only, never shown in the app; see `backend/analysis/tests/fixtures/faces/SOURCE.md` | Public domain |
-| Nine photos from Wikimedia Commons: [Flooding from Typhoon Ondoy (Ketsana), Philippines 2009. Photo- AusAID (10695910543)](https://commons.wikimedia.org/wiki/File%3AFlooding_from_Typhoon_Ondoy_%28Ketsana%29%2C_Philippines_2009._Photo-_AusAID_%2810695910543%29.jpg), by the Department of Foreign Affairs and Trade; [Typhoon Ketsana aftermath near Laguna Lake1](https://commons.wikimedia.org/wiki/File%3ATyphoon_Ketsana_aftermath_near_Laguna_Lake1.jpg), by IRRI Images; [7897Tidal flooding Marilao, Bulacan 08](https://commons.wikimedia.org/wiki/File%3A7897Tidal_flooding_Marilao%2C_Bulacan_08.jpg), [8830Effects (floods) of Typhoon Goni (2020) in Poblacion, Macabebe 03](https://commons.wikimedia.org/wiki/File%3A8830Effects_%28floods%29_of_Typhoon_Goni_%282020%29_in_Poblacion%2C_Macabebe_03.jpg) and [1007San Miguel, Calumpit, Bulacan 07](https://commons.wikimedia.org/wiki/File%3A1007San_Miguel%2C_Calumpit%2C_Bulacan_07.jpg), by Judgefloro; [09889jfCity Binondo Avenue Manila Streets Landmarksfvf 02](https://commons.wikimedia.org/wiki/File:09889jfCity_Binondo_Avenue_Manila_Streets_Landmarksfvf_02.JPG), [0062jfHoly Spirit (C.O.A.) Commonwealth Avenue Sandiganbayan Quezon Cityfvf 05](https://commons.wikimedia.org/wiki/File:0062jfHoly_Spirit_%28C.O.A.%29_Commonwealth_Avenue_Sandiganbayan_Quezon_Cityfvf_05.jpg) and [09900jfCity Rizal Avenue School Manila Streets Landmarksfvf 07](https://commons.wikimedia.org/wiki/File:09900jfCity_Rizal_Avenue_School_Manila_Streets_Landmarksfvf_07.JPG), by Judgefloro; and [Manila, makati, dela rosa street](https://commons.wikimedia.org/wiki/File:Manila,_makati,_dela_rosa_street.jpg), by Sailko | The Tested page's nine samples (five flood photos and four dry streets), which anyone can run through Lusot. Lusot stores and shows its own copies, with faces and plates blurred, and each sample shows its own credit line (`GET /samples`) | CC BY 2.0 (the two Typhoon Ondoy photos); CC0 (the three by Judgefloro with floods); public domain (the three dry Manila and Quezon City streets); CC BY 3.0 (the Makati street) |
+| Nine photos from Wikimedia Commons: [Flooding from Typhoon Ondoy (Ketsana), Philippines 2009. Photo- AusAID (10695910543)](https://commons.wikimedia.org/wiki/File%3AFlooding_from_Typhoon_Ondoy_%28Ketsana%29%2C_Philippines_2009._Photo-_AusAID_%2810695910543%29.jpg), by the Department of Foreign Affairs and Trade; [Typhoon Ketsana aftermath near Laguna Lake1](https://commons.wikimedia.org/wiki/File%3ATyphoon_Ketsana_aftermath_near_Laguna_Lake1.jpg), by IRRI Images; [7897Tidal flooding Marilao, Bulacan 08](https://commons.wikimedia.org/wiki/File%3A7897Tidal_flooding_Marilao%2C_Bulacan_08.jpg), [8830Effects (floods) of Typhoon Goni (2020) in Poblacion, Macabebe 03](https://commons.wikimedia.org/wiki/File%3A8830Effects_%28floods%29_of_Typhoon_Goni_%282020%29_in_Poblacion%2C_Macabebe_03.jpg) and [1007San Miguel, Calumpit, Bulacan 07](https://commons.wikimedia.org/wiki/File%3A1007San_Miguel%2C_Calumpit%2C_Bulacan_07.jpg), by Judgefloro; [09889jfCity Binondo Avenue Manila Streets Landmarksfvf 02](https://commons.wikimedia.org/wiki/File:09889jfCity_Binondo_Avenue_Manila_Streets_Landmarksfvf_02.JPG), [0062jfHoly Spirit (C.O.A.) Commonwealth Avenue Sandiganbayan Quezon Cityfvf 05](https://commons.wikimedia.org/wiki/File:0062jfHoly_Spirit_%28C.O.A.%29_Commonwealth_Avenue_Sandiganbayan_Quezon_Cityfvf_05.jpg) and [09900jfCity Rizal Avenue School Manila Streets Landmarksfvf 07](https://commons.wikimedia.org/wiki/File:09900jfCity_Rizal_Avenue_School_Manila_Streets_Landmarksfvf_07.JPG), by Judgefloro; and [Manila, makati, dela rosa street](https://commons.wikimedia.org/wiki/File:Manila,_makati,_dela_rosa_street.jpg), by Sailko | The Tested page's nine samples (five flood photos and four dry streets), which anyone can run through Lusot. Lusot stores and shows its own copies, with faces and plates blurred, and each sample shows its own credit line (`GET /samples`). The portfolio demo bundles the first photo's blurred copy, and the same copy with Lusot's outlines drawn on it, in `app/demo/` | CC BY 2.0 (the two Typhoon Ondoy photos); CC0 (the three by Judgefloro with floods); public domain (the three dry Manila and Quezon City streets); CC BY 3.0 (the Makati street) |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors: the Metro Manila boundary (relation 147488, clipped to OpenStreetMap's coastline) and S2's named test places | The Metro Manila test (`backend/api/src/data/ncr.json`) and its test points (`backend/api/test/fixtures/s2-points.json`), both shared under the same licence; `backend/api/src/data/NCR_SOURCE.md` gives the sources, dates and changes | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) data, © OpenStreetMap contributors, from [Geofabrik](https://download.geofabrik.de/asia/philippines.html)'s Philippines extract of Oct 29, 2026: the points of Ask Lusot's spot list | The spot list (`backend/api/src/data/spots.json`), whose places are the locations in MMDA's and city governments' public flood alerts and whose points come from the extract, shared under the same licence; `backend/api/src/data/SPOTS_SOURCE.md` gives the sources, the extract's hash and the alert locations left out | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |
 | [Nominatim](https://nominatim.org/), OpenStreetMap's search service at `nominatim.openstreetmap.org`; its results are OpenStreetMap data, © OpenStreetMap contributors | Finds a place that Ask Lusot's spot list doesn't hold. It is called from the API Lambda only, at most once a second, with Lusot's User-Agent, and each answer is cached for 7 days (1 day for a miss), under its [usage policy](https://operations.osmfoundation.org/policies/nominatim/) | Its results: [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) |

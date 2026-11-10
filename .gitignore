@@ -45,3 +45,6 @@ Thumbs.db
 # MS6: Rene's review sheets hold his notes, and the Playwright plugin's scratch
 eval/**/review.csv
 .playwright-mcp/
+
+# Vercel CLI link for the portfolio demo (Nov 10, 2026)
+.vercel
