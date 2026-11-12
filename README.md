@@ -204,6 +204,17 @@ Every third-party starter, model and dataset, and every library that Lusot depen
 
 Each library's own dependencies are pinned, with their versions, in `package-lock.json`, `backend/analysis/uv.lock`, `backend/analysis/requirements.lock.txt`, the scripts' `backend/scripts/*.py.lock` files, and MS2's `eval/data/*.py.lock`, `eval/data/tests/run_tests.py.lock` and `eval/set_b/*.py.lock` files, and MS6's `eval/tests/run_tests.py.lock`, each under its own licence. py7zr's compression and crypto libraries are pinned there, several under LGPL-2.1-or-later. The analysis image builds on AWS's `public.ecr.aws/lambda/python:3.13` base image.
 
+## Licence
+
+Lusot's own code is under the MIT License: see [LICENSE](LICENSE). The MIT License does not cover the third-party parts listed under Credits, which keep their own licences:
+
+- the map data: the OpenStreetMap-derived Metro Manila boundary, spot list and test points (`backend/api/src/data/ncr.json`, `backend/api/src/data/spots.json` and `backend/api/test/fixtures/s2-points.json`), under the ODbL 1.0
+- the nine sample photos from Wikimedia Commons, and their blurred copies in `app/demo/`, each under the licence the Credits table gives for it: CC BY 2.0, CC BY 3.0, CC0 or public domain
+- the YuNet face detection model, which keeps its own MIT licence file in `backend/analysis/src/lusot_analysis/models/`
+- the Atkinson Hyperlegible Next font, under the SIL Open Font License 1.1
+
+The same goes for every other third-party file and library in the Credits table. Lusot's logo and loading-screen artwork (`app/brand/`), and the icons and splash screens drawn from it, are not covered by the MIT License either.
+
 ## How it was built
 
 Rene Vincent Cosme built Lusot as a solo entry, with Claude Code (Anthropic) as a coding assistant, and designed its logo and loading screen with ChatGPT's image generation (OpenAI).
